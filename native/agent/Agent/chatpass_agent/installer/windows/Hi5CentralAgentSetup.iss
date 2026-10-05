@@ -221,7 +221,7 @@ begin
   ConfigPath := ExpandConstant('{commonappdata}\Hi5Central\Agent\config.ini');
 
   ApiBaseUrl := TrimSlashRight(FirstNonEmpty(ParamValue('API_BASE_URL', ''), ParamValue('API_URL', '')));
-  AgentWsBaseUrl := FirstNonEmpty(ParamValue('AGENT_WS_BASE_URL', ''), ParamValue('WSS_URL', 'wss://rmm.hi5central.com/agent/ws'));
+  AgentWsBaseUrl := FirstNonEmpty(ParamValue('AGENT_WS_BASE_URL', ''), ParamValue('WSS_URL', ''));
 
   EnrollmentToken := FirstNonEmpty(ParamValue('ENROLLMENT_TOKEN', ''), ParamValue('ENROLL_TOKEN', ''));
   TenantId := ParamValue('TENANT_ID', '');
