@@ -86,7 +86,18 @@ function requestIp(c) {
 function allowedOrigin(origin) { return allowedRequestOrigin(origin) }
 function originMatchesSession(c, session) { return originMatchesTenant(c.req.header('origin'), session.slug) }
 function onboardingSequence(modules = {}) {
-  return ['company','theme','users','groups','permissions','security',modules?.itsm ? 'itsm' : null,modules?.rmm ? 'rmm' : null,'billing','finish'].filter(Boolean)
+  return [
+    'company',
+    'theme',
+    'users',
+    'groups',
+    'permissions',
+    'security',
+    modules?.itsm ? 'itsm' : null,
+    modules?.rmm ? 'rmm' : null,
+    deployment.deploymentMode === 'self_hosted' ? null : 'billing',
+    'finish',
+  ].filter(Boolean)
 }
 async function rateLimit(redisClient, key, max, seconds) {
   const attempts = await redisClient.incr(key)
