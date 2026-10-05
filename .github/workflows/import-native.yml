@@ -1,0 +1,66 @@
+name: Import Native Agent and Viewer
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - .github/workflows/import-native.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Import Agent and Viewer sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf native .native-import
+          mkdir -p native .native-import
+
+          git clone --depth=1 --branch main https://github.com/dansut24/Hi5Central-Agent.git .native-import/agent
+          git clone --depth=1 --branch main https://github.com/dansut24/hi5central-viewer.git .native-import/viewer
+
+          AGENT_SHA="$(git -C .native-import/agent rev-parse HEAD)"
+          VIEWER_SHA="$(git -C .native-import/viewer rev-parse HEAD)"
+
+          rm -rf .native-import/agent/.git .native-import/viewer/.git
+          rm -rf .native-import/agent/.github .native-import/viewer/.github
+
+          mkdir -p native/agent native/viewer
+          cp -a .native-import/agent/. native/agent/
+          cp -a .native-import/viewer/. native/viewer/
+          rm -rf .native-import
+
+          cat > native/README.md <<EOF
+          # Native components
+
+          | Component | Legacy source | Imported commit |
+          | --- | --- | --- |
+          | Agent | dansut24/Hi5Central-Agent | \`$AGENT_SHA\` |
+          | Viewer | dansut24/hi5central-viewer | \`$VIEWER_SHA\` |
+
+          The original repositories remain available as migration history. New Agent and Viewer development moves to Hi5Central-Platform after the monorepo cutover.
+          EOF
+
+      - name: Commit native source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Hi5Central CI"
+          git config user.email "ci@hi5central.com"
+          git add native
+          if git diff --cached --quiet; then
+            echo "Native sources are already current."
+            exit 0
+          fi
+          git commit -m "Import Agent and Viewer into platform monorepo"
+          git push origin develop
