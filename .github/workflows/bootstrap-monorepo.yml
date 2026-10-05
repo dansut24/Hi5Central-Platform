@@ -1,4 +1,5 @@
 name: Bootstrap Monorepo
+# One-time source import for the unified platform repository
 
 on:
   workflow_dispatch:
