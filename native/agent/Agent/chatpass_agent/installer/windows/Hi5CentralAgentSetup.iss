@@ -45,6 +45,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
+AllowCancelDuringInstall=no
 
 [Dirs]
 Name: "{commonappdata}\Hi5Central\Agent"; Permissions: users-readexec admins-full system-full
@@ -177,8 +178,52 @@ end;
 procedure StopExistingService;
 var
   ResultCode: Integer;
+  PowerShellArgs: String;
 begin
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop ' + ServiceName, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  { Ask SCM to stop the existing Agent first. sc.exe returning only means the
+    request was accepted; the service process may still be shutting down. }
+  Exec(
+    ExpandConstant('{sys}\sc.exe'),
+    'stop ' + ServiceName,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+
+  { Wait for the service process to release the installed executable. If a
+    stale Agent service is still alive after the normal stop request, terminate
+    only that service PID so we do not kill the tenant bootstrap process, which
+    may also be named Hi5CentralAgent.exe. }
+  PowerShellArgs :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ' +
+    '"$ErrorActionPreference = ''''Stop''''; ' +
+    '$svc = Get-CimInstance Win32_Service -Filter ''''Name='''''''' + ServiceName + '''''''' '''' -ErrorAction SilentlyContinue; ' +
+    'if ($null -eq $svc) { exit 0 }; ' +
+    'if ($svc.State -ne ''''Stopped'''') { ' +
+      'Stop-Service -Name ''''' + ServiceName + ''''' -Force -ErrorAction SilentlyContinue; ' +
+      '$deadline = (Get-Date).AddSeconds(30); ' +
+      'do { Start-Sleep -Milliseconds 250; $svc = Get-CimInstance Win32_Service -Filter ''''Name='''''''' + ServiceName + '''''''' '''' -ErrorAction SilentlyContinue } ' +
+      'while ($null -ne $svc -and $svc.State -ne ''''Stopped'''' -and (Get-Date) -lt $deadline); ' +
+      'if ($null -ne $svc -and $svc.State -ne ''''Stopped'''' -and [int]$svc.ProcessId -gt 0) { ' +
+        'Stop-Process -Id ([int]$svc.ProcessId) -Force -ErrorAction SilentlyContinue; ' +
+        'Start-Sleep -Milliseconds 750; ' +
+      '}; ' +
+    '}; exit 0"';
+
+  if not Exec(
+    ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    PowerShellArgs,
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) then
+    Log('Hi5Central warning: unable to launch service shutdown wait helper.')
+  else if ResultCode <> 0 then
+    Log('Hi5Central warning: service shutdown wait helper returned ' + IntToStr(ResultCode) + '.');
+
+  Sleep(500);
 end;
 
 procedure HardenAgentConfig(ConfigPath: String);

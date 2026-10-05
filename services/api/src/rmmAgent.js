@@ -2328,23 +2328,79 @@ export function registerRmmAgentRoutes(app) {
       if (!pkg.persistent && Number(pkg.use_count) >= Number(pkg.max_uses)) {
         return { error: 'Enrollment token has already been used.', status: 410 }
       }
-      const deviceId = randomUUID()
       const deviceKey = secret('h5d')
-      const reference = `RMM-${deviceId.slice(0, 8).toUpperCase()}`
-      const inventoryResult = await client.query(
-        `INSERT INTO rmm_device_inventory
-           (tenant_id,source,source_device_id,reference,name,platform,operating_system,
-            management_state,management_agent,enrolled_at,source_last_sync_at,active,source_payload)
-         VALUES ($1,'hi5central_agent',$2,$3,$4,$5,$6,'managed','Hi5Central Agent',now(),now(),true,$7::jsonb)
-         RETURNING id`,
-        [pkg.tenant_id, deviceId, reference, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform } })],
-      )
-      await client.query(
-        `INSERT INTO rmm_agent_devices
-           (id,tenant_id,inventory_id,secret_hash,fingerprint,architecture,agent_version,enrollment_package_id,last_authenticated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
-        [deviceId, pkg.tenant_id, inventoryResult.rows[0].id, sha256(deviceKey), fingerprint, architecture, agentVersion, pkg.id],
-      )
+      let deviceId = ''
+      let reference = ''
+      let inventoryId = ''
+
+      // Reinstalling the Agent on the same physical device should refresh the
+      // existing record instead of creating a duplicate. Fingerprints are
+      // tenant-scoped, so moving a device to another tenant/server still
+      // creates a new managed device in that target tenant.
+      const existingDevice = fingerprint
+        ? await client.query(
+            `SELECT d.id,d.inventory_id,i.reference
+               FROM rmm_agent_devices d
+               JOIN rmm_device_inventory i ON i.id=d.inventory_id
+              WHERE d.tenant_id=$1 AND d.fingerprint=$2
+              ORDER BY d.updated_at DESC
+              LIMIT 1
+              FOR UPDATE OF d`,
+            [pkg.tenant_id, fingerprint],
+          )
+        : { rowCount: 0, rows: [] }
+
+      if (existingDevice.rowCount) {
+        deviceId = existingDevice.rows[0].id
+        inventoryId = existingDevice.rows[0].inventory_id
+        reference = existingDevice.rows[0].reference || `RMM-${String(deviceId).slice(0, 8).toUpperCase()}`
+
+        await client.query(
+          `UPDATE rmm_agent_devices
+              SET secret_hash=$2,
+                  architecture=$3,
+                  agent_version=$4,
+                  enrollment_package_id=$5,
+                  last_authenticated_at=now(),
+                  updated_at=now()
+            WHERE id=$1`,
+          [deviceId, sha256(deviceKey), architecture, agentVersion, pkg.id],
+        )
+        await client.query(
+          `UPDATE rmm_device_inventory
+              SET name=$2,
+                  platform=$3,
+                  operating_system=$4,
+                  management_state='managed',
+                  management_agent='Hi5Central Agent',
+                  active=true,
+                  source_last_sync_at=now(),
+                  last_imported_at=now(),
+                  source_payload=$5::jsonb,
+                  updated_at=now()
+            WHERE id=$1`,
+          [inventoryId, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform, reinstalled: true } })],
+        )
+      } else {
+        deviceId = randomUUID()
+        reference = `RMM-${deviceId.slice(0, 8).toUpperCase()}`
+        const inventoryResult = await client.query(
+          `INSERT INTO rmm_device_inventory
+             (tenant_id,source,source_device_id,reference,name,platform,operating_system,
+              management_state,management_agent,enrolled_at,source_last_sync_at,active,source_payload)
+           VALUES ($1,'hi5central_agent',$2,$3,$4,$5,$6,'managed','Hi5Central Agent',now(),now(),true,$7::jsonb)
+           RETURNING id`,
+          [pkg.tenant_id, deviceId, reference, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform } })],
+        )
+        inventoryId = inventoryResult.rows[0].id
+        await client.query(
+          `INSERT INTO rmm_agent_devices
+             (id,tenant_id,inventory_id,secret_hash,fingerprint,architecture,agent_version,enrollment_package_id,last_authenticated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
+          [deviceId, pkg.tenant_id, inventoryId, sha256(deviceKey), fingerprint, architecture, agentVersion, pkg.id],
+        )
+      }
+
       await client.query(
         `UPDATE rmm_agent_enrollment_packages
             SET use_count=use_count+1,last_used_at=now(),updated_at=now()

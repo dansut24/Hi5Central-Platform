@@ -524,8 +524,27 @@ AgentIdentity loadAgentIdentityFromDir(
         !getenvString("HI5_WSS_URL").empty() ? getenvString("HI5_WSS_URL") : getenvString("HI5_AGENT_WS_BASE_URL")
     );
 
+    const auto legacyConfig = parseIniIfExists(legacyConfigPath);
+    const std::string configuredDeploymentId =
+        getFirst(legacyConfig, { "deployment_id", "deploymentid" });
+    const std::string configuredDeploymentSecret =
+        getFirst(legacyConfig, { "deployment_secret", "deploymentsecret" });
+    std::string configuredEnrollmentToken = getenvString("HI5_ENROLLMENT_TOKEN");
+    if (configuredEnrollmentToken.empty()) {
+        configuredEnrollmentToken =
+            getFirst(legacyConfig, { "enrollment_token", "provision_token", "token" });
+    }
+    const bool explicitDeployment =
+        !configuredDeploymentId.empty() && !configuredDeploymentSecret.empty();
+    const bool explicitEnrollment =
+        explicitDeployment || !configuredEnrollmentToken.empty();
+
+    // An explicitly generated deployment package must take precedence over any
+    // identity left behind by a previous Hi5Central server/tenant. Without
+    // this, reinstalling the Agent can silently keep using stale state.dat and
+    // never enrol into the newly selected self-host instance.
     AgentState state = readStateIfExists(statePath);
-    if (isValidState(state)) {
+    if (isValidState(state) && !explicitEnrollment) {
         if (!envApiBase.empty()) state.apiBaseUrl = envApiBase;
         if (!envWsBase.empty()) state.agentWsBaseUrl = envWsBase;
         if (state.apiBaseUrl.empty()) state.apiBaseUrl = kDefaultApiBase;
@@ -544,7 +563,7 @@ AgentIdentity loadAgentIdentityFromDir(
     }
 
     const auto agentJsonBytes = readAllBytesIfExists(agentJsonPath);
-    if (!agentJsonBytes.empty()) {
+    if (!agentJsonBytes.empty() && !explicitEnrollment) {
         AgentState jsonState = parseStateJson(std::string(agentJsonBytes.begin(), agentJsonBytes.end()));
         if (isValidState(jsonState)) {
             if (!envApiBase.empty()) jsonState.apiBaseUrl = envApiBase;
@@ -565,8 +584,6 @@ AgentIdentity loadAgentIdentityFromDir(
         }
     }
 
-    const auto legacyConfig = parseIniIfExists(legacyConfigPath);
-
     std::string apiBase = envApiBase;
     if (apiBase.empty()) apiBase = normalizedUrlNoTrailingSlash(getFirst(legacyConfig, { "api_base_url", "api_base", "apibase", "api_url" }));
     if (apiBase.empty()) apiBase = kDefaultApiBase;
@@ -575,8 +592,7 @@ AgentIdentity loadAgentIdentityFromDir(
     if (agentWsBase.empty()) agentWsBase = getFirst(legacyConfig, { "agent_ws_base_url", "agent_ws_base", "wss_url", "ws_url", "control_url" });
     if (agentWsBase.empty()) agentWsBase = resolvedAgentWsBase(defaultAgentWsBaseUrl, apiBase);
 
-    std::string enrollmentToken = getenvString("HI5_ENROLLMENT_TOKEN");
-    if (enrollmentToken.empty()) enrollmentToken = getFirst(legacyConfig, { "enrollment_token", "provision_token", "token" });
+    std::string enrollmentToken = configuredEnrollmentToken;
 
     std::string hostname = getFirst(legacyConfig, { "hostname", "host_name", "computer_name" });
     if (hostname.empty()) hostname = hi5::GetPlatformHostname();
@@ -598,7 +614,7 @@ AgentIdentity loadAgentIdentityFromDir(
         existingDeviceKey = decryptDpapiBlobToUtf8(legacySecretBytes);
     }
 
-    if (!existingDeviceId.empty() && !existingDeviceKey.empty()) {
+    if (!explicitEnrollment && !existingDeviceId.empty() && !existingDeviceKey.empty()) {
         AgentState directState;
         directState.deviceId = existingDeviceId;
         directState.deviceKey = existingDeviceKey;
