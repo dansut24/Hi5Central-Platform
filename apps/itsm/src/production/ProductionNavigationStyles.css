@@ -1,0 +1,6 @@
+/* RMM is the canonical Hi5Central navigation design.
+   Legacy clean/floating presentation modes are intentionally disabled so a
+   saved personal preference cannot diverge ITSM from RMM/Admin. */
+html[data-hi5-surface='workspace'] .sidebar .sidebar-status {
+  display: none !important;
+}
