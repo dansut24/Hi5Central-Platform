@@ -1,0 +1,51 @@
+name: Import App Portal
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/import-app-portal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Import App Portal source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf native/app-portal .app-portal-import
+          git clone --depth=1 --branch main https://github.com/dansut24/hi5central-app-portal.git .app-portal-import
+          APP_PORTAL_SHA="$(git -C .app-portal-import rev-parse HEAD)"
+          rm -rf .app-portal-import/.git .app-portal-import/.github
+          mkdir -p native/app-portal
+          cp -a .app-portal-import/. native/app-portal/
+          rm -rf .app-portal-import
+          cat > native/app-portal/SOURCE_PROVENANCE <<EOF
+          Legacy repository: dansut24/hi5central-app-portal
+          Imported commit: $APP_PORTAL_SHA
+          Imported: 2026-10-05
+          EOF
+
+      - name: Commit App Portal source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Hi5Central CI"
+          git config user.email "ci@hi5central.com"
+          git add native/app-portal
+          if git diff --cached --quiet; then
+            echo "App Portal source is already current."
+            exit 0
+          fi
+          git commit -m "Import App Portal into platform monorepo"
+          git push origin develop
