@@ -1,7 +1,12 @@
 name: Bootstrap Monorepo
 
 on:
+  workflow_dispatch:
   push:
+    branches: [main]
+    paths:
+      - .github/workflows/bootstrap-monorepo.yml
+  pull_request:
     branches: [main]
     paths:
       - .github/workflows/bootstrap-monorepo.yml
@@ -15,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Import current platform sources
@@ -67,4 +73,8 @@ jobs:
           git config user.email "ci@hi5central.com"
           git add apps services MIGRATION.md
           git commit -m "Import reconciled Hi5Central platform source"
-          git push origin main
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git push origin "HEAD:${{ github.head_ref }}"
+          else
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
