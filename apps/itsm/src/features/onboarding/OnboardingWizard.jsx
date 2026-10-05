@@ -14,9 +14,12 @@ import {
   Users,
   Wrench,
 } from 'lucide-react'
+import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './OnboardingWizard.css'
 
 const API_BASE = window.__HI5_API_BASE__
+const DEPLOYMENT = deploymentConfig()
+const SELF_HOSTED = DEPLOYMENT.deploymentMode === 'self_hosted'
 
 const accentColours = {
   amber: '#f59e0b',
@@ -57,7 +60,7 @@ function sequenceFor(modules = {}) {
     'security',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
-    'billing',
+    SELF_HOSTED ? null : 'billing',
     'finish',
   ].filter(Boolean)
 }
@@ -489,7 +492,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
               <Section title="Service desk defaults" description="Starting values for new incidents, requests and service routing.">
                 <div className="onboarding-form-grid">
-                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{session.tenant.slug}.hi5central.com</span></div></Field>
+                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</span></div></Field>
                   <Field label="Default assignment team"><input value={data.defaultTeam || 'Service Desk'} onChange={(event) => update('defaultTeam', event.target.value)} /></Field>
                   <Field label="Business hours"><select value={data.businessHours || 'uk-business'} onChange={(event) => update('businessHours', event.target.value)}><option value="uk-business">Mon-Fri 09:00-17:30 UK</option><option value="extended">Mon-Fri 08:00-20:00</option><option value="24x7">24 × 7</option></select></Field>
                   <Field label="Default priority"><select value={data.defaultPriority || 'Medium'} onChange={(event) => update('defaultPriority', event.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></Field>
@@ -564,14 +567,14 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <h2>Your workspace is ready.</h2>
               <p>Open Hi5Central with the owner account and the tenant defaults you configured during onboarding.</p>
               <div className="onboarding-summary onboarding-summary-expanded">
-                <div><span>Tenant</span><strong>{session.tenant.slug}.hi5central.com</strong></div>
+                <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
                 <div><span>Microsoft 365</span><strong>{saved365.status === 'connected' ? 'Connected' : 'Not connected'}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
-              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>All settings in this onboarding pass are persisted to the tenant. Microsoft 365, inbound email, AI and billing features remain unavailable until their production integrations are connected.</span></div>
+              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'All settings in this onboarding pass are persisted locally. Microsoft 365, inbound email and AI remain unavailable until their integrations are configured.' : 'All settings in this onboarding pass are persisted to the tenant. Microsoft 365, inbound email, AI and billing features remain unavailable until their production integrations are connected.'}</span></div>
             </div>
           ) : null}
 
