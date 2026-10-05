@@ -1,6 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { MarketingApp } from './features/marketing/MarketingApp.jsx'
+import { SignupPage } from './features/marketing/SignupPage.jsx'
 import { ServiceCatalogueSettingsEnhancer } from './features/catalogue/ServiceCatalogueSettingsEnhancer.jsx'
 import { KnowledgeContextEnhancer } from './features/knowledge/KnowledgeContextEnhancer.jsx'
 import { OrganisationSitesEnhancer } from './features/people/OrganisationSitesEnhancer.jsx'
@@ -83,11 +85,14 @@ const productionPortal = initialSurface.kind === 'portal'
 const productionOnboarding = productionWorkspace
   && (window.location.pathname === '/onboarding' || window.location.pathname.startsWith('/onboarding/'))
 
-let RootApp = productionPortal
-  ? ProductionPortalBootstrap
-  : productionOnboarding
-    ? ProductionOnboardingBootstrap
-    : ProductionWorkspaceBootstrap
+let RootApp = ProductionWorkspaceBootstrap
+if (initialSurface.kind === 'marketing') {
+  RootApp = window.location.pathname === '/signup' || window.location.pathname.startsWith('/signup/')
+    ? SignupPage
+    : MarketingApp
+}
+if (productionWorkspace) RootApp = productionOnboarding ? ProductionOnboardingBootstrap : ProductionWorkspaceBootstrap
+if (productionPortal) RootApp = ProductionPortalBootstrap
 
 createRoot(rootElement).render(
   <StrictMode>

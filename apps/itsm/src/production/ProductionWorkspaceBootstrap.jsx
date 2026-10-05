@@ -467,6 +467,10 @@ export function ProductionWorkspaceBootstrap() {
         const { payload: statePayload } = await fetchJsonWithTimeout(
           `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
         )
+        if (statePayload?.setupRequired) {
+          window.location.replace('/signup')
+          return
+        }
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
