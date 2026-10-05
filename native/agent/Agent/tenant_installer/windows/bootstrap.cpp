@@ -325,10 +325,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         deploymentSecret == "__TEMPLATE__" || deploymentSecret.rfind("H5MSI_SECRET_", 0) == 0;
     const bool templateApiBase = apiBase.rfind("H5MSI_API_", 0) == 0;
 
+    const bool validApiBase =
+        apiBase.rfind("https://", 0) == 0 ||
+        apiBase.rfind("http://", 0) == 0;
+
     if (!validMagic ||
         deploymentId.empty() || templateDeploymentId ||
         deploymentSecret.empty() || templateDeploymentSecret ||
-        templateApiBase || apiBase.rfind("https://", 0) != 0) {
+        templateApiBase || !validApiBase) {
         ShowError(
             L"This Hi5Central Agent installer has not been assigned to a tenant. "
             L"Download a new installer from the Hi5Central portal.",
