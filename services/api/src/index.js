@@ -460,8 +460,15 @@ app.post('/api/v1/onboarding/step', async (c) => {
     `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
     [session.tenant_id, step, JSON.stringify(data), nextStep],
   )
-  const refreshed = await resolveSession(c)
-  return c.json(sessionPayload(refreshed))
+  const nextSession = {
+    ...session,
+    onboarding_step: nextStep,
+    onboarding_data: {
+      ...(session.onboarding_data || {}),
+      [step]: data,
+    },
+  }
+  return c.json(sessionPayload(nextSession))
 })
 
 app.post('/api/v1/onboarding/complete', async (c) => {
