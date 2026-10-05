@@ -75,12 +75,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   dev:
-    name: Dev release
+    name: Development
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
     needs: containers
     runs-on: ubuntu-latest
     environment:
-      name: Dev
+      name: Development
       url: https://dev.hi5central.com
     steps:
       - uses: docker/setup-buildx-action@v3
@@ -89,17 +89,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Promote synchronized Dev image set
+      - name: Promote synchronized Development image set
         shell: bash
         run: |
           set -euo pipefail
           for image in "$PLATFORM_API_IMAGE" "$PLATFORM_ITSM_IMAGE" "$PLATFORM_RMM_IMAGE" "$PLATFORM_ADMIN_IMAGE"; do
             docker buildx imagetools create -t "$image:dev" "$image:sha-${GITHUB_SHA}"
           done
-          echo "Hi5Central Dev release ${GITHUB_SHA} promoted as one platform set."
+          echo "Development image set ${GITHUB_SHA} promoted."
 
   production:
-    name: Production release
+    name: Production
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: containers
     runs-on: ubuntu-latest
@@ -118,6 +118,7 @@ jobs:
         run: |
           set -euo pipefail
           for image in "$PLATFORM_API_IMAGE" "$PLATFORM_ITSM_IMAGE" "$PLATFORM_RMM_IMAGE" "$PLATFORM_ADMIN_IMAGE"; do
-            docker buildx imagetools create -t "$image:prod" -t "$image:latest" "$image:sha-${GITHUB_SHA}"
+            docker buildx imagetools create -t "$image:prod" "$image:sha-${GITHUB_SHA}"
           done
-          echo "Hi5Central Production release ${GITHUB_SHA} promoted as one platform set."
+          echo "Production image set ${GITHUB_SHA} promoted."
+          echo "Self-hosted stable/early-access aliases are NOT changed by this workflow."
