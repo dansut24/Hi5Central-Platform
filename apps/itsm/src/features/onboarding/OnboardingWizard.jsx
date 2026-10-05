@@ -202,6 +202,21 @@ function normalisePrefix(value, fallback) {
   return cleaned.endsWith('-') ? cleaned : `${cleaned}-`
 }
 
+async function fetchWithDeadline(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Hi5Central did not finish saving this step within 12 seconds. Your previous progress is safe; retry this step.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 export function OnboardingWizard({ session, onSessionChange }) {
   const modules = session?.tenant?.modules || {}
   const sequence = useMemo(() => sequenceFor(modules), [modules])
@@ -259,7 +274,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
     }
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/onboarding/step`, {
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/step`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -279,7 +294,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setSaving(true)
     setError('')
     try {
-      const response = await fetch(`${API_BASE}/api/v1/onboarding/complete`, {
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/complete`, {
         method: 'POST',
         credentials: 'include',
       })

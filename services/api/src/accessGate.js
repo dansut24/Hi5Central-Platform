@@ -175,7 +175,7 @@ async function requiredAccess(c, session) {
 export async function enforceWorkspacePermissions(c, next) {
   const path = c.req.path
   if (!path.startsWith('/api/v1/')) return next()
-  if (path.startsWith('/api/v1/auth/') || path.startsWith('/api/v1/portal/') || path.startsWith('/api/v1/system/')) return next()
+  if (path.startsWith('/api/v1/auth/') || path.startsWith('/api/v1/portal/') || path.startsWith('/api/v1/system/') || path.startsWith('/api/v1/onboarding/')) return next()
   if (portalRequestFromHeaders(c.req.header('origin'), c.req.header('referer'))) return next()
   const session = await resolveSession(c)
   if (!session) return next()
