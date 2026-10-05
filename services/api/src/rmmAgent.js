@@ -9,7 +9,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
-import { originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { recordJobCompletionActivity, recordRmmActivity } from './rmmActivity.js'
@@ -28,7 +28,7 @@ const AGENT_DOWNLOAD_URL_MACOS = 'https://downloads.hi5central.com/agent/latest/
 const TENANT_INSTALLER_REPO = process.env.TENANT_INSTALLER_REPO || 'dansut24/Hi5Central-Agent'
 const TENANT_INSTALLER_WORKFLOW = process.env.TENANT_INSTALLER_WORKFLOW || 'tenant-installer.yml'
 const TENANT_INSTALLER_REF = process.env.TENANT_INSTALLER_REF || 'main'
-const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || 'https://api.hi5central.com'
+const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || deployment.apiUrl || 'https://api.hi5central.com'
 const TENANT_INSTALLER_ARTIFACT_DIR = process.env.TENANT_INSTALLER_ARTIFACT_DIR || '/srv/tenant-installers'
 const TENANT_INSTALLER_MAX_ARTIFACT_BYTES = 300 * 1024 * 1024
 const TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH = process.env.TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'templates', 'Hi5CentralAgentTemplate.exe')
