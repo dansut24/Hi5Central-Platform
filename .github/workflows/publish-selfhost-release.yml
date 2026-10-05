@@ -59,6 +59,10 @@ jobs:
             echo "Version must look like v1.4.0 or v1.4.0-rc.1" >&2
             exit 1
           }
+          if [[ "${{ inputs.channel }}" == "stable" && ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable releases must use a final semantic version such as v1.4.0." >&2
+            exit 1
+          fi
           [[ "$COMMIT_SHA" =~ ^[0-9a-fA-F]{40}$ ]] || {
             echo "commit_sha must be a full 40-character Git SHA" >&2
             exit 1
@@ -74,6 +78,23 @@ jobs:
             echo "Checking $image:sha-$COMMIT_SHA"
             docker buildx imagetools inspect "$image:sha-$COMMIT_SHA" >/dev/null
           done
+
+      - name: Require Stable to match current Production
+        if: inputs.channel == 'stable'
+        shell: bash
+        env:
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          for image in "$PLATFORM_API_IMAGE" "$PLATFORM_ITSM_IMAGE" "$PLATFORM_RMM_IMAGE" "$PLATFORM_ADMIN_IMAGE"; do
+            prod_manifest=$(docker buildx imagetools inspect "$image:prod" --raw | sha256sum | awk '{print $1}')
+            candidate_manifest=$(docker buildx imagetools inspect "$image:sha-$COMMIT_SHA" --raw | sha256sum | awk '{print $1}')
+            if [[ "$prod_manifest" != "$candidate_manifest" ]]; then
+              echo "$image:sha-$COMMIT_SHA is not the image currently promoted to Production." >&2
+              exit 1
+            fi
+          done
+          echo "Stable candidate exactly matches the current Production image set."
 
       - name: Publish exact tested image set
         shell: bash
