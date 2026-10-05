@@ -66,6 +66,16 @@ jobs:
           The original repositories remain available as migration history. New platform development moves to this repository.
           EOF
 
+      - name: Validate imported platform
+        shell: bash
+        run: |
+          set -euo pipefail
+          for component in services/api apps/itsm apps/rmm apps/admin; do
+            echo "::group::Build $component"
+            docker build "$component"
+            echo "::endgroup::"
+          done
+
       - name: Commit imported source
         shell: bash
         run: |
