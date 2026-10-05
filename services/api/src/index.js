@@ -194,7 +194,12 @@ app.get('/api/v1/auth/tenant-state/:slug', async (c) => {
   const slug = normaliseSlug(c.req.param('slug'))
   if (!validSlug(slug)) return c.json({ managed: false, slug }, 200)
   const result = await pool.query('SELECT t.slug,t.company_name,t.status FROM tenants t WHERE t.slug=$1 LIMIT 1', [slug])
-  if (!result.rowCount) return c.json({ managed: false, slug })
+  if (!result.rowCount) {
+    const setupRequired = deployment.deploymentMode === 'self_hosted'
+      && deployment.tenancyMode === 'single'
+      && slug === deployment.primaryTenantSlug
+    return c.json({ managed: false, slug, setupRequired })
+  }
   const tenant = result.rows[0]
   return c.json({ managed: true, slug: tenant.slug, companyName: tenant.company_name, status: tenant.status })
 })
@@ -268,19 +273,62 @@ app.post('/api/v1/auth/signup', async (c) => {
     pool.query('SELECT 1 FROM users WHERE email=$1 LIMIT 1', [email]),
     deployment.tenancyMode === 'single' ? pool.query('SELECT count(*)::int AS count FROM tenants') : Promise.resolve({ rows: [{ count: 0 }] }),
   ])
-  if (deployment.tenancyMode === 'single' && Number(tenantCount.rows[0]?.count || 0) > 0) return c.json({ error: 'This single-tenant installation has already been initialised.' }, 409)
+  const tenantCountValue = Number(tenantCount.rows[0]?.count || 0)
+  const firstSelfHostSetup = deployment.deploymentMode === 'self_hosted'
+    && deployment.tenancyMode === 'single'
+    && tenantCountValue === 0
+
+  if (deployment.tenancyMode === 'single' && tenantCountValue > 0) return c.json({ error: 'This single-tenant installation has already been initialised.' }, 409)
+
+  if (firstSelfHostSetup) {
+    const suppliedSetupToken = String(body?.setupToken || '').trim()
+    const expectedSetupToken = String(process.env.INITIAL_SETUP_TOKEN || '').trim()
+    if (!expectedSetupToken || !suppliedSetupToken || hashToken(suppliedSetupToken) !== hashToken(expectedSetupToken)) {
+      return c.json({ error: 'The initial setup code is missing or invalid.' }, 403)
+    }
+  }
+
   if (slugExists.rowCount) return c.json({ error: 'That tenant URL is already in use.', field: 'tenantSlug' }, 409)
   if (emailExists.rowCount) return c.json({ error: 'An account already exists for that email address.', field: 'email' }, 409)
 
   const passwordHash = await hashPassword(password)
-  const verificationToken = randomBytes(32).toString('base64url')
-  const verificationTokenHash = hashToken(verificationToken)
+  const verificationToken = firstSelfHostSetup ? '' : randomBytes(32).toString('base64url')
+  const verificationTokenHash = verificationToken ? hashToken(verificationToken) : ''
   const generatedUrls = tenantUrls(tenantSlug, { rmm: modules.includes('rmm') })
   const { tenantUrl, rmmUrl } = generatedUrls
   const portalUrl = modules.includes('itsm') ? generatedUrls.portalUrl : null
+  const moduleConfiguration = JSON.stringify({
+    itsm: modules.includes('itsm'),
+    selfService: modules.includes('itsm'),
+    rmm: modules.includes('rmm'),
+  })
 
   try {
     const result = await withTransaction(async (client) => {
+      if (firstSelfHostSetup) {
+        const tenantResult = await client.query(
+          "INSERT INTO tenants (slug,company_name,status) VALUES ($1,$2,'active') RETURNING id,slug,company_name,status",
+          [tenantSlug, companyName],
+        )
+        const tenant = tenantResult.rows[0]
+        const userResult = await client.query(
+          'INSERT INTO users (email,name,password_hash,email_verified_at) VALUES ($1,$2,$3,now()) RETURNING id,email,name',
+          [email, name, passwordHash],
+        )
+        const user = userResult.rows[0]
+        await client.query(
+          "INSERT INTO tenant_memberships (tenant_id,user_id,role,status) VALUES ($1,$2,'owner','active')",
+          [tenant.id, user.id],
+        )
+        await client.query(
+          `INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
+           VALUES ($1,$2::jsonb,'company',$3,$4,$5)`,
+          [tenant.id, moduleConfiguration, tenantUrl, portalUrl, rmmUrl],
+        )
+        const sessionToken = await createSession(client, { tenantId: tenant.id, userId: user.id, surface: 'workspace' })
+        return { tenant, user, sessionToken }
+      }
+
       const tenantResult = await client.query('INSERT INTO tenants (slug,company_name) VALUES ($1,$2) RETURNING id,slug,company_name,status', [tenantSlug, companyName])
       const tenant = tenantResult.rows[0]
       const userResult = await client.query('INSERT INTO users (email,name,password_hash) VALUES ($1,$2,$3) RETURNING id,email,name', [email, name, passwordHash])
@@ -289,7 +337,7 @@ app.post('/api/v1/auth/signup', async (c) => {
       await client.query(
         `INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
          VALUES ($1,$2::jsonb,'verify_email',$3,$4,$5)`,
-        [tenant.id, JSON.stringify({ itsm: modules.includes('itsm'), selfService: modules.includes('itsm'), rmm: modules.includes('rmm') }), tenantUrl, portalUrl, rmmUrl],
+        [tenant.id, moduleConfiguration, tenantUrl, portalUrl, rmmUrl],
       )
       await client.query(
         `INSERT INTO user_email_verifications (tenant_id,user_id,token_hash,redirect_url,expires_at)
@@ -298,6 +346,17 @@ app.post('/api/v1/auth/signup', async (c) => {
       )
       return { tenant, user }
     })
+
+    if (firstSelfHostSetup) {
+      setSessionCookie(c, result.sessionToken)
+      return c.json({
+        status: 'active',
+        verificationRequired: false,
+        onboardingStep: 'company',
+        tenant: { slug: result.tenant.slug, companyName: result.tenant.company_name, tenantUrl, portalUrl, rmmUrl },
+        admin: { name: result.user.name, email: result.user.email },
+      }, 201)
+    }
 
     const delivery = await deliverVerification({ token: verificationToken, email: result.user.email, name: result.user.name, companyName: result.tenant.company_name, tenantUrl })
     return c.json({
