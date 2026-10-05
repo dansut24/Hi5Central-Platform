@@ -70,7 +70,8 @@ function requestCookieName(c) {
 }
 
 function cookieOptions(extra = {}) {
-  const options = { secure: true, sameSite: 'Lax', path: '/', ...extra }
+  const secure = !String(deployment.appUrl || '').toLowerCase().startsWith('http://')
+  const options = { secure, sameSite: 'Lax', path: '/', ...extra }
   if (deployment.cookieDomain) options.domain = deployment.cookieDomain
   return options
 }
