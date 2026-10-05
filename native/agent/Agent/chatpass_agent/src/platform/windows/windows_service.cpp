@@ -2312,7 +2312,7 @@ LogI(
     " note=dynamic codec policy selected stable sender path"
 );
 
-                const std::string defaultAgentWsBase = "wss://rmm.hi5central.com/agent/ws";
+                const std::string defaultAgentWsBase;
                 const std::wstring configDir = L"C:\\ProgramData\\Hi5Central\\Agent";
 
                 AgentIdentity ident = loadAgentIdentityFromDir(configDir, defaultAgentWsBase);
@@ -3796,7 +3796,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                 }
 
                 HttpPostJsonWithAgentAuth(
-                    "https://api.hi5central.com/api/v1/agent/devices/jobs/" + jobId + "/result",
+                    ident.apiBaseUrl + "/api/v1/agent/devices/jobs/" + jobId + "/result",
                     body.dump(),
                     ident
                 );
@@ -3978,7 +3978,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
 
                         try {
                             const std::string response = HttpGetJsonWithAgentAuth(
-                                "https://api.hi5central.com/api/v1/agent/devices/jobs",
+                                ident.apiBaseUrl + "/api/v1/agent/devices/jobs",
                                 ident
                             );
 
@@ -5375,7 +5375,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
 
                 try {
                     HttpPostJsonWithAgentAuth(
-                        "https://api.hi5central.com/api/v1/agent/devices/patch-discovery",
+                        ident.apiBaseUrl + "/api/v1/agent/devices/patch-discovery",
                         payload.dump(),
                         ident
                     );
@@ -5438,7 +5438,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                             json payload = BuildTelemetryPayload(previousCpu, hasPreviousCpu);
 
                             HttpPostJsonWithAgentAuth(
-                                "https://api.hi5central.com/api/v1/agent/devices/telemetry",
+                                ident.apiBaseUrl + "/api/v1/agent/devices/telemetry",
                                 payload.dump(),
                                 ident
                             );

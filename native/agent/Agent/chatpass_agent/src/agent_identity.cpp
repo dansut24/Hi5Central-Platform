@@ -481,6 +481,28 @@ namespace {
         while (!value.empty() && value.back() == '/') value.pop_back();
         return value;
     }
+
+    std::string websocketBaseFromApi(std::string apiBase) {
+        apiBase = normalizedUrlNoTrailingSlash(apiBase);
+        if (apiBase.rfind("https://", 0) == 0) {
+            apiBase.replace(0, 8, "wss://");
+        } else if (apiBase.rfind("http://", 0) == 0) {
+            apiBase.replace(0, 7, "ws://");
+        } else {
+            return {};
+        }
+        return apiBase + "/agent/ws";
+    }
+
+    std::string resolvedAgentWsBase(
+        const std::string& explicitBase,
+        const std::string& apiBase
+    ) {
+        const std::string explicitClean = trim(explicitBase);
+        if (!explicitClean.empty()) return explicitClean;
+        const std::string derived = websocketBaseFromApi(apiBase);
+        return derived.empty() ? std::string(kDefaultAgentWsBase) : derived;
+    }
 }
 
 AgentIdentity loadAgentIdentityFromDir(
@@ -507,7 +529,9 @@ AgentIdentity loadAgentIdentityFromDir(
         if (!envApiBase.empty()) state.apiBaseUrl = envApiBase;
         if (!envWsBase.empty()) state.agentWsBaseUrl = envWsBase;
         if (state.apiBaseUrl.empty()) state.apiBaseUrl = kDefaultApiBase;
-        if (state.agentWsBaseUrl.empty()) state.agentWsBaseUrl = defaultAgentWsBaseUrl.empty() ? kDefaultAgentWsBase : defaultAgentWsBaseUrl;
+        if (state.agentWsBaseUrl.empty()) {
+            state.agentWsBaseUrl = resolvedAgentWsBase(defaultAgentWsBaseUrl, state.apiBaseUrl);
+        }
 
         writeState(statePath, state);
 
@@ -527,7 +551,7 @@ AgentIdentity loadAgentIdentityFromDir(
             if (!envWsBase.empty()) jsonState.agentWsBaseUrl = envWsBase;
             if (jsonState.apiBaseUrl.empty()) jsonState.apiBaseUrl = kDefaultApiBase;
             if (jsonState.agentWsBaseUrl.empty()) {
-                jsonState.agentWsBaseUrl = defaultAgentWsBaseUrl.empty() ? kDefaultAgentWsBase : defaultAgentWsBaseUrl;
+                jsonState.agentWsBaseUrl = resolvedAgentWsBase(defaultAgentWsBaseUrl, jsonState.apiBaseUrl);
             }
 
             writeState(statePath, jsonState);
@@ -549,7 +573,7 @@ AgentIdentity loadAgentIdentityFromDir(
 
     std::string agentWsBase = envWsBase;
     if (agentWsBase.empty()) agentWsBase = getFirst(legacyConfig, { "agent_ws_base_url", "agent_ws_base", "wss_url", "ws_url", "control_url" });
-    if (agentWsBase.empty()) agentWsBase = defaultAgentWsBaseUrl.empty() ? kDefaultAgentWsBase : defaultAgentWsBaseUrl;
+    if (agentWsBase.empty()) agentWsBase = resolvedAgentWsBase(defaultAgentWsBaseUrl, apiBase);
 
     std::string enrollmentToken = getenvString("HI5_ENROLLMENT_TOKEN");
     if (enrollmentToken.empty()) enrollmentToken = getFirst(legacyConfig, { "enrollment_token", "provision_token", "token" });

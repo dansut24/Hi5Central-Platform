@@ -148,7 +148,7 @@ static int RunDirectAgent(int argc, char** argv) {
     constexpr int fps = 30;
     constexpr int bitrateKbps = 6000;
 
-    const std::string defaultAgentWsBase = "wss://rmm.hi5central.com/agent/ws";
+    const std::string defaultAgentWsBase;
     std::wstring configDir = L"C:\\ProgramData\\Hi5Central\\Agent";
 
     try {

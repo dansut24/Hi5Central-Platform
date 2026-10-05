@@ -9,7 +9,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
-import { originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { recordJobCompletionActivity, recordRmmActivity } from './rmmActivity.js'
@@ -28,7 +28,7 @@ const AGENT_DOWNLOAD_URL_MACOS = 'https://downloads.hi5central.com/agent/latest/
 const TENANT_INSTALLER_REPO = process.env.TENANT_INSTALLER_REPO || 'dansut24/Hi5Central-Agent'
 const TENANT_INSTALLER_WORKFLOW = process.env.TENANT_INSTALLER_WORKFLOW || 'tenant-installer.yml'
 const TENANT_INSTALLER_REF = process.env.TENANT_INSTALLER_REF || 'main'
-const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || 'https://api.hi5central.com'
+const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || deployment.apiUrl || 'https://api.hi5central.com'
 const TENANT_INSTALLER_ARTIFACT_DIR = process.env.TENANT_INSTALLER_ARTIFACT_DIR || '/srv/tenant-installers'
 const TENANT_INSTALLER_MAX_ARTIFACT_BYTES = 300 * 1024 * 1024
 const TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH = process.env.TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'templates', 'Hi5CentralAgentTemplate.exe')
@@ -47,6 +47,21 @@ const TENANT_INSTALLER_GENERIC_URLS = {
   run: 'https://downloads.hi5central.com/agent/deployment/latest/Hi5CentralAgentDeployment-Linux.run',
   deb: 'https://downloads.hi5central.com/agent/deployment/latest/hi5central-agent-deployment_amd64.deb',
   rpm: 'https://downloads.hi5central.com/agent/deployment/latest/hi5central-agent-deployment_x86_64.rpm',
+}
+const TENANT_INSTALLER_GENERIC_ASSET_DIR = process.env.TENANT_INSTALLER_GENERIC_ASSET_DIR || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'generic')
+const TENANT_INSTALLER_GENERIC_FILES = {
+  app: 'Hi5CentralAgentDeployment-macOS.app.zip',
+  pkg: 'Hi5CentralAgentDeployment-macOS.pkg',
+  dmg: 'Hi5CentralAgentDeployment-macOS.dmg',
+  run: 'Hi5CentralAgentDeployment-Linux.run',
+  deb: 'hi5central-agent-deployment_amd64.deb',
+  rpm: 'hi5central-agent-deployment_x86_64.rpm',
+}
+
+function tenantInstallerGenericAssetPath(formatValue = '') {
+  const format = clean(formatValue).toLowerCase()
+  const fileName = TENANT_INSTALLER_GENERIC_FILES[format]
+  return fileName ? path.join(TENANT_INSTALLER_GENERIC_ASSET_DIR, fileName) : ''
 }
 const TENANT_INSTALLER_OIDC_AUDIENCE = 'hi5central-tenant-installer'
 const TENANT_INSTALLER_OIDC_ISSUER = 'https://token.actions.githubusercontent.com'
@@ -253,7 +268,7 @@ function windowsTenantInstallerBuffer(packageId, formatValue = 'exe') {
 
 function tenantInstallerUrl(packageId, formatValue = '') {
   const format = clean(formatValue).toLowerCase()
-  if (['exe', 'msi', 'deb', 'rpm'].includes(format)) {
+  if (['exe', 'msi', 'deb', 'rpm', 'app', 'pkg', 'dmg'].includes(format)) {
     return TENANT_INSTALLER_API_BASE + '/api/v1/rmm/agent/enrollment-packages/' + packageId + '/installer'
   }
   return TENANT_INSTALLER_GENERIC_URLS[format] || null
@@ -578,9 +593,15 @@ async function linuxTenantInstallerBundle(pkg) {
   if (clean(pkg?.installer_platform).toLowerCase() !== 'linux' || !installerUrl || !definition) {
     throw new Error('This deployment is not a supported Linux installer.')
   }
-  const response = await fetch(installerUrl, { signal: AbortSignal.timeout(30_000) })
-  if (!response.ok) throw new Error('Linux installer download failed HTTP ' + response.status + '.')
-  const installer = Buffer.from(await response.arrayBuffer())
+  const localAssetPath = tenantInstallerGenericAssetPath(format)
+  let installer
+  if (localAssetPath && existsSync(localAssetPath)) {
+    installer = readFileSync(localAssetPath)
+  } else {
+    const response = await fetch(installerUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!response.ok) throw new Error('Linux installer download failed HTTP ' + response.status + '.')
+    installer = Buffer.from(await response.arrayBuffer())
+  }
   if (!installer.length || installer.length > TENANT_INSTALLER_MAX_ARTIFACT_BYTES) {
     throw new Error('Linux installer has an invalid size.')
   }
@@ -1585,6 +1606,22 @@ export function registerRmmAgentRoutes(app) {
         downloadName = pkg.installer_format === 'deb'
           ? 'hi5centralagent.deb'
           : 'hi5centralagent.rpm'
+      } else if (pkg.installer_platform === 'macos' && ['app', 'pkg', 'dmg'].includes(pkg.installer_format)) {
+        const assetPath = tenantInstallerGenericAssetPath(pkg.installer_format)
+        if (!assetPath || !existsSync(assetPath)) {
+          throw new Error('The shared macOS deployment asset is not available on this Hi5Central server.')
+        }
+        installer = readFileSync(assetPath)
+        contentType = pkg.installer_format === 'app'
+          ? 'application/zip'
+          : pkg.installer_format === 'pkg'
+            ? 'application/octet-stream'
+            : 'application/x-apple-diskimage'
+        downloadName = pkg.installer_format === 'app'
+          ? 'Hi5CentralAgentDeployment-macOS.app.zip'
+          : pkg.installer_format === 'pkg'
+            ? 'Hi5CentralAgentDeployment-macOS.pkg'
+            : 'Hi5CentralAgentDeployment-macOS.dmg'
       } else {
         return c.json({ error: 'This installer record is not a supported single-file installer.' }, 409)
       }
