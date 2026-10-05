@@ -234,7 +234,7 @@ begin
   ApplyDeploymentJson(ApiBaseUrl, DeploymentId, DeploymentSecret, InstallSource);
 
   if ApiBaseUrl = '' then
-    ApiBaseUrl := 'https://rmm.hi5central.com';
+    ApiBaseUrl := 'https://api.hi5central.com';
 
   ApiBaseUrl := TrimSlashRight(ApiBaseUrl);
   PackageId := FirstNonEmpty(ParamValue('PACKAGE_ID', ''), DeploymentId);
