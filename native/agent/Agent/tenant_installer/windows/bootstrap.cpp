@@ -204,16 +204,33 @@ bool ConfigureServiceRecovery() {
     return configured == TRUE;
 }
 
+std::filesystem::path MakeInstallerLogPath() {
+    wchar_t programData[MAX_PATH]{};
+    const DWORD length = GetEnvironmentVariableW(L"ProgramData", programData, MAX_PATH);
+    std::filesystem::path dir =
+        (length > 0 && length < MAX_PATH)
+            ? std::filesystem::path(programData) / L"Hi5Central" / L"Agent" / L"Logs"
+            : std::filesystem::temp_directory_path() / L"Hi5Central";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) return std::filesystem::temp_directory_path() / L"Hi5CentralAgentSetup.log";
+    return dir / L"installer.log";
+}
+
 bool RunAgentSetup(const std::filesystem::path& setupPath,
+                   const std::filesystem::path& logPath,
                    const std::string& deploymentId,
                    const std::string& deploymentSecret,
                    const std::string& apiBase,
                    const std::string& installSource,
+                   bool quiet,
                    DWORD& exitCode,
                    std::wstring& error) {
     std::wstring args =
         Quote(setupPath.wstring()) +
-        L" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" +
+        L" /VERYSILENT /NORESTART /NOCANCEL /SP-" +
+        L" /LOG=" + Quote(logPath.wstring()) +
+        (quiet ? L" /SUPPRESSMSGBOXES" : L"") +
         L" /DEPLOYMENT_ID=" + Quote(Utf8ToWide(deploymentId)) +
         L" /DEPLOYMENT_SECRET=" + Quote(Utf8ToWide(deploymentSecret)) +
         L" /PACKAGE_ID=" + Quote(Utf8ToWide(deploymentId)) +
@@ -239,7 +256,14 @@ bool RunAgentSetup(const std::filesystem::path& setupPath,
     CloseHandle(process.hProcess);
 
     if (exitCode != 0) {
-        error = L"Hi5Central Agent setup returned exit code " + std::to_wstring(exitCode) + L".";
+        if (exitCode == 5) {
+            error =
+                L"Hi5Central Agent setup was aborted during installation. "
+                L"The previous Agent may still have been releasing files, or Windows blocked a file operation.";
+        } else {
+            error = L"Hi5Central Agent setup failed with exit code " + std::to_wstring(exitCode) + L".";
+        }
+        error += L"\n\nInstaller log:\n" + logPath.wstring();
         return false;
     }
     return true;
@@ -347,9 +371,10 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 3;
     }
 
+    const auto logPath = MakeInstallerLogPath();
     DWORD setupExitCode = ERROR_GEN_FAILURE;
     const bool installed = RunAgentSetup(
-        setupPath, deploymentId, deploymentSecret, apiBase, installSource, setupExitCode, error);
+        setupPath, logPath, deploymentId, deploymentSecret, apiBase, installSource, quiet, setupExitCode, error);
 
     DeleteFileW(setupPath.c_str());
 
