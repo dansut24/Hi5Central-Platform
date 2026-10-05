@@ -1,0 +1,235 @@
+cmake_minimum_required(VERSION 3.21)
+
+project(hi5central_portable_agent LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(HI5CENTRAL_AGENT_VERSION "0.3.0-alpha" CACHE STRING "Hi5Central portable Agent version")
+
+find_package(CURL REQUIRED)
+find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+if(APPLE)
+  # The macOS Remote Helper must be self-contained. libdatachannel otherwise
+  # resolves Homebrew's dylibs, which are not present on customer Macs.
+  set(OPENSSL_USE_STATIC_LIBS TRUE CACHE BOOL "" FORCE)
+  find_package(OpenSSL REQUIRED)
+endif()
+
+include(FetchContent)
+FetchContent_Declare(
+  nlohmann_json
+  URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz
+)
+
+set(USE_TLS ON CACHE BOOL "" FORCE)
+set(USE_ZLIB OFF CACHE BOOL "" FORCE)
+set(IXWEBSOCKET_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  ixwebsocket
+  GIT_REPOSITORY https://github.com/machinezone/IXWebSocket.git
+  GIT_TAG v12.0.1
+)
+FetchContent_MakeAvailable(nlohmann_json ixwebsocket)
+
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(NO_EXAMPLES ON CACHE BOOL "" FORCE)
+set(NO_TESTS ON CACHE BOOL "" FORCE)
+set(NO_WEBSOCKET ON CACHE BOOL "" FORCE)
+set(NO_MEDIA OFF CACHE BOOL "" FORCE)
+set(WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  libdatachannel
+  GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+  GIT_TAG v0.24.5
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(libdatachannel)
+
+set(HI5_REMOTE_SOURCES)
+set(HI5_REMOTE_LIBRARIES)
+
+if(APPLE)
+  enable_language(OBJCXX)
+  pkg_check_modules(HI5_VPX REQUIRED vpx)
+  find_file(HI5_VPX_STATIC_ARCHIVE
+    NAMES libvpx.a
+    PATHS ${HI5_VPX_LIBRARY_DIRS}
+    NO_DEFAULT_PATH
+  )
+
+  set(HI5_AOM_INCLUDE_DIR "" CACHE PATH "Path containing aom/aom_encoder.h")
+  set(HI5_AOM_STATIC_ARCHIVE "" CACHE FILEPATH "Path to static libaom.a")
+  if(NOT HI5_AOM_INCLUDE_DIR OR NOT HI5_AOM_STATIC_ARCHIVE)
+    pkg_check_modules(HI5_AOM REQUIRED aom)
+    if(NOT HI5_AOM_INCLUDE_DIR)
+      list(GET HI5_AOM_INCLUDE_DIRS 0 HI5_AOM_INCLUDE_DIR)
+    endif()
+    find_file(HI5_AOM_STATIC_ARCHIVE
+      NAMES libaom.a
+      PATHS ${HI5_AOM_LIBRARY_DIRS}
+      NO_DEFAULT_PATH
+    )
+  endif()
+
+  if(NOT HI5_VPX_STATIC_ARCHIVE)
+    message(FATAL_ERROR "Static libvpx archive is required for the macOS Remote Helper.")
+  endif()
+  if(NOT HI5_AOM_INCLUDE_DIR OR NOT EXISTS "${HI5_AOM_INCLUDE_DIR}/aom/aom_encoder.h")
+    message(FATAL_ERROR "libaom headers are required for the macOS Remote Helper.")
+  endif()
+  if(NOT HI5_AOM_STATIC_ARCHIVE)
+    message(FATAL_ERROR "Static libaom archive is required for the macOS Remote Helper.")
+  endif()
+  list(APPEND HI5_REMOTE_SOURCES
+    src/remote_webrtc_parent_macos.cpp
+  )
+elseif(UNIX)
+  pkg_check_modules(VPX REQUIRED vpx)
+  find_file(HI5_VPX_STATIC_ARCHIVE
+    NAMES libvpx.a
+    PATHS
+      ${VPX_LIBRARY_DIRS}
+      /usr/lib/${CMAKE_LIBRARY_ARCHITECTURE}
+      /usr/local/lib/${CMAKE_LIBRARY_ARCHITECTURE}
+      /usr/lib64
+      /usr/local/lib64
+      /usr/lib
+      /usr/local/lib
+    NO_DEFAULT_PATH
+  )
+  if(NOT HI5_VPX_STATIC_ARCHIVE)
+    message(FATAL_ERROR "Static libvpx archive is required for the Linux Remote Helper.")
+  endif()
+
+  pkg_check_modules(HI5_X11 REQUIRED IMPORTED_TARGET x11 xext xtst)
+  pkg_check_modules(HI5_GIO REQUIRED IMPORTED_TARGET gio-2.0 gio-unix-2.0)
+  pkg_check_modules(HI5_PIPEWIRE REQUIRED IMPORTED_TARGET libpipewire-0.3)
+  pkg_check_modules(HI5_GTK REQUIRED IMPORTED_TARGET gtk+-3.0)
+  list(APPEND HI5_REMOTE_SOURCES
+    src/remote_webrtc_parent_linux.cpp
+  )
+else()
+  message(FATAL_ERROR "The portable Agent target currently supports macOS and Linux only.")
+endif()
+
+add_executable(Hi5CentralAgent
+  src/main.cpp
+  src/http_client.cpp
+  src/platform_info.cpp
+  src/enhanced_inventory.cpp
+  src/agent_websocket.cpp
+  src/job_executor.cpp
+  src/execution_context.cpp
+  src/portable_live_tools.cpp
+  src/software_inventory.cpp
+  src/software_actions.cpp
+  src/os_updates.cpp
+  ${HI5_REMOTE_SOURCES}
+)
+
+target_include_directories(Hi5CentralAgent PRIVATE src)
+target_compile_definitions(Hi5CentralAgent PRIVATE
+  HI5CENTRAL_AGENT_VERSION="${HI5CENTRAL_AGENT_VERSION}"
+)
+target_link_libraries(Hi5CentralAgent PRIVATE
+  CURL::libcurl
+  nlohmann_json::nlohmann_json
+  ixwebsocket::ixwebsocket
+  Threads::Threads
+  ${HI5_REMOTE_LIBRARIES}
+)
+
+if(UNIX)
+  find_library(HI5_UTIL_LIBRARY util)
+  if(HI5_UTIL_LIBRARY)
+    target_link_libraries(Hi5CentralAgent PRIVATE ${HI5_UTIL_LIBRARY})
+  endif()
+endif()
+
+if(APPLE)
+  target_compile_definitions(Hi5CentralAgent PRIVATE HI5_PLATFORM_MACOS=1)
+  target_link_libraries(Hi5CentralAgent PRIVATE
+    "-framework ApplicationServices"
+    "-framework Cocoa"
+    "-framework CoreGraphics"
+  )
+
+  add_executable(Hi5CentralRemoteHelper
+    src/remote_helper_main_macos.mm
+    src/remote_session_ui_macos.mm
+    src/remote_h264_vt_encoder.mm
+    src/remote_software_video_encoder.cpp
+    src/remote_webrtc.cpp
+    src/remote_platform_macos.mm
+  )
+  target_include_directories(Hi5CentralRemoteHelper PRIVATE
+    src
+    ${HI5_VPX_INCLUDE_DIRS}
+    ${HI5_AOM_INCLUDE_DIR}
+  )
+  target_compile_definitions(Hi5CentralRemoteHelper PRIVATE
+    HI5_PLATFORM_MACOS=1
+    HI5CENTRAL_AGENT_VERSION="${HI5CENTRAL_AGENT_VERSION}"
+  )
+  set_source_files_properties(
+    src/remote_helper_main_macos.mm
+    src/remote_session_ui_macos.mm
+    src/remote_h264_vt_encoder.mm
+    src/remote_platform_macos.mm
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+  )
+  target_link_libraries(Hi5CentralRemoteHelper PRIVATE
+    nlohmann_json::nlohmann_json
+    LibDataChannel::LibDataChannelStatic
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    ${HI5_VPX_STATIC_ARCHIVE}
+    ${HI5_AOM_STATIC_ARCHIVE}
+    Threads::Threads
+    "-framework ApplicationServices"
+    "-framework Cocoa"
+    "-framework CoreGraphics"
+    "-framework CoreMedia"
+    "-framework CoreVideo"
+    "-framework ScreenCaptureKit"
+    "-framework VideoToolbox"
+  )
+elseif(UNIX)
+  target_compile_definitions(Hi5CentralAgent PRIVATE HI5_PLATFORM_LINUX=1)
+
+  add_executable(Hi5CentralRemoteHelper
+    src/remote_helper_main_linux.cpp
+    src/remote_session_ui_linux.cpp
+    src/remote_vp8_encoder.cpp
+    src/remote_webrtc.cpp
+    src/remote_platform_linux.cpp
+    src/remote_platform_wayland.cpp
+  )
+  target_include_directories(Hi5CentralRemoteHelper PRIVATE
+    src
+    ${VPX_INCLUDE_DIRS}
+  )
+  target_compile_definitions(Hi5CentralRemoteHelper PRIVATE
+    HI5_PLATFORM_LINUX=1
+    HI5CENTRAL_AGENT_VERSION="${HI5CENTRAL_AGENT_VERSION}"
+  )
+  target_link_libraries(Hi5CentralRemoteHelper PRIVATE
+    nlohmann_json::nlohmann_json
+    LibDataChannel::LibDataChannelStatic
+    ${HI5_VPX_STATIC_ARCHIVE}
+    PkgConfig::HI5_X11
+    PkgConfig::HI5_GIO
+    PkgConfig::HI5_PIPEWIRE
+    PkgConfig::HI5_GTK
+    Threads::Threads
+    m
+  )
+endif()
+
+install(TARGETS Hi5CentralAgent RUNTIME DESTINATION bin)
+if(APPLE OR UNIX)
+  install(TARGETS Hi5CentralRemoteHelper RUNTIME DESTINATION bin)
+endif()
