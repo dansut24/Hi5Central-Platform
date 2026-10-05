@@ -1,4 +1,5 @@
 #include "frame_source.h"
+#include "util/log.h"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -52,8 +53,10 @@ namespace {
         if (!w || !*w) return {};
         const int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
         if (len <= 1) return {};
-        std::string out(static_cast<size_t>(len - 1), '\0');
-        WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), len, nullptr, nullptr);
+        std::string out(static_cast<size_t>(len), '\0');
+        const int written = WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), len, nullptr, nullptr);
+        if (written <= 1) return {};
+        out.resize(static_cast<size_t>(written - 1));
         return out;
     }
 
@@ -436,6 +439,7 @@ struct DesktopFrameSource::Impl {
 
     int width = 0;
     int height = 0;
+    bool useGdiFallback = false;
 
     I420Frame lastFrame;
     std::chrono::steady_clock::time_point lastGdiRefresh{};
@@ -513,33 +517,63 @@ struct DesktopFrameSource::Impl {
 
         if (currentIndex == -1) {
             resetD3DLocked();
+            useGdiFallback = true;
             auto d = buildAllMonitorsInfo();
             width = d.width;
             height = d.height;
+            LogWarn("[capture] using GDI fallback for all-monitors capture");
             return;
         }
 
         const auto* target = findCurrentTargetLocked();
         if (!target) {
-            throw std::runtime_error("Current display target not found");
+            resetD3DLocked();
+            useGdiFallback = true;
+            const auto d = buildAllMonitorsInfo();
+            width = d.width;
+            height = d.height;
+            LogWarn("[capture] current display target missing; using GDI fallback");
+            return;
         }
 
+        const int targetWidth = target->info.width;
+        const int targetHeight = target->info.height;
+        const UINT adapterIndex = target->adapterIndex;
+        const UINT outputIndex = target->outputIndex;
+
+        auto enableGdiFallback = [&](const char* reason, HRESULT hr) {
+            resetD3DLocked();
+            useGdiFallback = true;
+            width = targetWidth;
+            height = targetHeight;
+            LogWarn(std::string("[capture] ") + reason +
+                " hr=" + std::to_string(static_cast<long long>(hr)) +
+                "; using GDI fallback");
+        };
+
         resetD3DLocked();
+        useGdiFallback = false;
+        width = targetWidth;
+        height = targetHeight;
 
         ComPtr<IDXGIFactory1> factory;
-        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
-            throw std::runtime_error("CreateDXGIFactory1 failed");
+        HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+        if (FAILED(hr)) {
+            enableGdiFallback("CreateDXGIFactory1 failed", hr);
+            return;
         }
 
         ComPtr<IDXGIAdapter1> adapter;
-        if (FAILED(factory->EnumAdapters1(target->adapterIndex, &adapter))) {
-            throw std::runtime_error("EnumAdapters1 failed");
+        hr = factory->EnumAdapters1(adapterIndex, &adapter);
+        if (FAILED(hr)) {
+            enableGdiFallback("EnumAdapters1 failed", hr);
+            return;
         }
 
         D3D_FEATURE_LEVEL fl = D3D_FEATURE_LEVEL_11_0;
         const UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 
-        if (FAILED(D3D11CreateDevice(
+        hr = D3D11CreateDevice(
             adapter.Get(),
             D3D_DRIVER_TYPE_UNKNOWN,
             nullptr,
@@ -549,26 +583,31 @@ struct DesktopFrameSource::Impl {
             D3D11_SDK_VERSION,
             &device,
             nullptr,
-            &context))) {
-            throw std::runtime_error("D3D11CreateDevice failed");
+            &context);
+        if (FAILED(hr)) {
+            enableGdiFallback("D3D11CreateDevice failed", hr);
+            return;
         }
 
         ComPtr<IDXGIOutput> output;
-        if (FAILED(adapter->EnumOutputs(target->outputIndex, &output))) {
-            throw std::runtime_error("EnumOutputs failed");
+        hr = adapter->EnumOutputs(outputIndex, &output);
+        if (FAILED(hr)) {
+            enableGdiFallback("EnumOutputs failed", hr);
+            return;
         }
 
         ComPtr<IDXGIOutput1> output1;
-        if (FAILED(output.As(&output1))) {
-            throw std::runtime_error("Query IDXGIOutput1 failed");
+        hr = output.As(&output1);
+        if (FAILED(hr)) {
+            enableGdiFallback("Query IDXGIOutput1 failed", hr);
+            return;
         }
 
-        if (FAILED(output1->DuplicateOutput(device.Get(), &duplication))) {
-            throw std::runtime_error("DuplicateOutput failed");
+        hr = output1->DuplicateOutput(device.Get(), &duplication);
+        if (FAILED(hr)) {
+            enableGdiFallback("DuplicateOutput failed", hr);
+            return;
         }
-
-        width = target->info.width;
-        height = target->info.height;
 
         D3D11_TEXTURE2D_DESC desc{};
         desc.Width = static_cast<UINT>(width);
@@ -580,8 +619,10 @@ struct DesktopFrameSource::Impl {
         desc.Usage = D3D11_USAGE_STAGING;
         desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 
-        if (FAILED(device->CreateTexture2D(&desc, nullptr, &staging))) {
-            throw std::runtime_error("CreateTexture2D(staging) failed");
+        hr = device->CreateTexture2D(&desc, nullptr, &staging);
+        if (FAILED(hr)) {
+            enableGdiFallback("CreateTexture2D(staging) failed", hr);
+            return;
         }
     }
 
@@ -685,8 +726,12 @@ struct DesktopFrameSource::Impl {
             return captureAllMonitorsGdiLocked();
         }
 
-        if (!duplication || !findCurrentTargetLocked()) {
+        if ((!duplication && !useGdiFallback) || !findCurrentTargetLocked()) {
             initForCurrentLocked();
+        }
+
+        if (useGdiFallback || !duplication) {
+            return captureCurrentDisplayGdiLocked();
         }
 
         DXGI_OUTDUPL_FRAME_INFO frameInfo{};
@@ -713,7 +758,7 @@ struct DesktopFrameSource::Impl {
         }
         if (hr == DXGI_ERROR_ACCESS_LOST) {
             initForCurrentLocked();
-            if (lastFrame.y.empty() || lastFrame.width <= 0 || lastFrame.height <= 0) {
+            if (useGdiFallback || lastFrame.y.empty() || lastFrame.width <= 0 || lastFrame.height <= 0) {
                 return captureCurrentDisplayGdiLocked();
             }
 
@@ -725,23 +770,49 @@ struct DesktopFrameSource::Impl {
             return result;
         }
         if (FAILED(hr)) {
-            throw std::runtime_error("AcquireNextFrame failed");
+            LogWarn("[capture] AcquireNextFrame failed hr=" +
+                std::to_string(static_cast<long long>(hr)) +
+                "; switching to GDI fallback");
+            resetD3DLocked();
+            useGdiFallback = true;
+            const DisplayInfo d = currentDisplayInfoLocked();
+            width = d.width;
+            height = d.height;
+            return captureCurrentDisplayGdiLocked();
         }
 
         const bool cursorOnly = frameInfo.TotalMetadataBufferSize == 0 && frameInfo.LastMouseUpdateTime.QuadPart != 0;
 
         ComPtr<ID3D11Texture2D> tex;
-        if (FAILED(resource.As(&tex))) {
+        hr = resource.As(&tex);
+        if (FAILED(hr)) {
             duplication->ReleaseFrame();
-            throw std::runtime_error("Query ID3D11Texture2D failed");
+            LogWarn("[capture] Query ID3D11Texture2D failed hr=" +
+                std::to_string(static_cast<long long>(hr)) +
+                "; switching to GDI fallback");
+            resetD3DLocked();
+            useGdiFallback = true;
+            const DisplayInfo d = currentDisplayInfoLocked();
+            width = d.width;
+            height = d.height;
+            return captureCurrentDisplayGdiLocked();
         }
 
         context->CopyResource(staging.Get(), tex.Get());
         duplication->ReleaseFrame();
 
         D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
-            throw std::runtime_error("Map staging failed");
+        hr = context->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+        if (FAILED(hr)) {
+            LogWarn("[capture] Map staging failed hr=" +
+                std::to_string(static_cast<long long>(hr)) +
+                "; switching to GDI fallback");
+            resetD3DLocked();
+            useGdiFallback = true;
+            const DisplayInfo d = currentDisplayInfoLocked();
+            width = d.width;
+            height = d.height;
+            return captureCurrentDisplayGdiLocked();
         }
 
         const int rowPitch = static_cast<int>(mapped.RowPitch);
