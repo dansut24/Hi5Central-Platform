@@ -8,6 +8,8 @@ Unified source repository for the Hi5Central managed platform.
 - `apps/rmm` — RMM workspace
 - `apps/admin` — Platform Admin
 - `services/api` — Control Server / API
+- `native/agent` — Windows/macOS/Linux Agent and deployment installers
+- `native/viewer` — Windows/macOS/Linux native Viewer
 
 Each component remains an independently built container, but all four containers now come from the same Git commit and are promoted together.
 
@@ -24,10 +26,6 @@ The monorepo also gives self-hosted releases one coherent platform version. A re
 
 The self-host distribution remains in `hi5central-deploy` so customers can consume deployment tooling and published container images without requiring the managed-platform source repository.
 
-Native release repositories remain separate:
+`Hi5Central-Agent` and `hi5central-viewer` have been imported into this monorepo and now build from the same platform source repository. Their native artifacts remain independently versioned and only their own workflows run when native source changes.
 
-- `Hi5Central-Agent`
-- `hi5central-viewer`
-- `hi5central-app-portal`
-
-The Windows software qualification worker also remains independently deployable.
+`hi5central-app-portal` and the Windows software qualification worker remain independently deployable.
