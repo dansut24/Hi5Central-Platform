@@ -1,0 +1,305 @@
+name: Agent portable macOS and Linux
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/agent/**'
+      - '.github/workflows/agent-portable.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'native/agent/**'
+      - '.github/workflows/agent-portable.yml'
+permissions:
+  contents: read
+
+concurrency:
+  group: portable-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # Build inside a RHEL 9 compatible userspace (glibc 2.34). This keeps the
+    # same Linux payload runnable on RHEL/Rocky/Alma 9, Debian 12 and newer
+    # Ubuntu/Fedora distributions instead of inheriting the hosted runner's
+    # newer glibc ABI.
+    runs-on: ubuntu-24.04
+    container:
+      image: rockylinux:9
+    timeout-minutes: 35
+    steps:
+      - name: Prepare Linux compatibility build environment
+        run: |
+          dnf -qy install dnf-plugins-core
+          dnf config-manager --set-enabled crb
+          dnf -qy install \
+            binutils ca-certificates cmake diffutils gcc-c++ git gzip make nasm ninja-build \
+            libcurl-devel openssl-devel libX11-devel libXext-devel libXtst-devel \
+            glib2-devel gtk3-devel pipewire-devel pkgconf-pkg-config \
+            systemd tar
+      - uses: actions/checkout@v4
+      - name: Build static libvpx
+        run: |
+          git clone --depth 1 --branch v1.15.2 https://chromium.googlesource.com/webm/libvpx /tmp/hi5central-libvpx
+          cd /tmp/hi5central-libvpx
+          ./configure \
+            --prefix=/opt/hi5central-libvpx \
+            --target=x86_64-linux-gcc \
+            --disable-shared \
+            --enable-static \
+            --disable-examples \
+            --disable-tools \
+            --disable-docs \
+            --disable-unit-tests
+          make -j2
+          make install
+          test -f /opt/hi5central-libvpx/lib/libvpx.a
+      - name: Configure
+        env:
+          PKG_CONFIG_PATH: /opt/hi5central-libvpx/lib/pkgconfig
+        run: |
+          cmake -S native/agent/Agent/portable_agent -B native/agent/build/portable-linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DHI5CENTRAL_AGENT_VERSION=0.3.$((209 + GITHUB_RUN_NUMBER))
+      - name: Build
+        run: cmake --build native/agent/build/portable-linux
+      - name: Verify Linux compatibility and codec linkage
+        run: |
+          ldd native/agent/build/portable-linux/Hi5CentralAgent | tee /tmp/hi5-linux-agent-ldd.txt
+          ldd native/agent/build/portable-linux/Hi5CentralRemoteHelper | tee /tmp/hi5-linux-helper-ldd.txt
+          if grep -E 'libvpx\.so' /tmp/hi5-linux-helper-ldd.txt; then
+            echo "Linux Remote Helper must statically link libvpx to avoid distro ABI mismatches." >&2
+            exit 1
+          fi
+          if objdump -T native/agent/build/portable-linux/Hi5CentralAgent native/agent/build/portable-linux/Hi5CentralRemoteHelper \
+              | grep -Eq 'GLIBC_2\.(3[5-9]|[4-9][0-9])'; then
+            echo "Linux binaries require a glibc version newer than the RHEL 9 / Debian 12 compatibility baseline." >&2
+            exit 1
+          fi
+      - name: Runtime self-test
+        run: |
+          bash -n native/agent/Agent/portable_agent/installer/linux/install.sh
+          unit_file="$(mktemp --suffix=.service /tmp/hi5central-agent-ci-XXXXXX)"
+          cat > "$unit_file" <<'EOF'
+          [Unit]
+          Description=Hi5Central Agent CI unit validation
+          [Service]
+          Type=simple
+          ExecStart=/bin/true
+          EOF
+          systemd-analyze verify "$unit_file"
+          rm -f "$unit_file"
+          native/agent/build/portable-linux/Hi5CentralAgent --version
+          native/agent/build/portable-linux/Hi5CentralRemoteHelper --help >/dev/null 2>&1 || true
+          test -x native/agent/build/portable-linux/Hi5CentralRemoteHelper
+          native/agent/build/portable-linux/Hi5CentralAgent --self-test-command
+          payload="$(printf '%s' '{"path":"/tmp","home":"/tmp"}' | base64 | tr -d '\n')"
+          native/agent/build/portable-linux/Hi5CentralAgent --hi5-file-helper list "$payload" current | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] and data["path"]=="/tmp"'
+          native/agent/build/portable-linux/Hi5CentralAgent --self-test | tee /tmp/hi5-agent-self-test.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/hi5-agent-self-test.json') as f:
+              data=json.load(f)
+          assert data['platform']=='linux', data
+          assert data['hostname'], data
+          assert data['architecture'], data
+          assert data['memory']['totalBytes'] > 0, data
+          assert data['disk']['totalBytes'] > 0, data
+          software=data.get('software', {})
+          assert software.get('count', 0) == software.get('installed_apps', 0), software
+          assert software.get('component_count', 0) >= software.get('count', 0), software
+          assert software.get('hidden_system_components', 0) == software.get('component_count', 0) - software.get('count', 0), software
+          for item in software.get('items', []):
+              assert item.get('display_in_installed_software') is True, item
+              assert item.get('system_component') is not True, item
+              if item.get('essential') is True:
+                  assert item.get('native_actionable') is not True, item
+          for item in software.get('components', []):
+              if item.get('essential') is True:
+                  assert item.get('display_in_installed_software') is not True, item
+                  assert item.get('native_actionable') is not True, item
+          remote=data.get('capabilities', {}).get('remote_desktop_capabilities', {})
+          assert remote.get('backend') == 'none', remote
+          assert remote.get('headless') is True, remote
+          assert remote.get('management_only') is True, remote
+          assert remote.get('available') is False, remote
+          PY
+      - name: Package
+        run: |
+          mkdir -p native/agent/dist/linux/installer/linux
+          cp native/agent/build/portable-linux/Hi5CentralAgent native/agent/dist/linux/Hi5CentralAgent
+          cp native/agent/build/portable-linux/Hi5CentralRemoteHelper native/agent/dist/linux/Hi5CentralRemoteHelper
+          cp native/agent/Agent/portable_agent/installer/linux/install.sh native/agent/dist/linux/installer/linux/install.sh
+          chmod +x native/agent/dist/linux/Hi5CentralAgent native/agent/dist/linux/Hi5CentralRemoteHelper native/agent/dist/linux/installer/linux/install.sh
+          tar -C native/agent/dist/linux -czf native/agent/dist/Hi5CentralAgent-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Agent-Linux-x64
+          path: native/agent/dist/Hi5CentralAgent-linux-x64.tar.gz
+          retention-days: 14
+          if-no-files-found: error
+
+  macos-build:
+    name: macos-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve native codec dependencies
+        run: |
+          for formula in openssl@3 libvpx; do
+            if ! brew list "$formula" >/dev/null 2>&1; then
+              brew install "$formula"
+            fi
+          done
+
+          openssl_prefix="$(brew --prefix openssl@3)"
+          vpx_prefix="$(brew --prefix libvpx)"
+          test -f "$vpx_prefix/lib/libvpx.a"
+
+          # Homebrew's AOM bottles include VMAF and target newer macOS.
+          # Build a pinned, static, encoder-only AOM for our 12.3 target.
+          git clone --depth 1 --branch v3.12.1 \
+            https://aomedia.googlesource.com/aom \
+            "$RUNNER_TEMP/aom-src"
+
+          aom_cpu_args=()
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            # AOM 3.12.1 rejects Homebrew NASM 3.x. The generic x86 target
+            # avoids the external assembler while retaining functional AV1.
+            aom_cpu_args+=("-DAOM_TARGET_CPU=generic")
+          fi
+
+          cmake -S "$RUNNER_TEMP/aom-src" -B "$RUNNER_TEMP/aom-build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.3 \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DENABLE_DOCS=OFF \
+            -DENABLE_EXAMPLES=OFF \
+            -DENABLE_TESTS=OFF \
+            -DENABLE_TOOLS=OFF \
+            -DCONFIG_AV1_ENCODER=1 \
+            -DCONFIG_AV1_DECODER=0 \
+            -DCONFIG_TUNE_VMAF=0 \
+            "${aom_cpu_args[@]}"
+
+          cmake --build "$RUNNER_TEMP/aom-build" --target aom
+          test -f "$RUNNER_TEMP/aom-build/libaom.a"
+          ! nm -u "$RUNNER_TEMP/aom-build/libaom.a" 2>/dev/null | grep -q "_vmaf_" || {
+            echo "Pinned libaom unexpectedly contains VMAF references." >&2
+            exit 1
+          }
+
+          echo "OPENSSL_ROOT_DIR=$openssl_prefix" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=$vpx_prefix/lib/pkgconfig:$openssl_prefix/lib/pkgconfig" >> "$GITHUB_ENV"
+      - name: Configure native build
+        run: |
+          cmake -S native/agent/Agent/portable_agent -B native/agent/build/portable-macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.3 \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
+            -DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR" \
+            -DOPENSSL_USE_STATIC_LIBS=TRUE \
+            -DHI5_AOM_INCLUDE_DIR="$RUNNER_TEMP/aom-src" \
+            -DHI5_AOM_STATIC_ARCHIVE="$RUNNER_TEMP/aom-build/libaom.a" \
+            -DHI5CENTRAL_AGENT_VERSION=0.3.$((209 + GITHUB_RUN_NUMBER))
+      - name: Build
+        run: cmake --build native/agent/build/portable-macos
+      - name: Verify self-contained native binaries
+        run: |
+          echo "=== Agent dependencies ==="
+          otool -L native/agent/build/portable-macos/Hi5CentralAgent
+          echo "=== Remote Helper dependencies ==="
+          otool -L native/agent/build/portable-macos/Hi5CentralRemoteHelper | tee /tmp/hi5-helper-otool.txt
+          if grep -E '/(opt/homebrew|usr/local)/.*lib(ssl|crypto|vpx|aom).*\.dylib' /tmp/hi5-helper-otool.txt; then
+            echo "Remote Helper must not depend on Homebrew OpenSSL/VPX/AOM dylibs." >&2
+            exit 1
+          fi
+      - name: Runtime self-test
+        run: |
+          bash -n native/agent/Agent/portable_agent/installer/macos/install.sh
+          native/agent/build/portable-macos/Hi5CentralAgent --version
+          file native/agent/build/portable-macos/Hi5CentralAgent
+          file native/agent/build/portable-macos/Hi5CentralRemoteHelper
+          native/agent/build/portable-macos/Hi5CentralAgent --self-test-command
+          payload="$(printf '%s' '{"path":"/tmp","home":"/tmp"}' | base64 | tr -d '\n')"
+          native/agent/build/portable-macos/Hi5CentralAgent --hi5-file-helper list "$payload" current | python3 -c 'import json,sys; data=json.load(sys.stdin); assert data["ok"] and data["path"]=="/tmp"'
+          native/agent/build/portable-macos/Hi5CentralAgent --self-test | tee /tmp/hi5-agent-self-test.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/hi5-agent-self-test.json') as f:
+              data=json.load(f)
+          assert data['platform']=='macos', data
+          assert data['hostname'], data
+          assert data['architecture'], data
+          assert data['memory']['totalBytes'] > 0, data
+          assert data['disk']['totalBytes'] > 0, data
+          remote=data.get('capabilities', {}).get('remote_desktop_capabilities', {})
+          assert remote.get('backend') == 'macos_screencapturekit', remote
+          assert remote.get('implementation_ready') is True, remote
+          PY
+      - name: Stage native binaries
+        run: |
+          mkdir -p native/agent/dist/native
+          cp native/agent/build/portable-macos/Hi5CentralAgent native/agent/dist/native/Hi5CentralAgent
+          cp native/agent/build/portable-macos/Hi5CentralRemoteHelper native/agent/dist/native/Hi5CentralRemoteHelper
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Agent-macOS-${{ matrix.arch }}
+          path: native/agent/dist/native/
+          retention-days: 14
+          if-no-files-found: error
+
+  macos-package:
+    name: macos-universal-package
+    needs: macos-build
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Hi5Central-Agent-macOS-arm64
+          path: artifacts/arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: Hi5Central-Agent-macOS-x86_64
+          path: artifacts/x86_64
+      - name: Create universal binaries
+        run: |
+          mkdir -p native/agent/dist/macos/installer/macos
+          mkdir -p "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/MacOS"
+          lipo -create artifacts/arm64/Hi5CentralAgent artifacts/x86_64/Hi5CentralAgent -output native/agent/dist/macos/Hi5CentralAgent
+          lipo -create artifacts/arm64/Hi5CentralRemoteHelper artifacts/x86_64/Hi5CentralRemoteHelper -output "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/MacOS/Hi5CentralRemoteHelper"
+          file native/agent/dist/macos/Hi5CentralAgent
+          file "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/MacOS/Hi5CentralRemoteHelper"
+          lipo native/agent/dist/macos/Hi5CentralAgent -verify_arch arm64 x86_64
+          lipo "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/MacOS/Hi5CentralRemoteHelper" -verify_arch arm64 x86_64
+      - name: Package and sign
+        run: |
+          cp native/agent/Agent/portable_agent/installer/macos/remote-helper-Info.plist "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.$((209 + GITHUB_RUN_NUMBER))" "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $((209 + GITHUB_RUN_NUMBER))" "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/Info.plist"
+          codesign --force --sign - native/agent/dist/macos/Hi5CentralAgent
+          codesign --force --deep --sign - "native/agent/dist/macos/Hi5Central Remote Helper.app"
+          codesign --verify --deep --strict "native/agent/dist/macos/Hi5Central Remote Helper.app"
+          cp native/agent/Agent/portable_agent/installer/macos/install.sh native/agent/dist/macos/installer/macos/install.sh
+          chmod +x native/agent/dist/macos/Hi5CentralAgent "native/agent/dist/macos/Hi5Central Remote Helper.app/Contents/MacOS/Hi5CentralRemoteHelper" native/agent/dist/macos/installer/macos/install.sh
+          bash -n native/agent/dist/macos/installer/macos/install.sh
+          tar -C native/agent/dist/macos -czf native/agent/dist/Hi5CentralAgent-macOS-universal.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Agent-macOS-universal
+          path: native/agent/dist/Hi5CentralAgent-macOS-universal.tar.gz
+          retention-days: 14
+          if-no-files-found: error

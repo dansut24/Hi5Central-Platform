@@ -1,0 +1,54 @@
+name: Viewer Windows
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/viewer/**'
+      - '.github/workflows/viewer-windows.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'native/viewer/**'
+      - '.github/workflows/viewer-windows.yml'
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    defaults:
+      run:
+        working-directory: native/viewer
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup compiler not found.' }
+      - name: Build Viewer
+        shell: pwsh
+        run: |
+          ./installer/windows/Build-ViewerInstaller.ps1 -Clean -Generator 'Visual Studio 17 2022' -AppVersion "0.2.$(35 + [int]'${{ github.run_number }}')"
+      - name: Validate output
+        shell: pwsh
+        run: |
+          foreach ($path in @(
+            'dist/viewer/Hi5CentralViewer.exe',
+            'dist/viewer/web/index.html',
+            'dist/viewer/web/renderer.js',
+            'dist/installer/Hi5CentralViewerSetup.exe'
+          )) {
+            if (-not (Test-Path $path)) { throw "Missing Viewer output: $path" }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Viewer-Windows
+          path: |
+            native/viewer/dist/installer/Hi5CentralViewerSetup.exe
+            native/viewer/dist/viewer/**
+          retention-days: 14
+          if-no-files-found: error

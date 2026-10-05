@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Hi5Central Agent Deployment"
+    Manufacturer="Hi5Central"
+    Version="1.0.0"
+    UpgradeCode="A824267A-6EEA-4D38-9382-245EB857E275">
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPSYSTEMCOMPONENT" Value="1" />
+
+    <!--
+      These fixed-size values are stamped in-memory by the Hi5Central API.
+      Their byte lengths must stay stable so a tenant-specific MSI can be
+      produced instantly without rebuilding the MSI or requiring a JSON sidecar.
+    -->
+    <Property Id="HI5DEPLOYMENTID" Value="H5MSI_ID_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" Secure="yes" Hidden="yes" />
+    <Property Id="HI5DEPLOYMENTSECRET" Value="H5MSI_SECRET_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" Secure="yes" Hidden="yes" />
+    <Property Id="HI5APIBASE" Value="H5MSI_API_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" Secure="yes" Hidden="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="Hi5CentralFolder" Name="Hi5Central">
+        <Directory Id="DeploymentInstallerFolder" Name="Deployment Installer">
+          <Component Id="DeploymentInstallerComponent" Guid="*">
+            <File Id="DeploymentBootstrapExe" Source="$(var.BootstrapExe)" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Hi5Central Agent" Level="1">
+      <ComponentRef Id="DeploymentInstallerComponent" />
+    </Feature>
+
+    <CustomAction
+      Id="RunDeploymentBootstrap"
+      FileRef="DeploymentBootstrapExe"
+      ExeCommand="--quiet --deployment-id &quot;[HI5DEPLOYMENTID]&quot; --deployment-secret &quot;[HI5DEPLOYMENTSECRET]&quot; --api-base &quot;[HI5APIBASE]&quot; --install-source &quot;deployment-msi&quot;"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+
+    <InstallExecuteSequence>
+      <Custom Action="RunDeploymentBootstrap" After="InstallFiles" Condition="NOT Installed" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

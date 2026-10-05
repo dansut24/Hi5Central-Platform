@@ -1,0 +1,7 @@
+bin/
+obj/
+artifacts/
+publish/
+.vs/
+.idea/
+.DS_Store

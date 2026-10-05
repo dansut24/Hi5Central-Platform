@@ -1,0 +1,162 @@
+name: Viewer macOS and Linux
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/viewer/**'
+      - '.github/workflows/viewer-macos-linux.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'native/viewer/**'
+      - '.github/workflows/viewer-macos-linux.yml'
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    defaults:
+      run:
+        working-directory: native/viewer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build \
+            qt6-base-dev \
+            qt6-webengine-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake -G Ninja -B build -S . -DCMAKE_BUILD_TYPE=Release -DHI5CENTRAL_VIEWER_VERSION=0.2.$((38 + GITHUB_RUN_NUMBER))
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Validate Linux output
+        run: |
+          test -x build/Hi5CentralViewer
+          test -f build/web/index.html
+          test -f build/web/renderer.js
+          test -f build/web/file_browser.html
+          ldd build/Hi5CentralViewer
+          xvfb-run -a env \
+            QTWEBENGINE_DISABLE_SANDBOX=1 \
+            QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu \
+            build/Hi5CentralViewer --self-test-webrtc
+
+      - name: Package Linux DEB
+        run: |
+          PKG=dist/deb
+          mkdir -p "$PKG/DEBIAN" "$PKG/usr/lib/hi5central-viewer/web" "$PKG/usr/share/applications"
+          cp build/Hi5CentralViewer "$PKG/usr/lib/hi5central-viewer/Hi5CentralViewer"
+          cp web/index.html web/renderer.js web/file_browser.html "$PKG/usr/lib/hi5central-viewer/web/"
+          chmod 755 "$PKG/usr/lib/hi5central-viewer/Hi5CentralViewer"
+          cat > "$PKG/usr/share/applications/hi5central-viewer.desktop" <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Name=Hi5Central Viewer
+          Comment=Hi5Central remote support viewer
+          Exec=/usr/lib/hi5central-viewer/Hi5CentralViewer %u
+          Terminal=false
+          Categories=Network;RemoteAccess;
+          MimeType=x-scheme-handler/hi5central-viewer;x-scheme-handler/hi5viewer;x-scheme-handler/hi5tech;
+          EOF
+          cat > "$PKG/DEBIAN/control" <<EOF
+          Package: hi5central-viewer
+          Version: 0.2.$((38 + GITHUB_RUN_NUMBER))
+          Section: net
+          Priority: optional
+          Architecture: amd64
+          Depends: libqt6webenginewidgets6
+          Maintainer: Hi5Central
+          Description: Hi5Central native remote desktop Viewer
+           Native desktop Viewer for Hi5Central RMM remote support sessions.
+          EOF
+          cat > "$PKG/DEBIAN/postinst" <<'EOF'
+          #!/bin/sh
+          set -e
+          if command -v update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database /usr/share/applications >/dev/null 2>&1 || true
+          fi
+          exit 0
+          EOF
+          chmod 755 "$PKG/DEBIAN/postinst"
+          dpkg-deb --build --root-owner-group "$PKG" dist/hi5central-viewer_amd64.deb
+          dpkg-deb --info dist/hi5central-viewer_amd64.deb
+          dpkg-deb --contents dist/hi5central-viewer_amd64.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Viewer-Linux-x64
+          path: native/viewer/dist/hi5central-viewer_amd64.deb
+          retention-days: 14
+          if-no-files-found: error
+
+  build-macos:
+    defaults:
+      run:
+        working-directory: native/viewer
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure universal macOS build
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DHI5CENTRAL_VIEWER_VERSION="0.2.$((38 + GITHUB_RUN_NUMBER))" \
+            -DHI5CENTRAL_VIEWER_VERSION=0.2.$((38 + GITHUB_RUN_NUMBER))
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Validate macOS app bundle
+        run: |
+          test -d build/Hi5CentralViewer.app
+          test -x build/Hi5CentralViewer.app/Contents/MacOS/Hi5CentralViewer
+          test -x build/Hi5CentralViewer.app/Contents/MacOS/Hi5CentralViewerCore
+          test -f build/Hi5CentralViewer.app/Contents/Resources/web/index.html
+          test -f build/Hi5CentralViewer.app/Contents/Resources/web/renderer.js
+          test -f build/Hi5CentralViewer.app/Contents/Resources/web/file_browser.html
+          plutil -lint build/Hi5CentralViewer.app/Contents/Info.plist
+          /usr/bin/otool -L build/Hi5CentralViewer.app/Contents/MacOS/Hi5CentralViewerCore
+          /usr/bin/lipo -info build/Hi5CentralViewer.app/Contents/MacOS/Hi5CentralViewer
+          /usr/bin/lipo -info build/Hi5CentralViewer.app/Contents/MacOS/Hi5CentralViewerCore
+
+      - name: Ad-hoc sign test bundle
+        run: codesign --force --deep --sign - build/Hi5CentralViewer.app
+
+      - name: Package macOS DMG
+        run: |
+          rm -rf dist/dmg-root
+          mkdir -p dist/dmg-root
+          ditto build/Hi5CentralViewer.app dist/dmg-root/Hi5CentralViewer.app
+          ln -s /Applications dist/dmg-root/Applications
+          hdiutil create \
+            -volname "Hi5Central Viewer" \
+            -srcfolder dist/dmg-root \
+            -ov \
+            -format UDZO \
+            dist/Hi5CentralViewer-macOS.dmg
+          hdiutil imageinfo dist/Hi5CentralViewer-macOS.dmg >/dev/null
+          hdiutil attach -nobrowse -readonly dist/Hi5CentralViewer-macOS.dmg >/dev/null
+          test -d "/Volumes/Hi5Central Viewer/Hi5CentralViewer.app"
+          test -L "/Volumes/Hi5Central Viewer/Applications"
+          hdiutil detach "/Volumes/Hi5Central Viewer" >/dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Viewer-macOS
+          path: native/viewer/dist/Hi5CentralViewer-macOS.dmg
+          retention-days: 14
+          if-no-files-found: error

@@ -2,8 +2,18 @@ name: Platform Containers
 
 on:
   pull_request:
+    paths:
+      - 'apps/**'
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/platform-containers.yml'
   push:
     branches: [main, develop]
+    paths:
+      - 'apps/**'
+      - 'services/**'
+      - 'packages/**'
+      - '.github/workflows/platform-containers.yml'
   workflow_dispatch:
 
 permissions:
