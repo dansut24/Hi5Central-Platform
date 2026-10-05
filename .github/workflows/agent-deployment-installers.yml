@@ -1,0 +1,237 @@
+name: Agent deployment installers
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/agent/**'
+      - '.github/workflows/agent-deployment-installers.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'native/agent/**'
+      - '.github/workflows/agent-deployment-installers.yml'
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Windows build dependencies
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          nuget install Microsoft.Web.WebView2 -OutputDirectory native/agent/Agent/chatpass_agent/external -NonInteractive
+          $vcpkg = 'C:\vcpkg\vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) { throw 'GitHub runner vcpkg was not found at C:\vcpkg.' }
+          & $vcpkg install openssl:x64-windows-static nlohmann-json:x64-windows-static libvpx:x64-windows-static libdatachannel:x64-windows-static
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg dependency install failed with exit code $LASTEXITCODE." }
+
+      - name: Build current Windows Agent setup
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio C++ build tools not found.' }
+          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $repo = (Resolve-Path 'native/agent/Agent/chatpass_agent').Path
+          $script = Join-Path $repo 'installer\windows\Build-AgentInstaller.ps1'
+          $agentVersion = '1.0.' + (20 + [int]'${{ github.run_number }}')
+          Write-Host "Windows Agent version: $agentVersion"
+          $cmd = 'call "' + $devcmd + '" -arch=x64 -host_arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $script + '" -Clean -Generator "Visual Studio 18 2026" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "' + $agentVersion + '"'
+          cmd.exe /d /s /c $cmd
+          if ($LASTEXITCODE -ne 0) { throw "Windows Agent installer build failed with exit code $LASTEXITCODE." }
+          $built = 'native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
+          if (-not (Test-Path $built)) { throw 'Windows Agent installer output is missing.' }
+          $patchHost = Get-ChildItem 'native/agent/Agent/chatpass_agent/build' -Filter 'Hi5CentralPatchHost.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $patchHost) { throw 'Windows PatchHost build output is missing.' }
+          Write-Host "PatchHost: $($patchHost.FullName) ($($patchHost.Length) bytes)"
+          $payloadDir = 'native/agent/Agent/tenant_installer/windows/payload'
+          New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
+          Copy-Item $built "$payloadDir/Hi5CentralAgentSetup.exe"
+          Write-Host "Current Agent setup size: $((Get-Item $built).Length) bytes"
+
+      - name: Build native single-file Windows installer template
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw 'Visual Studio C++ build tools not found.' }
+          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          New-Item -ItemType Directory -Force -Path native/agent/dist/windows | Out-Null
+          $output = (Join-Path (Resolve-Path '.').Path 'native/agent/dist/windows/Hi5CentralAgentTemplate.exe')
+          $source = (Resolve-Path 'native/agent/Agent/tenant_installer/windows').Path
+          $compile = 'call "' + $devcmd + '" -arch=x64 -host_arch=x64 && cd /d "' + $source + '" && rc /nologo /fo bootstrap.res bootstrap.rc && cl /nologo /std:c++17 /O2 /MT /EHsc /DUNICODE /D_UNICODE bootstrap.cpp bootstrap.res advapi32.lib user32.lib shell32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:NO /OUT:"' + $output + '"'
+          cmd.exe /d /s /c $compile
+          if ($LASTEXITCODE -ne 0) { throw "Native Windows bootstrap build failed with exit code $LASTEXITCODE." }
+          $size = (Get-Item $output).Length
+          if ($size -lt 1000000 -or $size -gt 50000000) {
+            throw "Native Windows installer template size is unexpected: $size bytes"
+          }
+          Write-Host "Native Windows template size: $size bytes"
+
+      - name: Build tenant-stampable Windows MSI template
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          $env:PATH += ";$env:USERPROFILE\.dotnet\tools"
+          $bootstrap = (Resolve-Path 'native/agent/dist/windows/Hi5CentralAgentTemplate.exe').Path
+          wix build native/agent/Agent/tenant_installer/windows/Package.wxs -arch x64 -d "BootstrapExe=$bootstrap" -o native/agent/dist/windows/Hi5CentralAgentTemplate.msi
+          if ($LASTEXITCODE -ne 0) { throw "Windows MSI template build failed with exit code $LASTEXITCODE." }
+
+          $msi = 'native/agent/dist/windows/Hi5CentralAgentTemplate.msi'
+          $bytes = [System.IO.File]::ReadAllBytes($msi)
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          $markers = @(
+            'H5MSI_ID_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            'H5MSI_SECRET_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+            'H5MSI_API_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+          )
+          foreach ($marker in $markers) {
+            $count = ([regex]::Matches($text, [regex]::Escape($marker))).Count
+            if ($count -ne 1) {
+              throw "MSI tenant stamp marker must occur exactly once; marker prefix $($marker.Substring(0, [Math]::Min(16, $marker.Length))) occurred $count times."
+            }
+          }
+
+          $size = (Get-Item $msi).Length
+          if ($size -lt 1000000 -or $size -gt 60000000) {
+            throw "Windows MSI template size is unexpected: $size bytes"
+          }
+          Write-Host "Tenant-stampable Windows MSI template size: $size bytes"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Windows-Tenant-Template
+          path: |
+            native/agent/dist/windows/Hi5CentralAgentTemplate.exe
+            native/agent/dist/windows/Hi5CentralAgentTemplate.msi
+          retention-days: 30
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build generic APP PKG and DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/MacOS"
+          mkdir -p "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/Resources"
+          cp native/agent/Agent/tenant_installer/macos/Info.plist "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/Info.plist"
+          cp native/agent/Agent/tenant_installer/macos/AppLauncher.sh "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/MacOS/Hi5CentralAgentInstaller"
+          cp native/agent/Agent/tenant_installer/macos/install.sh "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/Resources/Install Hi5Central Agent.command"
+          chmod +x "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/MacOS/Hi5CentralAgentInstaller" "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app/Contents/Resources/Install Hi5Central Agent.command"
+          codesign --force --deep --sign - "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app"
+          ditto -c -k --sequesterRsrc --keepParent "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app" "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app.zip"
+
+          mkdir -p native/agent/dist/macos/pkg-scripts
+          cp native/agent/Agent/tenant_installer/macos/install.sh native/agent/dist/macos/pkg-scripts/install.sh
+          chmod +x native/agent/dist/macos/pkg-scripts/install.sh
+          cat > native/agent/dist/macos/pkg-scripts/postinstall <<'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+          "$SCRIPT_DIR/install.sh"
+          EOF
+          chmod +x native/agent/dist/macos/pkg-scripts/postinstall
+          pkgbuild --nopayload --scripts native/agent/dist/macos/pkg-scripts --identifier com.hi5central.agent.deployment --version 1.0 native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.pkg
+
+          mkdir -p native/agent/dist/macos/dmg-root
+          cp -R "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app" native/agent/dist/macos/dmg-root/
+          cp "native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.pkg" native/agent/dist/macos/dmg-root/
+          hdiutil create -volname "Hi5Central Agent" -srcfolder native/agent/dist/macos/dmg-root -ov -format UDZO native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Deployment-macOS
+          path: |
+            native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.app.zip
+            native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.pkg
+            native/agent/dist/macos/Hi5CentralAgentDeployment-macOS.dmg
+          retention-days: 30
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build generic RUN DEB and RPM
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y rpm
+          mkdir -p native/agent/dist/linux
+          cp native/agent/Agent/tenant_installer/linux/install.sh native/agent/dist/linux/Hi5CentralAgentDeployment-Linux.run
+          chmod +x native/agent/dist/linux/Hi5CentralAgentDeployment-Linux.run
+
+          deb_root="native/agent/dist/linux/deb-root"
+          mkdir -p "$deb_root/DEBIAN" "$deb_root/usr/lib/hi5central/deployment-installer"
+          cp native/agent/Agent/tenant_installer/linux/install.sh "$deb_root/usr/lib/hi5central/deployment-installer/install.sh"
+          chmod +x "$deb_root/usr/lib/hi5central/deployment-installer/install.sh"
+          cat > "$deb_root/DEBIAN/control" <<'EOF'
+          Package: hi5central-agent-deployment
+          Version: 1.0.0
+          Section: admin
+          Priority: optional
+          Architecture: amd64
+          Depends: curl, tar
+          Maintainer: Hi5Central <hello@hi5central.com>
+          Description: Generic Hi5Central Agent deployment bootstrap
+          EOF
+          cat > "$deb_root/DEBIAN/postinst" <<'EOF'
+          #!/bin/sh
+          set -e
+          /usr/lib/hi5central/deployment-installer/install.sh
+          exit 0
+          EOF
+          chmod 0755 "$deb_root/DEBIAN/postinst"
+          dpkg-deb --build --root-owner-group "$deb_root" native/agent/dist/linux/hi5central-agent-deployment_amd64.deb
+
+          topdir="$RUNNER_TEMP/rpmbuild"
+          mkdir -p "$topdir"/BUILD "$topdir"/BUILDROOT "$topdir"/RPMS "$topdir"/SOURCES "$topdir"/SPECS "$topdir"/SRPMS
+          cp native/agent/Agent/tenant_installer/linux/install.sh "$topdir/SOURCES/install.sh"
+          cat > "$topdir/SPECS/hi5central-agent.spec" <<'EOF'
+          Name: hi5central-agent-deployment
+          Version: 1.0.0
+          Release: 1
+          Summary: Generic Hi5Central Agent deployment bootstrap
+          License: Proprietary
+          BuildArch: x86_64
+          Requires: curl
+          Source0: install.sh
+
+          %description
+          Generic deployment bootstrap for Hi5Central Agent.
+
+          %prep
+          %build
+          %install
+          mkdir -p %{buildroot}/usr/lib/hi5central/deployment-installer
+          install -m 0755 %{SOURCE0} %{buildroot}/usr/lib/hi5central/deployment-installer/install.sh
+
+          %post
+          /usr/lib/hi5central/deployment-installer/install.sh
+
+          %files
+          /usr/lib/hi5central/deployment-installer/install.sh
+          EOF
+          rpmbuild -bb --define "_topdir $topdir" "$topdir/SPECS/hi5central-agent.spec"
+          rpm_file="$(find "$topdir/RPMS" -type f -name '*.rpm' -print -quit)"
+          cp "$rpm_file" native/agent/dist/linux/hi5central-agent-deployment_x86_64.rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Deployment-Linux
+          path: |
+            native/agent/dist/linux/Hi5CentralAgentDeployment-Linux.run
+            native/agent/dist/linux/hi5central-agent-deployment_amd64.deb
+            native/agent/dist/linux/hi5central-agent-deployment_x86_64.rpm
+          retention-days: 30
+          if-no-files-found: error
