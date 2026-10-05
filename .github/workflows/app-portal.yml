@@ -1,0 +1,62 @@
+name: App Portal
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/app-portal/**'
+      - '.github/workflows/app-portal.yml'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'native/app-portal/**'
+      - '.github/workflows/app-portal.yml'
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-2022
+            rid: win-x64
+            artifact: Hi5Central-App-Portal-Windows
+          - os: ubuntu-24.04
+            rid: linux-x64
+            artifact: Hi5Central-App-Portal-Linux
+          - os: macos-14
+            rid: osx-arm64
+            artifact: Hi5Central-App-Portal-macOS
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: native/app-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Hi5Central.AppPortal/Hi5Central.AppPortal.csproj
+      - name: Build
+        run: dotnet build Hi5Central.AppPortal/Hi5Central.AppPortal.csproj -c Release --no-restore
+      - name: Publish self-contained
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-app-portal'
+          dotnet publish Hi5Central.AppPortal/Hi5Central.AppPortal.csproj -c Release -r "${{ matrix.rid }}" --self-contained true -o $out `
+            /p:PublishSingleFile=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:PublishTrimmed=false `
+            /p:DebugType=None `
+            /p:DebugSymbols=false
+          if ($LASTEXITCODE -ne 0) { throw 'App Portal publish failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ runner.temp }}/hi5-app-portal/**
+          retention-days: 14
+          if-no-files-found: error
