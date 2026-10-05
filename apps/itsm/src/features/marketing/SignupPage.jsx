@@ -5,6 +5,7 @@ import './MarketingApp.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const DEPLOYMENT = deploymentConfig()
+const SELF_HOST_SINGLE = DEPLOYMENT.deploymentMode === 'self_hosted' && DEPLOYMENT.tenancyMode === 'single'
 
 function slugFromCompany(value = '') {
   return String(value)
@@ -15,6 +16,12 @@ function slugFromCompany(value = '') {
     .slice(0, 48)
 }
 
+function initialSetupToken() {
+  if (!SELF_HOST_SINGLE || typeof window === 'undefined') return ''
+  const hash = String(window.location.hash || '').replace(/^#/, '')
+  return new URLSearchParams(hash).get('setup') || ''
+}
+
 function Header() {
   return (
     <header className="marketing-header">
@@ -23,40 +30,54 @@ function Header() {
           <img src="/hi5central-logo.png" alt="" />
           <span>Hi5Central</span>
         </a>
-        <a className="marketing-button marketing-button-small" href="/">Back to website</a>
+        <a className="marketing-button marketing-button-small" href="/">Back</a>
       </div>
     </header>
   )
 }
 
 export function SignupPage() {
+  const [setupToken, setSetupToken] = useState(initialSetupToken)
   const [form, setForm] = useState({
-    companyName: '', tenantSlug: '', name: '', email: '', password: '', confirmPassword: '', itsm: true, rmm: false,
+    companyName: '',
+    tenantSlug: SELF_HOST_SINGLE ? DEPLOYMENT.primaryTenantSlug : '',
+    name: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    itsm: true,
+    rmm: Boolean(DEPLOYMENT.rmmUrl),
   })
-  const [slugTouched, setSlugTouched] = useState(false)
-  const [slugStatus, setSlugStatus] = useState('idle')
+  const [slugTouched, setSlugTouched] = useState(SELF_HOST_SINGLE)
+  const [slugStatus, setSlugStatus] = useState(SELF_HOST_SINGLE ? 'available' : 'idle')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState(null)
   const [resendState, setResendState] = useState('idle')
 
   useEffect(() => {
-    document.title = 'Create your Hi5Central workspace'
+    document.title = SELF_HOST_SINGLE ? 'Set up Hi5Central' : 'Create your Hi5Central workspace'
     const params = new URLSearchParams(window.location.search)
     if (params.get('verification') === 'invalid') {
-      setError('That verification link is invalid, expired or has already been used. Create a new workspace or resend verification from the confirmation screen.')
+      setError('That verification link is invalid, expired or has already been used.')
+    }
+    if (SELF_HOST_SINGLE && window.location.hash) {
+      window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`)
     }
   }, [])
 
-  const tenantPreview = useMemo(() => DEPLOYMENT.tenancyMode === 'single' ? DEPLOYMENT.rootDomain : `${form.tenantSlug || 'your-company'}.${DEPLOYMENT.rootDomain}`, [form.tenantSlug])
+  const tenantPreview = useMemo(() => {
+    if (SELF_HOST_SINGLE) return DEPLOYMENT.appUrl || DEPLOYMENT.rootDomain
+    return `${form.tenantSlug || 'your-company'}.${DEPLOYMENT.rootDomain}`
+  }, [form.tenantSlug])
 
   function updateField(field, value) {
     setForm((current) => {
       const next = { ...current, [field]: value }
-      if (field === 'companyName' && !slugTouched) next.tenantSlug = slugFromCompany(value)
+      if (!SELF_HOST_SINGLE && field === 'companyName' && !slugTouched) next.tenantSlug = slugFromCompany(value)
       return next
     })
-    if (field === 'tenantSlug') {
+    if (!SELF_HOST_SINGLE && field === 'tenantSlug') {
       setSlugTouched(true)
       setSlugStatus('idle')
     }
@@ -64,6 +85,10 @@ export function SignupPage() {
   }
 
   async function checkSlug() {
+    if (SELF_HOST_SINGLE) {
+      setSlugStatus('available')
+      return
+    }
     const slug = slugFromCompany(form.tenantSlug)
     if (!slug || slug.length < 3) {
       setSlugStatus('invalid')
@@ -85,11 +110,13 @@ export function SignupPage() {
     setError('')
     if (form.password !== form.confirmPassword) return setError('Your passwords do not match.')
     if (!form.itsm && !form.rmm) return setError('Select at least one Hi5Central product.')
+    if (SELF_HOST_SINGLE && !setupToken) return setError('Enter the initial setup code shown by the Hi5Central installer.')
 
     setSubmitting(true)
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/signup`, {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyName: form.companyName,
@@ -98,10 +125,16 @@ export function SignupPage() {
           email: form.email,
           password: form.password,
           modules: [form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
+          setupToken: SELF_HOST_SINGLE ? setupToken : undefined,
         }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'We could not create your workspace.')
+
+      if (data.verificationRequired === false && data.status === 'active') {
+        window.location.replace('/onboarding')
+        return
+      }
       setCreated(data)
     } catch (submitError) {
       setError(submitError.message)
@@ -150,14 +183,13 @@ export function SignupPage() {
             <div className="marketing-notice">
               {delivered
                 ? `A one-time verification link has been sent to ${created.admin?.email}. It expires in 24 hours.`
-                : `Your tenant was created, but the verification email could not be confirmed as delivered. Use resend after the mail service has been checked.`}
+                : 'Your tenant was created, but the verification email could not be delivered. Check SMTP configuration and resend.'}
             </div>
             {resendState === 'sent' ? <div className="marketing-notice">A fresh verification email has been requested.</div> : null}
-            {resendState === 'failed' ? <div className="marketing-form-error">We could not resend the verification email. Please try again shortly.</div> : null}
+            {resendState === 'failed' ? <div className="marketing-form-error">We could not resend the verification email.</div> : null}
             <button className="marketing-button" onClick={resend} disabled={resendState === 'sending'} type="button">
               {resendState === 'sending' ? 'Sending…' : 'Resend verification email'}
             </button>
-            <a className="marketing-text-link" href="/">Back to Hi5Central <ArrowRight size={16} /></a>
           </section>
         </main>
       </div>
@@ -169,34 +201,55 @@ export function SignupPage() {
       <Header />
       <main className="marketing-signup-wrap">
         <section className="marketing-signup-copy">
-          <span className="marketing-eyebrow">Create your workspace</span>
-          <h1>Start with the products you need.</h1>
-          <p>Your tenant URL, administrator account and product selection are created together. Verify your email, complete onboarding and enter the workspace automatically.</p>
+          <span className="marketing-eyebrow">{SELF_HOST_SINGLE ? 'First-time setup' : 'Create your workspace'}</span>
+          <h1>{SELF_HOST_SINGLE ? 'Create your Hi5Central administrator.' : 'Start with the products you need.'}</h1>
+          <p>
+            {SELF_HOST_SINGLE
+              ? 'Your installation is running. Create the first organisation and owner account to continue to onboarding.'
+              : 'Your tenant URL, administrator account and product selection are created together. Verify your email, complete onboarding and enter the workspace automatically.'}
+          </p>
           <div className="marketing-signup-points">
-            <span><CheckCircle2 size={18} /> Dedicated tenant workspace</span>
+            <span><CheckCircle2 size={18} /> {SELF_HOST_SINGLE ? 'Single-organisation installation' : 'Dedicated tenant workspace'}</span>
             <span><CheckCircle2 size={18} /> Matching self-service portal</span>
             <span><CheckCircle2 size={18} /> Secure owner identity</span>
           </div>
         </section>
 
         <form className="marketing-signup-card" onSubmit={submit}>
-          <div className="marketing-form-heading"><span>Hi5Central signup</span><strong>{tenantPreview}</strong></div>
+          <div className="marketing-form-heading"><span>Hi5Central setup</span><strong>{tenantPreview}</strong></div>
 
-          <label><span>Company name</span><input value={form.companyName} onChange={(event) => updateField('companyName', event.target.value)} required minLength={2} maxLength={120} autoComplete="organization" /></label>
-          <label>
-            <span>Tenant URL</span>
-            <div className="marketing-slug-field">
-              <input value={form.tenantSlug} onChange={(event) => updateField('tenantSlug', event.target.value)} onBlur={checkSlug} required minLength={3} maxLength={48} spellCheck="false" />
-              <span>.hi5central.com</span>
-            </div>
-            <small className={`marketing-slug-status is-${slugStatus}`}>
-              {slugStatus === 'checking' ? 'Checking availability…' : null}
-              {slugStatus === 'available' ? 'Available' : null}
-              {slugStatus === 'unavailable' ? 'That tenant URL is not available.' : null}
-              {slugStatus === 'invalid' ? 'Use at least 3 letters, numbers or hyphens.' : null}
-              {slugStatus === 'unknown' ? 'Availability will be checked when you submit.' : null}
-            </small>
-          </label>
+          {SELF_HOST_SINGLE && !setupToken ? (
+            <label>
+              <span>Initial setup code</span>
+              <input
+                type="password"
+                value={setupToken}
+                onChange={(event) => { setSetupToken(event.target.value.trim()); setError('') }}
+                required
+                autoComplete="off"
+              />
+              <small>Use the setup code printed by ./install.sh.</small>
+            </label>
+          ) : null}
+
+          <label><span>Organisation name</span><input value={form.companyName} onChange={(event) => updateField('companyName', event.target.value)} required minLength={2} maxLength={120} autoComplete="organization" /></label>
+
+          {!SELF_HOST_SINGLE ? (
+            <label>
+              <span>Tenant URL</span>
+              <div className="marketing-slug-field">
+                <input value={form.tenantSlug} onChange={(event) => updateField('tenantSlug', event.target.value)} onBlur={checkSlug} required minLength={3} maxLength={48} spellCheck="false" />
+                <span>.hi5central.com</span>
+              </div>
+              <small className={`marketing-slug-status is-${slugStatus}`}>
+                {slugStatus === 'checking' ? 'Checking availability…' : null}
+                {slugStatus === 'available' ? 'Available' : null}
+                {slugStatus === 'unavailable' ? 'That tenant URL is not available.' : null}
+                {slugStatus === 'invalid' ? 'Use at least 3 letters, numbers or hyphens.' : null}
+                {slugStatus === 'unknown' ? 'Availability will be checked when you submit.' : null}
+              </small>
+            </label>
+          ) : null}
 
           <div className="marketing-product-choice-heading">Products</div>
           <div className="marketing-product-choice-grid">
@@ -206,7 +259,7 @@ export function SignupPage() {
 
           <div className="marketing-form-grid">
             <label><span>Your name</span><input value={form.name} onChange={(event) => updateField('name', event.target.value)} required autoComplete="name" /></label>
-            <label><span>Work email</span><input type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} required autoComplete="email" /></label>
+            <label><span>Email</span><input type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} required autoComplete="email" /></label>
           </div>
           <div className="marketing-form-grid">
             <label><span>Password</span><input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} required minLength={12} autoComplete="new-password" /><small>Use at least 12 characters.</small></label>
@@ -214,8 +267,15 @@ export function SignupPage() {
           </div>
 
           {error ? <div className="marketing-form-error">{error}</div> : null}
-          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable'}>{submitting ? 'Creating workspace…' : 'Create workspace'}{!submitting ? <ArrowRight size={18} /> : null}</button>
-          <p className="marketing-form-footnote">By creating a workspace you agree to use Hi5Central for legitimate business administration and support purposes.</p>
+          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable'}>
+            {submitting ? 'Creating workspace…' : SELF_HOST_SINGLE ? 'Create administrator' : 'Create workspace'}
+            {!submitting ? <ArrowRight size={18} /> : null}
+          </button>
+          <p className="marketing-form-footnote">
+            {SELF_HOST_SINGLE
+              ? 'The setup code is only accepted while this installation has no tenant.'
+              : 'By creating a workspace you agree to use Hi5Central for legitimate business administration and support purposes.'}
+          </p>
         </form>
       </main>
     </div>
