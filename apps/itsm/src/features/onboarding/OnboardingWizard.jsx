@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowRight,
   Building2,
   Check,
-  CheckCircle2,
-  Cloud,
   LockKeyhole,
   Mail,
   MonitorCog,
@@ -40,7 +39,6 @@ const defaultPrefixes = {
 const stepMeta = {
   company: { label: 'Company', icon: Building2, description: 'Organisation identity and regional defaults.' },
   theme: { label: 'Branding', icon: Palette, description: 'Set the default look and feel for your tenant.' },
-  users: { label: 'Microsoft 365 & users', icon: Cloud, description: 'Choose how people will enter Hi5Central.' },
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
@@ -54,7 +52,6 @@ function sequenceFor(modules = {}) {
   return [
     'company',
     'theme',
-    'users',
     'groups',
     'permissions',
     'security',
@@ -84,19 +81,6 @@ function defaultData(step, session) {
       mode: 'system',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
-    },
-    users: {
-      source: 'microsoft365',
-      microsoft365: {
-        status: 'not_connected',
-        tenantName: '',
-        directoryUsers: 0,
-        directoryGroups: 0,
-      },
-      syncUsers: true,
-      syncGroups: true,
-      inviteMode: 'later',
-      invites: '',
     },
     groups: {
       serviceDeskTeam: 'Service Desk',
@@ -223,26 +207,26 @@ async function fetchWithDeadline(url, options = {}, timeoutMs = 12000) {
 export function OnboardingWizard({ session, onSessionChange }) {
   const modules = session?.tenant?.modules || {}
   const sequence = useMemo(() => sequenceFor(modules), [modules])
-  const step = sequence.includes(session?.onboarding?.step) ? session.onboarding.step : sequence[0]
-  const index = Math.max(0, sequence.indexOf(step))
-  const [data, setData] = useState(() => defaultData(step, session))
-  const [activeStep, setActiveStep] = useState(step)
+  const canonicalStep = sequence.includes(session?.onboarding?.step) ? session.onboarding.step : sequence[0]
+  const canonicalIndex = Math.max(0, sequence.indexOf(canonicalStep))
+  const [viewStep, setViewStep] = useState(canonicalStep)
+  const [data, setData] = useState(() => defaultData(canonicalStep, session))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (activeStep === step) return
-    setActiveStep(step)
-    setData(defaultData(step, session))
+    setViewStep(canonicalStep)
+    setData(defaultData(canonicalStep, session))
     setError('')
-  }, [activeStep, session, step])
+  }, [canonicalStep])
 
+  const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
-  const activeAccent = step === 'theme' ? data.accent : savedAccent || 'amber'
+  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || 'amber'
   const shellStyle = { '--onboarding-accent': accentColours[activeAccent] || accentColours.amber }
-  const meta = stepMeta[step]
+  const meta = stepMeta[viewStep]
   const Icon = meta?.icon || Sparkles
-  const progress = Math.round(((index + 1) / sequence.length) * 100)
+  const progress = Math.round(((canonicalIndex + 1) / sequence.length) * 100)
 
   function update(field, value) {
     setData((current) => ({ ...current, [field]: value }))
@@ -260,32 +244,63 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setError('')
   }
 
-  async function saveStep() {
+  function normalisedStepData(stepName, stepData) {
+    if (stepName !== 'itsm') return stepData
+    const configured = stepData.numberingMode === 'custom'
+      ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key, fallback]) => [
+          key,
+          normalisePrefix(stepData.recordPrefixes?.[key], fallback),
+        ]))
+      : { ...defaultPrefixes }
+    return { ...stepData, recordPrefixes: configured }
+  }
+
+  async function persistStep(stepName, stepData, { advance = false } = {}) {
+    const payloadData = normalisedStepData(stepName, stepData)
+    const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/${advance ? 'step' : 'save'}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step: stepName, data: payloadData }),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || 'We could not save this onboarding step.')
+    return { payload, payloadData }
+  }
+
+  async function continueStep() {
     setSaving(true)
     setError('')
-
-    let payloadData = data
-    if (step === 'itsm') {
-      const configured = data.numberingMode === 'custom'
-        ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key, fallback]) => [
-            key,
-            normalisePrefix(data.recordPrefixes?.[key], fallback),
-          ]))
-        : { ...defaultPrefixes }
-      payloadData = { ...data, recordPrefixes: configured }
-      setData(payloadData)
-    }
-
     try {
-      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/step`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step, data: payloadData }),
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || 'We could not save this onboarding step.')
+      if (viewStep === canonicalStep) {
+        const { payload, payloadData } = await persistStep(viewStep, data, { advance: true })
+        setData(payloadData)
+        onSessionChange(payload)
+        return
+      }
+
+      const { payload } = await persistStep(viewStep, data)
       onSessionChange(payload)
+      const nextView = sequence[Math.min(viewIndex + 1, canonicalIndex)]
+      setViewStep(nextView)
+      setData(defaultData(nextView, payload))
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function goPrevious() {
+    if (viewIndex <= 0) return
+    setSaving(true)
+    setError('')
+    try {
+      const { payload } = await persistStep(viewStep, data)
+      onSessionChange(payload)
+      const previousView = sequence[viewIndex - 1]
+      setViewStep(previousView)
+      setData(defaultData(previousView, payload))
     } catch (saveError) {
       setError(saveError.message)
     } finally {
@@ -312,7 +327,6 @@ export function OnboardingWizard({ session, onSessionChange }) {
   }
 
   const savedItsm = session?.onboarding?.data?.itsm || {}
-  const saved365 = session?.onboarding?.data?.users?.microsoft365 || {}
 
   return (
     <div className="onboarding-shell" style={shellStyle}>
@@ -326,8 +340,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
         <nav className="onboarding-steps" aria-label="Onboarding progress">
           {sequence.map((item, itemIndex) => {
             const ItemIcon = stepMeta[item]?.icon || Check
-            const complete = itemIndex < index
-            const current = item === step
+            const complete = itemIndex < canonicalIndex
+            const current = item === viewStep
             return (
               <div className={`onboarding-step ${complete ? 'is-complete' : ''} ${current ? 'is-current' : ''}`} key={item}>
                 <span className="onboarding-step-icon">{complete ? <Check size={15} /> : <ItemIcon size={15} />}</span>
@@ -343,13 +357,13 @@ export function OnboardingWizard({ session, onSessionChange }) {
           <div className="onboarding-heading">
             <span className="onboarding-heading-icon"><Icon size={21} /></span>
             <div>
-              <span>Step {index + 1} of {sequence.length}</span>
+              <span>Step {viewIndex + 1} of {sequence.length}</span>
               <h1>{meta?.label}</h1>
               <p>{meta?.description}</p>
             </div>
           </div>
 
-          {step === 'company' ? (
+          {viewStep === 'company' ? (
             <>
               <Section title="Organisation" description="These values become the tenant defaults and can be changed later in Settings.">
                 <div className="onboarding-form-grid">
@@ -365,7 +379,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'theme' ? (
+          {viewStep === 'theme' ? (
             <>
               <Section title="Default appearance" description="This becomes the starting experience for the tenant. Individual users can later have personal preferences.">
                 <div className="onboarding-form-grid">
@@ -382,40 +396,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'users' ? (
-            <>
-              <Section title="Microsoft 365" description="Directory connections are established through the production Microsoft connector.">
-                <div className={`onboarding-integration-card ${data.microsoft365?.status === 'connected' ? 'is-connected' : ''}`}>
-                  <div className="onboarding-integration-logo"><Cloud size={24} /></div>
-                  <div className="onboarding-integration-copy">
-                    <div className="onboarding-integration-title">
-                      <strong>Microsoft 365 directory</strong>
-                      {data.microsoft365?.status === 'connected' ? <span><CheckCircle2 size={14} /> Connected</span> : <span>Not connected</span>}
-                    </div>
-                    {data.microsoft365?.status === 'connected' ? (
-                      <p>{data.microsoft365.tenantName || 'Microsoft 365'} · {data.microsoft365.directoryUsers || 0} users · {data.microsoft365.directoryGroups || 0} groups discovered.</p>
-                    ) : (
-                      <p>Configure Microsoft 365 from Settings → Integrations after onboarding. No directory data is created locally.</p>
-                    )}
-                  </div>
-                  <button className="onboarding-secondary" disabled type="button">{data.microsoft365?.status === 'connected' ? 'Managed by connector' : 'Configure after onboarding'}</button>
-                </div>
-                <div className="onboarding-integration-note"><ShieldCheck size={16} /><span>Hi5Central only treats Microsoft 365 as connected after the production OAuth and Microsoft Graph connector reports a successful connection.</span></div>
-              </Section>
-
-              <Section title="User provisioning" description="Choose what a future live Microsoft 365 sync should manage.">
-                <div className="onboarding-toggle-grid">
-                  <Toggle checked={Boolean(data.syncUsers)} onChange={(value) => update('syncUsers', value)} title="Synchronise users" description="Create and update Hi5Central people from Microsoft 365." />
-                  <Toggle checked={Boolean(data.syncGroups)} onChange={(value) => update('syncGroups', value)} title="Synchronise groups" description="Use selected Microsoft 365 groups as managed team membership sources." />
-                </div>
-                <div className="onboarding-form-grid onboarding-form-grid-one">
-                  <Field label="Additional invites" hint="Optional. Separate email addresses with commas."><textarea value={data.invites || ''} onChange={(event) => update('invites', event.target.value)} rows={3} placeholder="alex@example.com, jamie@example.com" /></Field>
-                </div>
-              </Section>
-            </>
-          ) : null}
-
-          {step === 'groups' ? (
+          {viewStep === 'groups' ? (
             <>
               <Section title="Initial structure" description="Create sensible defaults before importing or manually adding the full organisation.">
                 <div className="onboarding-form-grid">
@@ -428,7 +409,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'permissions' ? (
+          {viewStep === 'permissions' ? (
             <>
               <Section title="Role model" description="Start with a template; granular RBAC remains editable later in Settings.">
                 <div className="onboarding-choice-grid">
@@ -446,7 +427,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'security' ? (
+          {viewStep === 'security' ? (
             <>
               <Section title="Authentication & sessions" description="These are tenant defaults and are enforced by the tenant security service where supported.">
                 <div className="onboarding-form-grid">
@@ -459,7 +440,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'itsm' ? (
+          {viewStep === 'itsm' ? (
             <>
               <Section title="Record numbering" description="Use Hi5Central defaults or choose your own prefixes for records created in this tenant.">
                 <div className="onboarding-segmented">
@@ -528,7 +509,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'rmm' ? (
+          {viewStep === 'rmm' ? (
             <>
               <Section title="Managed estate defaults" description="These values seed the first RMM site, policy and operational defaults.">
                 <div className="onboarding-form-grid">
@@ -546,7 +527,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'billing' ? (
+          {viewStep === 'billing' ? (
             <>
               <Section title="Plan" description="Choose the tenant subscription state. Payment activation is handled by the production billing service.">
                 <div className="onboarding-choice-grid">
@@ -561,7 +542,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'finish' ? (
+          {viewStep === 'finish' ? (
             <div className="onboarding-finish">
               <span><Sparkles size={24} /></span>
               <h2>Your workspace is ready.</h2>
@@ -570,22 +551,33 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
-                <div><span>Microsoft 365</span><strong>{saved365.status === 'connected' ? 'Connected' : 'Not connected'}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
-              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'All settings in this onboarding pass are persisted locally. Microsoft 365, inbound email and AI remain unavailable until their integrations are configured.' : 'All settings in this onboarding pass are persisted to the tenant. Microsoft 365, inbound email, AI and billing features remain unavailable until their production integrations are connected.'}</span></div>
+              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. External integrations, inbound email and AI can be configured later from Settings.'}</span></div>
             </div>
           ) : null}
 
           {error ? <div className="onboarding-error">{error}</div> : null}
 
           <div className="onboarding-actions">
-            <span className="onboarding-saved">Your progress is saved to this tenant.</span>
-            <button className="onboarding-primary" disabled={saving} onClick={step === 'finish' ? complete : saveStep} type="button">
-              {saving ? 'Saving…' : step === 'finish' ? 'Open Hi5Central' : 'Continue'}
-              {!saving ? <ArrowRight size={17} /> : null}
-            </button>
+            <span className="onboarding-saved">Changes are saved as you move between steps.</span>
+            <div className="onboarding-action-buttons">
+              {viewIndex > 0 ? (
+                <button className="onboarding-secondary" disabled={saving} onClick={goPrevious} type="button">
+                  <ArrowLeft size={16} /> Previous
+                </button>
+              ) : null}
+              <button
+                className="onboarding-primary"
+                disabled={saving}
+                onClick={viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
+                type="button"
+              >
+                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Continue'}
+                {!saving ? <ArrowRight size={17} /> : null}
+              </button>
+            </div>
           </div>
         </div>
       </main>
