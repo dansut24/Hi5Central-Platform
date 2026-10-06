@@ -14,6 +14,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import { OnboardingMfaEnhancer } from '../security/OnboardingMfaEnhancer.jsx'
 import './OnboardingWizard.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -563,6 +564,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
           </div>
         </div>
       </main>
+      <OnboardingMfaEnhancer />
     </div>
   )
 }
