@@ -2035,3 +2035,10 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
   .rmm-viewer-install-dialog { width: 100%; border-radius: 16px 16px 0 0; padding: 22px 18px calc(22px + env(safe-area-inset-bottom)); }
   .rmm-viewer-install-actions { display: grid; }
 }
+@media (min-width: 761px) {
+  .rmm-app[data-nav-side='right'] { grid-template-columns: minmax(0, 1fr) 248px; }
+  .rmm-app[data-nav-side='right'] > .rmm-sidebar { grid-column: 2; grid-row: 1; }
+  .rmm-app[data-nav-side='right'] > .rmm-shell-main { grid-column: 1; grid-row: 1; }
+}
+.rmm-app[data-density='compact'] .rmm-page { padding-top: 20px; padding-bottom: 34px; }
+.rmm-app[data-density='compact'] .rmm-card { --rmm-compact-density: 1; }
