@@ -169,28 +169,36 @@ async function hydrateWorkspaceData() {
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SESSION_BOOTSTRAP_TIMEOUT_MS) {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    })
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), timeoutMs)
+  })
+  const request = (async () => {
+    const response = await fetch(url, options)
     const payload = await response.json().catch(() => ({}))
     return { response, payload }
+  })()
+
+  try {
+    return await Promise.race([request, timeout])
   } finally {
     window.clearTimeout(timer)
   }
 }
 
-function LoadingScreen({ tenantName }) {
+function LoadingScreen({ tenantName, delayed, onRetry }) {
   return (
     <div className="production-auth-shell">
       <div className="production-auth-card production-auth-loading">
         <img src="/hi5central-logo.png" alt="" />
         <strong>Opening {tenantName}</strong>
-        <span>Checking your secure Hi5Central session…</span>
+        <span>{delayed ? 'Session restore is taking longer than expected.' : 'Checking your secure Hi5Central session…'}</span>
+        {delayed ? (
+          <div className="production-auth-loading-actions">
+            <button type="button" onClick={onRetry}>Retry session</button>
+            <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
+          </div>
+        ) : null}
       </div>
     </div>
   )
@@ -402,6 +410,9 @@ export function ProductionWorkspaceBootstrap() {
   const [serverSession, setServerSession] = useState(null)
   const [tenantState, setTenantState] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [bootstrapError, setBootstrapError] = useState('')
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
+  const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
 
   useEffect(() => {
@@ -433,6 +444,9 @@ export function ProductionWorkspaceBootstrap() {
 
   useEffect(() => {
     let active = true
+    const delayedTimer = window.setTimeout(() => {
+      if (active) setBootstrapDelayed(true)
+    }, 5000)
 
     function acceptBootstrapPayload(payload) {
       if (!active || payload?.tenant?.slug !== surface.tenantSlug) return false
@@ -453,29 +467,46 @@ export function ProductionWorkspaceBootstrap() {
     }
 
     async function bootstrap() {
+      setLoading(true)
+      setBootstrapError('')
+      setBootstrapDelayed(false)
+
       try {
         const handoff = takeProductionAuthHandoff()
         if (handoff && acceptBootstrapPayload(handoff)) return
 
         const { response, payload } = await fetchJsonWithTimeout(`${API_BASE}/api/v1/auth/session`, {
           credentials: 'include',
+          cache: 'no-store',
         })
 
         if (response.ok && acceptBootstrapPayload(payload)) return
 
         clearProductionSession()
-        const { payload: statePayload } = await fetchJsonWithTimeout(
+
+        const { response: stateResponse, payload: statePayload } = await fetchJsonWithTimeout(
           `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+          { cache: 'no-store' },
         )
+
+        if (!stateResponse.ok) throw new Error(statePayload?.error || 'TENANT_STATE_FAILED')
+
         if (statePayload?.setupRequired) {
           window.location.replace('/signup')
           return
         }
+
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
         clearProductionSession()
+
         if (active) {
+          setBootstrapError(
+            error?.message === 'REQUEST_TIMEOUT'
+              ? 'Hi5Central could not restore the session within 8 seconds.'
+              : 'Hi5Central could not restore this session.',
+          )
           setTenantState({
             managed: true,
             slug: surface.tenantSlug,
@@ -485,13 +516,20 @@ export function ProductionWorkspaceBootstrap() {
           })
         }
       } finally {
-        if (active) setLoading(false)
+        window.clearTimeout(delayedTimer)
+        if (active) {
+          setLoading(false)
+          setBootstrapDelayed(false)
+        }
       }
     }
 
     bootstrap()
-    return () => { active = false }
-  }, [surface.tenantName, surface.tenantSlug])
+    return () => {
+      active = false
+      window.clearTimeout(delayedTimer)
+    }
+  }, [bootstrapAttempt, surface.tenantName, surface.tenantSlug])
 
   useEffect(() => {
     if (!serverSession) return
@@ -574,7 +612,15 @@ export function ProductionWorkspaceBootstrap() {
     })
   }
 
-  if (loading) return <LoadingScreen tenantName={surface.tenantName} />
+  if (loading) {
+    return (
+      <LoadingScreen
+        delayed={bootstrapDelayed}
+        tenantName={surface.tenantName}
+        onRetry={() => setBootstrapAttempt((current) => current + 1)}
+      />
+    )
+  }
 
   if (serverSession && !serverSession.onboarding?.completedAt) {
     return <OnboardingWizard session={serverSession} onSessionChange={acceptSession} />
@@ -611,6 +657,22 @@ export function ProductionWorkspaceBootstrap() {
         ) : null}
         {profileOpen ? <ProductionProfileLayer session={serverSession} /> : null}
       </>
+    )
+  }
+
+  if (tenantState?.managed && tenantState?.unavailable) {
+    return (
+      <div className="production-auth-shell">
+        <div className="production-auth-card production-auth-loading">
+          <img src="/hi5central-logo.png" alt="" />
+          <strong>We could not restore {surface.tenantName}</strong>
+          <span>{bootstrapError || 'The secure session could not be restored.'}</span>
+          <div className="production-auth-loading-actions">
+            <button type="button" onClick={() => setBootstrapAttempt((current) => current + 1)}>Retry session</button>
+            <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
+          </div>
+        </div>
+      </div>
     )
   }
 
