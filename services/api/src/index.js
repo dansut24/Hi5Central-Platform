@@ -96,7 +96,6 @@ function onboardingSequence(modules = {}) {
     'security',
     modules?.itsm ? 'itsm' : null,
     modules?.rmm ? 'rmm' : null,
-    deployment.deploymentMode === 'self_hosted' ? null : 'billing',
     'finish',
   ].filter(Boolean)
 }
