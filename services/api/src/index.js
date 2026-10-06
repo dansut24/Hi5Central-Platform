@@ -46,6 +46,7 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
+import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
 import {
   createSession,
@@ -557,6 +558,7 @@ registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
+registerUserPreferenceRoutes(app)
 registerSecurityRoutes(app)
 registerMfaRoutes(app)
 registerProjectRoutes(app)
