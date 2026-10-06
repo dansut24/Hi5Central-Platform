@@ -304,6 +304,27 @@ export function OnboardingWizard({ session, onSessionChange }) {
     }
   }
 
+  async function verifyDomain() {
+    setDeliveryBusy(true)
+    setDeliveryNotice('')
+    try {
+      const saved = await saveDeliveryConfig()
+      setData(saved)
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/delivery/verify-domain`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Custom domain verification failed.')
+      const next = { ...saved, ...(payload.config || {}) }
+      setData(next)
+      setDeliveryNotice('DNS ownership verified. Hi5Central will keep the default address active until HTTPS provisioning is complete.')
+      return next
+    } finally {
+      setDeliveryBusy(false)
+    }
+  }
+
   function normalisedStepData(stepName, stepData) {
     if (stepName !== 'itsm') return stepData
     const configured = stepData.numberingMode === 'custom'
@@ -501,6 +522,13 @@ export function OnboardingWizard({ session, onSessionChange }) {
                         <span>Add this TXT record before activating the custom domain:</span>
                         <code>_hi5central.{data.customWorkspaceDomain}</code>
                         <code>hi5central-verification={data.domainVerificationToken}</code>
+                        {data.customPortalDomain ? <code>_hi5central.{data.customPortalDomain}</code> : null}
+                        <div className="onboarding-inline-actions">
+                          <button className="onboarding-secondary" disabled={deliveryBusy} onClick={() => verifyDomain().catch((verifyError) => setError(verifyError.message))} type="button">
+                            {deliveryBusy ? 'Checking DNS…' : data.domainStatus === 'verified' ? 'Verify DNS again' : 'Verify DNS'}
+                          </button>
+                          {data.domainStatus === 'verified' ? <span className="onboarding-verified"><Check size={15} /> Domain ownership verified</span> : null}
+                        </div>
                         <small>The default Hi5Central address remains live until DNS verification and certificate provisioning complete.</small>
                       </div>
                     ) : null}
