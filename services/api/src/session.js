@@ -157,6 +157,44 @@ export function setPortalSessionCookie(c, token, maxAge = DEFAULT_SESSION_TTL_SE
 export function clearSessionCookie(c) { deleteNamedCookie(c, COOKIE_NAME) }
 export function clearPortalSessionCookie(c) { deleteNamedCookie(c, PORTAL_COOKIE_NAME) }
 
+export async function resolveOnboardingSession(c) {
+  const token = getCookie(c, COOKIE_NAME)
+  if (!token) return null
+
+  const tokenHash = hashToken(token)
+  const result = await pool.query(
+    `SELECT s.id AS session_id,s.tenant_id,s.user_id,s.expires_at,s.created_at AS session_created_at,s.mfa_verified_at,
+            t.slug,t.company_name,t.status AS tenant_status,
+            u.email,u.name,
+            m.role AS tenant_role,m.status AS membership_status,
+            ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,
+            ts.tenant_url,ts.portal_url,ts.rmm_url
+       FROM auth_sessions s
+       JOIN tenants t ON t.id=s.tenant_id
+       JOIN users u ON u.id=s.user_id
+       JOIN tenant_memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
+       JOIN tenant_settings ts ON ts.tenant_id=s.tenant_id
+      WHERE s.token_hash=$1
+        AND s.revoked_at IS NULL
+        AND s.expires_at>now()
+      LIMIT 1`,
+    [tokenHash],
+  )
+
+  if (!result.rowCount) return null
+
+  const session = result.rows[0]
+  if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
+  if (!['owner', 'admin'].includes(session.tenant_role) && !session.onboarding_completed_at) return null
+
+  pool.query(
+    'UPDATE auth_sessions SET last_seen_at=now() WHERE id=$1',
+    [session.session_id],
+  ).catch(() => {})
+
+  return session
+}
+
 export async function resolveSession(c) {
   const apiToken = bearerToken(c)
   if (apiToken) return resolveApiToken(c, apiToken)
