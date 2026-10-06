@@ -113,7 +113,8 @@ services:
       VITE_ROOT_DOMAIN: ${DEV_HOST:-localhost}
       VITE_PRIMARY_TENANT_SLUG: ${PRIMARY_TENANT_SLUG:-local}
       VITE_APP_URL: http://${DEV_HOST:-localhost}:3000
-      VITE_API_URL: http://${DEV_HOST:-localhost}:3001
+      VITE_API_URL: http://${DEV_HOST:-localhost}:3000
+      HI5_DEV_API_PROXY_TARGET: http://api:3001
       VITE_PORTAL_URL: http://${DEV_HOST:-localhost}:3000/portal
       VITE_RMM_URL: http://${DEV_HOST:-localhost}:3002
       VITE_ADMIN_URL: http://${DEV_HOST:-localhost}:3003
@@ -140,7 +141,8 @@ services:
       VITE_ROOT_DOMAIN: ${DEV_HOST:-localhost}
       VITE_PRIMARY_TENANT_SLUG: ${PRIMARY_TENANT_SLUG:-local}
       VITE_APP_URL: http://${DEV_HOST:-localhost}:3000
-      VITE_API_URL: http://${DEV_HOST:-localhost}:3001
+      VITE_API_URL: http://${DEV_HOST:-localhost}:3002
+      HI5_DEV_API_PROXY_TARGET: http://api:3001
       VITE_PORTAL_URL: http://${DEV_HOST:-localhost}:3000/portal
       VITE_RMM_URL: http://${DEV_HOST:-localhost}:3002
       VITE_ADMIN_URL: http://${DEV_HOST:-localhost}:3003
@@ -168,7 +170,8 @@ services:
       VITE_ROOT_DOMAIN: ${DEV_HOST:-localhost}
       VITE_PRIMARY_TENANT_SLUG: ${PRIMARY_TENANT_SLUG:-local}
       VITE_APP_URL: http://${DEV_HOST:-localhost}:3000
-      VITE_API_URL: http://${DEV_HOST:-localhost}:3001
+      VITE_API_URL: http://${DEV_HOST:-localhost}:3003
+      HI5_DEV_API_PROXY_TARGET: http://api:3001
       VITE_PORTAL_URL: http://${DEV_HOST:-localhost}:3000/portal
       VITE_RMM_URL: http://${DEV_HOST:-localhost}:3002
       VITE_ADMIN_URL: http://${DEV_HOST:-localhost}:3003
