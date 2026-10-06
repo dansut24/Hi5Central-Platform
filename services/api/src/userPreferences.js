@@ -8,6 +8,7 @@ const ALLOWED_DENSITY = new Set(['comfortable', 'compact'])
 const ALLOWED_SIDE = new Set(['left', 'right'])
 const ALLOWED_STYLE = new Set(['floating', 'clean'])
 const ALLOWED_MODE = new Set(['expanded', 'collapsed', 'hidden'])
+const ALLOWED_PLATFORM = new Set(['itsm', 'rmm', 'admin'])
 
 function originMatchesSession(c, session) {
   return originMatchesTenant(c.req.header('origin'), session.slug)
@@ -15,12 +16,8 @@ function originMatchesSession(c, session) {
 
 async function requireSession(c) {
   const session = await resolveSession(c)
-  if (!session) {
-    return { error: c.json({ error: 'Authentication required.' }, 401) }
-  }
-  if (!originMatchesSession(c, session)) {
-    return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
-  }
+  if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
+  if (!originMatchesSession(c, session)) return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
   return { session }
 }
 
@@ -28,7 +25,12 @@ function asObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
 }
 
-function normalisePreferences(input = {}) {
+export function normalisePlatform(value, fallback = 'itsm') {
+  const platform = String(value || '').trim().toLowerCase()
+  return ALLOWED_PLATFORM.has(platform) ? platform : fallback
+}
+
+export function normalisePreferences(input = {}) {
   const data = asObject(input)
   const appearance = asObject(data.appearance)
   const navigation = asObject(data.navigation)
@@ -53,116 +55,138 @@ function normalisePreferences(input = {}) {
   }
 }
 
-async function readPreferenceRow(session) {
+export async function readUserExperience(userId) {
   const result = await pool.query(
-    `SELECT
-       preferences,
-       first_login_completed_at,
-       coachmarks_completed_at,
-       getting_started_dismissed_at
-     FROM user_preferences
-     WHERE tenant_id = $1
-       AND user_id = $2
-     LIMIT 1`,
-    [session.tenant_id, session.user_id],
+    `SELECT preferences,first_login_completed_at,platform_guidance,platform_getting_started
+       FROM user_experience_preferences
+      WHERE user_id=$1
+      LIMIT 1`,
+    [userId],
   )
-
   return result.rows[0] || null
 }
 
-function responsePayload(session, row) {
+function markerTimestamp(container, platform, field) {
+  const value = asObject(asObject(container)[platform])[field]
+  return value || null
+}
+
+export function experiencePayload({ user, tenant = null, tenantOnboardingCompletedAt = null, row, platform = 'itsm' }) {
+  const resolvedPlatform = normalisePlatform(platform)
+  const guidance = asObject(row?.platform_guidance)
+  const gettingStarted = asObject(row?.platform_getting_started)
   return {
-    user: {
-      id: session.user_id,
-      name: session.name,
-      email: session.email,
-      tenantRole: session.tenant_role,
-    },
-    tenant: {
-      id: session.tenant_id,
-      slug: session.slug,
-      companyName: session.company_name,
-      modules: session.modules || {},
-    },
+    user,
+    tenant,
     preferences: row ? normalisePreferences(row.preferences || {}) : null,
     firstLoginCompletedAt: row?.first_login_completed_at || null,
-    coachmarksCompletedAt: row?.coachmarks_completed_at || null,
-    gettingStartedDismissedAt: row?.getting_started_dismissed_at || null,
+    tenantOnboardingCompletedAt: tenantOnboardingCompletedAt || null,
+    platform: resolvedPlatform,
+    platformGuidance: guidance,
+    platformCoachmarksCompletedAt: markerTimestamp(guidance, resolvedPlatform, 'completedAt'),
+    platformGettingStartedDismissedAt: markerTimestamp(gettingStarted, resolvedPlatform, 'dismissedAt'),
   }
+}
+
+export async function patchUserExperience(userId, body = {}) {
+  const platform = normalisePlatform(body?.platform)
+  const current = await readUserExperience(userId)
+  const preferences = body?.preferences
+    ? normalisePreferences(body.preferences)
+    : normalisePreferences(current?.preferences || {})
+  const guidance = { ...asObject(current?.platform_guidance) }
+  const gettingStarted = { ...asObject(current?.platform_getting_started) }
+  const now = new Date().toISOString()
+
+  if (body?.coachmarksComplete) {
+    guidance[platform] = { ...asObject(guidance[platform]), completedAt: guidance[platform]?.completedAt || now }
+  }
+  if (body?.gettingStartedDismissed) {
+    gettingStarted[platform] = { ...asObject(gettingStarted[platform]), dismissedAt: gettingStarted[platform]?.dismissedAt || now }
+  }
+
+  const encoded = JSON.stringify(preferences)
+  if (encoded.length > 20_000) {
+    const error = new Error('User preferences are too large.')
+    error.status = 413
+    throw error
+  }
+
+  await pool.query(
+    `INSERT INTO user_experience_preferences (
+       user_id,preferences,first_login_completed_at,platform_guidance,platform_getting_started,updated_at
+     ) VALUES (
+       $1,$2::jsonb,CASE WHEN $3::boolean THEN now() ELSE NULL END,$4::jsonb,$5::jsonb,now()
+     )
+     ON CONFLICT (user_id)
+     DO UPDATE SET
+       preferences=EXCLUDED.preferences,
+       first_login_completed_at=CASE
+         WHEN $3::boolean THEN COALESCE(user_experience_preferences.first_login_completed_at,now())
+         ELSE user_experience_preferences.first_login_completed_at
+       END,
+       platform_guidance=EXCLUDED.platform_guidance,
+       platform_getting_started=EXCLUDED.platform_getting_started,
+       updated_at=now()`,
+    [userId, encoded, Boolean(body?.firstLoginComplete), JSON.stringify(guidance), JSON.stringify(gettingStarted)],
+  )
+
+  return readUserExperience(userId)
 }
 
 export function registerUserPreferenceRoutes(app) {
   app.get('/api/v1/user-preferences', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
-
-    const row = await readPreferenceRow(auth.session)
-    return c.json(responsePayload(auth.session, row))
+    const platform = normalisePlatform(c.req.query('surface'))
+    const row = await readUserExperience(auth.session.user_id)
+    return c.json(experiencePayload({
+      user: {
+        id: auth.session.user_id,
+        name: auth.session.name,
+        email: auth.session.email,
+        tenantRole: auth.session.tenant_role,
+      },
+      tenant: {
+        id: auth.session.tenant_id,
+        slug: auth.session.slug,
+        companyName: auth.session.company_name,
+        modules: auth.session.modules || {},
+      },
+      tenantOnboardingCompletedAt: auth.session.onboarding_completed_at,
+      row,
+      platform,
+    }))
   })
 
   app.patch('/api/v1/user-preferences', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
-
     let body
+    try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
     try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'A valid JSON request body is required.' }, 400)
+      const row = await patchUserExperience(auth.session.user_id, body)
+      return c.json(experiencePayload({
+        user: {
+          id: auth.session.user_id,
+          name: auth.session.name,
+          email: auth.session.email,
+          tenantRole: auth.session.tenant_role,
+        },
+        tenant: {
+          id: auth.session.tenant_id,
+          slug: auth.session.slug,
+          companyName: auth.session.company_name,
+          modules: auth.session.modules || {},
+        },
+        tenantOnboardingCompletedAt: auth.session.onboarding_completed_at,
+        row,
+        platform: normalisePlatform(body?.platform),
+      }))
+    } catch (error) {
+      if (error?.status) return c.json({ error: error.message }, error.status)
+      throw error
     }
-
-    const preferences = normalisePreferences(body?.preferences || {})
-    const encoded = JSON.stringify(preferences)
-
-    if (encoded.length > 20_000) {
-      return c.json({ error: 'User preferences are too large.' }, 413)
-    }
-
-    await pool.query(
-      `INSERT INTO user_preferences (
-         tenant_id,
-         user_id,
-         preferences,
-         first_login_completed_at,
-         coachmarks_completed_at,
-         getting_started_dismissed_at,
-         updated_at
-       ) VALUES (
-         $1,
-         $2,
-         $3::jsonb,
-         CASE WHEN $4::boolean THEN now() ELSE NULL END,
-         CASE WHEN $5::boolean THEN now() ELSE NULL END,
-         CASE WHEN $6::boolean THEN now() ELSE NULL END,
-         now()
-       )
-       ON CONFLICT (tenant_id, user_id)
-       DO UPDATE SET
-         preferences = EXCLUDED.preferences,
-         first_login_completed_at = CASE
-           WHEN $4::boolean THEN COALESCE(user_preferences.first_login_completed_at, now())
-           ELSE user_preferences.first_login_completed_at
-         END,
-         coachmarks_completed_at = CASE
-           WHEN $5::boolean THEN COALESCE(user_preferences.coachmarks_completed_at, now())
-           ELSE user_preferences.coachmarks_completed_at
-         END,
-         getting_started_dismissed_at = CASE
-           WHEN $6::boolean THEN COALESCE(user_preferences.getting_started_dismissed_at, now())
-           ELSE user_preferences.getting_started_dismissed_at
-         END,
-         updated_at = now()`,
-      [
-        auth.session.tenant_id,
-        auth.session.user_id,
-        encoded,
-        Boolean(body?.firstLoginComplete),
-        Boolean(body?.coachmarksComplete),
-        Boolean(body?.gettingStartedDismissed),
-      ],
-    )
-
-    const row = await readPreferenceRow(auth.session)
-    return c.json(responsePayload(auth.session, row))
   })
 }
