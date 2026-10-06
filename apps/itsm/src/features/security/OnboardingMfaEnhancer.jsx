@@ -32,7 +32,7 @@ export function OnboardingMfaEnhancer() {
 
       const finishNote = card?.querySelector('.onboarding-finish-note span')
       if (finishNote?.textContent?.includes('MFA enforcement')) {
-        finishNote.textContent = 'All settings in this onboarding pass are persisted to the tenant. Microsoft 365, inbound email and billing remain unavailable until their production integrations are connected.'
+        finishNote.textContent = 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'
       }
 
       if (!securityOpen || !card) {
