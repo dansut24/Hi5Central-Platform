@@ -2454,7 +2454,7 @@ function RmmSettings({ navigate }) {
   return <><PageHeading activeView="settings" /><div className="rmm-settings-grid">{settings.map(({ icon: Icon, title, detail, target }) => <button className="rmm-card" key={title} onClick={() => target && navigate(target)} type="button"><span><Icon size={19} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={17} /></button>)}</div></>
 }
 
-export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = false, canRemote = false, currentUser, dataLoading = false, devices = rmmDevices, sites = [], handleLogout, onCreateItsmIncident, onSitesChange, setTheme, tenantName, theme, tickets = [] }) {
+export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = false, canRemote = false, currentUser, dataLoading = false, density = 'comfortable', devices = rmmDevices, sites = [], handleLogout, navSide = 'left', onCreateItsmIncident, onSitesChange, setTheme, tenantName, theme, tickets = [] }) {
   const initialRoute = rmmRouteFromLocation()
   const [activeView, setActiveView] = useState(initialRoute.viewId || 'dashboard')
   const [selectedDeviceId, setSelectedDeviceId] = useState(initialRoute.deviceId || '')
@@ -2550,7 +2550,7 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   }
 
   return (
-    <div className="rmm-app" data-accent={accent} data-theme={theme}>
+    <div className="rmm-app" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme}>
       <RmmSidebar activeView={visibleActiveView} canAudit={canAudit} canRemote={canRemote} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} tenantName={tenantName} />
       <div className="rmm-shell-main">
         <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
