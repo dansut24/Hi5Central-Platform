@@ -31,8 +31,9 @@ export function OnboardingMfaEnhancer() {
       const securityOpen = heading?.textContent?.trim() === 'Security'
 
       const finishNote = card?.querySelector('.onboarding-finish-note span')
-      if (finishNote?.textContent?.includes('MFA enforcement')) {
-        finishNote.textContent = 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'
+      const finishText = 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'
+      if (finishNote?.textContent?.includes('MFA enforcement') && finishNote.textContent !== finishText) {
+        finishNote.textContent = finishText
       }
 
       if (!securityOpen || !card) {
@@ -44,8 +45,9 @@ export function OnboardingMfaEnhancer() {
       const section = [...card.querySelectorAll('.onboarding-section')]
         .find((item) => item.querySelector('.onboarding-section-heading strong')?.textContent?.includes('Authentication & sessions'))
       const description = section?.querySelector('.onboarding-section-heading span')
-      if (description) {
-        description.textContent = 'These authentication, password, session and audit controls are enforced by the production security service.'
+      const securityDescription = 'These authentication, password, session and audit controls are enforced by the production security service.'
+      if (description && description.textContent !== securityDescription) {
+        description.textContent = securityDescription
       }
 
       const nextSelect = section?.querySelector('select') || null
@@ -70,7 +72,17 @@ export function OnboardingMfaEnhancer() {
       setTarget((current) => current === mount ? current : mount)
     }
 
-    const observer = new MutationObserver(attach)
+    let scheduled = false
+    const scheduleAttach = () => {
+      if (scheduled) return
+      scheduled = true
+      window.requestAnimationFrame(() => {
+        scheduled = false
+        attach()
+      })
+    }
+
+    const observer = new MutationObserver(scheduleAttach)
     observer.observe(document.body, { childList: true, subtree: true })
     attach()
 
