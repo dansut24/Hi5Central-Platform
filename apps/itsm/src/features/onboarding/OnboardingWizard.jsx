@@ -40,6 +40,7 @@ const defaultPrefixes = {
 const stepMeta = {
   company: { label: 'Company', icon: Building2, description: 'Organisation identity and regional defaults.' },
   theme: { label: 'Branding', icon: Palette, description: 'Set the default look and feel for your tenant.' },
+  delivery: { label: 'Domain & email', icon: Mail, description: 'Choose platform addresses and outbound email delivery.' },
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
@@ -52,6 +53,7 @@ function sequenceFor(modules = {}) {
   return [
     'company',
     'theme',
+    'delivery',
     'groups',
     'permissions',
     'security',
@@ -80,6 +82,22 @@ function defaultData(step, session) {
       mode: 'system',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
+    },
+    delivery: {
+      domainMode: 'default',
+      customWorkspaceDomain: '',
+      customPortalDomain: '',
+      domainStatus: 'default',
+      domainVerificationToken: '',
+      smtpMode: 'default',
+      smtpHost: '',
+      smtpPort: '587',
+      smtpSecurity: 'starttls',
+      smtpUsername: '',
+      smtpPasswordConfigured: false,
+      smtpFromName: session?.tenant?.companyName || 'Hi5Central',
+      smtpFromEmail: '',
+      smtpVerifiedAt: null,
     },
     groups: {
       serviceDeskTeam: session?.tenant?.modules?.itsm ? 'Service Desk' : 'Endpoint Operations',
@@ -140,7 +158,7 @@ function Field({ label, children, hint, full = false }) {
     <label className={`onboarding-field ${full ? 'onboarding-field-full' : ''}`}>
       <span>{label}</span>
       {children}
-      {hint ? <small>{hint}</small> : null}
+      <small className={hint ? '' : 'is-empty'}>{hint || ' '}</small>
     </label>
   )
 }
@@ -206,12 +224,29 @@ export function OnboardingWizard({ session, onSessionChange }) {
   const [data, setData] = useState(() => defaultData(canonicalStep, session))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [smtpPassword, setSmtpPassword] = useState('')
+  const [deliveryBusy, setDeliveryBusy] = useState(false)
+  const [deliveryNotice, setDeliveryNotice] = useState('')
 
   useEffect(() => {
     setViewStep(canonicalStep)
     setData(defaultData(canonicalStep, session))
     setError('')
   }, [canonicalStep])
+
+  useEffect(() => {
+    if (viewStep !== 'delivery') return undefined
+    let active = true
+    fetch(`${API_BASE}/api/v1/onboarding/delivery`, { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload.error || 'Could not load domain and email settings.')
+        if (!active) return
+        setData((current) => ({ ...current, ...(payload.config || {}) }))
+      })
+      .catch((loadError) => { if (active) setError(loadError.message) })
+    return () => { active = false }
+  }, [viewStep])
 
   const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
@@ -235,6 +270,38 @@ export function OnboardingWizard({ session, onSessionChange }) {
       },
     }))
     setError('')
+  }
+
+  async function saveDeliveryConfig({ testSmtp = false } = {}) {
+    setDeliveryBusy(true)
+    setDeliveryNotice('')
+    try {
+      const endpoint = testSmtp ? 'test-smtp' : ''
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/delivery${endpoint ? `/${endpoint}` : ''}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...data,
+          smtpPassword,
+        }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || (testSmtp ? 'SMTP connection test failed.' : 'Could not save domain and email settings.'))
+      const next = { ...data, ...(payload.config || {}) }
+      setData(next)
+      if (testSmtp) {
+        setSmtpPassword('')
+        setDeliveryNotice('SMTP connection verified. Hi5Central can use these details for tenant notifications.')
+      } else {
+        setDeliveryNotice(data.domainMode === 'custom'
+          ? 'Domain settings saved. Keep the default Hi5Central address active until DNS verification is complete.'
+          : 'Hi5Central default addressing and mail delivery selected.')
+      }
+      return next
+    } finally {
+      setDeliveryBusy(false)
+    }
   }
 
   function normalisedStepData(stepName, stepData) {
@@ -265,14 +332,22 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setSaving(true)
     setError('')
     try {
+      let stepData = data
+      if (viewStep === 'delivery') {
+        stepData = await saveDeliveryConfig()
+        if (stepData.smtpMode === 'custom' && !stepData.smtpVerifiedAt) {
+          throw new Error('Test the custom SMTP connection successfully before continuing.')
+        }
+      }
+
       if (viewStep === canonicalStep) {
-        const { payload, payloadData } = await persistStep(viewStep, data, { advance: true })
+        const { payload, payloadData } = await persistStep(viewStep, stepData, { advance: true })
         setData(payloadData)
         onSessionChange(payload)
         return
       }
 
-      const { payload } = await persistStep(viewStep, data)
+      const { payload } = await persistStep(viewStep, stepData)
       onSessionChange(payload)
       const nextView = sequence[Math.min(viewIndex + 1, canonicalIndex)]
       setViewStep(nextView)
@@ -289,7 +364,9 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setSaving(true)
     setError('')
     try {
-      const { payload } = await persistStep(viewStep, data)
+      let stepData = data
+      if (viewStep === 'delivery') stepData = await saveDeliveryConfig()
+      const { payload } = await persistStep(viewStep, stepData)
       onSessionChange(payload)
       const previousView = sequence[viewIndex - 1]
       setViewStep(previousView)
@@ -493,7 +570,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
               <Section title="Portal, knowledge & engagement" description="Choose which self-service capabilities are enabled from day one.">
                 <div className="onboarding-form-grid">
-                  <Field label="Portal name"><input value={data.portalName || ''} onChange={(event) => update('portalName', event.target.value)} /></Field>
+                  <Field label="Portal name" full><input value={data.portalName || ''} onChange={(event) => update('portalName', event.target.value)} /></Field>
                 </div>
                 <div className="onboarding-toggle-grid onboarding-toggle-grid-spaced">
                   <Toggle checked={Boolean(data.portalKnowledge)} onChange={(value) => update('portalKnowledge', value)} title="Knowledge in Portal" description="Show published knowledge articles to requesters." />
@@ -515,7 +592,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                   <Field label="Agent update channel"><select value={data.agentChannel || 'stable'} onChange={(event) => update('agentChannel', event.target.value)}><option value="stable">Stable</option><option value="early">Early access</option></select></Field>
                   <Field label="Monitoring policy"><input value={data.monitoringPolicy || ''} onChange={(event) => update('monitoringPolicy', event.target.value)} /></Field>
                   <Field label="Patch ring"><input value={data.patchRing || ''} onChange={(event) => update('patchRing', event.target.value)} /></Field>
-                  <Field label="Maintenance window"><input value={data.maintenanceWindow || ''} onChange={(event) => update('maintenanceWindow', event.target.value)} /></Field>
+                  <Field label="Maintenance window" full><input value={data.maintenanceWindow || ''} onChange={(event) => update('maintenanceWindow', event.target.value)} /></Field>
                 </div>
                 <div className="onboarding-toggle-grid onboarding-toggle-grid-spaced">
                   <Toggle checked={Boolean(data.unattendedAccess)} onChange={(value) => update('unattendedAccess', value)} title="Unattended remote access" description="Allow authorised technicians to start unattended sessions." />
