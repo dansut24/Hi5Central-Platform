@@ -227,6 +227,10 @@ export function ProductionRmmBootstrap() {
     const payload = await response.json().catch(() => ({}))
     setSubmitting(false)
     if (!response.ok) { setError(payload.error || 'Sign in failed.'); return }
+    if (!payload?.onboarding?.completedAt) {
+      window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
+      return
+    }
     setSession(payload)
   }
 
