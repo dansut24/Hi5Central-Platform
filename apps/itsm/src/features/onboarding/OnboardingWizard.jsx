@@ -81,7 +81,7 @@ function defaultData(step, session) {
       portalTitle: 'IT Help Centre',
     },
     groups: {
-      serviceDeskTeam: 'Service Desk',
+      serviceDeskTeam: session?.tenant?.modules?.itsm ? 'Service Desk' : 'Endpoint Operations',
       firstDepartment: 'IT',
       firstSite: 'Head Office',
       assignmentModel: 'team-first',
