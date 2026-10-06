@@ -24,7 +24,6 @@ import { ProductionLiveChatCompactTools } from './production/ProductionLiveChatC
 import { ProductionLiveChatWorkspace } from './production/ProductionLiveChatWorkspace.jsx'
 import { ProductionNavigationDockPreferences } from './production/ProductionNavigationDockPreferences.jsx'
 import { ProductionNotificationCenter } from './production/ProductionNotificationCenter.jsx'
-import { ProductionOnboardingBootstrap } from './production/ProductionOnboardingBootstrap.jsx'
 import { ProductionOrganisationWriteThrough } from './production/ProductionOrganisationWriteThrough.jsx'
 import { ProductionPortalBootstrap } from './production/ProductionPortalBootstrap.jsx'
 import { ProductionPortalKnowledgeChat } from './production/ProductionPortalKnowledgeChat.jsx'
@@ -91,7 +90,7 @@ if (initialSurface.kind === 'marketing') {
     ? SignupPage
     : MarketingApp
 }
-if (productionWorkspace) RootApp = productionOnboarding ? ProductionOnboardingBootstrap : ProductionWorkspaceBootstrap
+if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
 
 createRoot(rootElement).render(
