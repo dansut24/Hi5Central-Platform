@@ -11,7 +11,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
-import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantSmtp } from './tenantDelivery.js'
+import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
 import { registerMfaRoutes } from './mfa.js'
@@ -509,6 +509,19 @@ app.post('/api/v1/onboarding/delivery', async (c) => {
     return c.json({ config })
   } catch (error) {
     return c.json({ error: error?.message || 'Could not save domain and email settings.' }, 400)
+  }
+})
+
+app.post('/api/v1/onboarding/delivery/verify-domain', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  try {
+    const config = await verifyTenantDomain(session.tenant_id)
+    return c.json({ ok: true, config })
+  } catch (error) {
+    return c.json({ ok: false, error: error?.message || 'Custom domain verification failed.' }, 400)
   }
 })
 
