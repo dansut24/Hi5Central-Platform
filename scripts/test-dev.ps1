@@ -11,6 +11,7 @@ $checks = @(
   @{ Name = 'Capabilities'; Url = "http://$($HostName):3001/api/v1/system/capabilities"; Json = $true },
   @{ Name = 'Edition'; Url = "http://$($HostName):3001/api/v1/system/edition"; Json = $true },
   @{ Name = 'ITSM / Portal'; Url = "http://$($HostName):3000"; Json = $false },
+  @{ Name = 'Runtime config JS'; Url = "http://$($HostName):3000/runtime-config.js"; Json = $false },
   @{ Name = 'RMM'; Url = "http://$($HostName):3002"; Json = $false },
   @{ Name = 'Admin'; Url = "http://$($HostName):3003"; Json = $false },
   @{ Name = 'Mailpit'; Url = "http://$($HostName):8025"; Json = $false }
@@ -59,5 +60,12 @@ if ($failures.Count -gt 0) {
   exit 1
 }
 
+$runtimeConfig = Invoke-WebRequest -UseBasicParsing -Uri "http://$($HostName):3000/runtime-config.js" -TimeoutSec 8
+if ($runtimeConfig.Content -notmatch '__HI5_API_BASE__' -or $runtimeConfig.Content -notmatch ':3001') {
+  Write-Host '[FAIL] Runtime config does not expose the local API URL.'
+  exit 1
+}
+Write-Host '[PASS] Runtime config exposes the local API URL.'
+Write-Host ''
 Write-Host 'All local Hi5Central smoke tests passed.'
 exit 0
