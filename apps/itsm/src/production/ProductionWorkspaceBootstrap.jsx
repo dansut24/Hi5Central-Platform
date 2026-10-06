@@ -416,6 +416,23 @@ export function ProductionWorkspaceBootstrap() {
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
 
   useEffect(() => {
+    if (!loading) return undefined
+    const watchdog = window.setTimeout(() => {
+      setBootstrapError('Hi5Central could not finish restoring the secure session.')
+      setBootstrapDelayed(true)
+      setTenantState((current) => current || {
+        managed: true,
+        slug: surface.tenantSlug,
+        companyName: surface.tenantName,
+        status: 'active',
+        unavailable: true,
+      })
+      setLoading(false)
+    }, 10000)
+    return () => window.clearTimeout(watchdog)
+  }, [bootstrapAttempt, loading, surface.tenantName, surface.tenantSlug]) // Workspace bootstrap watchdog
+
+  useEffect(() => {
     const notify = () => setCurrentPath(window.location.pathname)
     const originalPushState = window.history.pushState
     const originalReplaceState = window.history.replaceState
