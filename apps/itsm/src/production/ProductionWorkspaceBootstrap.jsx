@@ -23,6 +23,8 @@ const API_BASE = window.__HI5_API_BASE__
 const PRODUCTION_SESSION_KEY = 'hi5central-production-session-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
+const ONBOARDING_SNAPSHOT_KEY = 'hi5central-onboarding-snapshot-v1'
+const ONBOARDING_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000
 const ORGANISATION_CACHE_KEYS = {
   people: 'hi5central-organisation-people-v1',
   teams: 'hi5central-organisation-teams-v1',
@@ -186,6 +188,76 @@ async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SESSION_BOOTS
   }
 }
 
+function onboardingSnapshotFromSession(apiSession) {
+  if (!apiSession?.tenant?.slug || apiSession?.onboarding?.completedAt) return null
+  return {
+    savedAt: Date.now(),
+    authenticated: true,
+    user: {
+      id: apiSession.user?.id || '',
+      name: apiSession.user?.name || '',
+      email: apiSession.user?.email || '',
+      tenantRole: apiSession.user?.tenantRole || 'owner',
+    },
+    tenant: {
+      id: apiSession.tenant?.id || '',
+      slug: apiSession.tenant.slug,
+      companyName: apiSession.tenant?.companyName || apiSession.tenant.slug,
+      tenantUrl: apiSession.tenant?.tenantUrl || '',
+      portalUrl: apiSession.tenant?.portalUrl || '',
+      rmmUrl: apiSession.tenant?.rmmUrl || '',
+      modules: apiSession.tenant?.modules || {},
+    },
+    onboarding: {
+      step: apiSession.onboarding?.step || 'company',
+      completedAt: null,
+      data: apiSession.onboarding?.data || {},
+    },
+    settings: apiSession.settings || apiSession.onboarding?.data || {},
+    security: apiSession.security || { mfaVerified: false },
+  }
+}
+
+function saveOnboardingSnapshot(apiSession) {
+  try {
+    const snapshot = onboardingSnapshotFromSession(apiSession)
+    if (!snapshot) {
+      window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY)
+      return
+    }
+    window.sessionStorage.setItem(ONBOARDING_SNAPSHOT_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Server state remains authoritative when browser storage is unavailable.
+  }
+}
+
+function clearOnboardingSnapshot() {
+  try { window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY) } catch { /* best effort */ }
+}
+
+function readOnboardingSnapshot(expectedSlug) {
+  try {
+    const raw = window.sessionStorage.getItem(ONBOARDING_SNAPSHOT_KEY)
+    if (!raw) return null
+    const snapshot = JSON.parse(raw)
+    const age = Date.now() - Number(snapshot?.savedAt || 0)
+    const valid = snapshot?.authenticated === true
+      && snapshot?.tenant?.slug === expectedSlug
+      && !snapshot?.onboarding?.completedAt
+      && age >= 0
+      && age <= ONBOARDING_SNAPSHOT_MAX_AGE_MS
+
+    if (!valid) {
+      window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY)
+      return null
+    }
+    return snapshot
+  } catch {
+    clearOnboardingSnapshot()
+    return null
+  }
+}
+
 function LoadingScreen({ tenantName, delayed, onRetry }) {
   return (
     <div className="production-auth-shell">
@@ -195,7 +267,11 @@ function LoadingScreen({ tenantName, delayed, onRetry }) {
         <span>{delayed ? 'Session restore is taking longer than expected.' : 'Checking your secure Hi5Central session…'}</span>
         <div className="production-auth-loading-actions">
           <button type="button" onClick={onRetry}>Retry session</button>
-          <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
+          <button type="button" onClick={() => {
+              clearOnboardingSnapshot()
+              clearProductionSession()
+              window.location.replace('/login?fresh=1')
+            }}>Sign in again</button>
         </div>
       </div>
     </div>
@@ -405,9 +481,15 @@ function ProductionProfileLayer({ session }) {
 
 export function ProductionWorkspaceBootstrap() {
   const surface = useMemo(() => resolveTenantSurface(), [])
-  const [serverSession, setServerSession] = useState(null)
-  const [tenantState, setTenantState] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const cachedOnboarding = useMemo(() => readOnboardingSnapshot(surface.tenantSlug), [surface.tenantSlug])
+  const [serverSession, setServerSession] = useState(() => cachedOnboarding)
+  const [tenantState, setTenantState] = useState(() => cachedOnboarding ? {
+    managed: true,
+    slug: cachedOnboarding.tenant.slug,
+    companyName: cachedOnboarding.tenant.companyName,
+    status: 'active',
+  } : null)
+  const [loading, setLoading] = useState(() => !cachedOnboarding)
   const [bootstrapError, setBootstrapError] = useState('')
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
@@ -469,8 +551,11 @@ export function ProductionWorkspaceBootstrap() {
 
       applyTenantPreferences(payload)
       if (payload.onboarding?.completedAt) {
+        clearOnboardingSnapshot()
         saveProductionSession(toWorkspaceSession(payload))
         void hydrateWorkspaceData()
+      } else {
+        saveOnboardingSnapshot(payload)
       }
       setServerSession(payload)
       setTenantState({
@@ -483,13 +568,30 @@ export function ProductionWorkspaceBootstrap() {
     }
 
     async function bootstrap() {
-      setLoading(true)
+      setLoading(!cachedOnboarding)
       setBootstrapError('')
       setBootstrapDelayed(false)
 
       try {
-        const handoff = takeProductionAuthHandoff()
-        if (handoff && acceptBootstrapPayload(handoff)) return
+        const freshLogin = window.location.pathname === '/login'
+          && new URLSearchParams(window.location.search).get('fresh') === '1'
+
+        if (!freshLogin) {
+          const handoff = takeProductionAuthHandoff()
+          if (handoff && acceptBootstrapPayload(handoff)) return
+        }
+
+        if (freshLogin) {
+          clearOnboardingSnapshot()
+          clearProductionSession()
+          const { response: stateResponse, payload: statePayload } = await fetchJsonWithTimeout(
+            `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+            { cache: 'no-store' },
+          )
+          if (!stateResponse.ok) throw new Error(statePayload?.error || 'TENANT_STATE_FAILED')
+          if (active) setTenantState(statePayload)
+          return
+        }
 
         const sessionEndpoint = onboardingRoute
           ? `${API_BASE}/api/v1/onboarding/session`
@@ -500,6 +602,11 @@ export function ProductionWorkspaceBootstrap() {
         })
 
         if (response.ok && acceptBootstrapPayload(payload)) return
+
+        if (cachedOnboarding && (response.status === 401 || response.status === 403)) {
+          clearOnboardingSnapshot()
+          setServerSession(null)
+        }
 
         clearProductionSession()
 
@@ -518,7 +625,10 @@ export function ProductionWorkspaceBootstrap() {
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
-        clearProductionSession()
+
+        if (!cachedOnboarding) {
+          clearProductionSession()
+        }
 
         if (active) {
           setBootstrapError(
@@ -526,13 +636,16 @@ export function ProductionWorkspaceBootstrap() {
               ? 'Hi5Central could not restore the session within 8 seconds.'
               : 'Hi5Central could not restore this session.',
           )
-          setTenantState({
-            managed: true,
-            slug: surface.tenantSlug,
-            companyName: surface.tenantName,
-            status: 'active',
-            unavailable: true,
-          })
+
+          if (!cachedOnboarding) {
+            setTenantState({
+              managed: true,
+              slug: surface.tenantSlug,
+              companyName: surface.tenantName,
+              status: 'active',
+              unavailable: true,
+            })
+          }
         }
       } finally {
         window.clearTimeout(delayedTimer)
@@ -548,7 +661,7 @@ export function ProductionWorkspaceBootstrap() {
       active = false
       window.clearTimeout(delayedTimer)
     }
-  }, [bootstrapAttempt, onboardingRoute, surface.tenantName, surface.tenantSlug])
+  }, [bootstrapAttempt, cachedOnboarding, onboardingRoute, surface.tenantName, surface.tenantSlug])
 
   useEffect(() => {
     if (!serverSession) return
@@ -619,8 +732,11 @@ export function ProductionWorkspaceBootstrap() {
   async function acceptSession(nextSession) {
     applyTenantPreferences(nextSession)
     if (nextSession.onboarding?.completedAt) {
+      clearOnboardingSnapshot()
       saveProductionSession(toWorkspaceSession(nextSession))
       void hydrateWorkspaceData()
+    } else {
+      saveOnboardingSnapshot(nextSession)
     }
     setServerSession(nextSession)
     setTenantState({
@@ -688,7 +804,11 @@ export function ProductionWorkspaceBootstrap() {
           <span>{bootstrapError || 'The secure session could not be restored.'}</span>
           <div className="production-auth-loading-actions">
             <button type="button" onClick={() => setBootstrapAttempt((current) => current + 1)}>Retry session</button>
-            <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
+            <button type="button" onClick={() => {
+              clearOnboardingSnapshot()
+              clearProductionSession()
+              window.location.replace('/login?fresh=1')
+            }}>Sign in again</button>
           </div>
         </div>
       </div>
