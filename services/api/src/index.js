@@ -13,6 +13,7 @@ import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
+import { registerMfaRoutes } from './mfa.js'
 import { attachRmmAgentWebSocket, initializeAgentBroker, registerRmmAgentRoutes, shutdownAgentBroker } from './rmmAgent.js'
 import { registerRmmAutomationRoutes } from './rmmAutomation.js'
 import { registerRmmActivityRoutes } from './rmmActivity.js'
@@ -45,6 +46,7 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
+import { registerSecurityRoutes } from './security.js'
 import {
   createSession,
   resolveSession,
@@ -519,6 +521,8 @@ registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
+registerSecurityRoutes(app)
+registerMfaRoutes(app)
 registerProjectRoutes(app)
 registerMicrosoftRoutes(app)
 registerRmmAgentRoutes(app)
