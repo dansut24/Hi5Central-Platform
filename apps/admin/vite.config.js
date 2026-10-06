@@ -50,4 +50,13 @@ function hi5RuntimeConfigPlugin() {
 export default defineConfig({
   base: '/',
   plugins: [hi5RuntimeConfigPlugin(), react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: envValue('HI5_DEV_API_PROXY_TARGET', 'http://api:3001'),
+        changeOrigin: false,
+        ws: true,
+      },
+    },
+  },
 })
