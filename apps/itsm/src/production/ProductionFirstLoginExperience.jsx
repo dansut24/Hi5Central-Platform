@@ -165,7 +165,7 @@ function applyPreferences(preferences) {
 }
 
 async function getPreferences() {
-  const response = await fetch(`${API_BASE}/api/v1/user-preferences`, {
+  const response = await fetch(`${API_BASE}/api/v1/user-preferences?surface=itsm`, {
     credentials: 'include',
     cache: 'no-store',
   })
@@ -179,7 +179,7 @@ async function patchPreferences(preferences, markers = {}) {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preferences, ...markers }),
+    body: JSON.stringify({ preferences, platform: 'itsm', ...markers }),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.error || 'Could not save your workspace preferences.')
@@ -435,11 +435,11 @@ export function ProductionFirstLoginExperience() {
   }, [])
 
   useEffect(() => {
-    if (!payload?.firstLoginCompletedAt || payload.coachmarksCompletedAt || payload.preferences?.guidance?.coachMarks === false) return undefined
+    if (!payload?.firstLoginCompletedAt || payload.platformCoachmarksCompletedAt || payload.preferences?.guidance?.coachMarks === false) return undefined
     if (path !== '/dashboard' || tenantHandoffVisible) return undefined
     coachTimer.current = window.setTimeout(() => setCoachIndex(0), 900)
     return () => window.clearTimeout(coachTimer.current)
-  }, [path, payload?.firstLoginCompletedAt, payload?.coachmarksCompletedAt, payload?.preferences?.guidance?.coachMarks, tenantHandoffVisible])
+  }, [path, payload?.firstLoginCompletedAt, payload?.platformCoachmarksCompletedAt, payload?.preferences?.guidance?.coachMarks, tenantHandoffVisible])
 
   async function complete(nextPreferences) {
     setSaving(true)
@@ -476,13 +476,14 @@ export function ProductionFirstLoginExperience() {
       const next = await patchPreferences(preferences, { gettingStartedDismissed: true })
       setPayload(next)
     } catch {
-      setPayload((current) => current ? { ...current, gettingStartedDismissedAt: new Date().toISOString() } : current)
+      setPayload((current) => current ? { ...current, platformGettingStartedDismissedAt: new Date().toISOString() } : current)
     }
   }
 
   const showFirstLogin = useMemo(() => (
     !loading
       && payload
+      && payload.tenantOnboardingCompletedAt
       && !payload.firstLoginCompletedAt
       && !tenantHandoffVisible
       && path !== '/login'
@@ -491,7 +492,7 @@ export function ProductionFirstLoginExperience() {
 
   const showGettingStarted = Boolean(
     payload?.firstLoginCompletedAt
-      && !payload?.gettingStartedDismissedAt
+      && !payload?.platformGettingStartedDismissedAt
       && path === '/dashboard'
       && coachIndex < 0
       && !tenantHandoffVisible,
