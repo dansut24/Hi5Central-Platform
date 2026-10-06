@@ -128,7 +128,7 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginRouteBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionMfaLoginEnhancer /> : null}
-    {productionWorkspace ? <OnboardingMfaEnhancer /> : null}
+    {productionWorkspace && !productionOnboarding ? <OnboardingMfaEnhancer /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionPasswordRecoveryEnhancer /> : null}
     {productionPortal ? <ProductionPortalKnowledgeChat /> : null}
     {productionPortal ? <ProductionPortalLiveChatOperations /> : null}
