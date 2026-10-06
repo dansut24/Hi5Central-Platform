@@ -1,3 +1,4 @@
+import { tenantNotificationTransport } from './tenantDelivery.js'
 import nodemailer from 'nodemailer'
 
 function smtpConfig() {
@@ -24,9 +25,10 @@ function escapeHtml(value = '') {
     .replaceAll("'", '&#039;')
 }
 
-export async function sendPlatformNotificationEmail({ to, companyName, title, body, actionUrl, eventType }) {
-  const transporter = nodemailer.createTransport(smtpConfig())
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER
+export async function sendPlatformNotificationEmail({ tenantId, to, companyName, title, body, actionUrl, eventType }) {
+  const tenantDelivery = tenantId ? await tenantNotificationTransport(tenantId) : null
+  const transporter = tenantDelivery?.transporter || nodemailer.createTransport(smtpConfig())
+  const from = tenantDelivery?.from || process.env.SMTP_FROM || process.env.SMTP_USER
   const safeTitle = String(title || 'Hi5Central update').slice(0, 240)
   const safeBody = String(body || '').slice(0, 2000)
   const safeCompany = String(companyName || 'Hi5Central').slice(0, 160)
