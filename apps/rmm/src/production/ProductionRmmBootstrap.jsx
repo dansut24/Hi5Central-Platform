@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RmmPlatformApp } from '../features/rmm/RmmPlatformApp.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
+import { ProductionUserExperience } from './ProductionUserExperience.jsx'
 import './ProductionWorkspaceBootstrap.css'
 
 const API_BASE = window.__HI5_API_BASE__
+const APP_URL = window.__HI5_CONFIG__?.appUrl || ''
 
 function sessionHasPermission(session, permission) {
   const effective = session?.access?.effectivePermissions || []
@@ -135,6 +137,9 @@ export function ProductionRmmBootstrap() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [theme, setTheme] = useState('light')
+  const [accent, setAccent] = useState('amber')
+  const [density, setDensity] = useState('comfortable')
+  const [navSide, setNavSide] = useState('left')
   const [devices, setDevices] = useState([])
   const [sites, setSites] = useState([])
   const [dataLoading, setDataLoading] = useState(false)
@@ -146,7 +151,13 @@ export function ProductionRmmBootstrap() {
     fetch(`${API_BASE}/api/v1/auth/session`, { credentials: 'include' })
       .then(async (response) => ({ response, payload: await response.json().catch(() => ({})) }))
       .then(({ response, payload }) => {
-        if (active && response.ok && payload?.tenant?.slug === surface.tenantSlug) setSession(payload)
+        if (active && response.ok && payload?.tenant?.slug === surface.tenantSlug) {
+          if (!payload?.onboarding?.completedAt) {
+            window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
+            return
+          }
+          setSession(payload)
+        }
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -219,6 +230,18 @@ export function ProductionRmmBootstrap() {
     setSession(payload)
   }
 
+  function applyUserPreferences(preferences = {}) {
+    const appearance = preferences.appearance || {}
+    const navigation = preferences.navigation || {}
+    const resolvedTheme = appearance.theme === 'system'
+      ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : (appearance.theme === 'dark' ? 'dark' : 'light')
+    setTheme(resolvedTheme)
+    setAccent(appearance.accentMode === 'personal' ? (appearance.accent || 'amber') : 'amber')
+    setDensity(appearance.density === 'compact' ? 'compact' : 'comfortable')
+    setNavSide(navigation.desktopSide === 'right' ? 'right' : 'left')
+  }
+
   async function saveSites(nextSites) {
     const response = await fetch(`${API_BASE}/api/v1/organisation/sites`, {
       method: 'PUT',
@@ -260,8 +283,9 @@ export function ProductionRmmBootstrap() {
   }
 
   return (
-    <RmmPlatformApp
-      accent="amber"
+    <>
+      <RmmPlatformApp
+      accent={accent}
       dataLoading={dataLoading}
       devices={devices}
       sites={sites}
@@ -269,7 +293,9 @@ export function ProductionRmmBootstrap() {
       canBackstageRemote={sessionHasPermission(session, 'rmm.devices.backstage')}
       canAudit={sessionHasPermission(session, 'rmm.audit.view') || sessionHasPermission(session, 'audit.view')}
       currentUser={{ role: 'rmm', name: session.user?.name || session.user?.email || 'RMM user', username: session.user?.email || '' }}
+      density={density}
       handleLogout={logout}
+      navSide={navSide}
       onCreateItsmIncident={() => null}
       onSitesChange={saveSites}
       setTheme={setTheme}
@@ -277,5 +303,7 @@ export function ProductionRmmBootstrap() {
       theme={theme}
       tickets={[]}
     />
+      <ProductionUserExperience session={session} onPreferences={applyUserPreferences} />
+    </>
   )
 }
