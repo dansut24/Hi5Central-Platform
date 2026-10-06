@@ -75,6 +75,7 @@ services:
       MARKETING_URL: http://${DEV_HOST:-localhost}:3000
       COOKIE_DOMAIN: ""
       BACKGROUND_WORKERS_ENABLED: ${BACKGROUND_WORKERS_ENABLED:-false}
+      MFA_ENCRYPTION_KEY: ${MFA_ENCRYPTION_KEY:-}
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       SMTP_USER: ${SMTP_USER:-local}
