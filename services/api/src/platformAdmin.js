@@ -24,6 +24,7 @@ import { sendTenantOwnerTransferApprovalEmail } from './mailer.js'
 import { issueMspLicense } from './licenseAuthority.js'
 import { wingetRepositorySearch } from './rmmWingetFallback.js'
 import { syncSoftwareVendorSource } from './rmmSoftwareVendorIntel.js'
+import { experiencePayload, normalisePlatform, patchUserExperience, readUserExperience } from './userPreferences.js'
 
 const COOKIE_NAME = 'hi5central_admin_session'
 const SESSION_SECONDS = 60 * 60 * 12
@@ -455,6 +456,47 @@ export function registerPlatformAdminRoutes(app) {
     const auth = await requireAdmin(c)
     if (auth.error) return auth.error
     return c.json(adminPayload(auth.session))
+  })
+
+  app.get('/api/platform/v1/user-preferences', async (c) => {
+    const auth = await requireAdmin(c)
+    if (auth.error) return auth.error
+    const platform = normalisePlatform(c.req.query('surface'), 'admin')
+    const row = await readUserExperience(auth.session.user_id)
+    return c.json(experiencePayload({
+      user: {
+        id: auth.session.user_id,
+        name: auth.session.name,
+        email: auth.session.email,
+        tenantRole: auth.session.role,
+      },
+      row,
+      platform,
+    }))
+  })
+
+  app.patch('/api/platform/v1/user-preferences', async (c) => {
+    const auth = await requireAdmin(c)
+    if (auth.error) return auth.error
+    let body
+    try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+    try {
+      const row = await patchUserExperience(auth.session.user_id, { ...body, platform: normalisePlatform(body?.platform, 'admin') })
+      return c.json(experiencePayload({
+        user: {
+          id: auth.session.user_id,
+          name: auth.session.name,
+          email: auth.session.email,
+          tenantRole: auth.session.role,
+        },
+        row,
+        platform: normalisePlatform(body?.platform, 'admin'),
+      }))
+    } catch (error) {
+      if (error?.status) return c.json({ error: error.message }, error.status)
+      throw error
+    }
   })
 
   app.post('/api/platform/v1/auth/logout', async (c) => {
