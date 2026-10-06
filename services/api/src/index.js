@@ -91,7 +91,6 @@ function onboardingSequence(modules = {}) {
   return [
     'company',
     'theme',
-    'users',
     'groups',
     'permissions',
     'security',
@@ -453,6 +452,44 @@ app.get('/api/v1/auth/session', async (c) => {
 app.post('/api/v1/auth/logout', async (c) => {
   await revokeCurrentSession(c)
   return c.json({ status: 'signed_out' })
+})
+
+app.post('/api/v1/onboarding/save', async (c) => {
+  const session = await resolveSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+  if (session.onboarding_completed_at) return c.json(sessionPayload(session))
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  const step = String(body?.step || '')
+  const data = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {}
+  const sequence = onboardingSequence(session.modules || {})
+  const currentIndex = sequence.indexOf(session.onboarding_step)
+  const stepIndex = sequence.indexOf(step)
+
+  if (currentIndex < 0 || stepIndex < 0 || stepIndex > currentIndex) {
+    return c.json({ error: 'That onboarding step cannot be edited yet.' }, 409)
+  }
+  if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
+
+  await pool.query(
+    `UPDATE tenant_settings
+     SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
+         updated_at=now()
+     WHERE tenant_id=$1`,
+    [session.tenant_id, step, JSON.stringify(data)],
+  )
+
+  const nextSession = {
+    ...session,
+    onboarding_data: {
+      ...(session.onboarding_data || {}),
+      [step]: data,
+    },
+  }
+  return c.json(sessionPayload(nextSession))
 })
 
 app.post('/api/v1/onboarding/step', async (c) => {
