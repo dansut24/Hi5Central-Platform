@@ -10,3 +10,12 @@ docker compose --env-file .env.local -f deploy/docker-compose.dev.yml ps
 Write-Host ''
 Write-Host 'Recent API logs:'
 docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 40 api
+
+
+Write-Host ''
+Write-Host 'Recent frontend logs:'
+foreach ($service in @('itsm', 'rmm', 'admin')) {
+  Write-Host ''
+  Write-Host ("--- {0} ---" -f $service)
+  docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 30 $service
+}
