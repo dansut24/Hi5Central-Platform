@@ -193,12 +193,10 @@ function LoadingScreen({ tenantName, delayed, onRetry }) {
         <img src="/hi5central-logo.png" alt="" />
         <strong>Opening {tenantName}</strong>
         <span>{delayed ? 'Session restore is taking longer than expected.' : 'Checking your secure Hi5Central session…'}</span>
-        {delayed ? (
-          <div className="production-auth-loading-actions">
-            <button type="button" onClick={onRetry}>Retry session</button>
-            <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
-          </div>
-        ) : null}
+        <div className="production-auth-loading-actions">
+          <button type="button" onClick={onRetry}>Retry session</button>
+          <button type="button" onClick={() => window.location.replace('/login')}>Sign in again</button>
+        </div>
       </div>
     </div>
   )
@@ -414,6 +412,7 @@ export function ProductionWorkspaceBootstrap() {
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
+  const onboardingRoute = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/')
 
   useEffect(() => {
     if (!loading) return undefined
@@ -492,7 +491,10 @@ export function ProductionWorkspaceBootstrap() {
         const handoff = takeProductionAuthHandoff()
         if (handoff && acceptBootstrapPayload(handoff)) return
 
-        const { response, payload } = await fetchJsonWithTimeout(`${API_BASE}/api/v1/auth/session`, {
+        const sessionEndpoint = onboardingRoute
+          ? `${API_BASE}/api/v1/onboarding/session`
+          : `${API_BASE}/api/v1/auth/session`
+        const { response, payload } = await fetchJsonWithTimeout(sessionEndpoint, {
           credentials: 'include',
           cache: 'no-store',
         })
@@ -546,7 +548,7 @@ export function ProductionWorkspaceBootstrap() {
       active = false
       window.clearTimeout(delayedTimer)
     }
-  }, [bootstrapAttempt, surface.tenantName, surface.tenantSlug])
+  }, [bootstrapAttempt, onboardingRoute, surface.tenantName, surface.tenantSlug])
 
   useEffect(() => {
     if (!serverSession) return
