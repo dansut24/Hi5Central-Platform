@@ -25,3 +25,13 @@ CREATE TABLE IF NOT EXISTS tenant_delivery_settings (
 CREATE INDEX IF NOT EXISTS tenant_delivery_settings_domain_idx
   ON tenant_delivery_settings(custom_workspace_domain)
   WHERE custom_workspace_domain IS NOT NULL;
+
+
+-- Insert the new Domain & email step for any tenant that is still mid-onboarding
+-- and has already progressed beyond Branding.
+UPDATE tenant_settings
+SET onboarding_step = 'delivery',
+    updated_at = now()
+WHERE onboarding_completed_at IS NULL
+  AND onboarding_step IN ('groups','permissions','security','itsm','rmm','finish')
+  AND NOT (COALESCE(onboarding_data,'{}'::jsonb) ? 'delivery');
