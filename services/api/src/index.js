@@ -11,6 +11,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
+import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
 import { registerMfaRoutes } from './mfa.js'
@@ -93,6 +94,7 @@ function onboardingSequence(modules = {}) {
   return [
     'company',
     'theme',
+    'delivery',
     'groups',
     'permissions',
     'security',
@@ -460,6 +462,73 @@ app.get('/api/v1/onboarding/session', async (c) => {
 app.post('/api/v1/auth/logout', async (c) => {
   await revokeCurrentSession(c)
   return c.json({ status: 'signed_out' })
+})
+
+app.get('/api/v1/onboarding/delivery', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  const row = await readTenantDeliverySettings(session.tenant_id)
+  return c.json({
+    config: safeTenantDeliverySettings(row) || {
+      domainMode: 'default',
+      customWorkspaceDomain: '',
+      customPortalDomain: '',
+      domainStatus: 'default',
+      domainVerificationToken: '',
+      smtpMode: 'default',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpSecurity: 'starttls',
+      smtpUsername: '',
+      smtpPasswordConfigured: false,
+      smtpFromName: session.company_name || 'Hi5Central',
+      smtpFromEmail: '',
+      smtpVerifiedAt: null,
+    },
+    defaults: {
+      deploymentMode: deployment.deploymentMode,
+      workspaceUrl: session.tenant_url,
+      portalUrl: session.portal_url,
+      outboundMail: deployment.deploymentMode === 'managed' ? 'Hi5Central managed mail' : 'Server SMTP configuration',
+    },
+  })
+})
+
+app.post('/api/v1/onboarding/delivery', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  try {
+    const config = await saveTenantDeliverySettings(session.tenant_id, body || {})
+    return c.json({ config })
+  } catch (error) {
+    return c.json({ error: error?.message || 'Could not save domain and email settings.' }, 400)
+  }
+})
+
+app.post('/api/v1/onboarding/delivery/test-smtp', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  try {
+    const config = await saveTenantDeliverySettings(session.tenant_id, { ...(body || {}), smtpMode: 'custom' })
+    await verifyTenantSmtp(session.tenant_id)
+    await markTenantSmtpVerified(session.tenant_id)
+    const refreshed = await readTenantDeliverySettings(session.tenant_id)
+    return c.json({ ok: true, config: safeTenantDeliverySettings(refreshed) || config })
+  } catch (error) {
+    return c.json({ ok: false, error: error?.message || 'SMTP connection test failed.' }, 400)
+  }
 })
 
 app.post('/api/v1/onboarding/save', async (c) => {
