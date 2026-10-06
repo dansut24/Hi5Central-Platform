@@ -7,7 +7,7 @@ on:
       - 'native/app-portal/**'
       - '.github/workflows/app-portal.yml'
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'native/app-portal/**'
       - '.github/workflows/app-portal.yml'
