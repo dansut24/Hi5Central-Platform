@@ -5,7 +5,8 @@ import './MarketingApp.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const DEPLOYMENT = deploymentConfig()
-const SELF_HOST_SINGLE = DEPLOYMENT.deploymentMode === 'self_hosted' && DEPLOYMENT.tenancyMode === 'single'
+const SINGLE_TENANT = DEPLOYMENT.tenancyMode === 'single'
+const SELF_HOST_SINGLE = DEPLOYMENT.deploymentMode === 'self_hosted' && SINGLE_TENANT
 
 function slugFromCompany(value = '') {
   return String(value)
@@ -40,7 +41,7 @@ export function SignupPage() {
   const [setupToken, setSetupToken] = useState(initialSetupToken)
   const [form, setForm] = useState({
     companyName: '',
-    tenantSlug: SELF_HOST_SINGLE ? DEPLOYMENT.primaryTenantSlug : '',
+    tenantSlug: SINGLE_TENANT ? DEPLOYMENT.primaryTenantSlug : '',
     name: '',
     email: '',
     password: '',
@@ -48,8 +49,8 @@ export function SignupPage() {
     itsm: true,
     rmm: Boolean(DEPLOYMENT.rmmUrl),
   })
-  const [slugTouched, setSlugTouched] = useState(SELF_HOST_SINGLE)
-  const [slugStatus, setSlugStatus] = useState(SELF_HOST_SINGLE ? 'available' : 'idle')
+  const [slugTouched, setSlugTouched] = useState(SINGLE_TENANT)
+  const [slugStatus, setSlugStatus] = useState(SINGLE_TENANT ? 'available' : 'idle')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState(null)
@@ -67,17 +68,17 @@ export function SignupPage() {
   }, [])
 
   const tenantPreview = useMemo(() => {
-    if (SELF_HOST_SINGLE) return DEPLOYMENT.appUrl || DEPLOYMENT.rootDomain
+    if (SINGLE_TENANT) return DEPLOYMENT.appUrl || DEPLOYMENT.rootDomain
     return `${form.tenantSlug || 'your-company'}.${DEPLOYMENT.rootDomain}`
   }, [form.tenantSlug])
 
   function updateField(field, value) {
     setForm((current) => {
       const next = { ...current, [field]: value }
-      if (!SELF_HOST_SINGLE && field === 'companyName' && !slugTouched) next.tenantSlug = slugFromCompany(value)
+      if (!SINGLE_TENANT && field === 'companyName' && !slugTouched) next.tenantSlug = slugFromCompany(value)
       return next
     })
-    if (!SELF_HOST_SINGLE && field === 'tenantSlug') {
+    if (!SINGLE_TENANT && field === 'tenantSlug') {
       setSlugTouched(true)
       setSlugStatus('idle')
     }
@@ -85,7 +86,7 @@ export function SignupPage() {
   }
 
   async function checkSlug() {
-    if (SELF_HOST_SINGLE) {
+    if (SINGLE_TENANT) {
       setSlugStatus('available')
       return
     }
@@ -209,7 +210,7 @@ export function SignupPage() {
               : 'Your tenant URL, administrator account and product selection are created together. Verify your email, complete onboarding and enter the workspace automatically.'}
           </p>
           <div className="marketing-signup-points">
-            <span><CheckCircle2 size={18} /> {SELF_HOST_SINGLE ? 'Single-organisation installation' : 'Dedicated tenant workspace'}</span>
+            <span><CheckCircle2 size={18} /> {SINGLE_TENANT ? 'Single-organisation workspace' : 'Dedicated tenant workspace'}</span>
             <span><CheckCircle2 size={18} /> Matching self-service portal</span>
             <span><CheckCircle2 size={18} /> Secure owner identity</span>
           </div>
@@ -234,7 +235,7 @@ export function SignupPage() {
 
           <label><span>Organisation name</span><input value={form.companyName} onChange={(event) => updateField('companyName', event.target.value)} required minLength={2} maxLength={120} autoComplete="organization" /></label>
 
-          {!SELF_HOST_SINGLE ? (
+          {!SINGLE_TENANT ? (
             <label>
               <span>Tenant URL</span>
               <div className="marketing-slug-field">
