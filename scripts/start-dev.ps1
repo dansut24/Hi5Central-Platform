@@ -117,6 +117,37 @@ if (-not $healthy) {
   Write-Warning 'The containers started, but the API health endpoint did not become ready. Run .\scripts\status-dev.ps1 and inspect the API/migrate logs.'
 }
 
+Write-Host ''
+Write-Host 'Frontend readiness'
+$frontendChecks = @(
+  @{ Name = 'ITSM / Portal'; Url = 'http://localhost:3000' },
+  @{ Name = 'Runtime config'; Url = 'http://localhost:3000/runtime-config.js' },
+  @{ Name = 'RMM'; Url = 'http://localhost:3002' },
+  @{ Name = 'Admin'; Url = 'http://localhost:3003' }
+)
+
+foreach ($check in $frontendChecks) {
+  $ready = $false
+  for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    try {
+      $response = Invoke-WebRequest -UseBasicParsing -Uri $check.Url -TimeoutSec 2
+      if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) {
+        $ready = $true
+        break
+      }
+    } catch {
+      Start-Sleep -Seconds 1
+    }
+  }
+
+  if ($ready) {
+    Write-Host ("  [PASS] {0}" -f $check.Name)
+  } else {
+    Write-Warning ("  [FAIL] {0}. Run .\scripts\status-dev.ps1 for container logs." -f $check.Name)
+  }
+}
+
+Write-Host ''
 Write-Host 'Hi5Central local URLs'
 Write-Host ("  ITSM / Portal : http://{0}:3000" -f $DevHost)
 Write-Host ("  RMM           : http://{0}:3002" -f $DevHost)
