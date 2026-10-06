@@ -61,6 +61,12 @@ Status and API logs:
 
     .\scripts\status-dev.ps1
 
+Run the local platform smoke test:
+
+    .\scripts\test-dev.ps1
+
+This checks PostgreSQL/Redis through the API health endpoint plus ITSM, RMM, Admin, deployment configuration and the local Mailpit mailbox.
+
 Stop while preserving the database:
 
     .\scripts\stop-dev.ps1
@@ -81,7 +87,7 @@ Set it to true in .env.local when explicitly testing those schedulers, then rest
 
 1. Develop and test locally.
 2. Commit to develop when the change is ready.
-3. Use GitHub CI for validation/release builds rather than every edit.
+3. Normal pushes to develop do not run GitHub Actions. Run workflows manually when a native artifact or Dev container set is actually required; PRs still validate affected components.
 4. Promote the tested commit to the self-host distribution.
 5. Validate the self-host package on the IONOS VPS before release.
 
