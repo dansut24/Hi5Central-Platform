@@ -396,7 +396,11 @@ export function OnboardingWizard({ session, onSessionChange }) {
     }
   }
 
+  const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
+  const supportDomain = savedDelivery.domainMode === 'custom' && savedDelivery.customWorkspaceDomain
+    ? savedDelivery.customWorkspaceDomain
+    : (SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)
 
   return (
     <div className="onboarding-shell" style={shellStyle}>
@@ -465,6 +469,76 @@ export function OnboardingWizard({ session, onSessionChange }) {
                     <span>{modules.itsm ? `${data.portalTitle || 'IT Help Centre'} · ` : ''}{data.mode === 'system' ? 'Follows device appearance' : `${data.mode} mode`}</span>
                   </div>
                 </div>
+              </Section>
+            </>
+          ) : null}
+
+          {viewStep === 'delivery' ? (
+            <>
+              <Section title="Platform address" description="Keep the standard Hi5Central address or prepare your own domain. The default URL stays active until custom DNS ownership and HTTPS are ready.">
+                <div className="onboarding-choice-grid onboarding-choice-grid-two">
+                  <button type="button" onClick={() => update('domainMode', 'default')} className={data.domainMode !== 'custom' ? 'is-selected' : ''}>
+                    <strong>{SELF_HOSTED ? 'Use installation defaults' : 'Use Hi5Central address'}</strong>
+                    <span>{SELF_HOSTED ? DEPLOYMENT.appUrl : `Keep ${session.tenant.slug}.${DEPLOYMENT.rootDomain} as the workspace address.`}</span>
+                  </button>
+                  <button type="button" onClick={() => update('domainMode', 'custom')} className={data.domainMode === 'custom' ? 'is-selected' : ''}>
+                    <strong>Use my own domain</strong>
+                    <span>Prepare branded workspace and portal hostnames without taking the default address offline.</span>
+                  </button>
+                </div>
+                {data.domainMode === 'custom' ? (
+                  <>
+                    <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                      <Field label="Workspace domain" hint="Example: support.example.com"><input autoCapitalize="none" autoCorrect="off" value={data.customWorkspaceDomain || ''} onChange={(event) => update('customWorkspaceDomain', event.target.value)} /></Field>
+                      <Field label="Portal domain" hint="Optional, for example help.example.com"><input autoCapitalize="none" autoCorrect="off" value={data.customPortalDomain || ''} onChange={(event) => update('customPortalDomain', event.target.value)} /></Field>
+                    </div>
+                    <button className="onboarding-secondary onboarding-inline-action" disabled={deliveryBusy} onClick={() => saveDeliveryConfig().catch((saveError) => setError(saveError.message))} type="button">
+                      {deliveryBusy ? 'Saving…' : 'Save domain setup'}
+                    </button>
+                    {data.domainVerificationToken ? (
+                      <div className="onboarding-dns-card">
+                        <strong>DNS ownership record</strong>
+                        <span>Add this TXT record before activating the custom domain:</span>
+                        <code>_hi5central.{data.customWorkspaceDomain}</code>
+                        <code>hi5central-verification={data.domainVerificationToken}</code>
+                        <small>The default Hi5Central address remains live until DNS verification and certificate provisioning complete.</small>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </Section>
+
+              <Section title="Outbound email" description="Use Hi5Central delivery or send tenant notifications through your own SMTP service. Security-critical account mail remains on the trusted platform mail path.">
+                <div className="onboarding-choice-grid onboarding-choice-grid-two">
+                  <button type="button" onClick={() => update('smtpMode', 'default')} className={data.smtpMode !== 'custom' ? 'is-selected' : ''}>
+                    <strong>{SELF_HOSTED ? 'Use server SMTP' : 'Use Hi5Central mail'}</strong>
+                    <span>{SELF_HOSTED ? 'Use the SMTP configuration supplied with this installation.' : 'Recommended. Hi5Central handles notification delivery and retries.'}</span>
+                  </button>
+                  <button type="button" onClick={() => update('smtpMode', 'custom')} className={data.smtpMode === 'custom' ? 'is-selected' : ''}>
+                    <strong>Use custom SMTP</strong>
+                    <span>Send tenant notifications using your own SMTP server and From address.</span>
+                  </button>
+                </div>
+                {data.smtpMode === 'custom' ? (
+                  <>
+                    <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                      <Field label="SMTP host"><input autoCapitalize="none" autoCorrect="off" value={data.smtpHost || ''} onChange={(event) => update('smtpHost', event.target.value)} /></Field>
+                      <Field label="Port"><input inputMode="numeric" type="number" min="1" max="65535" value={data.smtpPort || '587'} onChange={(event) => update('smtpPort', event.target.value)} /></Field>
+                      <Field label="Security"><select value={data.smtpSecurity || 'starttls'} onChange={(event) => update('smtpSecurity', event.target.value)}><option value="starttls">STARTTLS</option><option value="tls">TLS / SSL</option><option value="plain">No TLS</option></select></Field>
+                      <Field label="Username"><input autoCapitalize="none" autoCorrect="off" value={data.smtpUsername || ''} onChange={(event) => update('smtpUsername', event.target.value)} /></Field>
+                      <Field label="Password" hint={data.smtpPasswordConfigured && !smtpPassword ? 'A password is already stored securely. Leave blank to keep it.' : 'Stored encrypted and never returned to the browser.'}><input autoComplete="new-password" type="password" value={smtpPassword} onChange={(event) => setSmtpPassword(event.target.value)} placeholder={data.smtpPasswordConfigured ? '••••••••••••' : ''} /></Field>
+                      <Field label="From name"><input value={data.smtpFromName || ''} onChange={(event) => update('smtpFromName', event.target.value)} /></Field>
+                      <Field label="From email" full hint="This address should be authorised by your SMTP provider."><input autoCapitalize="none" autoCorrect="off" type="email" value={data.smtpFromEmail || ''} onChange={(event) => update('smtpFromEmail', event.target.value)} /></Field>
+                    </div>
+                    <div className="onboarding-inline-actions">
+                      <button className="onboarding-secondary" disabled={deliveryBusy} onClick={() => saveDeliveryConfig({ testSmtp: true }).catch((testError) => setError(testError.message))} type="button">
+                        {deliveryBusy ? 'Testing…' : data.smtpVerifiedAt ? 'Test SMTP again' : 'Test SMTP connection'}
+                      </button>
+                      {data.smtpVerifiedAt ? <span className="onboarding-verified"><Check size={15} /> SMTP verified</span> : null}
+                    </div>
+                  </>
+                ) : null}
+                {deliveryNotice ? <div className="onboarding-integration-note"><Mail size={16} /><span>{deliveryNotice}</span></div> : null}
               </Section>
             </>
           ) : null}
@@ -548,7 +622,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
               <Section title="Service desk defaults" description="Starting values for new incidents, requests and service routing.">
                 <div className="onboarding-form-grid">
-                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</span></div></Field>
+                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{supportDomain}</span></div></Field>
                   <Field label="Default assignment team"><input value={data.defaultTeam || 'Service Desk'} onChange={(event) => update('defaultTeam', event.target.value)} /></Field>
                   <Field label="Business hours"><select value={data.businessHours || 'uk-business'} onChange={(event) => update('businessHours', event.target.value)}><option value="uk-business">Mon-Fri 09:00-17:30 UK</option><option value="extended">Mon-Fri 08:00-20:00</option><option value="24x7">24 × 7</option></select></Field>
                   <Field label="Default priority"><select value={data.defaultPriority || 'Medium'} onChange={(event) => update('defaultPriority', event.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></Field>
@@ -611,6 +685,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
+                <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (pending verification)` : (SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)}</strong></div>
+                <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
