@@ -501,7 +501,8 @@ export function ProductionWorkspaceBootstrap() {
     if (serverSession.onboarding?.completedAt) {
       saveProductionSession(toWorkspaceSession(serverSession))
       if (window.location.pathname === '/onboarding') {
-        window.history.replaceState({}, '', '/dashboard')
+        window.location.replace('/dashboard')
+        return
       }
       return
     }
