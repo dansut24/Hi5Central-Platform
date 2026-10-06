@@ -7,6 +7,7 @@ import {
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
+import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 
 const config = deploymentConfig()
 const API = config.apiUrl || `https://api.${config.rootDomain}`
@@ -212,6 +213,8 @@ function TenantEditor({ tenant, onSaved }) {
         : <div className="h5a-owner-request"><input type="email" placeholder="new.owner@example.com" value={ownerEmail} onChange={e=>setOwnerEmail(e.target.value)}/><button className="rmm-secondary compact" disabled={busy==='owner'||!ownerEmail||!tenant.owner_email} onClick={requestTransfer}><UserRound size={13}/>{busy==='owner'?'Sending…':'Request owner change'}</button></div>}
     </div>
   </div>
+  <ProductionUserExperience user={user} onPreferences={applyUserPreferences}/>
+  </>
 }
 function Tenants({ items, refresh, query }) {
   const [creating,setCreating]=useState(false)
@@ -1022,10 +1025,24 @@ export function PlatformAdminApp() {
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
+  const [accent,setAccent]=useState('amber')
+  const [density,setDensity]=useState('comfortable')
+  const [navSide,setNavSide]=useState('left')
   const [data,setData]=useState({overview:null,releases:{environments:[],features:[],changes:[],promotions:[],actions:[]},tenants:[],billing:[],licenses:[],qualification:{runners:[],active:[],pending:[],recent:[]},catalogue:[],audit:[]})
   const [wingetRefreshKey,setWingetRefreshKey]=useState(0)
   const [error,setError]=useState('')
   function setTheme(value){setThemeState(value);localStorage.setItem('hi5central-admin-theme',value)}
+  function applyUserPreferences(preferences={}){
+    const appearance=preferences.appearance||{}
+    const navigation=preferences.navigation||{}
+    const resolvedTheme=appearance.theme==='system'
+      ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
+      : (appearance.theme==='dark'?'dark':'light')
+    setThemeState(resolvedTheme)
+    setAccent(appearance.accentMode==='personal'?(appearance.accent||'amber'):'amber')
+    setDensity(appearance.density==='compact'?'compact':'comfortable')
+    setNavSide(navigation.desktopSide==='right'?'right':'left')
+  }
   useEffect(()=>{api('/auth/session').then(r=>setUser(r.user)).catch(()=>{}).finally(()=>setLoading(false))},[])
   async function load(target=view){
     if(!user||target==='winget')return
@@ -1056,7 +1073,8 @@ export function PlatformAdminApp() {
     if(view==='winget')return <Winget key={query} query={query} refreshKey={wingetRefreshKey}/>
     return <Audit items={data.audit} query={query}/>
   }
-  return <div className="rmm-app h5a-rmm-shell" data-accent="amber" data-theme={theme}>
+  return <>
+  <div className="rmm-app h5a-rmm-shell" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme}>
     <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
     <div className="rmm-shell-main">
       <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
