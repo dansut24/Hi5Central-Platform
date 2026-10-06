@@ -419,9 +419,15 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
+  const defaultWorkspaceAddress = session?.tenant?.tenantUrl
+    || DEPLOYMENT.appUrl
+    || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
+  const defaultSupportDomain = DEPLOYMENT.runtimeEnvironment === 'dev'
+    ? 'local.hi5central.test'
+    : (SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)
   const supportDomain = savedDelivery.domainMode === 'custom' && savedDelivery.customWorkspaceDomain
     ? savedDelivery.customWorkspaceDomain
-    : (SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)
+    : defaultSupportDomain
 
   return (
     <div className="onboarding-shell" style={shellStyle}>
@@ -500,7 +506,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div className="onboarding-choice-grid onboarding-choice-grid-two">
                   <button type="button" onClick={() => update('domainMode', 'default')} className={data.domainMode !== 'custom' ? 'is-selected' : ''}>
                     <strong>{SELF_HOSTED ? 'Use installation defaults' : 'Use Hi5Central address'}</strong>
-                    <span>{SELF_HOSTED ? DEPLOYMENT.appUrl : `Keep ${session.tenant.slug}.${DEPLOYMENT.rootDomain} as the workspace address.`}</span>
+                    <span>{SELF_HOSTED ? DEPLOYMENT.appUrl : `Keep ${defaultWorkspaceAddress} as the workspace address.`}</span>
                   </button>
                   <button type="button" onClick={() => update('domainMode', 'custom')} className={data.domainMode === 'custom' ? 'is-selected' : ''}>
                     <strong>Use my own domain</strong>
@@ -713,7 +719,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
-                <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : (SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)}</strong></div>
+                <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
                 <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
