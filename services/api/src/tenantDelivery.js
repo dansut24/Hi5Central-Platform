@@ -1,6 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { lookup, resolveTxt } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import nodemailer from 'nodemailer'
 import { pool } from './db.js'
+import { deployment } from './deploymentConfig.js'
 
 function encryptionKey() {
   const raw = String(process.env.TENANT_SECRET_ENCRYPTION_KEY || process.env.MFA_ENCRYPTION_KEY || '').trim()
@@ -41,8 +44,38 @@ function cleanHost(value='') {
   return String(value).trim().toLowerCase().replace(/^https?:///,'').replace(//.*$/,'').replace(/.$/,'')
 }
 
+function validDomain(value='') {
+  const host = cleanHost(value)
+  return host.length <= 253
+    && host.includes('.')
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i.test(host)
+}
+
 function cleanEmail(value='') {
   return String(value).trim().toLowerCase()
+}
+
+function privateAddress(address='') {
+  const value = String(address).toLowerCase()
+  if (value === '::1' || value.startsWith('fe80:') || value.startsWith('fc') || value.startsWith('fd')) return true
+  if (!isIP(value)) return false
+  if (value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.')) return true
+  const match = value.match(/^172\.(\d+)\./)
+  if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return true
+  if (value.startsWith('169.254.')) return true
+  return false
+}
+
+async function assertManagedSmtpHostAllowed(host) {
+  if (deployment.deploymentMode !== 'managed' || deployment.runtimeEnvironment !== 'live') return
+  const value = cleanHost(host)
+  if (!value || value === 'localhost' || value.endsWith('.local') || privateAddress(value)) {
+    throw new Error('Managed Hi5Central cannot connect custom SMTP to a private or local address.')
+  }
+  const addresses = await lookup(value, { all: true })
+  if (!addresses.length || addresses.some((item) => privateAddress(item.address))) {
+    throw new Error('Managed Hi5Central custom SMTP must resolve only to public addresses.')
+  }
 }
 
 function cleanText(value='', max=200) {
@@ -84,6 +117,8 @@ export async function saveTenantDeliverySettings(tenantId, input={}, db=pool) {
     || portalDomain !== (existing?.custom_portal_domain || null)
 
   if (domainMode === 'custom' && !workspaceDomain) throw new Error('Enter a custom workspace domain.')
+  if (domainMode === 'custom' && !validDomain(workspaceDomain)) throw new Error('Enter a valid workspace domain such as support.example.com.')
+  if (domainMode === 'custom' && portalDomain && !validDomain(portalDomain)) throw new Error('Enter a valid portal domain such as help.example.com.')
 
   const smtpHost = smtpMode === 'custom' ? cleanHost(input.smtpHost) : null
   const smtpPort = smtpMode === 'custom' ? Number(input.smtpPort || 587) : null
@@ -179,6 +214,7 @@ export async function verifyTenantSmtp(tenantId, candidate={}) {
   if (!row.smtp_host || !row.smtp_username || (!passwordOverride && !row.smtp_password_encrypted)) {
     throw new Error('Complete the SMTP connection details before testing.')
   }
+  await assertManagedSmtpHostAllowed(row.smtp_host)
   const transporter = nodemailer.createTransport(smtpTransportOptions(row,passwordOverride))
   await transporter.verify()
   return true
@@ -201,4 +237,36 @@ export async function tenantNotificationTransport(tenantId) {
 
 export function safeTenantDeliverySettings(row) {
   return safeConfig(row)
+}
+
+
+export async function verifyTenantDomain(tenantId) {
+  const row = await readTenantDeliverySettings(tenantId)
+  if (!row || row.domain_mode !== 'custom' || !row.custom_workspace_domain || !row.domain_verification_token) {
+    throw new Error('Save the custom domain before verifying DNS.')
+  }
+
+  const expected = `hi5central-verification=${row.domain_verification_token}`
+  const domains = [row.custom_workspace_domain, row.custom_portal_domain].filter(Boolean)
+
+  for (const domain of domains) {
+    let records
+    try {
+      records = await resolveTxt(`_hi5central.${domain}`)
+    } catch {
+      throw new Error(`DNS verification record was not found for ${domain}.`)
+    }
+    const values = records.map((parts) => parts.join(''))
+    if (!values.includes(expected)) {
+      throw new Error(`DNS verification record for ${domain} does not match the Hi5Central token.`)
+    }
+  }
+
+  await pool.query(
+    `UPDATE tenant_delivery_settings
+     SET domain_status='verified',updated_at=now()
+     WHERE tenant_id=$1`,
+    [tenantId],
+  )
+  return safeConfig(await readTenantDeliverySettings(tenantId))
 }
