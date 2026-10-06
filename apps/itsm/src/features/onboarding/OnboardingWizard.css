@@ -467,6 +467,13 @@
 
 .onboarding-saved { color: #7a889c; font-size: 12px; }
 
+.onboarding-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .onboarding-primary {
   display: inline-flex;
   gap: 8px;
@@ -526,6 +533,14 @@
     padding-top: 22px;
     background: transparent;
     backdrop-filter: none;
+  }
+  .onboarding-action-buttons {
+    width: 100%;
+    margin-left: 0;
+  }
+  .onboarding-action-buttons .onboarding-secondary,
+  .onboarding-action-buttons .onboarding-primary {
+    flex: 1 1 0;
   }
   .onboarding-primary { width: 100%; }
   .onboarding-saved { text-align: center; }
