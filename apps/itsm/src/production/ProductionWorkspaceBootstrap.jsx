@@ -265,14 +265,16 @@ function LoadingScreen({ tenantName, delayed, onRetry }) {
         <img src="/hi5central-logo.png" alt="" />
         <strong>Opening {tenantName}</strong>
         <span>{delayed ? 'Session restore is taking longer than expected.' : 'Checking your secure Hi5Central session…'}</span>
-        <div className="production-auth-loading-actions">
-          <button type="button" onClick={onRetry}>Retry session</button>
-          <button type="button" onClick={() => {
+        {delayed ? (
+          <div className="production-auth-loading-actions">
+            <button type="button" onClick={onRetry}>Retry session</button>
+            <button type="button" onClick={() => {
               clearOnboardingSnapshot()
               clearProductionSession()
               window.location.replace('/login?fresh=1')
             }}>Sign in again</button>
-        </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
