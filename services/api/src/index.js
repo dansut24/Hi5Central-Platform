@@ -50,6 +50,7 @@ import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
 import {
   createSession,
+  resolveOnboardingSession,
   resolveSession,
   revokeCurrentSession,
   sessionPayload,
@@ -444,6 +445,13 @@ app.get('/api/v1/auth/verify-email', async (c) => {
 
 app.get('/api/v1/auth/session', async (c) => {
   const session = await resolveSession(c)
+  if (!session) return c.json({ authenticated: false }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+  return c.json(sessionPayload(session))
+})
+
+app.get('/api/v1/onboarding/session', async (c) => {
+  const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ authenticated: false }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   return c.json(sessionPayload(session))
