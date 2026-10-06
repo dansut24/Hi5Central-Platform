@@ -94,9 +94,11 @@ export async function saveTenantDeliverySettings(tenantId, input={}, db=pool) {
   const smtpFromName = smtpMode === 'custom' ? cleanText(input.smtpFromName,160) : null
   const smtpFromEmail = smtpMode === 'custom' ? cleanEmail(input.smtpFromEmail) : null
   const newPassword = smtpMode === 'custom' ? String(input.smtpPassword || '') : ''
-  const passwordEnvelope = smtpMode === 'custom'
-    ? (newPassword ? encryptSecret(newPassword) : existing?.smtp_password_encrypted || null)
-    : null
+  let passwordEnvelope = smtpMode === 'custom' ? (existing?.smtp_password_encrypted || null) : null
+  if (smtpMode === 'custom' && newPassword) {
+    const existingPassword = existing?.smtp_password_encrypted ? decryptSecret(existing.smtp_password_encrypted) : ''
+    if (newPassword !== existingPassword) passwordEnvelope = encryptSecret(newPassword)
+  }
 
   if (smtpMode === 'custom') {
     if (!smtpHost || !smtpPort || smtpPort < 1 || smtpPort > 65535) throw new Error('Enter a valid SMTP host and port.')
