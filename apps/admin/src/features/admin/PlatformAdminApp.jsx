@@ -1074,11 +1074,13 @@ export function PlatformAdminApp() {
     return <Audit items={data.audit} query={query}/>
   }
   return <>
-  <div className="rmm-app h5a-rmm-shell" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme}>
-    <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
-    <div className="rmm-shell-main">
-      <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
-      <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
+    <div className="rmm-app h5a-rmm-shell" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme}>
+      <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
+      <div className="rmm-shell-main">
+        <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
+        <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
+      </div>
     </div>
-  </div>
+    <ProductionUserExperience user={user} onPreferences={applyUserPreferences}/>
+  </>
 }
