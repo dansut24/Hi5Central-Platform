@@ -32,7 +32,7 @@ async function resolveApiToken(c, token) {
      JOIN users u ON u.id=at.user_id
      JOIN tenant_memberships m ON m.tenant_id=at.tenant_id AND m.user_id=at.user_id
      JOIN tenant_settings ts ON ts.tenant_id=at.tenant_id
-     LEFT JOIN user_preferences up ON up.tenant_id=at.tenant_id AND up.user_id=at.user_id
+     LEFT JOIN user_experience_preferences up ON up.user_id=at.user_id
      WHERE at.token_hash=$1 AND at.revoked_at IS NULL AND (at.expires_at IS NULL OR at.expires_at>now())
      LIMIT 1`,
     [tokenHash],
@@ -174,7 +174,7 @@ export async function resolveSession(c) {
      JOIN users u ON u.id=s.user_id
      JOIN tenant_memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
      JOIN tenant_settings ts ON ts.tenant_id=s.tenant_id
-     LEFT JOIN user_preferences up ON up.tenant_id=s.tenant_id AND up.user_id=s.user_id
+     LEFT JOIN user_experience_preferences up ON up.user_id=s.user_id
      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
      LIMIT 1`,
     [tokenHash],
