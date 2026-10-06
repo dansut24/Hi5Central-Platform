@@ -9,6 +9,7 @@
 
 .onboarding-sidebar {
   padding: 28px 24px;
+  border-right: 1px solid rgba(255, 255, 255, .06);
   background: #10213f;
   color: #fff;
   overflow: auto;
@@ -97,27 +98,33 @@
 
 .onboarding-main {
   min-width: 0;
-  display: grid;
-  align-items: start;
-  justify-items: center;
-  padding: 42px;
+  min-height: 0;
+  display: block;
+  padding: 0;
   overflow: auto;
+  background: #fff;
 }
 
 .onboarding-card {
-  width: min(980px, 100%);
-  padding: 34px;
-  border: 1px solid #dce4ee;
-  border-radius: 20px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 42px clamp(34px, 4vw, 72px) 34px;
+  border: 0;
+  border-radius: 0;
   background: #fff;
-  box-shadow: 0 18px 54px rgba(27, 47, 78, .08);
+  box-shadow: none;
 }
 
 .onboarding-heading {
   display: flex;
-  gap: 14px;
+  gap: 16px;
   align-items: flex-start;
-  margin-bottom: 28px;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e5ebf2;
 }
 
 .onboarding-heading-icon {
@@ -133,7 +140,7 @@
 
 .onboarding-heading > div { display: grid; gap: 3px; }
 .onboarding-heading > div > span { color: #708096; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-.onboarding-heading h1 { margin: 0; font-size: 27px; }
+.onboarding-heading h1 { margin: 0; font-size: clamp(27px, 2.1vw, 34px); line-height: 1.12; letter-spacing: -.025em; }
 .onboarding-heading p { margin: 3px 0 0; color: #6b7a90; font-size: 13px; line-height: 1.5; }
 
 .onboarding-section {
@@ -153,7 +160,7 @@
 .onboarding-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
+  gap: 20px 24px;
 }
 
 .onboarding-form-grid-one { grid-template-columns: 1fr; }
@@ -167,6 +174,7 @@
 .onboarding-field input,
 .onboarding-field select,
 .onboarding-field textarea {
+  box-sizing: border-box;
   width: 100%;
   min-height: 44px;
   border: 1px solid #ccd6e3;
@@ -443,13 +451,18 @@
 }
 
 .onboarding-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
   display: flex;
   justify-content: space-between;
   gap: 18px;
   align-items: center;
-  margin-top: 18px;
-  padding-top: 22px;
+  margin-top: auto;
+  padding: 20px 0 max(4px, env(safe-area-inset-bottom));
   border-top: 1px solid #e4eaf1;
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: blur(12px);
 }
 
 .onboarding-saved { color: #7a889c; font-size: 12px; }
@@ -475,7 +488,7 @@
 @media (max-width: 1100px) {
   .onboarding-shell { grid-template-columns: 250px minmax(0, 1fr); }
   .onboarding-sidebar { padding: 24px 17px; }
-  .onboarding-main { padding: 28px; }
+  .onboarding-card { padding: 32px 30px 26px; }
   .onboarding-prefix-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .onboarding-choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -487,8 +500,16 @@
   .onboarding-brand img { width: 36px; height: 36px; }
   .onboarding-progress { margin-bottom: 0; }
   .onboarding-steps { display: none; }
-  .onboarding-main { display: block; padding: 14px; overflow: visible; }
-  .onboarding-card { padding: 22px 18px; border-radius: 16px; }
+  .onboarding-main { display: block; padding: 14px; overflow: visible; background: #eef3f9; }
+  .onboarding-card {
+    min-height: 0;
+    display: block;
+    padding: 22px 18px;
+    border: 1px solid #dce4ee;
+    border-radius: 16px;
+    box-shadow: 0 12px 34px rgba(27, 47, 78, .08);
+  }
+  .onboarding-heading { margin-bottom: 24px; padding-bottom: 18px; }
   .onboarding-form-grid,
   .onboarding-choice-grid,
   .onboarding-toggle-grid,
@@ -497,7 +518,15 @@
   .onboarding-summary-expanded { grid-template-columns: 1fr; }
   .onboarding-integration-card { grid-template-columns: auto minmax(0, 1fr); }
   .onboarding-integration-card .onboarding-secondary { grid-column: 1 / -1; width: 100%; }
-  .onboarding-actions { align-items: stretch; flex-direction: column; }
+  .onboarding-actions {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+    margin-top: 18px;
+    padding-top: 22px;
+    background: transparent;
+    backdrop-filter: none;
+  }
   .onboarding-primary { width: 100%; }
   .onboarding-saved { text-align: center; }
   .onboarding-prefix-input { grid-template-columns: 1fr; }
