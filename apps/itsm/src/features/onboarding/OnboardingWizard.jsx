@@ -44,7 +44,6 @@ const stepMeta = {
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
   itsm: { label: 'ITSM setup', icon: Wrench, description: 'Configure records, service desk defaults, portal and notifications.' },
   rmm: { label: 'RMM setup', icon: MonitorCog, description: 'Set the first device-management defaults.' },
-  billing: { label: 'Plan', icon: Check, description: 'Choose the initial subscription state for this tenant.' },
   finish: { label: 'Review', icon: Sparkles, description: 'Review the tenant before opening Hi5Central.' },
 }
 
@@ -57,7 +56,6 @@ function sequenceFor(modules = {}) {
     'security',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
-    SELF_HOSTED ? null : 'billing',
     'finish',
   ].filter(Boolean)
 }
@@ -129,12 +127,6 @@ function defaultData(step, session) {
       maintenanceWindow: 'Wednesday 22:00-02:00',
       unattendedAccess: true,
       requireRemoteApproval: false,
-    },
-    billing: {
-      plan: 'trial',
-      billingLater: true,
-      expectedTechnicians: '5',
-      expectedDevices: '100',
     },
     finish: {},
   }
@@ -386,11 +378,14 @@ export function OnboardingWizard({ session, onSessionChange }) {
                   <Field label="Appearance"><select value={data.mode || 'system'} onChange={(event) => update('mode', event.target.value)}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
                   <Field label="Accent colour"><select value={data.accent || 'amber'} onChange={(event) => update('accent', event.target.value)}><option value="amber">Amber</option><option value="blue">Blue</option><option value="cyan">Cyan</option><option value="emerald">Emerald</option><option value="violet">Violet</option><option value="rose">Rose</option></select></Field>
                   <Field label="Workspace brand name"><input value={data.brandName || ''} onChange={(event) => update('brandName', event.target.value)} /></Field>
-                  <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field>
+                  {modules.itsm ? <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field> : null}
                 </div>
                 <div className="onboarding-theme-preview">
                   <span className="onboarding-theme-preview-accent" />
-                  <div><strong>{data.brandName || session.tenant.companyName}</strong><span>{data.portalTitle || 'IT Help Centre'} · {data.mode === 'system' ? 'Follows device appearance' : `${data.mode} mode`}</span></div>
+                  <div>
+                    <strong>{data.brandName || session.tenant.companyName}</strong>
+                    <span>{modules.itsm ? `${data.portalTitle || 'IT Help Centre'} · ` : ''}{data.mode === 'system' ? 'Follows device appearance' : `${data.mode} mode`}</span>
+                  </div>
                 </div>
               </Section>
             </>
@@ -400,7 +395,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             <>
               <Section title="Initial structure" description="Create sensible defaults before importing or manually adding the full organisation.">
                 <div className="onboarding-form-grid">
-                  <Field label="Primary support team"><input value={data.serviceDeskTeam || ''} onChange={(event) => update('serviceDeskTeam', event.target.value)} /></Field>
+                  <Field label={modules.itsm ? 'Primary support team' : 'Primary operations team'}><input value={data.serviceDeskTeam || ''} onChange={(event) => update('serviceDeskTeam', event.target.value)} /></Field>
                   <Field label="First department"><input value={data.firstDepartment || ''} onChange={(event) => update('firstDepartment', event.target.value)} /></Field>
                   <Field label="First site / location"><input value={data.firstSite || ''} onChange={(event) => update('firstSite', event.target.value)} /></Field>
                   <Field label="Assignment model"><select value={data.assignmentModel || 'team-first'} onChange={(event) => update('assignmentModel', event.target.value)}><option value="team-first">Assign to team, then technician</option><option value="technician-first">Assign directly to technician</option><option value="queue">Shared queue ownership</option></select></Field>
@@ -419,10 +414,12 @@ export function OnboardingWizard({ session, onSessionChange }) {
                     ['open', 'Collaborative', 'Broader analyst access for smaller IT teams.'],
                   ].map(([value, title, copy]) => <button type="button" onClick={() => update('preset', value)} className={data.preset === value ? 'is-selected' : ''} key={value}><strong>{title}</strong><span>{copy}</span></button>)}
                 </div>
-                <div className="onboarding-form-grid onboarding-form-grid-spaced">
-                  <Field label="Requester access"><select value={data.requesterAccess || 'portal'} onChange={(event) => update('requesterAccess', event.target.value)}><option value="portal">Portal only</option><option value="portal-approvals">Portal + assigned approvals</option></select></Field>
-                  <Field label="Change approvals"><select value={data.changeApprovalRole || 'admin-change'} onChange={(event) => update('changeApprovalRole', event.target.value)}><option value="admin-change">Admins + Change Managers</option><option value="change-only">Change Managers only</option></select></Field>
-                </div>
+                {modules.itsm ? (
+                  <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                    <Field label="Requester access"><select value={data.requesterAccess || 'portal'} onChange={(event) => update('requesterAccess', event.target.value)}><option value="portal">Portal only</option><option value="portal-approvals">Portal + assigned approvals</option></select></Field>
+                    <Field label="Change approvals"><select value={data.changeApprovalRole || 'admin-change'} onChange={(event) => update('changeApprovalRole', event.target.value)}><option value="admin-change">Admins + Change Managers</option><option value="change-only">Change Managers only</option></select></Field>
+                  </div>
+                ) : null}
               </Section>
             </>
           ) : null}
@@ -527,21 +524,6 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {viewStep === 'billing' ? (
-            <>
-              <Section title="Plan" description="Choose the tenant subscription state. Payment activation is handled by the production billing service.">
-                <div className="onboarding-choice-grid">
-                  <button type="button" onClick={() => update('plan', 'trial')} className={data.plan === 'trial' ? 'is-selected' : ''}><strong>Start trial</strong><span>Use the enabled Hi5Central products during the evaluation period.</span></button>
-                  <button type="button" onClick={() => update('plan', 'internal')} className={data.plan === 'internal' ? 'is-selected' : ''}><strong>Internal test tenant</strong><span>Mark this tenant as a non-billable controlled validation environment.</span></button>
-                </div>
-                <div className="onboarding-form-grid onboarding-form-grid-spaced">
-                  <Field label="Expected technicians"><input type="number" min="1" value={data.expectedTechnicians || '5'} onChange={(event) => update('expectedTechnicians', event.target.value)} /></Field>
-                  {modules.rmm ? <Field label="Expected managed devices"><input type="number" min="1" value={data.expectedDevices || '100'} onChange={(event) => update('expectedDevices', event.target.value)} /></Field> : null}
-                </div>
-              </Section>
-            </>
-          ) : null}
-
           {viewStep === 'finish' ? (
             <div className="onboarding-finish">
               <span><Sparkles size={24} /></span>
@@ -554,7 +536,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
-              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. External integrations, inbound email and AI can be configured later from Settings.'}</span></div>
+              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'}</span></div>
             </div>
           ) : null}
 
