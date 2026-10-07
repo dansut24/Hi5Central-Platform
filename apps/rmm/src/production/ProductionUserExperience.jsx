@@ -6,13 +6,40 @@ import './ProductionUserExperience.css'
 const API_BASE = window.__HI5_API_BASE__
 
 const ACCENTS = [
-  ['blue', '#3d73e8'],
-  ['amber', '#d98a0a'],
-  ['cyan', '#3d73e8'],
-  ['emerald', '#188c61'],
-  ['violet', '#7858df'],
-  ['rose', '#d84e73'],
+  ['Hi5Central blue', '#3d73e8'],
+  ['Cyan', '#089fc5'],
+  ['Amber', '#d98a0a'],
+  ['Emerald', '#188c61'],
+  ['Violet', '#7858df'],
+  ['Rose', '#d84e73'],
 ]
+
+function accentHex(value) {
+  const presets = {
+    blue: '#3d73e8',
+    cyan: '#089fc5',
+    amber: '#d98a0a',
+    emerald: '#188c61',
+    violet: '#7858df',
+    rose: '#d84e73',
+  }
+  const raw = String(value || '').trim().toLowerCase()
+  if (presets[raw]) return presets[raw]
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return '#3d73e8'
+}
+
+function accentVars(value) {
+  const hex = accentHex(value)
+  const clean = hex.slice(1)
+  const r = Number.parseInt(clean.slice(0, 2), 16)
+  const g = Number.parseInt(clean.slice(2, 4), 16)
+  const b = Number.parseInt(clean.slice(4, 6), 16)
+  return {
+    '--personal-accent': hex,
+    '--personal-accent-soft': `rgba(${r}, ${g}, ${b}, .12)`,
+  }
+}
 
 const TOUR = [
   { id: 'navigation', title: 'RMM navigation', copy: 'Devices, patching, automation, reports and administration stay together in the RMM navigation.', selector: '.rmm-sidebar' },
@@ -23,7 +50,7 @@ const TOUR = [
 
 function defaults() {
   return {
-    appearance: { theme: 'light', accentMode: 'tenant', accent: 'blue', density: 'comfortable' },
+    appearance: { theme: 'light', accentMode: 'tenant', accent: '#3d73e8', density: 'comfortable' },
     navigation: { desktopSide: 'left', mobileSide: 'left', sidebarStyle: 'floating', sidebarMode: 'expanded' },
     guidance: { coachMarks: true },
   }
@@ -72,7 +99,9 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
   const setAppearance = (patch) => setPreferences({ ...preferences, appearance: { ...appearance, ...patch } })
   const setNavigation = (patch) => setPreferences({ ...preferences, navigation: { ...navigation, ...patch } })
 
-  return createPortal(<div className="rmm-first-layer">
+  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : '#3d73e8'
+
+  return createPortal(<div className="rmm-first-layer" style={accentVars(previewAccent)}>
     <section className="rmm-first-card">
       <header><img src="/hi5central-logo.png" alt="" /><span>Hi5Central</span><b>{step + 1} / 3</b></header>
       <main>
@@ -92,7 +121,20 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
               <Choice active={appearance.accentMode === 'tenant'} title="Organisation accent" onClick={() => setAppearance({ accentMode: 'tenant' })} />
               <Choice active={appearance.accentMode === 'personal'} title="Personal accent" onClick={() => setAppearance({ accentMode: 'personal' })} />
             </div>
-            {appearance.accentMode === 'personal' ? <div className="rmm-first-accents">{ACCENTS.map(([id,colour])=><button aria-label={id} className={appearance.accent === id ? 'is-active' : ''} key={id} onClick={() => setAppearance({ accent: id })} style={{ '--swatch': colour }} type="button"><i /></button>)}</div> : null}
+            {appearance.accentMode === 'personal' ? (
+              <div className="rmm-first-colour">
+                <div className="rmm-first-colour-picker">
+                  <input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(event) => setAppearance({ accent: event.target.value.toLowerCase() })} />
+                  <input aria-label="Personal accent hex colour" maxLength="7" value={accentHex(appearance.accent)} onChange={(event) => {
+                    const next = event.target.value.trim()
+                    if (/^#[0-9a-fA-F]{0,6}$/.test(next)) setAppearance({ accent: next })
+                  }} onBlur={(event) => {
+                    if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) setAppearance({ accent: '#3d73e8' })
+                  }} />
+                </div>
+                <div className="rmm-first-accents">{ACCENTS.map(([label,colour])=><button aria-label={label} className={accentHex(appearance.accent) === colour ? 'is-active' : ''} key={colour} onClick={() => setAppearance({ accent: colour })} style={{ '--swatch': colour }} type="button"><i /></button>)}</div>
+              </div>
+            ) : null}
             <div className="rmm-first-grid two">
               <Choice active={appearance.density === 'comfortable'} title="Comfortable" onClick={() => setAppearance({ density: 'comfortable' })} />
               <Choice active={appearance.density === 'compact'} title="Compact" onClick={() => setAppearance({ density: 'compact' })} />
