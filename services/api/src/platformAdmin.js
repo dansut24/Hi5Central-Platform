@@ -335,6 +335,7 @@ function adminPayload(session, tenantSession = null) {
       slug: tenantSession.slug,
       companyName: tenantSession.company_name,
       accent: configuration?.theme?.accent || '#3b82f6',
+      themeMode: ['system','light','dark'].includes(configuration?.theme?.mode) ? configuration.theme.mode : 'system',
     } : null,
     platformAccess: {
       admin: true,
