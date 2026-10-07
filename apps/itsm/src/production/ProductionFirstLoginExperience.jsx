@@ -95,6 +95,24 @@ function initials(name = '') {
     .join('') || 'HC'
 }
 
+function freshPreferences() {
+  return {
+    appearance: {
+      theme: 'light',
+      accentMode: 'tenant',
+      accent: 'amber',
+      density: 'comfortable',
+    },
+    navigation: {
+      desktopSide: 'left',
+      mobileSide: 'left',
+      sidebarStyle: 'floating',
+      sidebarMode: 'expanded',
+    },
+    guidance: { coachMarks: true },
+  }
+}
+
 function defaultPreferences() {
   return {
     appearance: {
@@ -300,7 +318,7 @@ function FirstLoginDialog({ payload, preferences, setPreferences, onComplete, sa
         {error ? <div className="hi5-first-login-error">{error}</div> : null}
 
         <footer className="hi5-first-login-footer">
-          {step === 0 ? <button className="is-quiet" disabled={saving} onClick={() => onComplete(defaultPreferences())} type="button">Use defaults</button> : <button className="is-quiet" disabled={saving} onClick={() => setStep((value) => Math.max(0, value - 1))} type="button">Back</button>}
+          {step === 0 ? <button className="is-quiet" disabled={saving} onClick={() => onComplete(freshPreferences())} type="button">Use defaults</button> : <button className="is-quiet" disabled={saving} onClick={() => setStep((value) => Math.max(0, value - 1))} type="button">Back</button>}
           <span />
           {step < 2 ? <button className="is-primary" onClick={() => setStep((value) => value + 1)} type="button">{step === 0 ? 'Personalise workspace' : 'Continue'}<ArrowRight size={16} /></button> : <button className="is-primary" disabled={saving} onClick={() => onComplete(preferences)} type="button">{saving ? 'Saving…' : 'Open my workspace'}<ArrowRight size={16} /></button>}
         </footer>
@@ -415,7 +433,9 @@ export function ProductionFirstLoginExperience() {
     getPreferences()
       .then((next) => {
         if (!active) return
-        const merged = next.preferences ? mergePreferences(next.preferences) : defaultPreferences()
+        const merged = next.firstLoginCompletedAt
+          ? (next.preferences ? mergePreferences(next.preferences) : defaultPreferences())
+          : freshPreferences()
         setPayload(next)
         setPreferences(merged)
 
