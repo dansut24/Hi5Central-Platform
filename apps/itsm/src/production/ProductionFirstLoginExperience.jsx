@@ -484,10 +484,17 @@ export function ProductionFirstLoginExperience() {
   }, [])
 
   useEffect(() => {
-    const scan = () => setTenantHandoffVisible(Boolean(document.querySelector('.hi5-first-run-layer')))
+    const scan = () => {
+      const layer = document.querySelector('.hi5-first-run-layer')
+      const visible = layer instanceof HTMLElement
+        && layer.getClientRects().length > 0
+        && window.getComputedStyle(layer).display !== 'none'
+        && window.getComputedStyle(layer).visibility !== 'hidden'
+      setTenantHandoffVisible(Boolean(visible))
+    }
     scan()
     const observer = new MutationObserver(scan)
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
     return () => observer.disconnect()
   }, [])
 
@@ -582,7 +589,14 @@ export function ProductionFirstLoginExperience() {
           && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
         )
       )
-      && !tenantHandoffVisible
+      && (
+        !tenantHandoffVisible
+        || (
+          firstLoginHandoff
+          && firstLoginHandoff.tenantSlug === payload.tenant?.slug
+          && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
+        )
+      )
       && path !== '/login'
       && !path.startsWith('/onboarding')
   ), [firstLoginHandoff, loading, path, payload, tenantHandoffVisible])
