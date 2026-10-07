@@ -14,7 +14,6 @@ import { ProductionAccessGuard } from './production/ProductionAccessGuard.jsx'
 import { ProductionAssignmentExperience } from './production/ProductionAssignmentExperience.jsx'
 import { ProductionFinalTaskCompletionPrompt } from './production/ProductionFinalTaskCompletionPrompt.jsx'
 import { ProductionSessionBoundary } from './production/ProductionSessionBoundary.jsx'
-import { ProductionFirstLoginExperience } from './production/ProductionFirstLoginExperience.jsx'
 import { ProductionFirstLoginRouteBridge } from './production/ProductionFirstLoginRouteBridge.jsx'
 import { ProductionItsmWorkspace } from './production/ProductionItsmWorkspace.jsx'
 import { ProductionKnowledgeBase } from './production/ProductionKnowledgeBase.jsx'
@@ -126,7 +125,6 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionPortalThemeBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionUniversalPeekV2 /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginRouteBridge /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionMfaLoginEnhancer /> : null}
     {productionWorkspace && !productionOnboarding ? <OnboardingMfaEnhancer /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionPasswordRecoveryEnhancer /> : null}
