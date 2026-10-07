@@ -525,7 +525,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                         className="onboarding-colour-hex"
                         inputMode="text"
                         maxLength="7"
-                        value={accentColour(data.accent)}
+                        value={String(data.accent || '').startsWith('#') ? String(data.accent) : accentColour(data.accent)}
                         onChange={(event) => {
                           const next = event.target.value.trim()
                           if (/^#[0-9a-fA-F]{0,6}$/.test(next)) update('accent', next)
