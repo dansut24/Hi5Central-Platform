@@ -281,8 +281,6 @@ function TenantEditor({ tenant, onSaved }) {
         : <div className="h5a-owner-request"><input type="email" placeholder="new.owner@example.com" value={ownerEmail} onChange={e=>setOwnerEmail(e.target.value)}/><button className="rmm-secondary compact" disabled={busy==='owner'||!ownerEmail||!tenant.owner_email} onClick={requestTransfer}><UserRound size={13}/>{busy==='owner'?'Sending…':'Request owner change'}</button></div>}
     </div>
   </div>
-  <ProductionUserExperience user={user} onPreferences={applyUserPreferences}/>
-  </>
 }
 function Tenants({ items, refresh, query }) {
   const [creating,setCreating]=useState(false)
@@ -1167,13 +1165,6 @@ export function PlatformAdminApp() {
       <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
       <div className="rmm-shell-main">
         <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
-        <AdminWorkspaceTabs
-          activeKey={`view:${view}`}
-          onActivate={activateWorkspaceTab}
-          onClose={closeWorkspaceTab}
-          onNew={()=>navigate('overview')}
-          tabs={workspaceTabs}
-        />
         <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
       </div>
     </div>
