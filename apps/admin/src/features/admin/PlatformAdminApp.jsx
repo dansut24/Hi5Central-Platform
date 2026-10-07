@@ -14,6 +14,28 @@ import '../../production/RmmSidebarParity.css'
 
 const config = deploymentConfig()
 const API = config.apiUrl || `https://api.${config.rootDomain}`
+const SHARED_THEME_KEY = 'hi5central-theme-mode'
+
+function rawStoredTheme() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
+    return ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function resolveThemeMode(value = rawStoredTheme()) {
+  const preferred = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : preferred
+}
+
+function persistThemeMode(value) {
+  const next = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  try { window.localStorage.setItem(SHARED_THEME_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+}
 
 function adminAccentStyle(value) {
   const presets = {
@@ -1142,7 +1164,7 @@ export function PlatformAdminApp() {
   const [workspaceTabs,setWorkspaceTabs]=useState(()=>[adminWorkspaceTabForView('overview')])
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
-  const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
+  const [theme,setThemeState]=useState(()=>resolveThemeMode())
   const [accent,setAccent]=useState('#3b82f6')
   const [organisationAccent,setOrganisationAccent]=useState('#3b82f6')
   const [platformAccess,setPlatformAccess]=useState({admin:true,itsm:false,rmm:false})
@@ -1158,9 +1180,9 @@ export function PlatformAdminApp() {
     const appearance=preferences.appearance||{}
     const navigation=preferences.navigation||{}
     setLastPreferences(preferences)
-    const resolvedTheme=appearance.theme==='system'
-      ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
-      : (appearance.theme==='dark'?'dark':'light')
+    const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:'system'
+    persistThemeMode(preferredTheme)
+    const resolvedTheme=resolveThemeMode(preferredTheme)
     setThemeState(resolvedTheme)
     setAccent(appearance.accentMode==='personal'
       ? (appearance.accent||organisationAccent||'#3b82f6')
@@ -1170,18 +1192,36 @@ export function PlatformAdminApp() {
     setSidebarMode(navigation.sidebarMode==='collapsed'?'collapsed':'expanded')
   }
   useEffect(()=>{
-    api('/auth/session')
-      .then(r=>{
+    let active=true
+    Promise.all([
+      api('/auth/session'),
+      api('/user-preferences?surface=admin').catch(()=>null),
+    ])
+      .then(([r,experience])=>{
+        if(!active)return
         setUser(r.user)
         setPlatformAccess(r.platformAccess||{admin:true,itsm:false,rmm:false})
         setSessionTenant(r.tenant||null)
-        if(r.tenant?.accent){
-          setOrganisationAccent(r.tenant.accent)
-          setAccent(r.tenant.accent)
+        const organisation=r.tenant?.accent||'#3b82f6'
+        setOrganisationAccent(organisation)
+        const preferences=experience?.preferences||{}
+        const appearance=preferences.appearance||{}
+        if(experience?.preferences){
+          setLastPreferences(preferences)
+          const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:'system'
+          persistThemeMode(preferredTheme)
+          setThemeState(resolveThemeMode(preferredTheme))
+          setAccent(appearance.accentMode==='personal'?(appearance.accent||organisation):organisation)
+          setDensity(appearance.density==='compact'?'compact':'comfortable')
+          setNavSide(preferences.navigation?.desktopSide==='right'?'right':'left')
+          setSidebarMode(preferences.navigation?.sidebarMode==='collapsed'?'collapsed':'expanded')
+        }else{
+          setAccent(organisation)
         }
       })
       .catch(()=>{})
-      .finally(()=>setLoading(false))
+      .finally(()=>{if(active)setLoading(false)})
+    return()=>{active=false}
   },[])
 
   useEffect(()=>{
@@ -1208,7 +1248,7 @@ export function PlatformAdminApp() {
   }
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
-  if(loading)return <main className="hi5-loading-shell" aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
+  if(loading)return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if(!user)return <Login onLogin={()=>window.location.reload()}/>
   function navigate(next,options={}){
     if(!options.skipTab&&next!=='profile'){
