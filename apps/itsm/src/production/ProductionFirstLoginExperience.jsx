@@ -39,6 +39,8 @@ const MOBILE_SIDE_KEY = 'hi5central-mobile-nav-side-v1'
 const NAV_STYLE_KEY = 'hi5central-primary-nav-style-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const PREFERENCE_SYNC_KEY = 'hi5central-user-preference-sync-v1'
+const FIRST_LOGIN_HANDOFF_KEY = 'hi5central-first-login-required-v1'
+const FIRST_LOGIN_HANDOFF_MAX_AGE_MS = 30 * 60 * 1000
 
 const ACCENTS = [
   ['Hi5Central blue', '#3b82f6'],
@@ -86,7 +88,28 @@ function readJson(key, fallback) {
 }
 
 function tenantAccent() {
-  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || 'blue'
+  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || '#3b82f6'
+}
+
+function readFirstLoginHandoff() {
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_LOGIN_HANDOFF_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const age = Date.now() - Number(parsed?.createdAt || 0)
+    if (!parsed?.tenantSlug || age < 0 || age > FIRST_LOGIN_HANDOFF_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY)
+      return null
+    }
+    return parsed
+  } catch {
+    try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
+    return null
+  }
+}
+
+function clearFirstLoginHandoff() {
+  try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
 }
 
 function initials(name = '') {
@@ -447,6 +470,7 @@ export function ProductionFirstLoginExperience() {
   const [path, setPath] = useState(() => window.location.pathname)
   const [coachIndex, setCoachIndex] = useState(-1)
   const [tenantHandoffVisible, setTenantHandoffVisible] = useState(false)
+  const [firstLoginHandoff, setFirstLoginHandoff] = useState(readFirstLoginHandoff)
   const coachTimer = useRef(null)
 
   useEffect(() => {
@@ -472,15 +496,20 @@ export function ProductionFirstLoginExperience() {
     getPreferences()
       .then((next) => {
         if (!active) return
-        const merged = next.firstLoginCompletedAt
-          ? (next.preferences ? mergePreferences(next.preferences) : defaultPreferences())
-          : freshPreferences()
+        const handoffMatches = Boolean(
+          firstLoginHandoff
+            && firstLoginHandoff.tenantSlug === next.tenant?.slug
+            && (!firstLoginHandoff.userId || firstLoginHandoff.userId === next.user?.id),
+        )
+        const merged = (!next.firstLoginCompletedAt || handoffMatches)
+          ? freshPreferences()
+          : (next.preferences ? mergePreferences(next.preferences) : defaultPreferences())
         setPayload(next)
         setPreferences(merged)
 
         const localSync = readJson(PREFERENCE_SYNC_KEY, {})
         const needsCrossDeviceSync = Boolean(next.firstLoginCompletedAt && next.preferences && localSync.userId !== next.user?.id)
-        if (!next.firstLoginCompletedAt || needsCrossDeviceSync) applyPreferences(merged)
+        if (!next.firstLoginCompletedAt || handoffMatches || needsCrossDeviceSync) applyPreferences(merged)
         if (next.firstLoginCompletedAt && next.user?.id) {
           try { window.localStorage.setItem(PREFERENCE_SYNC_KEY, JSON.stringify({ userId: next.user.id, syncedAt: Date.now() })) } catch { /* optional cache */ }
         }
@@ -511,6 +540,8 @@ export function ProductionFirstLoginExperience() {
       if (next.user?.id) {
         try { window.localStorage.setItem(PREFERENCE_SYNC_KEY, JSON.stringify({ userId: next.user.id, syncedAt: Date.now() })) } catch { /* optional cache */ }
       }
+      clearFirstLoginHandoff()
+      setFirstLoginHandoff(null)
       if (window.location.pathname !== '/dashboard') navigate('/dashboard')
       window.setTimeout(() => window.location.reload(), 180)
     } catch (saveError) {
@@ -543,11 +574,18 @@ export function ProductionFirstLoginExperience() {
     !loading
       && payload
       && payload.tenantOnboardingCompletedAt
-      && !payload.firstLoginCompletedAt
+      && (
+        !payload.firstLoginCompletedAt
+        || (
+          firstLoginHandoff
+          && firstLoginHandoff.tenantSlug === payload.tenant?.slug
+          && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
+        )
+      )
       && !tenantHandoffVisible
       && path !== '/login'
       && !path.startsWith('/onboarding')
-  ), [loading, path, payload, tenantHandoffVisible])
+  ), [firstLoginHandoff, loading, path, payload, tenantHandoffVisible])
 
   const showGettingStarted = Boolean(
     payload?.firstLoginCompletedAt
