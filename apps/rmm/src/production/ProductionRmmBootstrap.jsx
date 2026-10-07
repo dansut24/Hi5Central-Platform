@@ -12,9 +12,9 @@ const SHARED_THEME_KEY = 'hi5central-theme-mode'
 function rawStoredTheme() {
   try {
     const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
-    return ['system', 'light', 'dark'].includes(value) ? value : 'system'
+    return ['system', 'light', 'dark'].includes(value) ? value : null
   } catch {
-    return 'system'
+    return null
   }
 }
 
