@@ -1380,3 +1380,86 @@ html[data-hi5-surface='workspace'] .app-shell {
     height: 100%;
   }
 }
+
+
+/* Shared platform sidebar footer contract: identical across ITSM/RMM/Admin. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .sidebar {
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-footer {
+    display: grid !important;
+    gap: 6px !important;
+    margin-top: auto;
+    border-top: 1px solid rgba(255,255,255,.12);
+    padding-top: 10px;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-product-switches {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0,1fr));
+    gap: 5px;
+    padding: 0 6px 7px;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-product-switches a {
+    min-height: 29px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 7px;
+    background: rgba(255,255,255,.06);
+    color: rgba(255,255,255,.76);
+    font-size: 8px;
+    font-weight: 820;
+    text-decoration: none;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-product-switches a:hover {
+    background: rgba(255,255,255,.12);
+    color: #fff;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-identity {
+    min-height: 42px;
+    display: grid;
+    grid-template-columns: 30px minmax(0,1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 6px 7px;
+    border-top: 1px solid rgba(255,255,255,.1);
+    color: rgba(255,255,255,.76);
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-identity > span {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
+    background: rgba(255,255,255,.1);
+    color: #fff;
+    font-size: 9px;
+    font-weight: 850;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-identity strong,
+  html[data-hi5-surface='workspace'] .sidebar-identity small {
+    display: block;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-identity strong {
+    overflow: hidden;
+    color: #fff;
+    font-size: 9px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  html[data-hi5-surface='workspace'] .sidebar-identity small {
+    margin-top: 2px;
+    color: rgba(255,255,255,.5);
+    font-size: 8px;
+  }
+}
