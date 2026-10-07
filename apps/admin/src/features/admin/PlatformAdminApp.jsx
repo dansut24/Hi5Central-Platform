@@ -1115,6 +1115,8 @@ export function PlatformAdminApp() {
   const [mobileOpen,setMobileOpen]=useState(false)
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
   const [accent,setAccent]=useState('#3b82f6')
+  const [organisationAccent,setOrganisationAccent]=useState('#3b82f6')
+  const [lastPreferences,setLastPreferences]=useState(null)
   const [density,setDensity]=useState('comfortable')
   const [navSide,setNavSide]=useState('left')
   const [sidebarMode,setSidebarMode]=useState('expanded')
@@ -1125,16 +1127,34 @@ export function PlatformAdminApp() {
   function applyUserPreferences(preferences={}){
     const appearance=preferences.appearance||{}
     const navigation=preferences.navigation||{}
+    setLastPreferences(preferences)
     const resolvedTheme=appearance.theme==='system'
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
       : (appearance.theme==='dark'?'dark':'light')
     setThemeState(resolvedTheme)
-    setAccent(appearance.accent||'#3b82f6')
+    setAccent(appearance.accentMode==='personal'
+      ? (appearance.accent||'#3b82f6')
+      : organisationAccent)
     setDensity(appearance.density==='compact'?'compact':'comfortable')
     setNavSide(navigation.desktopSide==='right'?'right':'left')
     setSidebarMode(navigation.sidebarMode==='collapsed'?'collapsed':'expanded')
   }
-  useEffect(()=>{api('/auth/session').then(r=>setUser(r.user)).catch(()=>{}).finally(()=>setLoading(false))},[])
+  useEffect(()=>{
+    api('/auth/session').then(r=>setUser(r.user)).catch(()=>{}).finally(()=>setLoading(false))
+    fetch(`${API}/api/v1/auth/session`, { credentials:'include', cache:'no-store' })
+      .then(async response => response.ok ? response.json() : null)
+      .then(payload => {
+        const nextAccent = payload?.settings?.theme?.accent || payload?.onboarding?.data?.theme?.accent
+        if (nextAccent) setOrganisationAccent(nextAccent)
+      })
+      .catch(()=>{})
+  },[])
+
+  useEffect(()=>{
+    if(lastPreferences?.appearance?.accentMode==='tenant'){
+      setAccent(organisationAccent||'#3b82f6')
+    }
+  },[organisationAccent,lastPreferences])
   async function load(target=view){
     if(!user||target==='winget')return
     setError('')
