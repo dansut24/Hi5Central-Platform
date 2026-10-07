@@ -1028,11 +1028,9 @@ html[data-hi5-surface='workspace'] .production-workspace-mobile-nav {
   }
 }
 
-/* Exact RMM workspace colour contract. Product identity remains in labels, not
-   a separate UI theme. */
+/* The runtime-selected tenant/user accent is authoritative across every
+   Hi5Central surface. Product identity remains in labels, not a separate theme. */
 html[data-hi5-surface='workspace'] .app-shell {
-  --accent-rgb: 217, 138, 10 !important;
-  --accent-ink: #ffffff !important;
   --itsm-card-shadow: 0 12px 34px rgba(19, 45, 84, .08);
 }
 
@@ -1355,5 +1353,30 @@ html[data-hi5-surface='workspace'] .app-shell {
 @media (max-width: 1100px) and (min-width: 901px) {
   html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
     grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+}
+
+
+/* Dashboard geometry parity with RMM. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
+    gap: 11px !important;
+    margin-bottom: 16px;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-grid,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-lower {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 14px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-grid {
+    margin-bottom: 14px;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-grid > .itsm-rmm-card,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-lower > .itsm-rmm-card {
+    min-height: 190px;
+    height: 100%;
   }
 }
