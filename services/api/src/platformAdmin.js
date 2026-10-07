@@ -172,18 +172,39 @@ async function resolveAdminSession(c) {
   const token = getCookie(c, COOKIE_NAME)
   if (!token) return null
   const result = await pool.query(
-    `SELECT s.id AS session_id,s.user_id,s.expires_at,u.email,u.name,m.role,m.status
+    `SELECT s.id AS session_id,s.user_id,s.expires_at,u.email,u.name,
+            m.role AS platform_role,m.status AS platform_status
        FROM platform_admin_sessions s
        JOIN users u ON u.id=s.user_id
-       JOIN platform_admin_members m ON m.user_id=s.user_id
+       LEFT JOIN platform_admin_members m ON m.user_id=s.user_id
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
       LIMIT 1`,
     [hash(token)],
   )
   const row = result.rows[0]
-  if (!row || row.status !== 'active' || !ADMIN_ROLES.has(row.role)) return null
-  pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [row.session_id]).catch(() => {})
-  return row
+  if (!row) return null
+
+  const explicitRole = row.platform_status === 'active' && ADMIN_ROLES.has(row.platform_role)
+    ? row.platform_role
+    : null
+
+  let role = explicitRole
+  if (!role && deployment.runtimeEnvironment === 'dev' && deployment.featureMode === 'all_enabled') {
+    const tenantRole = await pool.query(
+      `SELECT role FROM tenant_memberships
+        WHERE user_id=$1 AND status='active' AND role IN ('owner','admin')
+        ORDER BY CASE role WHEN 'owner' THEN 1 ELSE 2 END
+        LIMIT 1`,
+      [row.user_id],
+    )
+    if (tenantRole.rowCount) role = 'owner'
+  }
+
+  if (!role) return null
+
+  const resolved = { ...row, role, status: 'active' }
+  pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [resolved.session_id]).catch(() => {})
+  return resolved
 }
 
 async function seedTenantWorkspaceSession(c, userId) {
