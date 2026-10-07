@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword } from './password.js'
-import { resolveSession } from './session.js'
+import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import {
@@ -184,6 +184,40 @@ async function resolveAdminSession(c) {
   if (!row || row.status !== 'active' || !ADMIN_ROLES.has(row.role)) return null
   pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [row.session_id]).catch(() => {})
   return row
+}
+
+async function seedTenantWorkspaceSession(c, userId) {
+  const memberships = await pool.query(
+    `SELECT m.tenant_id,m.role,t.slug
+       FROM tenant_memberships m
+       JOIN tenants t ON t.id=m.tenant_id
+       JOIN tenant_settings ts ON ts.tenant_id=m.tenant_id
+      WHERE m.user_id=$1
+        AND m.status='active'
+        AND t.status='active'
+        AND ts.onboarding_completed_at IS NOT NULL
+      ORDER BY CASE m.role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,t.created_at
+      LIMIT 2`,
+    [userId],
+  )
+
+  const candidates = memberships.rows || []
+  if (!candidates.length) return false
+  if (candidates.length > 1 && deployment.tenancyMode !== 'single') return false
+
+  try {
+    const token = await createSession(pool, {
+      tenantId: candidates[0].tenant_id,
+      userId,
+      surface: 'workspace',
+    })
+    setSessionCookie(c, token)
+    return true
+  } catch {
+    // Tenant MFA/access policy remains authoritative. Admin login still succeeds,
+    // but the user must complete tenant authentication before opening ITSM/RMM.
+    return false
+  }
 }
 
 async function tenantAdminSsoSession(c) {
@@ -525,8 +559,9 @@ export function registerPlatformAdminRoutes(app) {
     )
     const session = { ...account, session_id: created.rows[0].id }
     setCookie(c, COOKIE_NAME, token, cookieOptions({ maxAge: SESSION_SECONDS }))
+    const workspaceSessionCreated = await seedTenantWorkspaceSession(c, account.user_id)
     await audit(c, session, 'platform.auth.login')
-    return c.json(adminPayload(session))
+    return c.json({ ...adminPayload(session), workspaceSessionCreated })
   })
 
   app.get('/api/platform/v1/auth/session', async (c) => {
