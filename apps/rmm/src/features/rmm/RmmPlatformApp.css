@@ -46,7 +46,7 @@
   border-radius: 9px;
   padding: 0 15px;
   background: var(--rmm-accent);
-  color: #fff;
+  color: var(--rmm-accent-ink, #fff);
   font: inherit;
   font-size: 12px;
   font-weight: 850;
@@ -819,7 +819,7 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
 .rmm-remote-ready span { color: var(--rmm-muted); font-size: 8px; }
 .rmm-remote-ready > div:last-child { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; }
 .rmm-remote-ready a { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--rmm-border); border-radius: 7px; padding: 0 10px; background: var(--rmm-surface); color: var(--rmm-text); font-size: 8px; font-weight: 800; text-decoration: none; }
-.rmm-remote-ready a.rmm-primary { color: #fff; }
+.rmm-remote-ready a.rmm-primary { color: var(--rmm-accent-ink, #fff); }
 .rmm-remote-device-link { border-top: 1px solid var(--rmm-border); padding: 10px 14px; }
 .rmm-remote-device-link button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: var(--rmm-accent); font: inherit; font-size: 8px; font-weight: 800; cursor: pointer; }
 @media (max-width: 640px) {
@@ -2027,7 +2027,7 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
 .rmm-viewer-install-actions a.rmm-primary {
   border-color: transparent;
   background: var(--rmm-accent);
-  color: #fff;
+  color: var(--rmm-accent-ink, #fff);
 }
 
 @media (max-width: 640px) {
