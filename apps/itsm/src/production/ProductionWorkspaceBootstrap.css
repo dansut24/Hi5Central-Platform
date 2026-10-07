@@ -252,3 +252,78 @@
 @media (max-width: 420px) {
   .production-auth-recovery-grid { grid-template-columns: 1fr; }
 }
+
+
+/* Shared bootstrap loading surface for ITSM, RMM and Platform Admin. */
+.hi5-loading-shell {
+  width: 100%;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 24px;
+  background: #edf3fb;
+}
+
+.hi5-loading-mark {
+  width: 68px;
+  height: 68px;
+  display: block;
+  object-fit: contain;
+  transform-origin: center;
+  animation: hi5-loading-pulse 1.25s ease-in-out infinite;
+  will-change: transform, opacity, filter;
+}
+
+.hi5-loading-recovery {
+  width: min(360px, calc(100vw - 32px));
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  text-align: center;
+  color: #65728a;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+@keyframes hi5-loading-pulse {
+  0%, 100% {
+    transform: scale(.9);
+    opacity: .55;
+    filter: drop-shadow(0 6px 12px rgba(16,33,63,.05));
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+    filter: drop-shadow(0 10px 22px rgba(16,33,63,.16));
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .hi5-loading-shell {
+    background: #0c1320;
+  }
+
+  .hi5-loading-recovery {
+    color: #9aabc2;
+  }
+}
+
+@media (max-width: 560px) {
+  .hi5-loading-shell {
+    min-height: 100dvh;
+    padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  }
+
+  .hi5-loading-mark {
+    width: 62px;
+    height: 62px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hi5-loading-mark {
+    animation: none;
+    opacity: 1;
+  }
+}
