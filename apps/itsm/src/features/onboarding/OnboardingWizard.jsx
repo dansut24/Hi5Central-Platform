@@ -79,7 +79,7 @@ function defaultData(step, session) {
     },
     theme: {
       accent: 'amber',
-      mode: 'system',
+      mode: 'light',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
     },
