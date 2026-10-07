@@ -138,7 +138,6 @@ function Login({ onLogin }) {
   const [password,setPassword]=useState('')
   const [passwordStep,setPasswordStep]=useState(false)
   const [error,setError]=useState('')
-  const accountSession=useMemo(()=>({user,tenant:sessionTenant}),[user,sessionTenant])
   const [busy,setBusy]=useState(false)
 
   async function submit(event){
@@ -1178,6 +1177,7 @@ export function PlatformAdminApp() {
   const [data,setData]=useState({overview:null,releases:{environments:[],features:[],changes:[],promotions:[],actions:[]},tenants:[],billing:[],licenses:[],qualification:{runners:[],active:[],pending:[],recent:[]},catalogue:[],audit:[]})
   const [wingetRefreshKey,setWingetRefreshKey]=useState(0)
   const [error,setError]=useState('')
+  const accountSession=useMemo(()=>({user,tenant:sessionTenant}),[user,sessionTenant])
   function applyUserPreferences(preferences={}){
     const appearance=preferences.appearance||{}
     const navigation=preferences.navigation||{}
