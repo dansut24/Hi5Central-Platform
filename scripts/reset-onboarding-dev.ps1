@@ -53,6 +53,7 @@ UPDATE tenant_settings ts
 SET onboarding_step = '$Step',
     onboarding_completed_at = NULL,
     onboarding_data = $answerExpression,
+    configuration = '{}'::jsonb,
     updated_at = now()
 FROM tenants t
 WHERE ts.tenant_id = t.id
@@ -108,6 +109,7 @@ Write-Host 'Reset complete.'
 Write-Host ''
 Write-Host 'What was reset:'
 Write-Host '  - Tenant onboarding completion marker'
+Write-Host '  - Active tenant runtime configuration (rebuilt when onboarding completes)'
 Write-Host "  - Tenant onboarding step -> $Step"
 Write-Host '  - Account-wide Personalise your workspace completion'
 Write-Host '  - ITSM/RMM/Admin guided walkthrough completion'
