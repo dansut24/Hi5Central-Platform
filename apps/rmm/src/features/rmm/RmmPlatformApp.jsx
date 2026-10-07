@@ -46,6 +46,7 @@ import {
   Tag,
   TerminalSquare,
   Trash2,
+  UserRound,
   Users,
   Wifi,
   WifiOff,
@@ -237,11 +238,37 @@ function RmmPageSkeleton() {
   </div>
 }
 
-function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, query, setQuery, setTheme, theme }) {
+function sharedAccountHref(section = 'profile') {
+  const platform = deploymentConfig()
+  const surface = resolveTenantSurface()
+  const base = platform.appUrl
+    || (platform.tenancyMode === 'multi' && surface?.tenantSlug
+      ? `https://${surface.tenantSlug}.${platform.rootDomain}`
+      : window.location.origin)
+  const suffix = section === 'workspace' ? '/profile?section=workspace' : '/profile'
+  return `${String(base || '').replace(/\/$/, '')}${suffix}`
+}
+
+function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, query, setQuery }) {
   const [, title] = pageMeta[activeView] || pageMeta.dashboard
   const platform = deploymentConfig()
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const initials = String(currentUser?.name || 'HC').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'HC'
-  return <header className="rmm-topbar"><div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19} /></button><div><span>RMM {platform.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${platform.runtimeEnvironment}`}>{platform.runtimeEnvironment.toUpperCase()}{platform.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div><label className="rmm-global-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, users, sites, groups, alerts…" /></label><div className="rmm-topbar-actions"><button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} type="button">{theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}</button><button className="rmm-notification-button" onClick={() => navigate('alerts')} type="button"><Bell size={17} /><b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b></button><button className="rmm-user" onClick={onLogout} type="button"><span>{initials}</span><div><strong>{currentUser?.name || 'Hi5Central user'}</strong><small>Sign out</small></div><LogOut size={14} /></button></div></header>
+
+  return <header className="rmm-topbar">
+    <div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19} /></button><div><span>RMM {platform.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${platform.runtimeEnvironment}`}>{platform.runtimeEnvironment.toUpperCase()}{platform.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div>
+    <label className="rmm-global-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, users, sites, groups, alerts…" /></label>
+    <div className="rmm-topbar-actions">
+      <button className="rmm-notification-button" onClick={() => navigate('alerts')} title="Alerts" type="button"><Bell size={17} /><b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b></button>
+      <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={() => setProfileMenuOpen((open) => !open)} title="Profile" type="button"><span>{initials}</span></button>
+      {profileMenuOpen ? <div className="rmm-profile-menu" role="menu">
+        <div className="rmm-profile-summary"><span>{initials}</span><div><strong>{currentUser?.name || 'Hi5Central user'}</strong><small>{currentUser?.username || 'Hi5Central account'}</small></div></div>
+        <button onClick={() => window.location.assign(sharedAccountHref('profile'))} role="menuitem" type="button"><UserRound size={15} />My Profile</button>
+        <button onClick={() => window.location.assign(sharedAccountHref('workspace'))} role="menuitem" type="button"><SlidersHorizontal size={15} />Workspace</button>
+        <button onClick={() => { setProfileMenuOpen(false); onLogout?.() }} role="menuitem" type="button"><LogOut size={15} />Sign out</button>
+      </div> : null}
+    </div>
+  </header>
 }
 
 function PageHeading({ activeView, action }) {
@@ -2698,7 +2725,7 @@ export function RmmPlatformApp({ accent, canAdmin = false, canAudit = false, can
     <div className={`rmm-app sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={rmmAccentStyle(accent)}>
       <RmmSidebar activeView={visibleActiveView} canAdmin={canAdmin} canAudit={canAudit} canItsm={canItsm} canRemote={canRemote} collapsed={sidebarMode === 'collapsed'} currentUser={currentUser} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} onToggleCollapse={() => setSidebarMode?.(sidebarMode === 'collapsed' ? 'expanded' : 'collapsed')} tenantName={tenantName} />
       <div className="rmm-shell-main">
-        <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
+        <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} />
         <main className="rmm-main-scroll"><div className="rmm-page">{renderPage()}</div></main>
       </div>
       {toast && <div className="rmm-toast"><CheckCircle2 size={16} />{toast}</div>}
