@@ -114,6 +114,7 @@ function Login({ onLogin }) {
   const [password,setPassword]=useState('')
   const [passwordStep,setPasswordStep]=useState(false)
   const [error,setError]=useState('')
+  const accountSession=useMemo(()=>({user,tenant:sessionTenant}),[user,sessionTenant])
   const [busy,setBusy]=useState(false)
 
   async function submit(event){
@@ -1259,7 +1260,7 @@ export function PlatformAdminApp() {
     if(view==='qualification')return <Qualification data={data.qualification} query={query} refresh={()=>load('qualification')}/>
     if(view==='catalogue')return <Catalogue items={data.catalogue} query={query} refresh={()=>load('catalogue')}/>
     if(view==='winget')return <Winget key={query} query={query} refreshKey={wingetRefreshKey}/>
-    if(view==='profile')return <ProductionProfileWorkspace platform="admin" session={{ user, tenant: sessionTenant }} />
+    if(view==='profile')return <ProductionProfileWorkspace platform="admin" session={accountSession} />
     return <Audit items={data.audit} query={query}/>
   }
   return <>
