@@ -92,7 +92,7 @@ function Login({ onLogin, theme, setTheme }) {
       onLogin(result.user)
     } catch(err){ setError(err.message) } finally { setBusy(false) }
   }
-  return <div className="rmm-login" data-accent="amber" data-theme={theme}>
+  return <div className="rmm-login" data-accent="blue" data-theme={theme}>
     <section className="rmm-login-panel">
       <div className="rmm-login-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central"/><span>ADMIN</span></div>
       <div className="rmm-login-copy"><span className="rmm-eyebrow">HI5CENTRAL CONTROL PLANE</span><h1>Platform administration</h1><p>Manage tenants, qualification and the global software catalogue from the Hi5Central control plane.</p></div>
@@ -1025,7 +1025,7 @@ export function PlatformAdminApp() {
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
-  const [accent,setAccent]=useState('amber')
+  const [accent,setAccent]=useState('blue')
   const [density,setDensity]=useState('comfortable')
   const [navSide,setNavSide]=useState('left')
   const [data,setData]=useState({overview:null,releases:{environments:[],features:[],changes:[],promotions:[],actions:[]},tenants:[],billing:[],licenses:[],qualification:{runners:[],active:[],pending:[],recent:[]},catalogue:[],audit:[]})
@@ -1039,7 +1039,7 @@ export function PlatformAdminApp() {
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
       : (appearance.theme==='dark'?'dark':'light')
     setThemeState(resolvedTheme)
-    setAccent(appearance.accentMode==='personal'?(appearance.accent||'amber'):'amber')
+    setAccent(appearance.accentMode==='personal'?(appearance.accent||'blue'):'blue')
     setDensity(appearance.density==='compact'?'compact':'comfortable')
     setNavSide(navigation.desktopSide==='right'?'right':'left')
   }
