@@ -10,6 +10,7 @@ import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import {
   clearProductionSession,
+  loadTheme,
   normaliseAccent,
   saveAccent,
   saveDensity,
@@ -280,17 +281,32 @@ function readOnboardingSnapshot(expectedSlug) {
   }
 }
 
+function resolvedLoadingTheme() {
+  let preferred = loadTheme()
+  if (!['system', 'light', 'dark'].includes(preferred)) {
+    try {
+      const tenantRuntime = JSON.parse(window.localStorage.getItem(TENANT_RUNTIME_CONFIG_KEY) || '{}')
+      preferred = tenantRuntime?.theme?.mode || 'system'
+    } catch {
+      preferred = 'system'
+    }
+  }
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : (preferred === 'dark' ? 'dark' : 'light')
+}
+
 function LoadingScreen({ delayed, onRetry }) {
   if (!delayed) {
     return (
-      <main className="hi5-loading-shell" aria-label="Loading Hi5Central">
+      <main className="hi5-loading-shell" data-theme={resolvedLoadingTheme()} aria-label="Loading Hi5Central">
         <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
       </main>
     )
   }
 
   return (
-    <main className="hi5-loading-shell" aria-label="Hi5Central session restore delayed">
+    <main className="hi5-loading-shell" data-theme={resolvedLoadingTheme()} aria-label="Hi5Central session restore delayed">
       <div className="hi5-loading-recovery">
         <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
         <span>Session restore is taking longer than expected.</span>
