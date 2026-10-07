@@ -100,8 +100,20 @@
 .rmm-nav-section:first-child { margin-top: 4px; }
 .rmm-nav-section > span { padding: 0 9px 5px; color: rgba(255,255,255,.42); font-size: 8px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
 .rmm-nav-section button { min-height: 37px; display: grid; grid-template-columns: 19px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 0; border-radius: 8px; padding: 0 9px; background: transparent; color: rgba(255,255,255,.74); font: inherit; font-size: 10px; font-weight: 720; text-align: left; cursor: pointer; }
-.rmm-nav-section button:hover { background: rgba(255,255,255,.07); color: #fff; }
-.rmm-nav-section button.active { background: #fff; color: #0d2d66; box-shadow: 0 8px 20px rgba(0,0,0,.14); }
+@media (hover: hover) and (pointer: fine) and (min-width: 901px) {
+  .rmm-nav-section button:hover {
+    background: color-mix(in srgb, var(--rmm-accent) 28%, transparent);
+    color: #fff;
+  }
+}
+
+@media (min-width: 901px) {
+  .rmm-nav-section button.active {
+    background: var(--rmm-accent);
+    color: var(--rmm-accent-ink, #fff);
+    box-shadow: 0 8px 20px rgba(0,0,0,.16);
+  }
+}
 .rmm-nav-section button b { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; padding: 0 5px; background: #e45164; color: #fff; font-size: 8px; }
 .rmm-sidebar-footer { border-top: 1px solid rgba(255,255,255,.12); padding-top: 10px; }
 .rmm-sidebar-footer > div { display: flex; align-items: center; gap: 8px; padding: 6px; }
