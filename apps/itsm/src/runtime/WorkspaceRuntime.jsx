@@ -2743,11 +2743,20 @@ function WorkspaceRuntime() {
     if (activeView === 'home') {
       return (
         <DashboardView
+          assets={assets}
+          calendarEvents={calendarEvents}
           currentUser={session}
+          knowledgeArticles={knowledgeArticles}
+          liveChatConversations={liveChatConversations}
           openRecordTab={(ticket) =>
             openTab('tickets', { key: `ticket-${ticket.id}`, title: ticket.id, recordId: ticket.id })
           }
           openTab={openTab}
+          people={people}
+          teamMemberships={teamMemberships}
+          projects={projects}
+          rotaEntries={rotaEntries}
+          serviceCatalog={serviceCatalog}
           sidebarMode={sidebarMode}
           tickets={tickets}
         />
