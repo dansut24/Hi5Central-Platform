@@ -1939,8 +1939,11 @@ export function DashboardView({
   function beginEdit() {
     if (!activeDashboard.canEdit) return
     setEditSnapshot(cloneDashboards(dashboards))
+    setWidgetCatalogOpen(false)
+    setConfigureWidgetId(null)
     setEditMode(true)
     setDashboardMenuOpen(false)
+    setFilterOpen(false)
     setMoreOpen(false)
   }
 
@@ -2594,111 +2597,111 @@ export function DashboardView({
           </div>
         )}
       </section>
-      <div className="dashboard-toolbar-row">
-        <div className="dashboard-icon-toolbar" aria-label="Dashboard controls">
-          {editMode ? (
-            <>
-              <button aria-label="Add widget" disabled={activeDashboard.widgets.length >= DASHBOARD_MAX_WIDGETS} onClick={() => setWidgetCatalogOpen(true)} title="Add widget" type="button"><Plus size={16} /></button>
-              <button aria-label="Cancel dashboard edits" onClick={cancelEdit} title="Cancel" type="button"><X size={16} /></button>
-              <button className="primary" aria-label="Save dashboard" onClick={saveEdit} title="Save dashboard" type="button"><CheckCircle2 size={16} /></button>
-            </>
-          ) : (
-            <>
-              <div className="dashboard-selector-wrap">
-                <button aria-label="Switch dashboard" onClick={() => { setDashboardMenuOpen((open) => !open); setFilterOpen(false); setMoreOpen(false) }} title="Switch dashboard" type="button"><LayoutDashboard size={16} /></button>
-                {dashboardMenuOpen && (
-                  <div className="dashboard-selector-menu">
-                    {[
-                      ['mine', 'My dashboards'],
-                      ['shared', 'Shared with me'],
-                      ['team', 'Team dashboards'],
-                    ].map(([group, label]) => groupedDashboards[group].length ? (
-                      <section key={group}>
-                        <span>{label}</span>
-                        {groupedDashboards[group].map((dashboard) => (
-                          <button className={dashboard.id === activeDashboard.id ? 'active' : ''} key={dashboard.id} onClick={() => { setActiveDashboardId(dashboard.id); setDashboardMenuOpen(false); setEditMode(false) }} type="button">
-                            <strong>{dashboard.name}</strong>
-                            <small>{dashboard.owner}{dashboard.isDefault ? ' · Default' : ''}</small>
-                          </button>
-                        ))}
-                      </section>
-                    ) : null)}
-                    <button className="dashboard-menu-create" onClick={() => { setCreateOpen(true); setDashboardMenuOpen(false) }} type="button"><Plus size={15} /> Create dashboard</button>
-                  </div>
-                )}
-              </div>
-
-              <div className="dashboard-filter-wrap">
-                <button className={filterOpen ? 'active' : ''} aria-label="Dashboard filters" onClick={() => { setFilterOpen((open) => !open); setDashboardMenuOpen(false); setMoreOpen(false) }} title="Dashboard filters" type="button"><SlidersHorizontal size={16} /></button>
-                {filterOpen && (
-                  <div className="dashboard-filter-popover" aria-label="Dashboard filters">
-                    <label>Service<select value={dashboardFilters.service} onChange={(event) => setDashboardFilters({ ...dashboardFilters, service: event.target.value })}>{services.map((service) => <option key={service}>{service}</option>)}</select></label>
-                    <label>Team<select value={dashboardFilters.team} onChange={(event) => setDashboardFilters({ ...dashboardFilters, team: event.target.value })}>{['All', ...teams].map((team) => <option key={team}>{team}</option>)}</select></label>
-                    <label>Period<select value={dashboardFilters.period} onChange={(event) => setDashboardFilters({ ...dashboardFilters, period: event.target.value })}>{['Today', 'Last 7 days', 'Last 30 days', 'This quarter'].map((period) => <option key={period}>{period}</option>)}</select></label>
-                  </div>
-                )}
-              </div>
-
-              {activeDashboard.canEdit ? (
-                <button aria-label="Edit dashboard" onClick={beginEdit} title="Edit dashboard" type="button"><Pencil size={16} /></button>
+      {!editMode && (\n        <>\n          <div className="dashboard-toolbar-row">
+            <div className="dashboard-icon-toolbar" aria-label="Dashboard controls">
+              {editMode ? (
+                <>
+                  <button aria-label="Add widget" disabled={activeDashboard.widgets.length >= DASHBOARD_MAX_WIDGETS} onClick={() => setWidgetCatalogOpen(true)} title="Add widget" type="button"><Plus size={16} /></button>
+                  <button aria-label="Cancel dashboard edits" onClick={cancelEdit} title="Cancel" type="button"><X size={16} /></button>
+                  <button className="primary" aria-label="Save dashboard" onClick={saveEdit} title="Save dashboard" type="button"><CheckCircle2 size={16} /></button>
+                </>
               ) : (
-                <button aria-label="Make a copy" onClick={duplicateDashboard} title="Make a copy" type="button"><Copy size={16} /></button>
-              )}
-              <div className="dashboard-more-wrap">
-                <button aria-label="Dashboard actions" onClick={() => { setMoreOpen((open) => !open); setDashboardMenuOpen(false); setFilterOpen(false) }} title="Dashboard actions" type="button"><MoreHorizontal size={17} /></button>
-                {moreOpen && (
-                  <div className="dashboard-more-menu">
-                    <button onClick={duplicateDashboard} type="button"><Copy size={14} /> Duplicate dashboard</button>
-                    <button disabled={activeDashboard.isDefault} onClick={setAsDefault} type="button"><Star size={14} /> Set as default</button>
-                    {activeDashboard.scope === 'mine' && <button className="danger" onClick={deleteDashboard} type="button"><Trash2 size={14} /> Delete dashboard</button>}
+                <>
+                  <div className="dashboard-selector-wrap">
+                    <button aria-label="Switch dashboard" onClick={() => { setDashboardMenuOpen((open) => !open); setFilterOpen(false); setMoreOpen(false) }} title="Switch dashboard" type="button"><LayoutDashboard size={16} /></button>
+                    {dashboardMenuOpen && (
+                      <div className="dashboard-selector-menu">
+                        {[
+                          ['mine', 'My dashboards'],
+                          ['shared', 'Shared with me'],
+                          ['team', 'Team dashboards'],
+                        ].map(([group, label]) => groupedDashboards[group].length ? (
+                          <section key={group}>
+                            <span>{label}</span>
+                            {groupedDashboards[group].map((dashboard) => (
+                              <button className={dashboard.id === activeDashboard.id ? 'active' : ''} key={dashboard.id} onClick={() => { setActiveDashboardId(dashboard.id); setDashboardMenuOpen(false); setEditMode(false) }} type="button">
+                                <strong>{dashboard.name}</strong>
+                                <small>{dashboard.owner}{dashboard.isDefault ? ' · Default' : ''}</small>
+                              </button>
+                            ))}
+                          </section>
+                        ) : null)}
+                        <button className="dashboard-menu-create" onClick={() => { setCreateOpen(true); setDashboardMenuOpen(false) }} type="button"><Plus size={15} /> Create dashboard</button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
 
-      <div className="dashboard-canvas" onClick={() => { setDashboardMenuOpen(false); setMoreOpen(false); setFilterOpen(false) }}>
-        <div className={`dashboard-grid-host ${mobileStack ? 'is-mobile-stack' : ''}`} ref={gridContainerRef}>
-          {!activeDashboard.widgets.length ? (
-            <button className="dashboard-empty-canvas" onClick={() => { if (!editMode) beginEdit(); setWidgetCatalogOpen(true) }} type="button">
-              <Plus size={22} />
-              <strong>Add your first widget</strong>
-              <span>Build this dashboard from the Hi5Central widget catalogue.</span>
-            </button>
-          ) : mobileStack ? (
-            <div className="dashboard-mobile-stack-v3">
-              {activeDashboard.widgets.map((widget, index) => (
-                <DashboardWidgetFrame editMode={editMode} index={index} key={widget.id} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
-                  <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
-                </DashboardWidgetFrame>
-              ))}
+                  <div className="dashboard-filter-wrap">
+                    <button className={filterOpen ? 'active' : ''} aria-label="Dashboard filters" onClick={() => { setFilterOpen((open) => !open); setDashboardMenuOpen(false); setMoreOpen(false) }} title="Dashboard filters" type="button"><SlidersHorizontal size={16} /></button>
+                    {filterOpen && (
+                      <div className="dashboard-filter-popover" aria-label="Dashboard filters">
+                        <label>Service<select value={dashboardFilters.service} onChange={(event) => setDashboardFilters({ ...dashboardFilters, service: event.target.value })}>{services.map((service) => <option key={service}>{service}</option>)}</select></label>
+                        <label>Team<select value={dashboardFilters.team} onChange={(event) => setDashboardFilters({ ...dashboardFilters, team: event.target.value })}>{['All', ...teams].map((team) => <option key={team}>{team}</option>)}</select></label>
+                        <label>Period<select value={dashboardFilters.period} onChange={(event) => setDashboardFilters({ ...dashboardFilters, period: event.target.value })}>{['Today', 'Last 7 days', 'Last 30 days', 'This quarter'].map((period) => <option key={period}>{period}</option>)}</select></label>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeDashboard.canEdit ? (
+                    <button aria-label="Edit dashboard" onClick={beginEdit} title="Edit dashboard" type="button"><Pencil size={16} /></button>
+                  ) : (
+                    <button aria-label="Make a copy" onClick={duplicateDashboard} title="Make a copy" type="button"><Copy size={16} /></button>
+                  )}
+                  <div className="dashboard-more-wrap">
+                    <button aria-label="Dashboard actions" onClick={() => { setMoreOpen((open) => !open); setDashboardMenuOpen(false); setFilterOpen(false) }} title="Dashboard actions" type="button"><MoreHorizontal size={17} /></button>
+                    {moreOpen && (
+                      <div className="dashboard-more-menu">
+                        <button onClick={duplicateDashboard} type="button"><Copy size={14} /> Duplicate dashboard</button>
+                        <button disabled={activeDashboard.isDefault} onClick={setAsDefault} type="button"><Star size={14} /> Set as default</button>
+                        {activeDashboard.scope === 'mine' && <button className="danger" onClick={deleteDashboard} type="button"><Trash2 size={14} /> Delete dashboard</button>}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-          ) : gridMounted ? (
-            <ReactGridLayout
-              className="dashboard-rgl-v3"
-              compactor={verticalCompactor}
-              dragConfig={{ enabled: editMode, handle: '.dashboard-drag-handle', bounded: true }}
-              gridConfig={{ cols: DASHBOARD_GRID_COLUMNS, rowHeight, margin: [gridGap, gridGap], containerPadding: [0, 0] }}
-              layout={packedLayout}
-              onLayoutChange={commitGridOrder}
-              resizeConfig={{ enabled: false }}
-              width={gridWidth}
-            >
-              {activeDashboard.widgets.map((widget, index) => (
-                <div className={`dashboard-grid-item-v3 ${widget.span === 12 ? 'is-full-width' : ''}`} key={widget.id}>
-                  <DashboardWidgetFrame editMode={editMode} index={index} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
-                    <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
-                  </DashboardWidgetFrame>
-                </div>
-              ))}
-            </ReactGridLayout>
-          ) : null}
-        </div>
-      </div>
+          </div>
 
-      {widgetCatalogOpen && (
+          <div className="dashboard-canvas" onClick={() => { setDashboardMenuOpen(false); setMoreOpen(false); setFilterOpen(false) }}>
+            <div className={`dashboard-grid-host ${mobileStack ? 'is-mobile-stack' : ''}`} ref={gridContainerRef}>
+              {!activeDashboard.widgets.length ? (
+                <button className="dashboard-empty-canvas" onClick={() => { if (!editMode) beginEdit(); setWidgetCatalogOpen(true) }} type="button">
+                  <Plus size={22} />
+                  <strong>Add your first widget</strong>
+                  <span>Build this dashboard from the Hi5Central widget catalogue.</span>
+                </button>
+              ) : mobileStack ? (
+                <div className="dashboard-mobile-stack-v3">
+                  {activeDashboard.widgets.map((widget, index) => (
+                    <DashboardWidgetFrame editMode={editMode} index={index} key={widget.id} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
+                      <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
+                    </DashboardWidgetFrame>
+                  ))}
+                </div>
+              ) : gridMounted ? (
+                <ReactGridLayout
+                  className="dashboard-rgl-v3"
+                  compactor={verticalCompactor}
+                  dragConfig={{ enabled: editMode, handle: '.dashboard-drag-handle', bounded: true }}
+                  gridConfig={{ cols: DASHBOARD_GRID_COLUMNS, rowHeight, margin: [gridGap, gridGap], containerPadding: [0, 0] }}
+                  layout={packedLayout}
+                  onLayoutChange={commitGridOrder}
+                  resizeConfig={{ enabled: false }}
+                  width={gridWidth}
+                >
+                  {activeDashboard.widgets.map((widget, index) => (
+                    <div className={`dashboard-grid-item-v3 ${widget.span === 12 ? 'is-full-width' : ''}`} key={widget.id}>
+                      <DashboardWidgetFrame editMode={editMode} index={index} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
+                        <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
+                      </DashboardWidgetFrame>
+                    </div>
+                  ))}
+                </ReactGridLayout>
+              ) : null}
+            </div>
+          </div>
+
+        </>\n      )}\n\n      {widgetCatalogOpen && (
         <>
           <button className="dashboard-panel-backdrop" aria-label="Close widget catalogue" onClick={() => setWidgetCatalogOpen(false)} type="button" />
           <aside className="dashboard-side-panel" aria-label="Widget catalogue">
