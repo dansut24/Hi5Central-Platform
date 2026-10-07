@@ -134,6 +134,7 @@ function deviceToRmm(row) {
 export function ProductionRmmBootstrap() {
   const surface = useMemo(() => resolveTenantSurface(), [])
   const [session, setSession] = useState(null)
+  const [tenantState, setTenantState] = useState(null)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
@@ -150,18 +151,42 @@ export function ProductionRmmBootstrap() {
 
   useEffect(() => {
     let active = true
-    fetch(`${API_BASE}/api/v1/auth/session`, { credentials: 'include' })
-      .then(async (response) => ({ response, payload: await response.json().catch(() => ({})) }))
-      .then(({ response, payload }) => {
+
+    async function bootstrap() {
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/auth/session`, { credentials: 'include', cache: 'no-store' })
+        const payload = await response.json().catch(() => ({}))
+
         if (active && response.ok && payload?.tenant?.slug === surface.tenantSlug) {
           if (!payload?.onboarding?.completedAt) {
             window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
             return
           }
+          if (payload.platformAccess?.rmm === false) {
+            window.location.replace(APP_URL || '/')
+            return
+          }
           setSession(payload)
+          setTenantState({
+            companyName: payload.tenant?.companyName || surface.tenantName,
+            slug: payload.tenant?.slug || surface.tenantSlug,
+            status: 'active',
+          })
+          return
         }
-      })
-      .finally(() => { if (active) setLoading(false) })
+
+        const stateResponse = await fetch(
+          `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+          { cache: 'no-store' },
+        )
+        const statePayload = await stateResponse.json().catch(() => ({}))
+        if (active && stateResponse.ok) setTenantState(statePayload)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    void bootstrap()
     return () => { active = false }
   }, [surface.tenantSlug])
 
@@ -274,7 +299,7 @@ export function ProductionRmmBootstrap() {
 
   if (loading) return <main className="production-auth-shell"><div className="production-auth-card">Opening RMM…</div></main>
   if (!session) {
-    const tenantName = surface.tenantName || surface.tenantSlug || 'your organisation'
+    const tenantName = tenantState?.companyName || surface.tenantName || surface.tenantSlug || 'your organisation'
     return (
       <main className="production-auth-shell">
         <div className="production-auth-layout">
