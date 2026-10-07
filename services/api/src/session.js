@@ -29,7 +29,9 @@ async function resolveApiToken(c, token) {
             up.preferences AS user_preferences,
             up.first_login_completed_at AS user_first_login_completed_at,
             up.platform_guidance AS user_platform_guidance,
-            up.platform_getting_started AS user_platform_getting_started
+            up.platform_getting_started AS user_platform_getting_started,
+            pam.role AS platform_admin_role,
+            pam.status AS platform_admin_status
      FROM api_tokens at
      JOIN tenants t ON t.id=at.tenant_id
      JOIN users u ON u.id=at.user_id
@@ -219,6 +221,7 @@ export async function resolveSession(c) {
      JOIN tenant_memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
      JOIN tenant_settings ts ON ts.tenant_id=s.tenant_id
      LEFT JOIN user_experience_preferences up ON up.user_id=s.user_id
+     LEFT JOIN platform_admin_members pam ON pam.user_id=s.user_id
      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
      LIMIT 1`,
     [tokenHash],
@@ -254,6 +257,12 @@ export async function revokeCurrentSession(c) {
 export function sessionPayload(session) {
   const configuration = session.configuration && Object.keys(session.configuration).length ? session.configuration : session.onboarding_data || {}
   const access = session.access || { roles: [], roleKeys: [], permissions: [], effectivePermissions: [], workspaceAccess: false, portalAccess: false }
+  const devAdminAccess = deployment.runtimeEnvironment === 'dev'
+    && deployment.featureMode === 'all_enabled'
+    && ['owner', 'admin'].includes(session.tenant_role)
+  const explicitAdminAccess = session.platform_admin_status === 'active'
+    && Boolean(session.platform_admin_role)
+  const adminAccess = explicitAdminAccess || devAdminAccess
   return {
     authenticated: true,
     user: {
@@ -270,6 +279,12 @@ export function sessionPayload(session) {
       effectivePermissions: access.effectivePermissions || [],
       workspaceAccess: Boolean(access.workspaceAccess),
       portalAccess: Boolean(access.portalAccess),
+    },
+    platformAccess: {
+      itsm: Boolean(session.modules?.itsm && access.workspaceAccess),
+      rmm: Boolean(session.modules?.rmm && access.workspaceAccess),
+      admin: adminAccess,
+      adminRole: explicitAdminAccess ? session.platform_admin_role : (devAdminAccess ? 'owner' : null),
     },
     tenant: {
       id: session.tenant_id,
