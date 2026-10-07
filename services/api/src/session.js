@@ -26,7 +26,10 @@ async function resolveApiToken(c, token) {
     `SELECT at.id AS api_token_id,at.tenant_id,at.user_id,at.scopes AS api_token_scopes,at.expires_at,
             t.slug,t.company_name,t.status AS tenant_status,u.email,u.name,m.role AS tenant_role,m.status AS membership_status,
             ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,ts.tenant_url,ts.portal_url,ts.rmm_url,
-            up.preferences AS user_preferences
+            up.preferences AS user_preferences,
+            up.first_login_completed_at AS user_first_login_completed_at,
+            up.platform_guidance AS user_platform_guidance,
+            up.platform_getting_started AS user_platform_getting_started
      FROM api_tokens at
      JOIN tenants t ON t.id=at.tenant_id
      JOIN users u ON u.id=at.user_id
@@ -206,7 +209,10 @@ export async function resolveSession(c) {
     `SELECT s.id AS session_id,s.tenant_id,s.user_id,s.expires_at,s.created_at AS session_created_at,s.mfa_verified_at,
             t.slug,t.company_name,t.status AS tenant_status,u.email,u.name,m.role AS tenant_role,m.status AS membership_status,
             ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,ts.tenant_url,ts.portal_url,ts.rmm_url,
-            up.preferences AS user_preferences
+            up.preferences AS user_preferences,
+            up.first_login_completed_at AS user_first_login_completed_at,
+            up.platform_guidance AS user_platform_guidance,
+            up.platform_getting_started AS user_platform_getting_started
      FROM auth_sessions s
      JOIN tenants t ON t.id=s.tenant_id
      JOIN users u ON u.id=s.user_id
@@ -283,6 +289,13 @@ export function sessionPayload(session) {
       ? { type: 'api_token', tokenId: session.api_token_id }
       : { type: 'session' },
     preferences: session.user_preferences || null,
+    userExperience: {
+      firstLoginCompletedAt: session.user_first_login_completed_at || null,
+      platformGuidance: session.user_platform_guidance || {},
+      platformGettingStarted: session.user_platform_getting_started || {},
+      platformCoachmarksCompletedAt: session.user_platform_guidance?.itsm?.completedAt || null,
+      platformGettingStartedDismissedAt: session.user_platform_getting_started?.itsm?.dismissedAt || null,
+    },
     settings: configuration,
   }
 }
