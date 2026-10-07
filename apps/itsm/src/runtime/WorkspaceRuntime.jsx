@@ -51,6 +51,9 @@ import {
 } from '../lib/routes.js'
 import { authenticateWorkspaceUser } from './runtimeAuthBoundary.js'
 import {
+  accentHex,
+  accentInk,
+  accentRgb,
   loadAccent,
   loadCalendarEvents,
   loadDensity,
@@ -2958,11 +2961,20 @@ function WorkspaceRuntime() {
 
   if (!session || session.role !== 'analyst') return null
 
+  const [accentR, accentG, accentB] = accentRgb(accent)
+  const accentRgbValue = `${accentR}, ${accentG}, ${accentB}`
+  const accentStyle = {
+    '--accent-rgb': accentRgbValue,
+    '--accent-ink': accentInk(accent),
+    '--accent': accentHex(accent),
+  }
+
   return (
     <div
       className={`app-shell sidebar-${sidebarMode} density-${density}`}
       data-accent={accent}
       data-theme={resolvedTheme}
+      style={accentStyle}
     >
       {(!sidebarHidden || mobileNavOpen) && <aside className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'} aria-label="Primary navigation">
         <div className="sidebar-top">
