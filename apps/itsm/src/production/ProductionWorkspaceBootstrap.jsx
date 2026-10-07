@@ -90,6 +90,7 @@ function toWorkspaceSession(apiSession) {
     tenant: apiSession.tenant,
     user: apiSession.user,
     access: apiSession.access,
+    platformAccess: apiSession.platformAccess || {},
     security: apiSession.security,
     preferences: apiSession.preferences || null,
     onboarding: apiSession.onboarding,
