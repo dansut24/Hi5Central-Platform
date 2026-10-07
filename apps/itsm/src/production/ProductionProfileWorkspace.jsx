@@ -18,6 +18,8 @@ import './ProductionProfileWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const ACCENTS = ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose']
+const DESKTOP_SIDE_KEY = 'hi5central-primary-nav-side-v1'
+const MOBILE_SIDE_KEY = 'hi5central-mobile-nav-side-v1'
 
 function initials(name = '') {
   return String(name)
@@ -86,6 +88,13 @@ export function ProductionProfileWorkspace({ session }) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
+  const [section, setSection] = useState(() => new URLSearchParams(window.location.search).get('section') === 'workspace' ? 'workspace' : 'profile')
+
+  useEffect(() => {
+    const syncSection = () => setSection(new URLSearchParams(window.location.search).get('section') === 'workspace' ? 'workspace' : 'profile')
+    window.addEventListener('popstate', syncSection)
+    return () => window.removeEventListener('popstate', syncSection)
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -149,6 +158,8 @@ export function ProductionProfileWorkspace({ session }) {
       window.localStorage.setItem('hi5central-accent', JSON.stringify(ACCENTS.includes(selectedAccent) ? selectedAccent : 'amber'))
       window.localStorage.setItem('hi5central-density', JSON.stringify(next.appearance?.density || 'comfortable'))
       window.localStorage.setItem('hi5central-sidebar-mode', JSON.stringify(next.navigation?.sidebarMode || 'expanded'))
+      window.localStorage.setItem(DESKTOP_SIDE_KEY, JSON.stringify(next.navigation?.desktopSide || 'left'))
+      window.localStorage.setItem(MOBILE_SIDE_KEY, JSON.stringify(next.navigation?.mobileSide || 'left'))
       setSaved('Saved')
       window.setTimeout(() => window.location.reload(), 260)
     } catch (saveError) {
@@ -164,6 +175,15 @@ export function ProductionProfileWorkspace({ session }) {
   const tenant = profile?.tenant || session?.tenant || {}
   const mfaVerified = Boolean(profile?.security?.mfaVerified ?? session?.security?.mfaVerified)
 
+  function selectSection(nextSection) {
+    const next = nextSection === 'workspace' ? 'workspace' : 'profile'
+    setSection(next)
+    const url = new URL(window.location.href)
+    if (next === 'workspace') url.searchParams.set('section', 'workspace')
+    else url.searchParams.delete('section')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }
+
   return (
     <div className="production-profile-shell">
       <div className="production-profile-scroll">
@@ -171,15 +191,26 @@ export function ProductionProfileWorkspace({ session }) {
           <header className="production-profile-heading">
             <div>
               <span>Personal account</span>
-              <h1>Profile</h1>
-              <p>Your signed-in identity, personal security and workspace preferences.</p>
+              <h1>{section === 'workspace' ? 'Workspace' : 'My Profile'}</h1>
+              <p>{section === 'workspace'
+                ? 'Personal appearance and navigation settings that follow your account across Hi5Central.'
+                : 'Your shared Hi5Central identity, organisation details and personal security.'}</p>
             </div>
           </header>
+
+          <nav className="production-profile-section-tabs" aria-label="Profile sections">
+            <button className={section === 'profile' ? 'is-active' : ''} onClick={() => selectSection('profile')} type="button">
+              <UserRound size={15} /> My Profile
+            </button>
+            <button className={section === 'workspace' ? 'is-active' : ''} onClick={() => selectSection('workspace')} type="button">
+              <SlidersHorizontal size={15} /> Workspace
+            </button>
+          </nav>
 
           {loading ? <div className="production-profile-state">Loading your profile…</div> : null}
           {error ? <div className="production-profile-error">{error}</div> : null}
 
-          {!loading ? (
+          {!loading && section === 'profile' ? (
             <>
               <section className="production-profile-identity">
                 <span className="production-profile-avatar">{initials(identity.name)}</span>
@@ -195,7 +226,7 @@ export function ProductionProfileWorkspace({ session }) {
                 </div>
               </section>
 
-              <Section title="Account & organisation" description="Identity information comes from your tenant account and organisation directory.">
+              <Section title="Account & organisation" description="Identity information comes from your Hi5Central account and organisation directory.">
                 <div className="production-profile-detail-grid">
                   <Detail icon={UserRound} label="Name" value={person?.name || identity.name} />
                   <Detail icon={Mail} label="Email" value={person?.email || identity.email} />
@@ -218,8 +249,12 @@ export function ProductionProfileWorkspace({ session }) {
               </Section>
 
               <ProductionProfileSecurity />
+            </>
+          ) : null}
 
-              <Section title="Personal appearance" description="These settings affect only your account. Tenant branding remains under tenant Settings.">
+          {!loading && section === 'workspace' ? (
+            <>
+              <Section title="Appearance" description="These preferences follow your account across ITSM, RMM and Platform Admin.">
                 <div className="production-profile-form-grid">
                   <label>
                     <span><Palette size={15} /> Theme</span>
@@ -255,10 +290,26 @@ export function ProductionProfileWorkspace({ session }) {
                 </div>
               </Section>
 
-              <Section title="Workspace preferences" description="Personal navigation preferences are stored against your user account.">
+              <Section title="Navigation" description="Choose how the shared Hi5Central workspace shell behaves for your account.">
                 <div className="production-profile-form-grid">
                   <label>
-                    <span><SlidersHorizontal size={15} /> Primary sidebar</span>
+                    <span><SlidersHorizontal size={15} /> Desktop sidebar position</span>
+                    <select value={preferences.navigation?.desktopSide || 'left'} onChange={(event) => updatePreference('navigation', 'desktopSide', event.target.value)}>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span><SlidersHorizontal size={15} /> Mobile drawer position</span>
+                    <select value={preferences.navigation?.mobileSide || 'left'} onChange={(event) => updatePreference('navigation', 'mobileSide', event.target.value)}>
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span><SlidersHorizontal size={15} /> Sidebar mode</span>
                     <select value={preferences.navigation?.sidebarMode || 'expanded'} onChange={(event) => updatePreference('navigation', 'sidebarMode', event.target.value)}>
                       <option value="expanded">Expanded</option>
                       <option value="collapsed">Collapsed</option>
@@ -267,7 +318,7 @@ export function ProductionProfileWorkspace({ session }) {
                   </label>
 
                   <label>
-                    <span><SlidersHorizontal size={15} /> Coach marks</span>
+                    <span><SlidersHorizontal size={15} /> Guided walkthroughs</span>
                     <select value={preferences.guidance?.coachMarks === false ? 'off' : 'on'} onChange={(event) => updatePreference('guidance', 'coachMarks', event.target.value === 'on')}>
                       <option value="on">On</option>
                       <option value="off">Off</option>
@@ -278,7 +329,7 @@ export function ProductionProfileWorkspace({ session }) {
                 <div className="production-profile-save-row">
                   <span>{saved ? <><Check size={15} /> {saved}</> : null}</span>
                   <button disabled={saving} onClick={savePreferences} type="button">
-                    <Save size={16} /> {saving ? 'Saving…' : 'Save my preferences'}
+                    <Save size={16} /> {saving ? 'Saving…' : 'Save workspace preferences'}
                   </button>
                 </div>
               </Section>
