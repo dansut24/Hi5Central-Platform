@@ -2125,3 +2125,58 @@ html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-
     display: none !important;
   }
 }
+
+
+/* Dashboard card rhythm — the default/auto layout is the normal two-column
+   desktop dashboard. Keep consistent gutters between every metric and content
+   card while preserving explicit single-column and mobile choices. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-viewing > .itsm-rmm-dashboard,
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-dashboard {
+    gap: 14px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
+    gap: 14px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    align-items: stretch !important;
+    gap: 14px !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-columns-auto .itsm-rmm-dashboard-card-grid,
+  html[data-hi5-surface='workspace'] .dashboard-columns-double .itsm-rmm-dashboard-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-columns-single .itsm-rmm-dashboard-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot {
+    min-width: 0 !important;
+    min-height: 190px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot > .itsm-rmm-card {
+    min-height: 190px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-full {
+    grid-column: 1 / -1 !important;
+  }
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+  }
+}
