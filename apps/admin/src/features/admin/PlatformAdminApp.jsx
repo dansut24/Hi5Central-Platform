@@ -8,6 +8,7 @@ import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
+import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
 import '../../production/RmmSidebarParity.css'
 
@@ -58,6 +59,7 @@ const pageMeta = {
   catalogue:['GLOBAL SOFTWARE INTELLIGENCE','Software catalogue','The approved global software catalogue consumed by customer RMM tenants.'],
   winget:['WINDOWS PACKAGE INTELLIGENCE','WinGet manifest index','Browse the full Microsoft WinGet source index and control its sync state.'],
   audit:['GOVERNANCE','Platform audit','Administrative actions performed in the Hi5Central control plane.'],
+  profile:['ACCOUNT','My Profile','Your shared Hi5Central identity, security and workspace preferences.'],
 }
 
 async function api(path, options = {}) {
@@ -186,15 +188,7 @@ function AdminSidebar({ activeView, canItsm = false, canRmm = false, collapsed =
   </>
 }
 
-function adminAccountHref(section = 'profile', tenant = null) {
-  const base = config.appUrl
-    || (tenant?.slug ? `https://${tenant.slug}.${config.rootDomain}` : '')
-    || (config.tenancyMode === 'single' ? window.location.origin : `https://${config.rootDomain}`)
-  const suffix = section === 'workspace' ? '/profile?section=workspace' : '/profile'
-  return `${String(base).replace(/\/$/, '')}${suffix}`
-}
-
-function AdminTopbar({ activeView, user, tenant, onLogout, onMenu, query, setQuery, refresh }) {
+function AdminTopbar({ activeView, user, onLogout, onMenu, onOpenAccount, query, setQuery, refresh }) {
   const [,title]=pageMeta[activeView]
   const [profileMenuOpen,setProfileMenuOpen]=useState(false)
   const userInitials=initials(user?.name || user?.email || 'HC')
@@ -206,8 +200,8 @@ function AdminTopbar({ activeView, user, tenant, onLogout, onMenu, query, setQue
       <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={()=>setProfileMenuOpen(open=>!open)} title="Profile" type="button"><span>{userInitials}</span></button>
       {profileMenuOpen?<div className="rmm-profile-menu" role="menu">
         <div className="rmm-profile-summary"><span>{userInitials}</span><div><strong>{user?.name||'Hi5Central admin'}</strong><small>{user?.email||'Hi5Central account'}</small></div></div>
-        <button onClick={()=>window.location.assign(adminAccountHref('profile',tenant))} role="menuitem" type="button"><UserRound size={15}/>My Profile</button>
-        <button onClick={()=>window.location.assign(adminAccountHref('workspace',tenant))} role="menuitem" type="button"><SlidersHorizontal size={15}/>Workspace</button>
+        <button onClick={()=>{setProfileMenuOpen(false);onOpenAccount?.('profile')}} role="menuitem" type="button"><UserRound size={15}/>My Profile</button>
+        <button onClick={()=>{setProfileMenuOpen(false);onOpenAccount?.('workspace')}} role="menuitem" type="button"><SlidersHorizontal size={15}/>Workspace</button>
         <button onClick={()=>{setProfileMenuOpen(false);onLogout?.()}} role="menuitem" type="button"><LogOut size={15}/>Sign out</button>
       </div>:null}
     </div>
@@ -1141,7 +1135,7 @@ function Audit({ items, query }) {
 export function PlatformAdminApp() {
   const [user,setUser]=useState(null)
   const [loading,setLoading]=useState(true)
-  const [view,setView]=useState('overview')
+  const [view,setView]=useState(()=>window.location.pathname === '/profile' ? 'profile' : 'overview')
   const [workspaceTabs,setWorkspaceTabs]=useState(()=>[adminWorkspaceTabForView('overview')])
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
@@ -1192,6 +1186,12 @@ export function PlatformAdminApp() {
       setAccent(organisationAccent||'#3b82f6')
     }
   },[organisationAccent,lastPreferences])
+
+  useEffect(()=>{
+    const onPop=()=>setView(window.location.pathname === '/profile' ? 'profile' : 'overview')
+    window.addEventListener('popstate',onPop)
+    return()=>window.removeEventListener('popstate',onPop)
+  },[])
   async function load(target=view){
     if(!user||target==='winget')return
     setError('')
@@ -1208,13 +1208,24 @@ export function PlatformAdminApp() {
   if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
   if(!user)return <Login onLogin={()=>window.location.reload()}/>
   function navigate(next,options={}){
-    if(!options.skipTab){
+    if(!options.skipTab&&next!=='profile'){
       const tab=adminWorkspaceTabForView(next)
       setWorkspaceTabs(current=>current.some(item=>item.key===tab.key)?current:[...current,tab])
     }
     setView(next)
     setQuery('')
     setMobileOpen(false)
+  }
+  function openAccount(section='profile'){
+    setView('profile')
+    setMobileOpen(false)
+    setQuery('')
+    const url=new URL(window.location.href)
+    url.pathname='/profile'
+    if(section==='workspace')url.searchParams.set('section','workspace')
+    else url.searchParams.delete('section')
+    window.history.pushState({},'',`${url.pathname}${url.search}`)
+    window.dispatchEvent(new PopStateEvent('popstate',{state:window.history.state}))
   }
   function activateWorkspaceTab(tab){if(tab)navigate(tab.viewId||'overview',{skipTab:true})}
   function closeWorkspaceTab(key){
@@ -1243,14 +1254,15 @@ export function PlatformAdminApp() {
     if(view==='qualification')return <Qualification data={data.qualification} query={query} refresh={()=>load('qualification')}/>
     if(view==='catalogue')return <Catalogue items={data.catalogue} query={query} refresh={()=>load('catalogue')}/>
     if(view==='winget')return <Winget key={query} query={query} refreshKey={wingetRefreshKey}/>
+    if(view==='profile')return <ProductionProfileWorkspace platform="admin" session={{ user, tenant: sessionTenant }} />
     return <Audit items={data.audit} query={query}/>
   }
   return <>
     <div className={`rmm-app h5a-rmm-shell sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={adminAccentStyle(accent)}>
       <AdminSidebar activeView={view} canItsm={Boolean(platformAccess.itsm)} canRmm={Boolean(platformAccess.rmm)} collapsed={sidebarMode==='collapsed'} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)} onToggleCollapse={()=>setSidebarMode(value=>value==='collapsed'?'expanded':'collapsed')} user={user}/>
       <div className="rmm-shell-main">
-        <AdminTopbar activeView={view} user={user} tenant={sessionTenant} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} refresh={refreshCurrent}/>
-        <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
+        <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} onOpenAccount={openAccount} query={query} setQuery={setQuery} refresh={refreshCurrent}/>
+        <main className={`rmm-main-scroll ${view==='profile'?'rmm-account-mounted':''}`}><div className={`rmm-page ${view==='profile'?'rmm-page-profile':''}`}>{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
       </div>
     </div>
     <ProductionUserExperience user={user} onPreferences={applyUserPreferences}/>
