@@ -10,7 +10,6 @@ import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import {
   clearProductionSession,
-  loadTheme,
   normaliseAccent,
   saveAccent,
   saveDensity,
@@ -282,15 +281,21 @@ function readOnboardingSnapshot(expectedSlug) {
 }
 
 function resolvedLoadingTheme() {
-  let preferred = loadTheme()
-  if (!['system', 'light', 'dark'].includes(preferred)) {
+  let preferred = null
+  try {
+    const saved = JSON.parse(window.localStorage.getItem('hi5central-theme-mode') || 'null')
+    if (['system', 'light', 'dark'].includes(saved)) preferred = saved
+  } catch { /* best effort */ }
+
+  if (!preferred) {
     try {
       const tenantRuntime = JSON.parse(window.localStorage.getItem(TENANT_RUNTIME_CONFIG_KEY) || '{}')
-      preferred = tenantRuntime?.theme?.mode || 'system'
-    } catch {
-      preferred = 'system'
-    }
+      const tenantMode = tenantRuntime?.theme?.mode
+      if (['system', 'light', 'dark'].includes(tenantMode)) preferred = tenantMode
+    } catch { /* best effort */ }
   }
+
+  preferred ||= 'system'
   return preferred === 'system'
     ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : (preferred === 'dark' ? 'dark' : 'light')
