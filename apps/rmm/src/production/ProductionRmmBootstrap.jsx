@@ -137,7 +137,7 @@ export function ProductionRmmBootstrap() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [theme, setTheme] = useState('light')
-  const [accent, setAccent] = useState('#3d73e8')
+  const [accent, setAccent] = useState('#3b82f6')
   const [density, setDensity] = useState('comfortable')
   const [navSide, setNavSide] = useState('left')
   const [devices, setDevices] = useState([])
@@ -240,9 +240,9 @@ export function ProductionRmmBootstrap() {
     const resolvedTheme = appearance.theme === 'system'
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : (appearance.theme === 'dark' ? 'dark' : 'light')
-    const organisationAccent = session?.settings?.theme?.accent || '#3d73e8'
+    const organisationAccent = session?.settings?.theme?.accent || '#3b82f6'
     setTheme(resolvedTheme)
-    setAccent(appearance.accentMode === 'personal' ? (appearance.accent || '#3d73e8') : organisationAccent)
+    setAccent(appearance.accentMode === 'personal' ? (appearance.accent || '#3b82f6') : organisationAccent)
     setDensity(appearance.density === 'compact' ? 'compact' : 'comfortable')
     setNavSide(navigation.desktopSide === 'right' ? 'right' : 'left')
   }
