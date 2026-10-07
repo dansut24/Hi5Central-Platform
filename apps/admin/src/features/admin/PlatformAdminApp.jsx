@@ -1208,7 +1208,7 @@ export function PlatformAdminApp() {
   }
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
-  if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
+  if(loading)return <main className="hi5-loading-shell" aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if(!user)return <Login onLogin={()=>window.location.reload()}/>
   function navigate(next,options={}){
     if(!options.skipTab&&next!=='profile'){
