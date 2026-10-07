@@ -9,6 +9,7 @@ import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
+import '../../production/RmmSidebarParity.css'
 
 const config = deploymentConfig()
 const API = config.apiUrl || `https://api.${config.rootDomain}`
