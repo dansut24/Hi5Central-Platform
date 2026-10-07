@@ -148,6 +148,11 @@ export function ProductionRmmBootstrap() {
   const [dataLoading, setDataLoading] = useState(false)
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [mfaFlow, setMfaFlow] = useState(null)
+  const [mfaSetup, setMfaSetup] = useState(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState([])
+  const [authenticatedPayload, setAuthenticatedPayload] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -227,6 +232,63 @@ export function ProductionRmmBootstrap() {
     }
   }, [session])
 
+  async function refreshAuthenticatedSession() {
+    const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload?.tenant?.slug !== surface.tenantSlug) {
+      throw new Error(payload.error || 'Hi5Central could not open your authenticated RMM session.')
+    }
+    if (!payload?.onboarding?.completedAt) {
+      window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
+      return null
+    }
+    if (payload.platformAccess?.rmm === false) {
+      window.location.replace(APP_URL || '/')
+      return null
+    }
+    setSession(payload)
+    return payload
+  }
+
+  async function beginMfa(payload) {
+    const flow = {
+      challengeToken: payload.challengeToken,
+      setupRequired: Boolean(payload.setupRequired),
+      tenant: payload.tenant,
+      user: payload.user,
+    }
+    setMfaFlow(flow)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+
+    if (!flow.setupRequired) return
+    const response = await fetch(`${API_BASE}/api/v1/auth/mfa/setup`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: flow.challengeToken }),
+    })
+    const setupPayload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(setupPayload.error || 'Could not start MFA setup.')
+    setMfaSetup(setupPayload)
+  }
+
+  function resetPasswordSignIn() {
+    setPasswordStep(false)
+    setForm((current) => ({ ...current, password: '' }))
+    setMfaFlow(null)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+    setError('')
+  }
+
   async function login(event) {
     event.preventDefault()
     setError('')
@@ -243,22 +305,77 @@ export function ProductionRmmBootstrap() {
           return
         }
         setPasswordStep(true)
-      } finally { setSubmitting(false) }
+      } catch {
+        setError('Could not check the configured sign-in method. Please try again.')
+      } finally {
+        setSubmitting(false)
+      }
       return
     }
+
     setSubmitting(true)
-    const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug: surface.tenantSlug, email, password: form.password }),
-    })
-    const payload = await response.json().catch(() => ({}))
-    setSubmitting(false)
-    if (!response.ok) { setError(payload.error || 'Sign in failed.'); return }
-    if (!payload?.onboarding?.completedAt) {
-      window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
-      return
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/login-secure`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantSlug: surface.tenantSlug, email, password: form.password }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Sign in failed.')
+
+      if (payload.mfaRequired) {
+        await beginMfa(payload)
+        return
+      }
+      if (!payload.authenticated) throw new Error('Hi5Central could not complete sign in.')
+      await refreshAuthenticatedSession()
+    } catch (loginError) {
+      setError(loginError.message || 'Sign in failed.')
+    } finally {
+      setSubmitting(false)
     }
-    setSession(payload)
+  }
+
+  async function verifyMfa(event) {
+    event.preventDefault()
+    if (!mfaFlow?.challengeToken || !mfaCode.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim() }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'MFA verification failed.')
+
+      if (Array.isArray(payload.recoveryCodes) && payload.recoveryCodes.length) {
+        setAuthenticatedPayload(payload)
+        setRecoveryCodes(payload.recoveryCodes)
+        return
+      }
+      await refreshAuthenticatedSession()
+    } catch (verifyError) {
+      setError(verifyError.message || 'MFA verification failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function continueAfterRecoveryCodes() {
+    setSubmitting(true)
+    setError('')
+    try {
+      if (!authenticatedPayload?.authenticated) throw new Error('The authenticated session is no longer available.')
+      await refreshAuthenticatedSession()
+    } catch (continueError) {
+      setError(continueError.message || 'Could not open the RMM workspace.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   function applyUserPreferences(preferences = {}) {
@@ -315,17 +432,75 @@ export function ProductionRmmBootstrap() {
             </div>
           </section>
 
-          <form className="production-auth-card" onSubmit={login}>
+          <form className="production-auth-card" onSubmit={mfaFlow ? verifyMfa : login}>
             <div className="production-auth-card-heading">
-              <span className="production-auth-icon"><LockKeyhole size={19} /></span>
-              <div><span>Hi5Central RMM</span><strong>{surface.tenantSlug ? `${surface.tenantSlug}.hi5central.com` : tenantName}</strong></div>
+              <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
+              <div>
+                <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : 'Hi5Central RMM'}</span>
+                <strong>{surface.tenantSlug ? `${surface.tenantSlug}.hi5central.com` : tenantName}</strong>
+              </div>
             </div>
-            <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
-            {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
-            {error ? <div className="production-auth-error">{error}</div> : null}
-            <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}{!submitting ? <ArrowRight size={17}/> : null}</button>
-            {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={() => { setPasswordStep(false); setForm((current) => ({ ...current, password: '' })); setError('') }}>Use a different email</button> : null}
-            <a href={APP_URL || '/'}>Back to Hi5Central</a>
+
+            {recoveryCodes.length ? (
+              <>
+                <div className="production-auth-notice">
+                  MFA is enabled. Save these recovery codes somewhere secure. Each code can be used once.
+                </div>
+                <div className="production-auth-recovery-grid">
+                  {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+                </div>
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting} onClick={continueAfterRecoveryCodes} type="button">
+                  {submitting ? 'Opening RMM…' : 'I have saved these codes'}{!submitting ? <ArrowRight size={17}/> : null}
+                </button>
+              </>
+            ) : mfaFlow ? (
+              <>
+                <p className="production-auth-method-note">
+                  {mfaFlow.setupRequired
+                    ? 'Add Hi5Central to your authenticator app, then enter the six-digit code to finish setup.'
+                    : 'Enter the six-digit code from your authenticator app, or an unused recovery code.'}
+                </p>
+                {mfaFlow.setupRequired ? (
+                  mfaSetup ? (
+                    <div className="production-auth-mfa-setup">
+                      <span>Authenticator setup key</span>
+                      <code>{mfaSetup.secret}</code>
+                      <small>Issuer: Hi5Central · Account: {mfaSetup.account}</small>
+                      <a href={mfaSetup.otpauthUri}>Open in authenticator app</a>
+                    </div>
+                  ) : <div className="production-auth-notice">Preparing authenticator setup…</div>
+                ) : null}
+                <label>
+                  <span>{mfaFlow.setupRequired ? 'Six-digit authenticator code' : 'Authenticator or recovery code'}</span>
+                  <input
+                    autoComplete="one-time-code"
+                    autoFocus
+                    inputMode={mfaFlow.setupRequired ? 'numeric' : 'text'}
+                    maxLength={mfaFlow.setupRequired ? 6 : 20}
+                    placeholder={mfaFlow.setupRequired ? '000000' : '000000 or recovery code'}
+                    required
+                    value={mfaCode}
+                    onChange={(event) => setMfaCode(event.target.value)}
+                  />
+                </label>
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting || !mfaCode.trim() || (mfaFlow.setupRequired && !mfaSetup)} type="submit">
+                  {submitting ? 'Verifying…' : mfaFlow.setupRequired ? 'Verify and enable MFA' : 'Verify and sign in'}
+                  {!submitting ? <ArrowRight size={17}/> : null}
+                </button>
+                <button className="production-auth-secondary-action" disabled={submitting} onClick={resetPasswordSignIn} type="button">Back to sign in</button>
+              </>
+            ) : (
+              <>
+                <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
+                {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}{!submitting ? <ArrowRight size={17}/> : null}</button>
+                {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={resetPasswordSignIn}>Use a different email</button> : null}
+                <a href={APP_URL || '/'}>Back to Hi5Central</a>
+              </>
+            )}
           </form>
         </div>
       </main>
