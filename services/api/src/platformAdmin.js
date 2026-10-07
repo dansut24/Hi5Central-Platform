@@ -487,15 +487,36 @@ export function registerPlatformAdminRoutes(app) {
       return c.json({ error: 'Too many sign-in attempts. Try again later.' }, 429)
     }
     const result = await pool.query(
-      `SELECT u.id AS user_id,u.email,u.name,u.password_hash,m.role,m.status
-         FROM users u JOIN platform_admin_members m ON m.user_id=u.id
+      `SELECT u.id AS user_id,u.email,u.name,u.password_hash,
+              pam.role AS platform_role,pam.status AS platform_status
+         FROM users u
+         LEFT JOIN platform_admin_members pam ON pam.user_id=u.id
         WHERE u.email=$1 LIMIT 1`,
       [email],
     )
     const account = result.rows[0]
-    if (!account || account.status !== 'active' || !await verifyPassword(password, account.password_hash)) {
+    if (!account || !await verifyPassword(password, account.password_hash)) {
       return c.json({ error: 'Email address or password is incorrect.' }, 401)
     }
+
+    let role = account.platform_status === 'active' && ADMIN_ROLES.has(account.platform_role)
+      ? account.platform_role
+      : null
+
+    if (!role && deployment.runtimeEnvironment === 'dev' && deployment.featureMode === 'all_enabled') {
+      const tenantRole = await pool.query(
+        `SELECT role FROM tenant_memberships
+          WHERE user_id=$1 AND status='active' AND role IN ('owner','admin')
+          ORDER BY CASE role WHEN 'owner' THEN 1 ELSE 2 END
+          LIMIT 1`,
+        [account.user_id],
+      )
+      if (tenantRole.rowCount) role = 'owner'
+    }
+
+    if (!role) return c.json({ error: 'This account does not have Platform Admin access.' }, 403)
+    account.role = role
+    account.status = 'active'
     const token = randomBytes(32).toString('base64url')
     const created = await pool.query(
       `INSERT INTO platform_admin_sessions (user_id,token_hash,expires_at)
