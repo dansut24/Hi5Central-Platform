@@ -26,6 +26,7 @@ const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
 const ONBOARDING_SNAPSHOT_KEY = 'hi5central-onboarding-snapshot-v1'
 const ONBOARDING_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000
+const FIRST_LOGIN_HANDOFF_KEY = 'hi5central-first-login-required-v1'
 const ORGANISATION_CACHE_KEYS = {
   people: 'hi5central-organisation-people-v1',
   teams: 'hi5central-organisation-teams-v1',
@@ -732,6 +733,24 @@ export function ProductionWorkspaceBootstrap() {
   }, [serverSession, surface.tenantName, surface.tenantSlug])
 
   async function acceptSession(nextSession) {
+    const onboardingJustCompleted = Boolean(
+      nextSession.onboarding?.completedAt
+        && serverSession
+        && !serverSession.onboarding?.completedAt,
+    )
+
+    if (onboardingJustCompleted) {
+      try {
+        window.sessionStorage.setItem(FIRST_LOGIN_HANDOFF_KEY, JSON.stringify({
+          tenantSlug: nextSession.tenant?.slug || '',
+          userId: nextSession.user?.id || '',
+          createdAt: Date.now(),
+        }))
+      } catch {
+        // The server preference state remains authoritative if session storage is unavailable.
+      }
+    }
+
     applyTenantPreferences(nextSession)
     if (nextSession.onboarding?.completedAt) {
       clearOnboardingSnapshot()
