@@ -9,6 +9,7 @@ import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import {
   clearProductionSession,
+  normaliseAccent,
   saveAccent,
   saveDensity,
   saveProductionSession,
@@ -87,12 +88,11 @@ function applyTenantPreferences(apiSession) {
     ? appearance.theme
     : theme.mode
   const resolvedAccent = appearance.accentMode === 'personal'
-    && ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(appearance.accent)
-      ? appearance.accent
-      : theme.accent
+    ? normaliseAccent(appearance.accent)
+    : normaliseAccent(theme.accent)
 
   if (['system', 'light', 'dark'].includes(resolvedTheme)) saveTheme(resolvedTheme)
-  if (['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(resolvedAccent)) saveAccent(resolvedAccent)
+  saveAccent(resolvedAccent)
   if (['comfortable', 'compact'].includes(appearance.density)) saveDensity(appearance.density)
   if (['expanded', 'collapsed', 'hidden'].includes(navigation.sidebarMode)) saveSidebarMode(navigation.sidebarMode)
 
@@ -101,7 +101,7 @@ function applyTenantPreferences(apiSession) {
       tenantSlug: apiSession?.tenant?.slug || '',
       theme: {
         mode: theme.mode || 'system',
-        accent: theme.accent || 'blue',
+        accent: normaliseAccent(theme.accent),
         brandName: theme.brandName || apiSession?.tenant?.companyName || '',
         portalTitle: theme.portalTitle || 'IT Help Centre',
       },
@@ -773,7 +773,7 @@ export function ProductionWorkspaceBootstrap() {
     const navigationKey = preferenceKey.navigation || {}
     const workspaceKey = [
       appearanceKey.theme || themeKey.mode || 'system',
-      appearanceKey.accentMode === 'personal' ? (appearanceKey.accent || 'blue') : (themeKey.accent || 'blue'),
+      appearanceKey.accentMode === 'personal' ? normaliseAccent(appearanceKey.accent) : normaliseAccent(themeKey.accent),
       appearanceKey.density || 'comfortable',
       navigationKey.sidebarMode || 'expanded',
       themeKey.brandName || serverSession?.tenant?.companyName || '',
