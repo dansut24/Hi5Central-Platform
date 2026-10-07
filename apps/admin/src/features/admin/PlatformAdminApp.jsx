@@ -19,14 +19,16 @@ const SHARED_THEME_KEY = 'hi5central-theme-mode'
 function rawStoredTheme() {
   try {
     const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
-    return ['system', 'light', 'dark'].includes(value) ? value : 'system'
+    return ['system', 'light', 'dark'].includes(value) ? value : null
   } catch {
-    return 'system'
+    return null
   }
 }
 
-function resolveThemeMode(value = rawStoredTheme()) {
-  const preferred = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+function resolveThemeMode(value = rawStoredTheme(), tenantTheme = 'system') {
+  const preferred = ['system', 'light', 'dark'].includes(value)
+    ? value
+    : (['system', 'light', 'dark'].includes(tenantTheme) ? tenantTheme : 'system')
   return preferred === 'system'
     ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : preferred
@@ -1208,14 +1210,17 @@ export function PlatformAdminApp() {
         const appearance=preferences.appearance||{}
         if(experience?.preferences){
           setLastPreferences(preferences)
-          const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:'system'
+          const tenantTheme=r.tenant?.themeMode||'system'
+          const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:tenantTheme
           persistThemeMode(preferredTheme)
-          setThemeState(resolveThemeMode(preferredTheme))
+          setThemeState(resolveThemeMode(preferredTheme,tenantTheme))
           setAccent(appearance.accentMode==='personal'?(appearance.accent||organisation):organisation)
           setDensity(appearance.density==='compact'?'compact':'comfortable')
           setNavSide(preferences.navigation?.desktopSide==='right'?'right':'left')
           setSidebarMode(preferences.navigation?.sidebarMode==='collapsed'?'collapsed':'expanded')
         }else{
+          const tenantTheme=r.tenant?.themeMode||'system'
+          setThemeState(resolveThemeMode(null,tenantTheme))
           setAccent(organisation)
         }
       })
