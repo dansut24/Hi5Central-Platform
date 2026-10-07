@@ -1171,7 +1171,11 @@ export function PlatformAdminApp() {
       window.setTimeout(()=>activateWorkspaceTab(fallback),0)
     }
   }
-  async function logout(){await api('/auth/logout',{method:'POST'}).catch(()=>{});setUser(null)}
+  async function logout(){
+    await api('/auth/logout',{method:'POST'}).catch(()=>{})
+    await fetch(`${API}/api/v1/auth/logout`, { method:'POST', credentials:'include' }).catch(()=>{})
+    setUser(null)
+  }
   function refreshCurrent(){if(view==='winget')setWingetRefreshKey(value=>value+1);else load(view)}
   function renderPage(){
     if(view==='overview')return <Overview data={data.overview} refresh={()=>load('overview')}/>
