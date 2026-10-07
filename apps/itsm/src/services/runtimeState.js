@@ -183,7 +183,7 @@ export function saveProductionSession(session) {
 }
 export function clearProductionSession() { removeKey(PRODUCTION_SESSION_KEY) }
 export function loadTheme() { const value = readJson('hi5central-theme-mode', null); return ['system', 'light', 'dark'].includes(value) ? value : 'system' }
-export function loadAccent() { const value = readJson('hi5central-accent', 'amber'); return ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(value) ? value : 'amber' }
+export function loadAccent() { const value = readJson('hi5central-accent', 'blue'); return ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(value) ? value : 'blue' }
 export function loadDensity() { const value = readJson('hi5central-density', 'comfortable'); return ['comfortable', 'compact'].includes(value) ? value : 'comfortable' }
 export function loadSidebarMode() { const value = readJson('hi5central-sidebar-mode', 'expanded'); return ['expanded', 'collapsed', 'hidden'].includes(value) ? value : 'expanded' }
 export function loadWorkspace() { const value = readJson('hi5central-workspace-analyst', null); return value && Array.isArray(value.tabs) ? { tabs: value.tabs, activeTabKey: typeof value.activeTabKey === 'string' ? value.activeTabKey : null } : null }
