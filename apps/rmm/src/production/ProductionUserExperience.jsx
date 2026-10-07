@@ -125,7 +125,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
               <div className="rmm-first-colour">
                 <div className="rmm-first-colour-picker">
                   <input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(event) => setAppearance({ accent: event.target.value.toLowerCase() })} />
-                  <input aria-label="Personal accent hex colour" maxLength="7" value={accentHex(appearance.accent)} onChange={(event) => {
+                  <input aria-label="Personal accent hex colour" maxLength="7" value={String(appearance.accent || "").startsWith("#") ? String(appearance.accent) : accentHex(appearance.accent)} onChange={(event) => {
                     const next = event.target.value.trim()
                     if (/^#[0-9a-fA-F]{0,6}$/.test(next)) setAppearance({ accent: next })
                   }} onBlur={(event) => {
