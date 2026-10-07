@@ -299,12 +299,24 @@
   }
 }
 
+.hi5-loading-shell[data-theme='dark'] {
+  background: #0c1320;
+}
+
+.hi5-loading-shell[data-theme='dark'] .hi5-loading-recovery {
+  color: #9aabc2;
+}
+
+.hi5-loading-shell[data-theme='light'] {
+  background: #edf3fb;
+}
+
 @media (prefers-color-scheme: dark) {
-  .hi5-loading-shell {
+  .hi5-loading-shell:not([data-theme]) {
     background: #0c1320;
   }
 
-  .hi5-loading-recovery {
+  .hi5-loading-shell:not([data-theme]) .hi5-loading-recovery {
     color: #9aabc2;
   }
 }
