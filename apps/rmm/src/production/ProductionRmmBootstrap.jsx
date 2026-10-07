@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { RmmPlatformApp } from '../features/rmm/RmmPlatformApp.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { ProductionUserExperience } from './ProductionUserExperience.jsx'
@@ -273,18 +274,35 @@ export function ProductionRmmBootstrap() {
 
   if (loading) return <main className="production-auth-shell"><div className="production-auth-card">Opening RMM…</div></main>
   if (!session) {
+    const tenantName = surface.tenantName || surface.tenantSlug || 'your organisation'
     return (
       <main className="production-auth-shell">
-        <form className="production-auth-card" onSubmit={login}>
-          <img src="/hi5central-logo.png" alt="Hi5Central" />
-          <h1>RMM sign in</h1>
-          <p>Enter your email address and Hi5Central will use the sign-in method configured by {surface.tenantName || surface.tenantSlug}.</p>
-          <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
-          {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
-          {error ? <div className="production-auth-error">{error}</div> : null}
-          <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}</button>
-          {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={() => { setPasswordStep(false); setForm((current) => ({ ...current, password: '' })); setError('') }}>Use a different email</button> : null}
-        </form>
+        <div className="production-auth-layout">
+          <section className="production-auth-copy">
+            <img src="/hi5central-logo.png" alt="" />
+            <span className="production-auth-kicker"><ShieldCheck size={15} /> Secure tenant sign-in</span>
+            <h1>Welcome back to {tenantName}.</h1>
+            <p>Enter your email address and Hi5Central will use the sign-in method configured by your organisation.</p>
+            <div className="production-auth-points">
+              <span><CheckCircle2 size={17} /> Tenant-isolated session</span>
+              <span><CheckCircle2 size={17} /> HttpOnly secure cookie</span>
+              <span><CheckCircle2 size={17} /> Organisation-managed sign-in</span>
+            </div>
+          </section>
+
+          <form className="production-auth-card" onSubmit={login}>
+            <div className="production-auth-card-heading">
+              <span className="production-auth-icon"><LockKeyhole size={19} /></span>
+              <div><span>Hi5Central RMM</span><strong>{surface.tenantSlug || tenantName}</strong></div>
+            </div>
+            <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
+            {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
+            {error ? <div className="production-auth-error">{error}</div> : null}
+            <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}{!submitting ? <ArrowRight size={17}/> : null}</button>
+            {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={() => { setPasswordStep(false); setForm((current) => ({ ...current, password: '' })); setError('') }}>Use a different email</button> : null}
+            <a href={APP_URL || '/'}>Back to Hi5Central</a>
+          </form>
+        </div>
       </main>
     )
   }
