@@ -160,6 +160,51 @@ function AdminTopbar({ activeView, user, onLogout, onMenu, query, setQuery, them
   </header>
 }
 
+function adminWorkspaceTabForView(viewId) {
+  const [, title] = pageMeta[viewId] || pageMeta.overview
+  return {
+    key: `view:${viewId}`,
+    viewId,
+    label: title,
+    pinned: viewId === 'overview',
+  }
+}
+
+function AdminWorkspaceTabs({ activeKey, onActivate, onClose, onNew, tabs }) {
+  return (
+    <div className="rmm-workspace-tabs" aria-label="Open Admin workspace tabs">
+      <div className="rmm-workspace-tab-list">
+        {tabs.map((tab) => (
+          <button
+            className={activeKey === tab.key ? 'rmm-workspace-tab active' : 'rmm-workspace-tab'}
+            key={tab.key}
+            onClick={() => onActivate(tab)}
+            type="button"
+          >
+            <span>{tab.label}</span>
+            {!tab.pinned ? (
+              <i
+                aria-label={`Close ${tab.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onClose(tab.key)
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <X size={12}/>
+              </i>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <button className="rmm-workspace-tab-add" onClick={onNew} title="Open overview tab" type="button">
+        <Plus size={16}/>
+      </button>
+    </div>
+  )
+}
+
 function PageHeading({ view, action }) {
   const [eyebrow,title,description]=pageMeta[view]
   return <div className="rmm-page-heading"><div><span className="rmm-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{action}</div>
@@ -1045,6 +1090,7 @@ export function PlatformAdminApp() {
   const [user,setUser]=useState(null)
   const [loading,setLoading]=useState(true)
   const [view,setView]=useState('overview')
+  const [workspaceTabs,setWorkspaceTabs]=useState(()=>[adminWorkspaceTabForView('overview')])
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
@@ -1082,7 +1128,27 @@ export function PlatformAdminApp() {
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
   if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
   if(!user)return <Login onLogin={setUser} theme={theme} setTheme={setTheme}/>
-  function navigate(next){setView(next);setQuery('');setMobileOpen(false)}
+  function navigate(next,options={}){
+    if(!options.skipTab){
+      const tab=adminWorkspaceTabForView(next)
+      setWorkspaceTabs(current=>current.some(item=>item.key===tab.key)?current:[...current,tab])
+    }
+    setView(next)
+    setQuery('')
+    setMobileOpen(false)
+  }
+  function activateWorkspaceTab(tab){if(tab)navigate(tab.viewId||'overview',{skipTab:true})}
+  function closeWorkspaceTab(key){
+    const index=workspaceTabs.findIndex(tab=>tab.key===key)
+    const closing=workspaceTabs[index]
+    if(!closing||closing.pinned)return
+    const nextTabs=workspaceTabs.filter(tab=>tab.key!==key)
+    setWorkspaceTabs(nextTabs)
+    if(`view:${view}`===key){
+      const fallback=nextTabs[Math.max(0,index-1)]||nextTabs[0]||adminWorkspaceTabForView('overview')
+      window.setTimeout(()=>activateWorkspaceTab(fallback),0)
+    }
+  }
   async function logout(){await api('/auth/logout',{method:'POST'}).catch(()=>{});setUser(null)}
   function refreshCurrent(){if(view==='winget')setWingetRefreshKey(value=>value+1);else load(view)}
   function renderPage(){
@@ -1101,6 +1167,13 @@ export function PlatformAdminApp() {
       <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
       <div className="rmm-shell-main">
         <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
+        <AdminWorkspaceTabs
+          activeKey={`view:${view}`}
+          onActivate={activateWorkspaceTab}
+          onClose={closeWorkspaceTab}
+          onNew={()=>navigate('overview')}
+          tabs={workspaceTabs}
+        />
         <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
       </div>
     </div>
