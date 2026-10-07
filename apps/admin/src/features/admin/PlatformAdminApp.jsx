@@ -27,9 +27,11 @@ function adminAccentStyle(value) {
   const r = Number.parseInt(clean.slice(0, 2), 16)
   const g = Number.parseInt(clean.slice(2, 4), 16)
   const b = Number.parseInt(clean.slice(4, 6), 16)
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
   return {
     '--rmm-accent': hex,
     '--rmm-accent-soft': `rgba(${r}, ${g}, ${b}, .13)`,
+    '--rmm-accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
   }
 }
 
