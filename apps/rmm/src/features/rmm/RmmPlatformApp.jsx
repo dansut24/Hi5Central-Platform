@@ -144,6 +144,7 @@ const pageMeta = {
   'activity-audit': ['Administration', 'Activity audit', 'Search the tenant-wide RMM operational and technician audit history.'],
   'agent-deployment': ['Administration', 'Agent deployment', 'Download the Windows agent and create secure, expiring enrollment packages.'],
   settings: ['Administration', 'RMM settings', 'Agent, sites, credentials, maintenance and integration configuration.'],
+  profile: ['Account', 'My Profile', 'Your shared Hi5Central identity, security and workspace preferences.'],
 }
 
 function deviceIsOnline(device) {
