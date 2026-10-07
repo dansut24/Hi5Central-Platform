@@ -9,8 +9,8 @@
   --rmm-border: #dde5ef;
   --rmm-sidebar: #0d2d66;
   --rmm-sidebar-2: #123d82;
-  --rmm-accent: #d98a0a;
-  --rmm-accent-soft: rgba(217, 138, 10, .12);
+  --rmm-accent: #3d73e8;
+  --rmm-accent-soft: rgba(61, 115, 232, .12);
   --rmm-shadow: 0 12px 34px rgba(19, 45, 84, .08);
   color: var(--rmm-text);
   font-family: inherit;
