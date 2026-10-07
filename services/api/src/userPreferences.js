@@ -1,4 +1,4 @@
-import { originMatchesTenant } from './deploymentConfig.js'
+import { originMatchesTenantAccount } from './deploymentConfig.js'
 import { pool } from './db.js'
 import { resolveSession } from './session.js'
 
@@ -18,7 +18,7 @@ const ALLOWED_MODE = new Set(['expanded', 'collapsed', 'hidden'])
 const ALLOWED_PLATFORM = new Set(['itsm', 'rmm', 'admin'])
 
 function originMatchesSession(c, session) {
-  return originMatchesTenant(c.req.header('origin'), session.slug)
+  return originMatchesTenantAccount(c.req.header('origin'), session.slug)
 }
 
 async function requireSession(c) {
