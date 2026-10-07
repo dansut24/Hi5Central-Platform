@@ -4,6 +4,13 @@ import { resolveSession } from './session.js'
 
 const ALLOWED_THEME = new Set(['system', 'light', 'dark'])
 const ALLOWED_ACCENT = new Set(['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'])
+
+function normaliseAccent(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (ALLOWED_ACCENT.has(raw)) return raw
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return '#3b82f6'
+}
 const ALLOWED_DENSITY = new Set(['comfortable', 'compact'])
 const ALLOWED_SIDE = new Set(['left', 'right'])
 const ALLOWED_STYLE = new Set(['floating', 'clean'])
@@ -40,7 +47,7 @@ export function normalisePreferences(input = {}) {
     appearance: {
       theme: ALLOWED_THEME.has(appearance.theme) ? appearance.theme : 'light',
       accentMode: appearance.accentMode === 'personal' ? 'personal' : 'tenant',
-      accent: ALLOWED_ACCENT.has(appearance.accent) ? appearance.accent : 'blue',
+      accent: normaliseAccent(appearance.accent),
       density: ALLOWED_DENSITY.has(appearance.density) ? appearance.density : 'comfortable',
     },
     navigation: {
