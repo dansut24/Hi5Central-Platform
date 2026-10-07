@@ -104,6 +104,8 @@ function rmmAccentStyle(value) {
     '--rmm-accent': hex,
     '--rmm-accent-soft': `rgba(${r}, ${g}, ${b}, .13)`,
     '--rmm-accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+    '--accent-rgb': `${r}, ${g}, ${b}`,
+    '--accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
   }
 }
 
