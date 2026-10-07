@@ -104,7 +104,7 @@
   background: #fff;
   font: inherit;
 }
-.production-auth-card input:focus { outline: 3px solid rgba(245, 158, 11, .18); border-color: #d99008; }
+.production-auth-card input:focus { outline: 3px solid rgba(59, 130, 246, .18); border-color: #3b82f6; }
 
 .production-auth-card button {
   min-height: 46px;
