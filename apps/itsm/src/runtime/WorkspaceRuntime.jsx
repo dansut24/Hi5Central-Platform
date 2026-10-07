@@ -2988,26 +2988,26 @@ function WorkspaceRuntime() {
       data-theme={resolvedTheme}
       style={accentStyle}
     >
-      {(!sidebarHidden || mobileNavOpen) && <aside className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'} aria-label="Primary navigation">
+      {(!sidebarHidden || mobileNavOpen) && <aside className={mobileNavOpen ? 'sidebar rmm-sidebar mobile-open' : 'sidebar rmm-sidebar'} aria-label="Primary navigation">
         <div className="sidebar-top">
-          <div className="brand">
+          <div className="brand rmm-sidebar-brand">
             <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" />
             <div className="brand-copy">
               <strong>{workspaceBrandName}</strong>
               <span>ITSM</span>
             </div>
+            <button
+              className="mobile-drawer-close rmm-mobile-close"
+              onClick={() => setMobileNavOpen(false)}
+              title="Close navigation"
+              type="button"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
           </div>
-          <button
-            className="mobile-drawer-close"
-            onClick={() => setMobileNavOpen(false)}
-            title="Close navigation"
-            type="button"
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
         </div>
 
-        <nav className="nav-stack">
+        <nav className="nav-stack rmm-nav">
           {navGroups.map((group) => {
             const groupIsActive = group.items.some(({ id }) => id === activeNavId)
 
@@ -3015,6 +3015,7 @@ function WorkspaceRuntime() {
               <div
                 className={[
                   'nav-group',
+                  'rmm-nav-section',
                   group.separated ? 'nav-group-separated' : '',
                   groupIsActive ? 'nav-group-active' : '',
                 ].filter(Boolean).join(' ')}
@@ -3043,12 +3044,12 @@ function WorkspaceRuntime() {
           })}
         </nav>
 
-        <div className="sidebar-footer">
-          <div className="sidebar-product-switches">
+        <div className="sidebar-footer rmm-sidebar-footer">
+          <div className="sidebar-product-switches rmm-product-switches">
             {platform.rmmUrl && session?.platformAccess?.rmm !== false ? <a href={platform.rmmUrl}>RMM</a> : null}
             {platform.adminUrl && session?.platformAccess?.admin ? <a href={platform.adminUrl}>Admin</a> : null}
           </div>
-          <div className="sidebar-identity">
+          <div className="sidebar-identity rmm-sidebar-identity">
             <span>{shellUserInitials}</span>
             <div>
               <strong>{session?.name || session?.user?.name || 'Hi5Central'}</strong>
@@ -3056,7 +3057,7 @@ function WorkspaceRuntime() {
             </div>
           </div>
           <button
-            className="sidebar-footer-toggle desktop-sidebar-toggle"
+            className="sidebar-footer-toggle desktop-sidebar-toggle rmm-sidebar-toggle"
             onClick={() => setSidebarMode(sidebarCollapsed ? 'expanded' : 'collapsed')}
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             type="button"
@@ -3070,7 +3071,7 @@ function WorkspaceRuntime() {
       {mobileNavOpen && (
         <button
           aria-label="Close navigation"
-          className="mobile-nav-backdrop"
+          className="mobile-nav-backdrop rmm-sidebar-backdrop is-open"
           onClick={() => setMobileNavOpen(false)}
           type="button"
         />
