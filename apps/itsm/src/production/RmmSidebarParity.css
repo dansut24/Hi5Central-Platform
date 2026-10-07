@@ -409,3 +409,94 @@ html[data-hi5-surface='workspace'] .rmm-sidebar-toggle:hover {
     display: none !important;
   }
 }
+
+
+/* Win against older ITSM parity layers that used !important on the legacy
+   class names. These aliases intentionally make the RMM rules authoritative. */
+html[data-hi5-surface='workspace'] .app-shell .sidebar-top {
+  display: contents !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand {
+  grid-template-columns: 42px minmax(0, 1fr) auto !important;
+  min-height: 54px !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-identity {
+  display: grid !important;
+  grid-template-columns: 30px minmax(0,1fr) !important;
+  padding: 6px 7px !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-nav-section .nav-item.active {
+  background: var(--rmm-accent) !important;
+  color: var(--rmm-accent-ink, #fff) !important;
+  box-shadow: 0 8px 20px rgba(0,0,0,.16) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-nav-section .nav-item.active svg {
+  color: var(--rmm-accent-ink, #fff) !important;
+}
+
+@media (hover: hover) and (pointer: fine) and (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-nav-section .nav-item:hover:not(.active) {
+    background: color-mix(in srgb, var(--rmm-accent) 28%, transparent) !important;
+    color: #fff !important;
+  }
+}
+
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand {
+    grid-template-columns: 32px minmax(0,1fr) auto !important;
+    min-height: 44px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand .brand-copy strong {
+    color: #fff !important;
+    font-size: 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand .brand-copy span {
+    display: block !important;
+    color: rgba(255,255,255,.5) !important;
+    font-size: 8px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-toggle.desktop-sidebar-toggle {
+    display: flex !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-sidebar-brand > .brand-copy,
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-nav-section > .nav-group-label,
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-nav-section .nav-item > span,
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-product-switches,
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-sidebar-identity > div,
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-sidebar-toggle > span {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell.sidebar-collapsed .rmm-sidebar .rmm-sidebar-identity {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar {
+    padding: 15px 12px 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand .brand-copy strong {
+    color: #0d2d66 !important;
+    font-size: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-sidebar-brand .brand-copy span {
+    color: #526884 !important;
+    font-size: 9px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .rmm-sidebar .rmm-nav-section .nav-item:hover:not(.active) {
+    background: transparent !important;
+    color: rgba(255,255,255,.74) !important;
+  }
+}
