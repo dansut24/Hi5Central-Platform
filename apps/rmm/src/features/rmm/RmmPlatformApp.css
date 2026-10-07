@@ -2263,11 +2263,24 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
 }
 
 
-/* MOBILE NAVIGATION ACTIVE FALLBACK */
+/* MOBILE NAVIGATION
+   Touch devices stay visually neutral while scrolling. Only a tap/selected
+   destination adopts the current tenant or personal accent colour. */
 @media (max-width: 900px) {
+  .rmm-nav-section button:hover:not(.active) {
+    background: transparent;
+    color: rgba(255,255,255,.74);
+  }
+
+  .rmm-nav-section button:active,
   .rmm-nav-section button.active {
-    background: #fff;
-    color: #0d2d66;
-    box-shadow: 0 8px 20px rgba(0,0,0,.14);
+    background: var(--rmm-accent);
+    color: var(--rmm-accent-ink, #fff);
+    box-shadow: 0 8px 20px rgba(0,0,0,.16);
+  }
+
+  .rmm-nav-section button:active svg,
+  .rmm-nav-section button.active svg {
+    color: var(--rmm-accent-ink, #fff);
   }
 }
