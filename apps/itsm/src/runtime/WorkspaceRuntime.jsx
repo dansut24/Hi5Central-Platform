@@ -3045,8 +3045,8 @@ function WorkspaceRuntime() {
 
         <div className="sidebar-footer">
           <div className="sidebar-product-switches">
-            {platform.rmmUrl ? <a href={platform.rmmUrl}>RMM</a> : null}
-            {platform.adminUrl ? <a href={platform.adminUrl}>Admin</a> : null}
+            {platform.rmmUrl && session?.platformAccess?.rmm !== false ? <a href={platform.rmmUrl}>RMM</a> : null}
+            {platform.adminUrl && session?.platformAccess?.admin ? <a href={platform.adminUrl}>Admin</a> : null}
           </div>
           <div className="sidebar-identity">
             <span>{shellUserInitials}</span>
