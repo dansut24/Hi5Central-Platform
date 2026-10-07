@@ -2597,7 +2597,9 @@ export function DashboardView({
           </div>
         )}
       </section>
-      {!editMode && (\n        <>\n          <div className="dashboard-toolbar-row">
+      {!editMode && (
+        <>
+          <div className="dashboard-toolbar-row">
             <div className="dashboard-icon-toolbar" aria-label="Dashboard controls">
               {editMode ? (
                 <>
@@ -2701,7 +2703,10 @@ export function DashboardView({
             </div>
           </div>
 
-        </>\n      )}\n\n      {widgetCatalogOpen && (
+        </>
+      )}
+
+      {widgetCatalogOpen && (
         <>
           <button className="dashboard-panel-backdrop" aria-label="Close widget catalogue" onClick={() => setWidgetCatalogOpen(false)} type="button" />
           <aside className="dashboard-side-panel" aria-label="Widget catalogue">
