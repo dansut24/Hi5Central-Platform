@@ -2697,13 +2697,6 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
       <RmmSidebar activeView={visibleActiveView} canAudit={canAudit} canRemote={canRemote} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} tenantName={tenantName} />
       <div className="rmm-shell-main">
         <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
-        <RmmWorkspaceTabs
-          activeKey={activeWorkspaceTabKey}
-          onActivate={activateWorkspaceTab}
-          onClose={closeWorkspaceTab}
-          onNew={() => navigate('dashboard')}
-          tabs={workspaceTabs}
-        />
         <main className="rmm-main-scroll"><div className="rmm-page">{renderPage()}</div></main>
       </div>
       {toast && <div className="rmm-toast"><CheckCircle2 size={16} />{toast}</div>}
