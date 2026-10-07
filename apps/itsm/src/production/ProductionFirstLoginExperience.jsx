@@ -165,16 +165,29 @@ function applyPreferences(preferences) {
     // Server preferences remain authoritative if local storage is unavailable.
   }
 
+  const [accentR, accentG, accentB] = accentRgb(accent)
   const shell = document.querySelector('.app-shell')
   if (shell instanceof HTMLElement) {
     shell.dataset.theme = effectiveTheme(next.appearance.theme)
     shell.dataset.accent = accent
+    shell.style.setProperty('--accent-rgb', `${accentR}, ${accentG}, ${accentB}`)
+    shell.style.setProperty('--accent-ink', accentInk(accent))
+    shell.style.setProperty('--accent', accentHex(accent))
     shell.dataset.navSide = next.navigation.desktopSide
     shell.dataset.mobileNavSide = next.navigation.mobileSide
     shell.dataset.navStyle = next.navigation.sidebarStyle
     shell.classList.remove('sidebar-expanded', 'sidebar-collapsed', 'sidebar-hidden', 'density-comfortable', 'density-compact')
     shell.classList.add(`sidebar-${next.navigation.sidebarMode}`, `density-${next.appearance.density}`)
   }
+
+  window.dispatchEvent(new CustomEvent('hi5-user-preferences-applied', {
+    detail: {
+      theme: next.appearance.theme,
+      accent,
+      density: next.appearance.density,
+      sidebarMode: next.navigation.sidebarMode,
+    },
+  }))
 
   document.documentElement.dataset.hi5NavSide = next.navigation.desktopSide
   document.documentElement.dataset.hi5MobileNavSide = next.navigation.mobileSide
