@@ -2037,3 +2037,91 @@ html[data-hi5-surface='workspace'] .itsm-rmm-health-card:hover .hi5-health-orb {
     flex: 0 0 36px !important;
   }
 }
+
+
+/* Final dashboard customiser contract.
+   The v2 layout editor is authoritative. Never render the legacy grid editor
+   underneath it when Customize is active. */
+html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .dashboard-toolbar-row,
+html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .dashboard-canvas {
+  display: none !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing {
+  display: block !important;
+  width: 100% !important;
+  min-height: 100% !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-dashboard {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+
+/* Desktop workspace tabs belong to the left edge of the tab strip.
+   Reset older centred/grid tab contracts while leaving the mobile tab scroller
+   untouched. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar {
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    padding: 4px 16px 0 !important;
+    gap: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar-tab-zone {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: stretch !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list {
+    display: flex !important;
+    flex: 1 1 auto !important;
+    align-items: end !important;
+    justify-content: flex-start !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tab-list:has(> .workspace-tab:first-child.active) {
+    padding-inline-start: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list > .workspace-tab {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 116px !important;
+    max-width: 220px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list > .tab-add {
+    flex: 0 0 36px !important;
+    width: 36px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] body[data-hi5-surface='workspace'] #root[data-hi5-surface='workspace'] .tabbar-tab-zone > .tabbar-brand {
+    display: none !important;
+  }
+}
