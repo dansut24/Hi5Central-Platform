@@ -94,7 +94,7 @@ function Section({ title, description, children }) {
   )
 }
 
-export function ProductionProfileWorkspace({ session }) {
+export function ProductionProfileWorkspace({ session, platform = 'itsm' }) {
   const fallbackPreferences = useMemo(() => defaultPreferences(session), [session])
   const [profile, setProfile] = useState(null)
   const [preferences, setPreferences] = useState(fallbackPreferences)
@@ -103,6 +103,7 @@ export function ProductionProfileWorkspace({ session }) {
   const [saved, setSaved] = useState('')
   const [error, setError] = useState('')
   const [section, setSection] = useState(() => new URLSearchParams(window.location.search).get('section') === 'workspace' ? 'workspace' : 'profile')
+  const [tenantAccent, setTenantAccent] = useState(() => session?.settings?.theme?.accent || session?.onboarding?.data?.theme?.accent || session?.tenant?.accent || 'blue')
 
   useEffect(() => {
     const syncSection = () => setSection(new URLSearchParams(window.location.search).get('section') === 'workspace' ? 'workspace' : 'profile')
@@ -119,7 +120,7 @@ export function ProductionProfileWorkspace({ session }) {
       try {
         const [profileResponse, preferenceResponse] = await Promise.all([
           fetch(`${API_BASE}/api/v1/profile`, { credentials: 'include' }),
-          fetch(`${API_BASE}/api/v1/user-preferences`, { credentials: 'include' }),
+          fetch(`${API_BASE}/api/v1/user-preferences?surface=${encodeURIComponent(platform)}`, { credentials: 'include' }),
         ])
         const profilePayload = await profileResponse.json().catch(() => ({}))
         const preferencePayload = await preferenceResponse.json().catch(() => ({}))
@@ -128,6 +129,7 @@ export function ProductionProfileWorkspace({ session }) {
         if (!active) return
         setProfile(profilePayload)
         setPreferences(preferencePayload.preferences || fallbackPreferences)
+        setTenantAccent(preferencePayload.tenant?.accent || session?.settings?.theme?.accent || session?.onboarding?.data?.theme?.accent || session?.tenant?.accent || 'blue')
       } catch (loadError) {
         if (active) setError(loadError.message)
       } finally {
@@ -137,7 +139,7 @@ export function ProductionProfileWorkspace({ session }) {
 
     void load()
     return () => { active = false }
-  }, [fallbackPreferences])
+  }, [fallbackPreferences, platform, session])
 
   function updatePreference(group, field, value) {
     setPreferences((current) => ({
@@ -156,14 +158,13 @@ export function ProductionProfileWorkspace({ session }) {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferences }),
+        body: JSON.stringify({ preferences, platform }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not save your preferences.')
       const next = payload.preferences || preferences
       setPreferences(next)
 
-      const tenantAccent = session?.settings?.theme?.accent || session?.onboarding?.data?.theme?.accent || 'amber'
       const selectedAccent = next.appearance?.accentMode === 'personal'
         ? next.appearance?.accent
         : tenantAccent
