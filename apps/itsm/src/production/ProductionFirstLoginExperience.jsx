@@ -501,7 +501,7 @@ export function ProductionFirstLoginExperience({ bootstrapSession = null, onExpe
       window.removeEventListener('popstate', update)
       window.removeEventListener('hi5-routechange', update)
     }
-  }, [bootstrapSession?.user?.id, bootstrapSession?.onboarding?.completedAt])
+  }, [])
 
   useEffect(() => {
     const scan = () => {
@@ -566,7 +566,7 @@ export function ProductionFirstLoginExperience({ bootstrapSession = null, onExpe
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [bootstrapSession?.user?.id, bootstrapSession?.onboarding?.completedAt, bootstrapSession?.userExperience?.firstLoginCompletedAt, firstLoginHandoff])
 
   useEffect(() => {
     if (!payload?.firstLoginCompletedAt || payload.platformCoachmarksCompletedAt || payload.preferences?.guidance?.coachMarks === false) return undefined
