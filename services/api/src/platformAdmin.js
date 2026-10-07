@@ -220,8 +220,8 @@ async function seedTenantWorkspaceSession(c, userId) {
   }
 }
 
-async function tenantAdminSsoSession(c) {
-  const tenantSession = await resolveSession(c)
+async function tenantAdminSsoSession(c, suppliedTenantSession = null) {
+  const tenantSession = suppliedTenantSession || await resolveSession(c)
   if (!tenantSession) return null
 
   const membership = await pool.query(
@@ -267,9 +267,11 @@ async function tenantAdminSsoSession(c) {
 }
 
 async function resolveAdminOrTenantSso(c) {
+  const tenantSession = await resolveSession(c)
   const existing = await resolveAdminSession(c)
-  if (existing) return existing
-  return tenantAdminSsoSession(c)
+  if (existing) return { session: existing, tenantSession }
+  const promoted = tenantSession ? await tenantAdminSsoSession(c, tenantSession) : null
+  return promoted ? { session: promoted, tenantSession } : null
 }
 
 async function requireAdmin(c, roles = null) {
@@ -299,8 +301,26 @@ async function requireAdmin(c, roles = null) {
   return { session }
 }
 
-function adminPayload(session) {
-  return { authenticated: true, user: { id: session.user_id, name: session.name, email: session.email, role: session.role } }
+function adminPayload(session, tenantSession = null) {
+  const configuration = tenantSession?.configuration && Object.keys(tenantSession.configuration).length
+    ? tenantSession.configuration
+    : (tenantSession?.onboarding_data || {})
+  const modules = tenantSession?.modules || {}
+  return {
+    authenticated: true,
+    user: { id: session.user_id, name: session.name, email: session.email, role: session.role },
+    tenant: tenantSession ? {
+      id: tenantSession.tenant_id,
+      slug: tenantSession.slug,
+      companyName: tenantSession.company_name,
+      accent: configuration?.theme?.accent || '#3b82f6',
+    } : null,
+    platformAccess: {
+      admin: true,
+      itsm: Boolean(tenantSession && modules.itsm),
+      rmm: Boolean(tenantSession && modules.rmm),
+    },
+  }
 }
 
 function mspLicensePayload(row) {
@@ -566,9 +586,9 @@ export function registerPlatformAdminRoutes(app) {
 
   app.get('/api/platform/v1/auth/session', async (c) => {
     if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
-    const session = await resolveAdminOrTenantSso(c)
-    if (!session) return c.json({ error: 'Platform administrator authentication required.' }, 401)
-    return c.json(adminPayload(session))
+    const resolved = await resolveAdminOrTenantSso(c)
+    if (!resolved) return c.json({ error: 'Platform administrator authentication required.' }, 401)
+    return c.json(adminPayload(resolved.session, resolved.tenantSession))
   })
 
   app.get('/api/platform/v1/user-preferences', async (c) => {
