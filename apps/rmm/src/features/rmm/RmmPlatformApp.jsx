@@ -74,6 +74,36 @@ import { detectRemoteViewerClient, launchRemoteViewerProtocol, remoteViewerDownl
 import { RmmDeviceToolWorkspace } from './RmmDeviceTools.jsx'
 import './RmmPlatformApp.css'
 
+const ACCENT_PRESETS = {
+  blue: '#3d73e8',
+  cyan: '#089fc5',
+  amber: '#d98a0a',
+  emerald: '#188c61',
+  violet: '#7858df',
+  rose: '#d84e73',
+}
+
+function resolveAccentHex(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (ACCENT_PRESETS[raw]) return ACCENT_PRESETS[raw]
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return '#3d73e8'
+}
+
+function rmmAccentStyle(value) {
+  const hex = resolveAccentHex(value)
+  const clean = hex.slice(1)
+  const r = Number.parseInt(clean.slice(0, 2), 16)
+  const g = Number.parseInt(clean.slice(2, 4), 16)
+  const b = Number.parseInt(clean.slice(4, 6), 16)
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+  return {
+    '--rmm-accent': hex,
+    '--rmm-accent-soft': `rgba(${r}, ${g}, ${b}, .13)`,
+    '--rmm-accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+  }
+}
+
 const navigation = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Workspace' },
   { id: 'devices', label: 'Devices', icon: Monitor, section: 'Manage' },
@@ -2550,7 +2580,7 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   }
 
   return (
-    <div className="rmm-app" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme}>
+    <div className="rmm-app" data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={rmmAccentStyle(accent)}>
       <RmmSidebar activeView={visibleActiveView} canAudit={canAudit} canRemote={canRemote} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} tenantName={tenantName} />
       <div className="rmm-shell-main">
         <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
