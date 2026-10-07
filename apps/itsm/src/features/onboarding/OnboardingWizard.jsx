@@ -78,7 +78,7 @@ function defaultData(step, session) {
       employeeBand: '51-250',
     },
     theme: {
-      accent: 'amber',
+      accent: 'blue',
       mode: 'light',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
@@ -250,8 +250,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
-  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || 'amber'
-  const shellStyle = { '--onboarding-accent': accentColours[activeAccent] || accentColours.amber }
+  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || 'blue'
+  const shellStyle = { '--onboarding-accent': accentColours[activeAccent] || accentColours.blue }
   const meta = stepMeta[viewStep]
   const Icon = meta?.icon || Sparkles
   const progress = Math.round(((canonicalIndex + 1) / sequence.length) * 100)
@@ -485,7 +485,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <Section title="Default appearance" description="This becomes the starting experience for the tenant. Individual users can later have personal preferences.">
                 <div className="onboarding-form-grid">
                   <Field label="Appearance"><select value={data.mode || 'system'} onChange={(event) => update('mode', event.target.value)}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
-                  <Field label="Accent colour"><select value={data.accent || 'amber'} onChange={(event) => update('accent', event.target.value)}><option value="amber">Amber</option><option value="blue">Blue</option><option value="cyan">Cyan</option><option value="emerald">Emerald</option><option value="violet">Violet</option><option value="rose">Rose</option></select></Field>
+                  <Field label="Accent colour"><select value={data.accent || 'blue'} onChange={(event) => update('accent', event.target.value)}><option value="blue">Blue</option><option value="cyan">Cyan</option><option value="amber">Amber</option><option value="emerald">Emerald</option><option value="violet">Violet</option><option value="rose">Rose</option></select></Field>
                   <Field label="Workspace brand name"><input value={data.brandName || ''} onChange={(event) => update('brandName', event.target.value)} /></Field>
                   {modules.itsm ? <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field> : null}
                 </div>
