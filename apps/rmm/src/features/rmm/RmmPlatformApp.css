@@ -2557,3 +2557,29 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
     height: 100%;
   }
 }
+
+
+/* Final shared shell parity with ITSM. */
+@media (min-width: 901px) {
+  .rmm-sidebar {
+    grid-template-rows: auto minmax(0, 1fr) auto !important;
+  }
+
+  .rmm-page {
+    padding: 20px 24px 24px !important;
+  }
+
+  .rmm-sidebar-footer {
+    border-top: 1px solid rgba(255,255,255,.12) !important;
+    padding-top: 10px !important;
+  }
+
+  .rmm-dashboard-grid,
+  .rmm-dashboard-lower {
+    grid-auto-rows: minmax(190px, auto);
+  }
+
+  .rmm-card-heading {
+    min-height: 56px;
+  }
+}
