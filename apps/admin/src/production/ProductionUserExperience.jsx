@@ -23,7 +23,7 @@ const TOUR = [
 
 function defaults() {
   return {
-    appearance: { theme: 'system', accentMode: 'tenant', accent: 'amber', density: 'comfortable' },
+    appearance: { theme: 'light', accentMode: 'tenant', accent: 'amber', density: 'comfortable' },
     navigation: { desktopSide: 'left', mobileSide: 'left', sidebarStyle: 'floating', sidebarMode: 'expanded' },
     guidance: { coachMarks: true },
   }
