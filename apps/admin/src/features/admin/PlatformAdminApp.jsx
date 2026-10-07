@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowRight, ArrowUp, Ban, Building2, Check, CheckCircle2, Copy, CreditCard, Database, Download,
-  KeyRound, Link2Off, LockKeyhole, LogOut, Menu, Moon, PackageCheck, PackageSearch, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw,
-  RotateCcw, Save, Search, ServerCog, ShieldCheck, Sun, Trash2, UserRound, Wrench, X,
+  KeyRound, Link2Off, LockKeyhole, LogOut, Menu, PackageCheck, PackageSearch, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw,
+  RotateCcw, Save, Search, ServerCog, ShieldCheck, SlidersHorizontal, Trash2, UserRound, Wrench, X,
 } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
@@ -186,12 +186,31 @@ function AdminSidebar({ activeView, canItsm = false, canRmm = false, collapsed =
   </>
 }
 
-function AdminTopbar({ activeView, user, onLogout, onMenu, query, setQuery, theme, setTheme, refresh }) {
+function adminAccountHref(section = 'profile', tenant = null) {
+  const base = config.appUrl
+    || (tenant?.slug ? `https://${tenant.slug}.${config.rootDomain}` : '')
+    || (config.tenancyMode === 'single' ? window.location.origin : `https://${config.rootDomain}`)
+  const suffix = section === 'workspace' ? '/profile?section=workspace' : '/profile'
+  return `${String(base).replace(/\/$/, '')}${suffix}`
+}
+
+function AdminTopbar({ activeView, user, tenant, onLogout, onMenu, query, setQuery, refresh }) {
   const [,title]=pageMeta[activeView]
+  const [profileMenuOpen,setProfileMenuOpen]=useState(false)
+  const userInitials=initials(user?.name || user?.email || 'HC')
   return <header className="rmm-topbar">
     <div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19}/></button><div><span>ADMIN {config.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${config.runtimeEnvironment}`}>{config.runtimeEnvironment.toUpperCase()}{config.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div>
     <label className="rmm-global-search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tenants, software, qualification…"/></label>
-    <div className="rmm-topbar-actions"><button onClick={refresh} type="button" title="Refresh"><RefreshCw size={17}/></button><button onClick={()=>setTheme(theme==='light'?'dark':'light')} type="button">{theme==='light'?<Moon size={17}/>:<Sun size={17}/>}</button><button className="rmm-user" onClick={onLogout} type="button"><span>{initials(user?.name)}</span><div><strong>{user?.name||'Hi5Central admin'}</strong><small>{user?.role||'Sign out'}</small></div><LogOut size={14}/></button></div>
+    <div className="rmm-topbar-actions">
+      <button onClick={refresh} type="button" title="Refresh"><RefreshCw size={17}/></button>
+      <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={()=>setProfileMenuOpen(open=>!open)} title="Profile" type="button"><span>{userInitials}</span></button>
+      {profileMenuOpen?<div className="rmm-profile-menu" role="menu">
+        <div className="rmm-profile-summary"><span>{userInitials}</span><div><strong>{user?.name||'Hi5Central admin'}</strong><small>{user?.email||'Hi5Central account'}</small></div></div>
+        <button onClick={()=>window.location.assign(adminAccountHref('profile',tenant))} role="menuitem" type="button"><UserRound size={15}/>My Profile</button>
+        <button onClick={()=>window.location.assign(adminAccountHref('workspace',tenant))} role="menuitem" type="button"><SlidersHorizontal size={15}/>Workspace</button>
+        <button onClick={()=>{setProfileMenuOpen(false);onLogout?.()}} role="menuitem" type="button"><LogOut size={15}/>Sign out</button>
+      </div>:null}
+    </div>
   </header>
 }
 
@@ -1130,6 +1149,7 @@ export function PlatformAdminApp() {
   const [accent,setAccent]=useState('#3b82f6')
   const [organisationAccent,setOrganisationAccent]=useState('#3b82f6')
   const [platformAccess,setPlatformAccess]=useState({admin:true,itsm:false,rmm:false})
+  const [sessionTenant,setSessionTenant]=useState(null)
   const [lastPreferences,setLastPreferences]=useState(null)
   const [density,setDensity]=useState('comfortable')
   const [navSide,setNavSide]=useState('left')
@@ -1158,6 +1178,7 @@ export function PlatformAdminApp() {
       .then(r=>{
         setUser(r.user)
         setPlatformAccess(r.platformAccess||{admin:true,itsm:false,rmm:false})
+        setSessionTenant(r.tenant||null)
         if(r.tenant?.accent){
           setOrganisationAccent(r.tenant.accent)
           setAccent(r.tenant.accent)
@@ -1229,7 +1250,7 @@ export function PlatformAdminApp() {
     <div className={`rmm-app h5a-rmm-shell sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={adminAccentStyle(accent)}>
       <AdminSidebar activeView={view} canItsm={Boolean(platformAccess.itsm)} canRmm={Boolean(platformAccess.rmm)} collapsed={sidebarMode==='collapsed'} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)} onToggleCollapse={()=>setSidebarMode(value=>value==='collapsed'?'expanded':'collapsed')} user={user}/>
       <div className="rmm-shell-main">
-        <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
+        <AdminTopbar activeView={view} user={user} tenant={sessionTenant} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} refresh={refreshCurrent}/>
         <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
       </div>
     </div>
