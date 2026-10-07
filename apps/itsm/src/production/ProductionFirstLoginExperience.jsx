@@ -38,9 +38,9 @@ const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const PREFERENCE_SYNC_KEY = 'hi5central-user-preference-sync-v1'
 
 const ACCENTS = [
-  ['amber', '#f59e0b'],
   ['blue', '#3b82f6'],
   ['cyan', '#06b6d4'],
+  ['amber', '#f59e0b'],
   ['emerald', '#10b981'],
   ['violet', '#8b5cf6'],
   ['rose', '#f43f5e'],
@@ -83,7 +83,7 @@ function readJson(key, fallback) {
 }
 
 function tenantAccent() {
-  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || 'amber'
+  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || 'blue'
 }
 
 function initials(name = '') {
@@ -100,7 +100,7 @@ function freshPreferences() {
     appearance: {
       theme: 'light',
       accentMode: 'tenant',
-      accent: 'amber',
+      accent: 'blue',
       density: 'comfortable',
     },
     navigation: {
