@@ -13,7 +13,7 @@ import {
 } from './securityAudit.js'
 import { securitySettings } from './securityPolicy.js'
 import { resolveSession } from './session.js'
-import { originMatchesTenant as deploymentOriginMatchesTenant } from './deploymentConfig.js'
+import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount } from './deploymentConfig.js'
 
 function text(value, max = 255) {
   return String(value ?? '').trim().slice(0, max)
@@ -46,7 +46,7 @@ function originMatchesTenant(c, slug) {
 async function requireSession(c, permission = null) {
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
-  if (!originMatchesTenant(c, session.slug)) return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
+  if (!originMatchesTenantAccount(c.req.header('origin'), session.slug)) return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
   if (permission && !hasPermission(session.access, permission)) {
     return { error: c.json({ error: 'You do not have permission to view this tenant security information.', permission }, 403) }
   }
