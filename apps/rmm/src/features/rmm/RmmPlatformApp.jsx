@@ -33,6 +33,7 @@ import {
   Package,
   PackageCheck,
   PackagePlus,
+  Plus,
   RefreshCw,
   Search,
   Server,
@@ -244,6 +245,51 @@ function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, query,
 function PageHeading({ activeView, action }) {
   const [eyebrow, title, description] = pageMeta[activeView] || pageMeta.dashboard
   return <div className="rmm-page-heading"><div><span className="rmm-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{action}</div>
+}
+
+function rmmWorkspaceTabForView(viewId) {
+  const [, title] = pageMeta[viewId] || pageMeta.dashboard
+  return {
+    key: `view:${viewId}`,
+    viewId,
+    label: title,
+    pinned: viewId === 'dashboard',
+  }
+}
+
+function RmmWorkspaceTabs({ activeKey, onActivate, onClose, onNew, tabs }) {
+  return (
+    <div className="rmm-workspace-tabs" aria-label="Open RMM workspace tabs">
+      <div className="rmm-workspace-tab-list">
+        {tabs.map((tab) => (
+          <button
+            className={activeKey === tab.key ? 'rmm-workspace-tab active' : 'rmm-workspace-tab'}
+            key={tab.key}
+            onClick={() => onActivate(tab)}
+            type="button"
+          >
+            <span>{tab.label}</span>
+            {!tab.pinned ? (
+              <i
+                aria-label={`Close ${tab.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onClose(tab.key)
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <X size={12} />
+              </i>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <button className="rmm-workspace-tab-add" onClick={onNew} title="Open dashboard tab" type="button">
+        <Plus size={16} />
+      </button>
+    </div>
+  )
 }
 
 function dashboardWhen(value) {
@@ -2496,8 +2542,33 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   const [query, setQuery] = useState('')
   const [toast, setToast] = useState('')
   const [inventoryPreset, setInventoryPreset] = useState(null)
+  const [workspaceTabs, setWorkspaceTabs] = useState(() => {
+    const base = [rmmWorkspaceTabForView('dashboard')]
+    if (initialRoute.deviceId) {
+      base.push({
+        key: `device:${initialRoute.deviceId}`,
+        viewId: 'devices',
+        deviceId: initialRoute.deviceId,
+        label: 'Device',
+        pinned: false,
+      })
+    } else if ((initialRoute.viewId || 'dashboard') !== 'dashboard') {
+      base.push(rmmWorkspaceTabForView(initialRoute.viewId))
+    }
+    return base
+  })
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId)
   const visibleActiveView = (activeView === 'activity-audit' && !canAudit) || (activeView === 'connect' && !canRemote) ? 'dashboard' : activeView
+  const activeWorkspaceTabKey = selectedDeviceId ? `device:${selectedDeviceId}` : `view:${visibleActiveView}`
+
+  useEffect(() => {
+    if (!selectedDeviceId || !selectedDevice) return
+    setWorkspaceTabs((current) => current.map((tab) => (
+      tab.key === `device:${selectedDeviceId}`
+        ? { ...tab, label: selectedDevice.name || selectedDevice.hostname || 'Device' }
+        : tab
+    )))
+  }, [selectedDevice, selectedDeviceId])
 
   useEffect(() => {
     const handlePop = () => {
@@ -2509,6 +2580,10 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
       setSelectedActivityCategory(route.activityCategory || '')
       setSelectedActivityId(route.activityId || '')
       setMobileOpen(false)
+      const routeTab = route.deviceId
+        ? { key: `device:${route.deviceId}`, viewId: 'devices', deviceId: route.deviceId, label: 'Device', pinned: false }
+        : rmmWorkspaceTabForView(route.viewId || 'dashboard')
+      setWorkspaceTabs((current) => current.some((tab) => tab.key === routeTab.key) ? current : [...current, routeTab])
     }
     window.addEventListener('popstate', handlePop)
     return () => window.removeEventListener('popstate', handlePop)
@@ -2527,6 +2602,10 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   }
 
   function navigate(viewId, options = {}) {
+    if (!options.skipTab) {
+      const tab = rmmWorkspaceTabForView(viewId)
+      setWorkspaceTabs((current) => current.some((item) => item.key === tab.key) ? current : [...current, tab])
+    }
     setActiveView(viewId)
     setSelectedDeviceId('')
     setSelectedDeviceSection('overview')
@@ -2542,6 +2621,14 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
 
   function openDevice(device) {
     if (!device) return
+    const tab = {
+      key: `device:${device.id}`,
+      viewId: 'devices',
+      deviceId: device.id,
+      label: device.name || device.hostname || 'Device',
+      pinned: false,
+    }
+    setWorkspaceTabs((current) => current.some((item) => item.key === tab.key) ? current : [...current, tab])
     setActiveView('devices')
     setSelectedDeviceId(device.id)
     setSelectedDeviceSection('overview')
@@ -2556,6 +2643,32 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   function openScopedInventory(preset) {
     setInventoryPreset({ ...preset, requestedAt: Date.now() })
     navigate('devices')
+  }
+
+  function activateWorkspaceTab(tab) {
+    if (!tab) return
+    if (tab.deviceId) {
+      const device = devices.find((item) => item.id === tab.deviceId)
+      if (device) {
+        openDevice(device)
+        return
+      }
+    }
+    navigate(tab.viewId || 'dashboard', { skipTab: true })
+  }
+
+  function closeWorkspaceTab(key) {
+    const tabIndex = workspaceTabs.findIndex((tab) => tab.key === key)
+    const closing = workspaceTabs[tabIndex]
+    if (!closing || closing.pinned) return
+
+    const nextTabs = workspaceTabs.filter((tab) => tab.key !== key)
+    setWorkspaceTabs(nextTabs)
+
+    if (activeWorkspaceTabKey === key) {
+      const fallback = nextTabs[Math.max(0, tabIndex - 1)] || nextTabs[0] || rmmWorkspaceTabForView('dashboard')
+      window.setTimeout(() => activateWorkspaceTab(fallback), 0)
+    }
   }
 
   function renderPage() {
@@ -2584,6 +2697,13 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
       <RmmSidebar activeView={visibleActiveView} canAudit={canAudit} canRemote={canRemote} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} tenantName={tenantName} />
       <div className="rmm-shell-main">
         <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
+        <RmmWorkspaceTabs
+          activeKey={activeWorkspaceTabKey}
+          onActivate={activateWorkspaceTab}
+          onClose={closeWorkspaceTab}
+          onNew={() => navigate('dashboard')}
+          tabs={workspaceTabs}
+        />
         <main className="rmm-main-scroll"><div className="rmm-page">{renderPage()}</div></main>
       </div>
       {toast && <div className="rmm-toast"><CheckCircle2 size={16} />{toast}</div>}
