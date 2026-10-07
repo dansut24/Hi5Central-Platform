@@ -280,25 +280,30 @@ function readOnboardingSnapshot(expectedSlug) {
   }
 }
 
-function LoadingScreen({ tenantName, delayed, onRetry }) {
+function LoadingScreen({ delayed, onRetry }) {
+  if (!delayed) {
+    return (
+      <main className="hi5-loading-shell" aria-label="Loading Hi5Central">
+        <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
+      </main>
+    )
+  }
+
   return (
-    <div className="production-auth-shell">
-      <div className="production-auth-card production-auth-loading">
-        <img src="/hi5central-logo.png" alt="" />
-        <strong>Opening {tenantName}</strong>
-        <span>{delayed ? 'Session restore is taking longer than expected.' : 'Checking your secure Hi5Central session…'}</span>
-        {delayed ? (
-          <div className="production-auth-loading-actions">
-            <button type="button" onClick={onRetry}>Retry session</button>
-            <button type="button" onClick={() => {
-              clearOnboardingSnapshot()
-              clearProductionSession()
-              window.location.replace('/login?fresh=1')
-            }}>Sign in again</button>
-          </div>
-        ) : null}
+    <main className="hi5-loading-shell" aria-label="Hi5Central session restore delayed">
+      <div className="hi5-loading-recovery">
+        <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
+        <span>Session restore is taking longer than expected.</span>
+        <div className="production-auth-loading-actions">
+          <button type="button" onClick={onRetry}>Retry session</button>
+          <button type="button" onClick={() => {
+            clearOnboardingSnapshot()
+            clearProductionSession()
+            window.location.replace('/login?fresh=1')
+          }}>Sign in again</button>
+        </div>
       </div>
-    </div>
+    </main>
   )
 }
 
