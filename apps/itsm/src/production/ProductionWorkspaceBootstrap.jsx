@@ -5,6 +5,7 @@ import WorkspaceRuntime from '../runtime/WorkspaceRuntime.jsx'
 import { OnboardingWizard } from '../features/onboarding/OnboardingWizard.jsx'
 import { ProductionSettingsWorkspace } from '../features/settings/ProductionSettingsWorkspace.jsx'
 import { ProductionIdentityBridge } from './ProductionIdentityBridge.jsx'
+import { ProductionFirstLoginExperience } from './ProductionFirstLoginExperience.jsx'
 import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import {
@@ -768,6 +769,23 @@ export function ProductionWorkspaceBootstrap() {
     })
   }
 
+  function acceptUserExperience(nextExperience) {
+    setServerSession((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        preferences: nextExperience?.preferences || current.preferences || null,
+        userExperience: {
+          ...(current.userExperience || {}),
+          firstLoginCompletedAt: nextExperience?.firstLoginCompletedAt || new Date().toISOString(),
+          platformGuidance: nextExperience?.platformGuidance || current.userExperience?.platformGuidance || {},
+          platformCoachmarksCompletedAt: nextExperience?.platformCoachmarksCompletedAt || null,
+          platformGettingStartedDismissedAt: nextExperience?.platformGettingStartedDismissedAt || null,
+        },
+      }
+    })
+  }
+
   if (loading) {
     return (
       <LoadingScreen
@@ -780,6 +798,16 @@ export function ProductionWorkspaceBootstrap() {
 
   if (serverSession && !serverSession.onboarding?.completedAt) {
     return <OnboardingWizard session={serverSession} onSessionChange={acceptSession} />
+  }
+
+  if (serverSession?.onboarding?.completedAt && !serverSession.userExperience?.firstLoginCompletedAt) {
+    return (
+      <ProductionFirstLoginExperience
+        blocking
+        bootstrapSession={serverSession}
+        onExperienceChange={acceptUserExperience}
+      />
+    )
   }
 
   if (serverSession?.onboarding?.completedAt) {
@@ -812,6 +840,10 @@ export function ProductionWorkspaceBootstrap() {
           />
         ) : null}
         {profileOpen ? <ProductionProfileLayer session={serverSession} /> : null}
+        <ProductionFirstLoginExperience
+          bootstrapSession={serverSession}
+          onExperienceChange={acceptUserExperience}
+        />
       </>
     )
   }
