@@ -6,9 +6,9 @@ import './ProductionUserExperience.css'
 const API_BASE = window.__HI5_API_BASE__
 
 const ACCENTS = [
-  ['amber', '#d98a0a'],
   ['blue', '#3d73e8'],
-  ['cyan', '#089fc5'],
+  ['amber', '#d98a0a'],
+  ['cyan', '#3d73e8'],
   ['emerald', '#188c61'],
   ['violet', '#7858df'],
   ['rose', '#d84e73'],
@@ -23,7 +23,7 @@ const TOUR = [
 
 function defaults() {
   return {
-    appearance: { theme: 'light', accentMode: 'tenant', accent: 'amber', density: 'comfortable' },
+    appearance: { theme: 'light', accentMode: 'tenant', accent: 'blue', density: 'comfortable' },
     navigation: { desktopSide: 'left', mobileSide: 'left', sidebarStyle: 'floating', sidebarMode: 'expanded' },
     guidance: { coachMarks: true },
   }
