@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowUp, Ban, Building2, Check, Copy, CreditCard, Database, Download,
-  KeyRound, Link2Off, LogOut, Menu, Moon, PackageCheck, PackageSearch, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw,
+  Activity, AlertTriangle, ArrowRight, ArrowUp, Ban, Building2, Check, CheckCircle2, Copy, CreditCard, Database, Download,
+  KeyRound, Link2Off, LockKeyhole, LogOut, Menu, Moon, PackageCheck, PackageSearch, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw,
   RotateCcw, Save, Search, ServerCog, ShieldCheck, Sun, Trash2, UserRound, Wrench, X,
 } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
+import '../../production/ProductionWorkspaceBootstrap.css'
 
 const config = deploymentConfig()
 const API = config.apiUrl || `https://api.${config.rootDomain}`
@@ -103,35 +104,57 @@ function StatusPill({ value }) {
   return <span className={`rmm-status-pill ${tone(value)}`}>{String(value||'unknown').replaceAll('_',' ')}</span>
 }
 
-function Login({ onLogin, theme, setTheme }) {
+function Login({ onLogin }) {
   const [email,setEmail]=useState('')
   const [password,setPassword]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
+
   async function submit(event){
-    event.preventDefault(); setBusy(true); setError('')
+    event.preventDefault()
+    setBusy(true)
+    setError('')
     try {
       const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email,password})})
       onLogin(result.user)
-    } catch(err){ setError(err.message) } finally { setBusy(false) }
+    } catch(err){
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
   }
-  return <div className="rmm-login" data-accent="blue" data-theme={theme}>
-    <section className="rmm-login-panel">
-      <div className="rmm-login-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central"/><span>ADMIN</span></div>
-      <div className="rmm-login-copy"><span className="rmm-eyebrow">HI5CENTRAL CONTROL PLANE</span><h1>Platform administration</h1><p>Manage tenants, qualification and the global software catalogue from the Hi5Central control plane.</p></div>
-      <form className="rmm-login-form" onSubmit={submit}>
-        <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/></label>
-        <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
-        {error?<div className="rmm-login-error">{error}</div>:null}
-        <button className="rmm-primary" disabled={busy}>{busy?'Signing in…':'Sign in'}</button>
-      </form>
-    </section>
-    <section className="rmm-login-visual">
-      <div className="rmm-login-visual-head"><button onClick={()=>setTheme(theme==='light'?'dark':'light')} type="button">{theme==='light'?<Moon size={18}/>:<Sun size={18}/>}</button></div>
-      <div className="rmm-login-preview"><span className="rmm-eyebrow">PLATFORM OPERATIONS</span><h2>One control plane for every Hi5Central tenant.</h2><div className="rmm-login-preview-grid"><div><Building2/><strong>Tenants</strong><span>Products, billing and lifecycle</span></div><div><PackageCheck/><strong>Qualification</strong><span>Software safety and deployment readiness</span></div></div></div>
-    </section>
-  </div>
+
+  return (
+    <main className="production-auth-shell">
+      <div className="production-auth-layout">
+        <section className="production-auth-copy">
+          <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="" />
+          <span className="production-auth-kicker"><ShieldCheck size={15}/> Secure Hi5Central sign-in</span>
+          <h1>Welcome back to Hi5Central.</h1>
+          <p>Sign in with an account that has access to Platform Admin. If you are already signed in to ITSM or RMM, Hi5Central will normally open Admin automatically.</p>
+          <div className="production-auth-points">
+            <span><CheckCircle2 size={17}/> Shared Hi5Central identity</span>
+            <span><CheckCircle2 size={17}/> HttpOnly secure session</span>
+            <span><CheckCircle2 size={17}/> Role-gated Platform Admin access</span>
+          </div>
+        </section>
+
+        <form className="production-auth-card" onSubmit={submit}>
+          <div className="production-auth-card-heading">
+            <span className="production-auth-icon"><LockKeyhole size={19}/></span>
+            <div><span>Hi5Central</span><strong>Platform Admin</strong></div>
+          </div>
+          <label><span>Email address</span><input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/></label>
+          <label><span>Password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
+          {error?<div className="production-auth-error">{error}</div>:null}
+          <button disabled={busy} type="submit">{busy?'Signing in…':'Sign in'}{!busy?<ArrowRight size={17}/>:null}</button>
+          {config.appUrl?<a href={config.appUrl}>Back to Hi5Central</a>:null}
+        </form>
+      </div>
+    </main>
+  )
 }
+
 function AdminSidebar({ activeView, collapsed = false, mobileOpen, navigate, onClose, onToggleCollapse }) {
   const sections=[...new Set(navigation.map(item=>item.section))]
   return <>
@@ -1126,7 +1149,7 @@ export function PlatformAdminApp() {
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
   if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
-  if(!user)return <Login onLogin={setUser} theme={theme} setTheme={setTheme}/>
+  if(!user)return <Login onLogin={setUser}/>
   function navigate(next,options={}){
     if(!options.skipTab){
       const tab=adminWorkspaceTabForView(next)
