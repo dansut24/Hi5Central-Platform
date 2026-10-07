@@ -1106,7 +1106,7 @@ export function PlatformAdminApp() {
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
       : (appearance.theme==='dark'?'dark':'light')
     setThemeState(resolvedTheme)
-    setAccent(appearance.accentMode==='personal'?(appearance.accent||'#3b82f6'):'#3b82f6')
+    setAccent(appearance.accent||'#3b82f6')
     setDensity(appearance.density==='compact'?'compact':'comfortable')
     setNavSide(navigation.desktopSide==='right'?'right':'left')
     setSidebarMode(navigation.sidebarMode==='collapsed'?'collapsed':'expanded')
