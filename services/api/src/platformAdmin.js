@@ -144,7 +144,11 @@ function originAllowed(c) {
   return origin === String(deployment.adminUrl || `https://admin.${deployment.rootDomain}`).toLowerCase()
 }
 function cookieOptions(extra = {}) {
-  return { secure: true, httpOnly: true, sameSite: 'Lax', path: '/api/platform', ...extra }
+  const secure = !String(deployment.adminUrl || '').toLowerCase().startsWith('http://')
+    && !String(deployment.apiUrl || '').toLowerCase().startsWith('http://')
+  const options = { secure, httpOnly: true, sameSite: 'Lax', path: '/api/platform', ...extra }
+  if (deployment.cookieDomain) options.domain = deployment.cookieDomain
+  return options
 }
 
 async function rateLimit(key, max, seconds) {
@@ -180,6 +184,58 @@ async function resolveAdminSession(c) {
   if (!row || row.status !== 'active' || !ADMIN_ROLES.has(row.role)) return null
   pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [row.session_id]).catch(() => {})
   return row
+}
+
+async function tenantAdminSsoSession(c) {
+  const tenantSession = await resolveSession(c)
+  if (!tenantSession) return null
+
+  const membership = await pool.query(
+    `SELECT role,status FROM platform_admin_members WHERE user_id=$1 LIMIT 1`,
+    [tenantSession.user_id],
+  )
+  const explicit = membership.rows[0]
+  const devFallback = deployment.runtimeEnvironment === 'dev'
+    && deployment.featureMode === 'all_enabled'
+    && ['owner','admin'].includes(tenantSession.tenant_role)
+
+  const role = explicit?.status === 'active' && ADMIN_ROLES.has(explicit.role)
+    ? explicit.role
+    : (devFallback ? 'owner' : null)
+
+  if (!role) return null
+
+  const token = randomBytes(32).toString('base64url')
+  const created = await pool.query(
+    `INSERT INTO platform_admin_sessions (user_id,token_hash,expires_at)
+     VALUES ($1,$2,now()+make_interval(secs=>$3::int))
+     RETURNING id`,
+    [tenantSession.user_id, hash(token), SESSION_SECONDS],
+  )
+
+  const session = {
+    user_id: tenantSession.user_id,
+    email: tenantSession.email,
+    name: tenantSession.name,
+    role,
+    status: 'active',
+    session_id: created.rows[0].id,
+    tenant_sso: true,
+  }
+
+  setCookie(c, COOKIE_NAME, token, cookieOptions({ maxAge: SESSION_SECONDS }))
+  await audit(c, session, 'platform.auth.sso', 'tenant', tenantSession.tenant_id, {
+    tenantSlug: tenantSession.slug,
+    tenantRole: tenantSession.tenant_role,
+    source: devFallback && !explicit ? 'dev_owner_fallback' : 'platform_admin_membership',
+  })
+  return session
+}
+
+async function resolveAdminOrTenantSso(c) {
+  const existing = await resolveAdminSession(c)
+  if (existing) return existing
+  return tenantAdminSsoSession(c)
 }
 
 async function requireAdmin(c, roles = null) {
@@ -453,9 +509,10 @@ export function registerPlatformAdminRoutes(app) {
   })
 
   app.get('/api/platform/v1/auth/session', async (c) => {
-    const auth = await requireAdmin(c)
-    if (auth.error) return auth.error
-    return c.json(adminPayload(auth.session))
+    if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
+    const session = await resolveAdminOrTenantSso(c)
+    if (!session) return c.json({ error: 'Platform administrator authentication required.' }, 401)
+    return c.json(adminPayload(session))
   })
 
   app.get('/api/platform/v1/user-preferences', async (c) => {
