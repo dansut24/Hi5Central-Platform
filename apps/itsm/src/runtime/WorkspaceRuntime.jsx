@@ -3052,7 +3052,7 @@ function WorkspaceRuntime() {
             <span>{shellUserInitials}</span>
             <div>
               <strong>{session?.name || session?.user?.name || 'Hi5Central'}</strong>
-              <small>{metrics.slaPressure} SLA watch items</small>
+              <small>ITSM workspace</small>
             </div>
           </div>
           <button
