@@ -319,19 +319,10 @@ export function ProductionProfileWorkspace({ session }) {
                   </label>
 
                   <label>
-                    <span><SlidersHorizontal size={15} /> Mobile drawer position</span>
-                    <select value={preferences.navigation?.mobileSide || 'left'} onChange={(event) => updatePreference('navigation', 'mobileSide', event.target.value)}>
-                      <option value="left">Left</option>
-                      <option value="right">Right</option>
-                    </select>
-                  </label>
-
-                  <label>
                     <span><SlidersHorizontal size={15} /> Sidebar mode</span>
                     <select value={preferences.navigation?.sidebarMode || 'expanded'} onChange={(event) => updatePreference('navigation', 'sidebarMode', event.target.value)}>
                       <option value="expanded">Expanded</option>
                       <option value="collapsed">Collapsed</option>
-                      <option value="hidden">Hidden</option>
                     </select>
                   </label>
 
