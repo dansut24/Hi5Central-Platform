@@ -1217,6 +1217,9 @@ export function PlatformAdminApp() {
     setView(next)
     setQuery('')
     setMobileOpen(false)
+    if(next!=='profile'&&window.location.pathname==='/profile'){
+      window.history.pushState({},'', '/')
+    }
   }
   function openAccount(section='profile'){
     setView('profile')
