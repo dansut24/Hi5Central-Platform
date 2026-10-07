@@ -2753,7 +2753,6 @@ function WorkspaceRuntime() {
           }
           openTab={openTab}
           people={people}
-          teamMemberships={teamMemberships}
           projects={projects}
           rotaEntries={rotaEntries}
           serviceCatalog={serviceCatalog}
