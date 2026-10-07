@@ -293,6 +293,8 @@ export function ProductionRmmBootstrap() {
     <>
       <RmmPlatformApp
       accent={accent}
+      canAdmin={Boolean(session.platformAccess?.admin)}
+      canItsm={session.platformAccess?.itsm !== false}
       dataLoading={dataLoading}
       devices={devices}
       sites={sites}
