@@ -1207,3 +1207,36 @@ html[data-hi5-surface='workspace'] .app-shell {
     grid-template-columns: 196px minmax(0, 1fr);
   }
 }
+
+
+/* NATIVE WORKSPACE TAB ACCENT STATES */
+@media (hover: hover) and (pointer: fine) and (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace-tab:hover:not(.active) {
+    border-color: color-mix(in srgb, rgb(var(--accent-rgb)) 42%, var(--line));
+    background: color-mix(in srgb, rgb(var(--accent-rgb)) 14%, var(--surface));
+    color: color-mix(in srgb, rgb(var(--accent-rgb)) 72%, var(--ink));
+  }
+}
+
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace-tab.active {
+    border-color: rgb(var(--accent-rgb));
+    border-bottom-color: rgb(var(--accent-rgb));
+    background: rgb(var(--accent-rgb));
+    color: var(--accent-ink, #fff);
+    box-shadow: 0 5px 14px rgba(var(--accent-rgb), .2);
+  }
+
+  html[data-hi5-surface='workspace'] .workspace-tab.active::before,
+  html[data-hi5-surface='workspace'] .workspace-tab.active::after {
+    display: none;
+  }
+
+  html[data-hi5-surface='workspace'] .workspace-tab.active .tab-close {
+    color: var(--accent-ink, #fff);
+  }
+
+  html[data-hi5-surface='workspace'] .workspace-tab.active .tab-close:hover {
+    background: rgba(255,255,255,.18);
+  }
+}
