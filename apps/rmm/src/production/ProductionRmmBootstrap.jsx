@@ -140,6 +140,7 @@ export function ProductionRmmBootstrap() {
   const [accent, setAccent] = useState('#3b82f6')
   const [density, setDensity] = useState('comfortable')
   const [navSide, setNavSide] = useState('left')
+  const [sidebarMode, setSidebarMode] = useState('expanded')
   const [devices, setDevices] = useState([])
   const [sites, setSites] = useState([])
   const [dataLoading, setDataLoading] = useState(false)
@@ -245,6 +246,7 @@ export function ProductionRmmBootstrap() {
     setAccent(appearance.accentMode === 'personal' ? (appearance.accent || '#3b82f6') : organisationAccent)
     setDensity(appearance.density === 'compact' ? 'compact' : 'comfortable')
     setNavSide(navigation.desktopSide === 'right' ? 'right' : 'left')
+    setSidebarMode(navigation.sidebarMode === 'collapsed' ? 'collapsed' : 'expanded')
   }
 
   async function saveSites(nextSites) {
@@ -304,6 +306,8 @@ export function ProductionRmmBootstrap() {
       onCreateItsmIncident={() => null}
       onSitesChange={saveSites}
       setTheme={setTheme}
+      sidebarMode={sidebarMode}
+      setSidebarMode={setSidebarMode}
       tenantName={session.tenant?.companyName || surface.tenantName || surface.tenantSlug}
       theme={theme}
       tickets={[]}
