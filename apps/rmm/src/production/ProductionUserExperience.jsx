@@ -99,7 +99,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
   const setAppearance = (patch) => setPreferences({ ...preferences, appearance: { ...appearance, ...patch } })
   const setNavigation = (patch) => setPreferences({ ...preferences, navigation: { ...navigation, ...patch } })
 
-  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : '#3d73e8'
+  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : (payload?.tenant?.accent || '#3d73e8')
 
   return createPortal(<div className="rmm-first-layer" style={accentVars(previewAccent)}>
     <section className="rmm-first-card">
