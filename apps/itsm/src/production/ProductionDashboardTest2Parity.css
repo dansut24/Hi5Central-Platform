@@ -1,0 +1,2039 @@
+/* Test2 dashboard editor parity.
+   Retrieved from the live Test2 ITSM design contract so the monorepo uses the
+   same dashboard customiser, data-widget builder and responsive editor. */
+
+html[data-hi5-surface='workspace'] .app-shell {
+  --hi5-section-border: var(--rmm-border, var(--line));
+}
+
+/* Dashboard is also page-scrolled by the workspace. The earlier flattening
+   override made the workspace itself overflow:visible, which prevented any
+   vertical scrolling once the outer shell was locked to the viewport. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3.is-viewing) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  html[data-hi5-surface='workspace'] .content-frame:has(.dashboard-builder-v3.is-viewing),
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-viewing {
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+  }
+}
+
+
+/* ==========================================================================
+   Dashboard customiser parity
+   The customiser uses the same far-right workspace scroll owner as the rest of
+   the desktop application and presents layout controls as a first-class editor.
+   ========================================================================== */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3.is-editing) {
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  html[data-hi5-surface='workspace'] .content-frame:has(.dashboard-builder-v3.is-editing),
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-dashboard {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 24px clamp(22px, 2.4vw, 40px) 44px !important;
+  }
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-panel {
+  border-color: var(--hi5-section-border) !important;
+  background: var(--rmm-surface) !important;
+  box-shadow: var(--hi5-card-shadow) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-heading {
+  min-height: 82px;
+  padding: 16px 18px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-heading h2 {
+  font-size: 18px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-heading p {
+  max-width: 760px;
+  font-size: 11px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-count {
+  padding: 7px 10px;
+  font-size: 10px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-body {
+  display: grid;
+  grid-template-columns: minmax(290px, .72fr) minmax(0, 1.28fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+html[data-hi5-surface='workspace'] :is(
+  .itsm-rmm-dashboard-editor-options,
+  .itsm-rmm-dashboard-editor-sections
+) {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 11px;
+  background: var(--rmm-surface);
+}
+
+html[data-hi5-surface='workspace'] :is(
+  .itsm-rmm-dashboard-editor-options,
+  .itsm-rmm-dashboard-editor-sections
+) > header {
+  padding: 14px 15px 12px;
+  border-bottom: 1px solid var(--hi5-section-border);
+}
+
+html[data-hi5-surface='workspace'] :is(
+  .itsm-rmm-dashboard-editor-options,
+  .itsm-rmm-dashboard-editor-sections
+) > header h3 {
+  margin: 3px 0 2px;
+  color: var(--rmm-text);
+  font-size: 15px;
+}
+
+html[data-hi5-surface='workspace'] :is(
+  .itsm-rmm-dashboard-editor-options,
+  .itsm-rmm-dashboard-editor-sections
+) > header p {
+  margin: 0;
+  color: var(--rmm-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-options {
+  align-self: start;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option {
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hi5-section-border);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option:last-child {
+  border-bottom: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option strong {
+  color: var(--rmm-text);
+  font-size: 11px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option small {
+  color: var(--rmm-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option > button,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented button {
+  min-height: 32px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--rmm-soft);
+  color: var(--rmm-muted);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option > button.is-on {
+  border-color: rgba(35,158,99,.25);
+  background: rgba(35,158,99,.09);
+  color: #188c61;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 10px;
+  background: var(--rmm-soft);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented button {
+  border: 0;
+  background: transparent;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented button.is-active {
+  background: var(--rmm-surface);
+  color: var(--rmm-text);
+  box-shadow: 0 1px 4px rgba(19,45,84,.10);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-sections .itsm-rmm-dashboard-editor-list {
+  grid-template-columns: 1fr !important;
+  padding: 10px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row {
+  min-height: 58px;
+  grid-template-columns: 40px minmax(0,1fr) auto;
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row strong {
+  font-size: 11px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row small {
+  font-size: 9px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-editor-section-icon {
+  width: 38px;
+  height: 38px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row button,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-editbar button {
+  min-height: 30px;
+  font-size: 9px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-columns-single .itsm-rmm-dashboard-card-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-columns-double .itsm-rmm-dashboard-card-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-density-compact .itsm-rmm-card-heading {
+  min-height: 50px !important;
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-density-compact .itsm-rmm-health-summary {
+  padding-top: 12px !important;
+  padding-bottom: 12px !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-density-compact :is(
+  .itsm-rmm-attention-list,
+  .itsm-rmm-record-feed
+) > button {
+  min-height: 50px !important;
+  padding-top: 8px !important;
+  padding-bottom: 8px !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-share-layout-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 10px;
+  background: var(--rmm-soft);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-share-layout-action > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-share-layout-action strong {
+  color: var(--rmm-text);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-share-layout-action small {
+  color: var(--rmm-muted);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-share-layout-action .primary {
+  flex: 0 0 auto;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #d98a0a;
+  border-radius: 8px;
+  padding: 0 11px;
+  background: #d98a0a;
+  color: #fff;
+  font: inherit;
+  font-weight: 850;
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-body {
+    grid-template-columns: 1fr;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-option {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented {
+    width: 100%;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-segmented button {
+    flex: 1 1 0;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-dashboard {
+    padding: 18px 13px calc(34px + env(safe-area-inset-bottom)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row > button,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-row-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-share-layout-action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+
+/* ==========================================================================
+   Dashboard equal-height rows + custom data widgets
+   ========================================================================== */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-grid {
+  align-items: stretch;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot {
+  min-height: 0;
+  display: grid;
+  align-self: stretch;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-editing {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot > .itsm-rmm-card {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-health-summary,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-attention-list,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-record-feed {
+  min-height: 0;
+  height: 100%;
+}
+
+/* Custom content is deliberately the full width of the editor because it is
+   a dashboard-building workflow rather than another small settings card. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 11px;
+  background: var(--rmm-surface);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom > header {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--hi5-section-border);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom > header > div {
+  min-width: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom > header h3 {
+  margin: 3px 0 2px;
+  color: var(--rmm-text);
+  font-size: 15px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom > header p {
+  margin: 0;
+  color: var(--rmm-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row {
+  min-width: 0;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 10px;
+  background: var(--rmm-soft);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row strong {
+  overflow: hidden;
+  color: var(--rmm-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row small {
+  overflow: hidden;
+  color: var(--rmm-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row .itsm-rmm-dashboard-editor-row-actions button {
+  min-height: 30px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 7px;
+  background: var(--rmm-surface);
+  color: var(--rmm-muted);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-empty {
+  width: calc(100% - 20px);
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px;
+  border: 1px dashed color-mix(in srgb, var(--rmm-accent) 38%, var(--hi5-section-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--rmm-accent-soft) 34%, var(--rmm-surface));
+  color: var(--rmm-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-empty > span {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-empty strong {
+  color: var(--rmm-text);
+  font-size: 12px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-empty small {
+  font-size: 9px;
+}
+
+/* Rendered custom content. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-content {
+  margin-top: 16px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-heading {
+  min-height: 48px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-heading h2 {
+  margin: 3px 0 0;
+  color: var(--rmm-text);
+  font-size: 16px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row dense;
+  grid-auto-rows: 290px;
+  align-items: stretch;
+  gap: 14px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-slot {
+  min-width: 0;
+  min-height: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-slot.is-full {
+  grid-column: 1 / -1;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-slot > .dashboard-widget {
+  height: 100% !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-columns-single .itsm-rmm-dashboard-custom-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-columns-single .itsm-rmm-dashboard-custom-slot {
+  grid-column: auto !important;
+}
+
+/* Data-widget builder */
+html[data-hi5-surface='workspace'] .dashboard-data-builder-panel {
+  width: min(560px, calc(100vw - 24px)) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-form {
+  display: grid;
+  gap: 12px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-form > label,
+html[data-hi5-surface='workspace'] .dashboard-data-builder-filter-grid > label {
+  display: grid;
+  gap: 6px;
+  color: var(--rmm-text);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-form :is(input, select) {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--rmm-surface);
+  color: var(--rmm-text);
+  font: inherit;
+  font-size: 11px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 10px;
+  background: var(--rmm-soft);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-summary {
+  min-height: 72px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-actions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  padding: 0 12px;
+  background: var(--rmm-surface);
+  color: var(--rmm-text);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-actions button.primary {
+  border-color: rgb(var(--accent-rgb));
+  background: rgb(var(--accent-rgb));
+  color: #fff;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-data-builder-actions button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+/* Individual-record dashboard tile. */
+html[data-hi5-surface='workspace'] .dashboard-single-record {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, .7fr) auto;
+  align-items: center;
+  gap: 18px;
+  border: 0;
+  border-radius: 11px;
+  padding: 14px;
+  background: var(--rmm-soft);
+  color: var(--rmm-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-main {
+  min-width: 0;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-main > strong {
+  display: block;
+  margin: 8px 0 2px;
+  color: rgb(var(--accent-rgb));
+  font-size: 10px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-main h3 {
+  overflow: hidden;
+  margin: 0 0 5px;
+  color: var(--rmm-text);
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-main p {
+  overflow: hidden;
+  margin: 0;
+  color: var(--rmm-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-meta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-meta > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  background: var(--rmm-surface);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-meta small {
+  color: var(--rmm-muted);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-single-record-meta strong {
+  overflow: hidden;
+  color: var(--rmm-text);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-list,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-slot.is-full {
+    grid-column: auto;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-custom > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-data-builder-filter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-single-record {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-single-record > svg {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-grid {
+    grid-auto-rows: 270px;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-custom-row .itsm-rmm-dashboard-editor-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
+
+
+/* ==========================================================================
+   Dashboard v22 — integrated data cards + editable metric layout
+   ========================================================================== */
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-section-heading {
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-section-heading > div {
+  min-width: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-section-heading p {
+  margin: 0;
+  color: var(--rmm-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-subheading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px 0;
+  color: var(--rmm-muted);
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-subheading small {
+  font-size: 8px;
+  font-weight: 750;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-inline-add {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px !important;
+  border: 1px dashed color-mix(in srgb, var(--rmm-accent) 40%, var(--hi5-section-border)) !important;
+  background: color-mix(in srgb, var(--rmm-accent-soft) 30%, var(--rmm-surface)) !important;
+  color: var(--rmm-muted) !important;
+  text-align: left;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-inline-add > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-inline-add strong {
+  color: var(--rmm-text);
+  font-size: 10px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-inline-add small {
+  color: var(--rmm-muted);
+  font-size: 8px;
+}
+
+/* Metrics are individual movable cards. The visible count controls the grid:
+   1 = full or half, 2 = halves, 3 = thirds, 4 = quarters. */
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
+  display: grid !important;
+  gap: 11px !important;
+  margin-bottom: 16px !important;
+  align-items: stretch;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1.metric-single-full {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1.metric-single-half {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-slot {
+  min-width: 0;
+  display: grid;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-slot.is-editing {
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 7px;
+  border: 1px dashed color-mix(in srgb, var(--rmm-accent) 42%, var(--rmm-border));
+  border-radius: var(--hi5-radius-card);
+  background: color-mix(in srgb, var(--rmm-accent-soft) 45%, transparent);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-card {
+  min-width: 0;
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--itsm-card-shadow);
+  text-align: left;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-card:hover {
+  border-color: rgba(var(--accent-rgb), .28);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-card.has-preview {
+  min-height: 96px;
+  grid-template-columns: 42px minmax(120px, .8fr) minmax(180px, 1.2fr) auto;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > strong {
+  color: var(--ink);
+  font-size: 21px;
+  line-height: 1.1;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-metric-card > svg {
+  color: var(--muted);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-editor-section-icon.red {
+  background: rgba(218,73,91,.11);
+  color: #d04458;
+}
+
+/* Data widgets now participate in the normal dashboard card grid. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget {
+  min-height: 260px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-full {
+  grid-column: 1 / -1;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget > .dashboard-widget {
+  width: 100%;
+  height: 100% !important;
+  min-height: 260px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-editing {
+  padding: 7px;
+}
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-editing > .dashboard-widget {
+  min-height: 248px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-columns-single .itsm-rmm-dashboard-card-slot.is-data-widget {
+  grid-column: auto !important;
+}
+
+@media (max-width: 980px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-3,
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-card.has-preview {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1.metric-single-half,
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1.metric-single-full {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-editor-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1,
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-2,
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-3,
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid.metric-count-1 {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-card {
+    min-height: 0 !important;
+    grid-template-columns: 34px minmax(0, 1fr) !important;
+    gap: 10px !important;
+    padding: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-card > svg {
+    display: none;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-full {
+    grid-column: auto;
+  }
+}
+
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-editing {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+
+/* ==========================================================================
+   Dashboard v24 — full-height data drawer, dual metrics, reveal + hover parity
+   ========================================================================== */
+
+/* Match the Notifications drawer contract: the dashboard data builder is
+   viewport-owned (portalled to body), full-height and always above the tab dock. */
+html[data-hi5-surface='workspace'] .dashboard-panel-backdrop {
+  z-index: 229 !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel {
+  position: fixed !important;
+  z-index: 230 !important;
+  inset: 0 0 0 auto !important;
+  width: min(560px, 42vw) !important;
+  min-width: 380px !important;
+  height: 100dvh !important;
+  max-height: none !important;
+  margin: 0 !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-left: 1px solid var(--line) !important;
+  border-radius: 0 !important;
+  background: var(--surface) !important;
+  box-shadow: -18px 0 44px rgba(5, 16, 36, .24) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header {
+  min-height: 76px !important;
+  padding: 16px 18px !important;
+  border-bottom: 1px solid var(--line) !important;
+  background: color-mix(in srgb, var(--surface) 96%, var(--surface-soft) 4%) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel .dashboard-data-builder-form {
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  padding: 14px 16px 22px !important;
+}
+
+/* Two KPI definitions can share one dashboard widget row. */
+html[data-hi5-surface='workspace'] .dashboard-second-metric-builder {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 10px;
+  background: var(--rmm-soft);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading strong {
+  color: var(--rmm-text);
+  font-size: 10px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading small {
+  color: var(--rmm-muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading > button {
+  flex: 0 0 auto;
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid var(--hi5-section-border);
+  border-radius: 8px;
+  background: var(--rmm-surface);
+  color: var(--rmm-muted);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading > button:hover,
+html[data-hi5-surface='workspace'] .dashboard-second-metric-heading > button.is-on {
+  border-color: rgba(var(--accent-rgb), .42);
+  background: rgba(var(--accent-rgb), .08);
+  color: rgb(var(--accent-rgb));
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-fields {
+  display: grid;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hi5-section-border);
+}
+
+html[data-hi5-surface='workspace'] .dashboard-second-metric-fields > label {
+  display: grid;
+  gap: 6px;
+  color: var(--rmm-text);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-dual-metric-v3 {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-dual-metric-v3 > .dashboard-metric-v3 {
+  min-width: 0;
+  height: 100%;
+}
+
+/* Every dashboard panel uses the same accent interaction as the KPI cards. */
+html[data-hi5-surface='workspace'] .itsm-rmm-card,
+html[data-hi5-surface='workspace'] .dashboard-widget {
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot > .itsm-rmm-card:hover,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot > .dashboard-widget:hover,
+html[data-hi5-surface='workspace'] .dashboard-builder-v3 .dashboard-widget:hover {
+  border-color: rgba(var(--accent-rgb), .46) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-rgb), .07),
+    0 10px 28px rgba(var(--accent-rgb), .08),
+    var(--itsm-card-shadow) !important;
+}
+
+/* After Add to dashboard, reveal the created card in Customize and briefly
+   pulse the same orange accent so its placement is immediately obvious. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-new-highlight {
+  position: relative;
+  z-index: 2;
+  animation: hi5-dashboard-widget-reveal 2.35s ease both;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-new-highlight > .dashboard-widget {
+  border-color: rgb(var(--accent-rgb)) !important;
+  box-shadow:
+    0 0 0 2px rgba(var(--accent-rgb), .18),
+    0 16px 34px rgba(var(--accent-rgb), .14) !important;
+}
+
+@keyframes hi5-dashboard-widget-reveal {
+  0% { transform: translateY(8px); }
+  14% { transform: translateY(0); }
+  30% { filter: saturate(1.08); }
+  100% { transform: translateY(0); filter: none; }
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel {
+    width: min(520px, 86vw) !important;
+    min-width: 0 !important;
+  }
+}
+
+@media (max-width: 680px) {
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel {
+    inset: 0 !important;
+    width: 100vw !important;
+    min-width: 0 !important;
+    height: 100dvh !important;
+    max-height: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header {
+    min-height: 66px !important;
+    padding: 12px 14px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-dual-metric-v3 {
+    grid-template-columns: 1fr;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-second-metric-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-new-highlight {
+    animation: none;
+  }
+}
+
+
+/* Keep legacy dashboard drawers on their existing layer; only the portalled
+   data-builder drawer needs to clear the workspace tab dock. */
+html[data-hi5-surface='workspace'] .dashboard-panel-backdrop {
+  z-index: 90 !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-panel-backdrop.dashboard-data-builder-backdrop {
+  z-index: 229 !important;
+}
+
+
+/* ==========================================================================
+   Dashboard v28 — data widget drawer follows the production notification panel
+   ========================================================================== */
+html[data-hi5-surface='workspace'] .dashboard-panel-backdrop.dashboard-data-builder-backdrop {
+  position: fixed !important;
+  z-index: 279 !important;
+  inset: 0 !important;
+  border: 0 !important;
+  background: rgba(4, 15, 31, .18) !important;
+  backdrop-filter: blur(7px) !important;
+  -webkit-backdrop-filter: blur(7px) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel {
+  position: fixed !important;
+  z-index: 280 !important;
+  inset: 8px 8px 8px auto !important;
+  width: min(420px, calc(100vw - 16px)) !important;
+  min-width: 0 !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  overflow: hidden !important;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, rgb(var(--accent-rgb)) 25%) !important;
+  border-radius: 22px !important;
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  box-shadow: 0 26px 80px rgba(4, 18, 39, .24) !important;
+  animation: hi5-notification-drawer-in 180ms cubic-bezier(.22, 1, .36, 1) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header {
+  min-height: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 15px 16px 11px !important;
+  border-bottom: 1px solid var(--line) !important;
+  background: var(--surface) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header .eyebrow {
+  color: rgb(var(--accent-rgb)) !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .08em !important;
+  text-transform: uppercase !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header h2 {
+  margin: 0 !important;
+  color: var(--ink) !important;
+  font-size: 16px !important;
+  line-height: 1.25 !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header > button {
+  width: 32px !important;
+  height: 32px !important;
+  display: grid !important;
+  flex: 0 0 auto !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  cursor: pointer !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header > button:hover {
+  border-color: rgba(var(--accent-rgb), .2) !important;
+  background: rgba(var(--accent-rgb), .07) !important;
+  color: var(--ink) !important;
+}
+
+html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel .dashboard-data-builder-form {
+  min-height: 0 !important;
+  height: auto !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior: contain !important;
+  padding: 12px 14px 18px !important;
+  background: var(--surface) !important;
+}
+
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel {
+    inset: 6px !important;
+    width: calc(100vw - 12px) !important;
+    height: auto !important;
+    border-radius: 18px !important;
+    box-shadow: 0 26px 80px rgba(4, 18, 39, .24) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel > header {
+    min-height: 0 !important;
+    padding: 15px 16px 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-side-panel.dashboard-data-builder-panel .dashboard-data-builder-form {
+    padding: 12px 14px 18px !important;
+  }
+}
+
+
+/* Tenant/personal dashboard switcher surfaced in the visible dashboard header. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher {
+  position: relative;
+  min-width: 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-button {
+  max-width: 250px;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-button > span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu {
+  position: absolute;
+  z-index: 85;
+  top: calc(100% + 7px);
+  right: 0;
+  width: min(340px, 84vw);
+  max-height: min(520px, 70vh);
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(7,27,61,.2);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section {
+  display: grid;
+  gap: 3px;
+  padding: 5px 0;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section + section {
+  border-top: 1px solid var(--line);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section > span {
+  padding: 3px 8px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section > button {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section > button:hover,
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu section > button.active {
+  background: rgba(var(--accent-rgb), .075);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher {
+    width: 100%;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-button {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-button > span {
+    flex: 1 1 auto;
+    text-align: left;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-menu {
+    right: auto;
+    left: 0;
+    width: min(340px, calc(100vw - 48px));
+  }
+}
+
+
+/* ==========================================================================
+   Dashboard v33 — readable desktop widgets + unified managed data cards
+   ========================================================================== */
+
+/* Managed/custom data widgets now use the exact same card shell as the
+   built-in Dashboard cards instead of the older widget-frame treatment. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget.is-editing {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget > .itsm-rmm-data-card {
+  width: 100%;
+  height: 100%;
+  min-height: 260px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card-body {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Keep table/list/chart presentation inside the normal card body instead of
+   drawing a second rounded card inside it. */
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card-body :is(
+  .dashboard-table-shell,
+  .dashboard-data-table-wrap,
+  .dashboard-record-list-v3,
+  .dashboard-activity-v3
+) {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card-body .dashboard-table-shell {
+  height: 100%;
+  background: transparent;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card-body .dashboard-data-table-wrap {
+  background: transparent !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-source-label {
+  max-width: min(42%, 300px);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The reveal state must follow the new unified card shell too. */
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-new-highlight > .itsm-rmm-data-card {
+  border-color: rgb(var(--accent-rgb)) !important;
+  box-shadow:
+    0 0 0 2px rgba(var(--accent-rgb), .18),
+    0 16px 34px rgba(var(--accent-rgb), .14) !important;
+}
+
+/* Desktop readability: the previous dashboard scale was technically compact
+   but too small at normal browser zoom on common 13–15 inch displays. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-card-heading {
+    min-height: 68px !important;
+    padding: 15px 17px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-card-heading h2 {
+    font-size: 17px !important;
+    line-height: 1.25 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-eyebrow {
+    font-size: 10.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-card-heading button,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-source-label {
+    font-size: 10.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-card {
+    min-height: 88px !important;
+    gap: 12px !important;
+    padding: 15px 16px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > span {
+    font-size: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > strong {
+    font-size: 27px !important;
+    line-height: 1.05 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-copy > small {
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview small {
+    font-size: 9.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-preview strong {
+    font-size: 16px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-ring strong {
+    font-size: 27px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-ring span {
+    font-size: 10.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-legend span {
+    font-size: 11.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-legend strong {
+    font-size: 12.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] :is(
+    .itsm-rmm-attention-list,
+    .itsm-rmm-record-feed
+  ) > button {
+    min-height: 66px !important;
+    gap: 10px !important;
+    padding: 12px 15px !important;
+  }
+
+  html[data-hi5-surface='workspace'] :is(
+    .itsm-rmm-attention-list,
+    .itsm-rmm-record-feed
+  ) strong {
+    font-size: 12px !important;
+    line-height: 1.3 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-attention-list small,
+  html[data-hi5-surface='workspace'] .itsm-rmm-record-feed small,
+  html[data-hi5-surface='workspace'] .itsm-rmm-record-feed time {
+    font-size: 10px !important;
+    line-height: 1.35 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-status {
+    min-height: 23px;
+    padding-inline: 8px;
+    font-size: 9.5px !important;
+  }
+
+  /* Custom tables now use the same readable dashboard scale as the built-in
+     record feeds instead of the older 8–9px compact table typography. */
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table {
+    font-size: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table th {
+    height: 38px !important;
+    padding-inline: 11px !important;
+    font-size: 10px !important;
+    letter-spacing: .025em !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table th button {
+    min-height: 37px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table td {
+    height: 46px !important;
+    padding: 8px 11px !important;
+    font-size: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-table-ref {
+    font-size: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-priority-label,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .status-pill {
+    font-size: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-table-pager {
+    min-height: 34px !important;
+    padding: 5px 9px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-table-pager > small {
+    font-size: 9.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-record-list-v3 > button,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-activity-v3 > button {
+    min-height: 54px !important;
+    gap: 9px !important;
+    padding: 9px 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-record-copy strong,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-activity-v3 strong {
+    font-size: 11.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-record-copy small,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-activity-v3 small {
+    font-size: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-record-sla,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-activity-v3 time {
+    font-size: 9.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-donut-legend b,
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-donut-legend small {
+    font-size: 10.5px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-metric-context > span {
+    font-size: 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-metric-context small {
+    font-size: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-metric-trend {
+    min-height: 25px !important;
+    font-size: 10px !important;
+  }
+}
+
+/* Keep the unified card shape on mobile while preserving the existing
+   responsive row/card presentation. */
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-source-label {
+    max-width: 44%;
+    font-size: 9px;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-card-body .dashboard-table-shell {
+    min-height: 0;
+  }
+}
+
+/* Dashboard v34 — custom widget actions + interaction parity */
+html[data-hi5-surface='workspace'] .itsm-rmm-data-source-action {
+  max-width: min(46%, 320px);
+  justify-content: flex-end;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot.is-data-widget > .itsm-rmm-data-card:hover {
+  border-color: rgba(var(--accent-rgb), .46) !important;
+  box-shadow:
+    0 0 0 1px rgba(var(--accent-rgb), .07),
+    0 10px 28px rgba(var(--accent-rgb), .08),
+    var(--itsm-card-shadow) !important;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table tbody td {
+  transition: background-color 120ms ease;
+}
+
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table tbody tr:hover td,
+html[data-hi5-surface='workspace'] .itsm-rmm-data-card .dashboard-data-table tbody tr:focus-visible td {
+  background: color-mix(in srgb, var(--surface-soft) 95%, var(--ink) 5%) !important;
+}
+
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-data-source-action {
+    max-width: 48%;
+  }
+}
+
+/* Dashboard v37 — shared premium health orb */
+html[data-hi5-surface='workspace'] :is(.hi5-health-orb,.itsm-rmm-health-ring) {
+  --health-bright: #78f29f;
+  --health-strong: #2bd668;
+  --health-deep: #149647;
+  --health-glow: rgba(34, 197, 94, .24);
+  --health-track: color-mix(in srgb, var(--surface-soft) 86%, var(--line) 14%);
+  position: relative;
+  isolation: isolate;
+  width: 136px !important;
+  height: 136px !important;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  justify-self: center;
+  border-radius: 50%;
+  background: conic-gradient(from 220deg, var(--health-bright) 0, var(--health-strong) var(--health-progress, 100%), var(--health-track) var(--health-progress, 100%), var(--health-track) 100%) !important;
+  box-shadow: 0 14px 30px var(--health-glow), 0 0 0 5px color-mix(in srgb, var(--health-strong) 11%, transparent), inset 0 0 0 1px rgba(255,255,255,.48) !important;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb.is-warning {
+  --health-bright: #ffd76a;
+  --health-strong: #f4b52e;
+  --health-deep: #c7830c;
+  --health-glow: rgba(244, 181, 46, .22);
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb.is-critical {
+  --health-bright: #ff9a98;
+  --health-strong: #ef5b5b;
+  --health-deep: #c93838;
+  --health-glow: rgba(239, 91, 91, .22);
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb::before {
+  content: '';
+  position: absolute;
+  inset: 13px;
+  z-index: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 23%, rgba(255,255,255,.58) 0, rgba(255,255,255,.22) 18%, transparent 39%),
+    linear-gradient(145deg, var(--health-bright) 0%, var(--health-strong) 56%, var(--health-deep) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.46),
+    inset 0 -12px 22px rgba(7, 48, 24, .10),
+    0 7px 18px color-mix(in srgb, var(--health-glow) 72%, transparent);
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb::after {
+  content: '';
+  position: absolute;
+  inset: 19px;
+  z-index: 1;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,.30);
+  background: linear-gradient(135deg, rgba(255,255,255,.22), transparent 34%, transparent 68%, rgba(5,28,16,.06));
+  pointer-events: none;
+  animation: hi5-health-orb-sheen 5.5s ease-in-out infinite;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb strong,
+html[data-hi5-surface='workspace'] .hi5-health-orb span {
+  position: relative;
+  z-index: 2;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb strong {
+  color: color-mix(in srgb, var(--health-deep) 74%, #0b1726 26%) !important;
+  font-size: 31px !important;
+  font-weight: 850;
+  letter-spacing: -.035em;
+  line-height: 1 !important;
+  text-shadow: 0 1px 0 rgba(255,255,255,.25);
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb span {
+  margin-top: 5px;
+  color: color-mix(in srgb, var(--health-deep) 78%, #132033 22%) !important;
+  font-size: 10px !important;
+  font-weight: 850;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+html[data-hi5-surface='workspace'] .itsm-rmm-health-card:hover .hi5-health-orb {
+  transform: translateY(-1px);
+  filter: saturate(1.04);
+  box-shadow: 0 18px 36px var(--health-glow), 0 0 0 7px color-mix(in srgb, var(--health-strong) 13%, transparent), inset 0 0 0 1px rgba(255,255,255,.52) !important;
+}
+@keyframes hi5-health-orb-sheen {
+  0%, 100% { opacity: .48; transform: scale(.985) rotate(-2deg); }
+  50% { opacity: .82; transform: scale(1.015) rotate(2deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-hi5-surface='workspace'] .hi5-health-orb::after {
+    animation: none;
+  }
+}
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] :is(.hi5-health-orb,.itsm-rmm-health-ring) {
+    width: 112px !important;
+    height: 112px !important;
+  }
+  html[data-hi5-surface='workspace'] .hi5-health-orb::before { inset: 11px; }
+  html[data-hi5-surface='workspace'] .hi5-health-orb::after { inset: 16px; }
+  html[data-hi5-surface='workspace'] .hi5-health-orb strong { font-size: 26px !important; }
+}
+/* Dashboard v38 — restrained shared health orb + one desktop content gutter */
+html[data-hi5-surface='workspace'] .hi5-health-orb {
+  --health-bright: #62df8c;
+  --health-strong: #35c96e;
+  --health-deep: #178b4c;
+  --health-glow: rgba(35, 158, 99, .11);
+  width: 126px !important;
+  height: 126px !important;
+  background: conic-gradient(
+    from 220deg,
+    var(--health-bright) 0,
+    var(--health-strong) var(--health-progress, 100%),
+    var(--health-track) var(--health-progress, 100%),
+    var(--health-track) 100%
+  ) !important;
+  box-shadow:
+    0 5px 14px var(--health-glow),
+    0 0 0 2px color-mix(in srgb, var(--health-strong) 7%, transparent),
+    inset 0 0 0 1px rgba(255,255,255,.34) !important;
+  transition: none;
+  filter: none;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb::before {
+  inset: 11px;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--health-bright) 76%, #fff 24%) 0%,
+    var(--health-strong) 58%,
+    color-mix(in srgb, var(--health-deep) 88%, var(--health-strong) 12%) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.26),
+    inset 0 -5px 10px rgba(7,48,24,.06);
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb::after {
+  inset: 15px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: linear-gradient(145deg, rgba(255,255,255,.11), transparent 42%);
+  opacity: 1;
+  animation: none !important;
+  transform: none !important;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb strong {
+  font-size: 28px !important;
+  text-shadow: none;
+}
+html[data-hi5-surface='workspace'] .hi5-health-orb span {
+  margin-top: 4px;
+  font-size: 9px !important;
+  letter-spacing: .045em;
+}
+html[data-hi5-surface='workspace'] .itsm-rmm-health-card:hover .hi5-health-orb {
+  transform: none;
+  filter: none;
+  box-shadow:
+    0 5px 14px var(--health-glow),
+    0 0 0 2px color-mix(in srgb, var(--health-strong) 7%, transparent),
+    inset 0 0 0 1px rgba(255,255,255,.34) !important;
+}
+
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace {
+    box-sizing: border-box !important;
+    padding: 20px 30px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .content-frame {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-sizing: border-box !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3,
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3 > .itsm-rmm-dashboard {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .hi5-health-orb {
+    width: 108px !important;
+    height: 108px !important;
+  }
+  html[data-hi5-surface='workspace'] .hi5-health-orb::before { inset: 10px; }
+  html[data-hi5-surface='workspace'] .hi5-health-orb::after { inset: 14px; }
+  html[data-hi5-surface='workspace'] .hi5-health-orb strong { font-size: 25px !important; }
+}
+
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] :is(
+    .platform-view.platform-rmm-layout,
+    .production-profile-content.platform-rmm-layout,
+    .production-settings-main.platform-rmm-layout,
+    .production-live-chat-root.platform-rmm-layout,
+    .calendar-view.platform-rmm-layout,    .organisation-content.platform-rmm-layout,
+    .project-list-view.platform-rmm-layout,
+    .project-detail-view.platform-rmm-layout,
+    .rota-view.platform-rmm-layout,
+    .cmdb-view.platform-rmm-layout,
+    .reports-view.platform-rmm-layout,
+    .launcher-view.platform-rmm-layout,
+    .unified-new-record-page.platform-rmm-layout
+  ) {
+    padding: 0 !important;
+  }
+}
+
+/* Final desktop gutter ownership: beat older page-specific flattening rules. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3.is-viewing),
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3.is-editing),
+  html[data-hi5-surface='workspace'] .workspace:has(.content-frame.production-profile-mounted) {
+    box-sizing: border-box !important;
+    padding: 20px 30px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-viewing > .itsm-rmm-dashboard,
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-dashboard {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+
+
+/* Desktop tab strip: tabs begin at the left edge of the tab zone.
+   Do not let a single tab stretch or centre itself across the desktop bar. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .tabbar {
+    justify-items: stretch !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone {
+    width: 100% !important;
+    max-width: none !important;
+    justify-self: stretch !important;
+    margin-inline: 0 !important;
+    padding-inline: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    margin-inline: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list > .workspace-tab {
+    flex: 0 1 220px !important;
+    min-width: 116px !important;
+    max-width: 260px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list > .tab-add {
+    flex: 0 0 36px !important;
+  }
+}
