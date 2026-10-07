@@ -2261,3 +2261,13 @@ button.rmm-device-metric.patch:hover { border-color: color-mix(in srgb,var(--rmm
     display: none;
   }
 }
+
+
+/* MOBILE NAVIGATION ACTIVE FALLBACK */
+@media (max-width: 900px) {
+  .rmm-nav-section button.active {
+    background: #fff;
+    color: #0d2d66;
+    box-shadow: 0 8px 20px rgba(0,0,0,.14);
+  }
+}
