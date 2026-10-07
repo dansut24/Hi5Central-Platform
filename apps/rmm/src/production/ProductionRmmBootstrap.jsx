@@ -318,7 +318,7 @@ export function ProductionRmmBootstrap() {
           <form className="production-auth-card" onSubmit={login}>
             <div className="production-auth-card-heading">
               <span className="production-auth-icon"><LockKeyhole size={19} /></span>
-              <div><span>Hi5Central RMM</span><strong>{surface.tenantSlug || tenantName}</strong></div>
+              <div><span>Hi5Central RMM</span><strong>{surface.tenantSlug ? `${surface.tenantSlug}.hi5central.com` : tenantName}</strong></div>
             </div>
             <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
             {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
