@@ -18,6 +18,20 @@ import './ProductionProfileWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const ACCENTS = ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose']
+const ACCENT_HEX = {
+  amber: '#d98a0a',
+  cyan: '#089fc5',
+  blue: '#3b82f6',
+  violet: '#7858df',
+  emerald: '#188c61',
+  rose: '#d84e73',
+}
+
+function accentHex(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return ACCENT_HEX[raw] || '#3b82f6'
+}
 const DESKTOP_SIDE_KEY = 'hi5central-primary-nav-side-v1'
 const MOBILE_SIDE_KEY = 'hi5central-mobile-nav-side-v1'
 
@@ -44,7 +58,7 @@ function defaultPreferences(session) {
     appearance: {
       theme: ['system', 'light', 'dark'].includes(tenantTheme.mode) ? tenantTheme.mode : 'system',
       accentMode: 'tenant',
-      accent: ACCENTS.includes(tenantTheme.accent) ? tenantTheme.accent : 'amber',
+      accent: tenantTheme.accent || 'blue',
       density: 'comfortable',
     },
     navigation: {
@@ -155,7 +169,7 @@ export function ProductionProfileWorkspace({ session }) {
         : tenantAccent
 
       window.localStorage.setItem('hi5central-theme-mode', JSON.stringify(next.appearance?.theme || 'system'))
-      window.localStorage.setItem('hi5central-accent', JSON.stringify(ACCENTS.includes(selectedAccent) ? selectedAccent : 'amber'))
+      window.localStorage.setItem('hi5central-accent', JSON.stringify(/^#[0-9a-f]{6}$/i.test(String(selectedAccent || '')) || ACCENTS.includes(selectedAccent) ? selectedAccent : 'blue'))
       window.localStorage.setItem('hi5central-density', JSON.stringify(next.appearance?.density || 'comfortable'))
       window.localStorage.setItem('hi5central-sidebar-mode', JSON.stringify(next.navigation?.sidebarMode || 'expanded'))
       window.localStorage.setItem(DESKTOP_SIDE_KEY, JSON.stringify(next.navigation?.desktopSide || 'left'))
@@ -275,9 +289,13 @@ export function ProductionProfileWorkspace({ session }) {
 
                   <label>
                     <span><Palette size={15} /> Personal accent</span>
-                    <select disabled={preferences.appearance?.accentMode !== 'personal'} value={preferences.appearance?.accent || 'amber'} onChange={(event) => updatePreference('appearance', 'accent', event.target.value)}>
-                      {ACCENTS.map((accent) => <option key={accent} value={accent}>{roleLabel(accent)}</option>)}
-                    </select>
+                    <input
+                      aria-label="Personal accent colour"
+                      disabled={preferences.appearance?.accentMode !== 'personal'}
+                      type="color"
+                      value={accentHex(preferences.appearance?.accent)}
+                      onChange={(event) => updatePreference('appearance', 'accent', event.target.value.toLowerCase())}
+                    />
                   </label>
 
                   <label>
