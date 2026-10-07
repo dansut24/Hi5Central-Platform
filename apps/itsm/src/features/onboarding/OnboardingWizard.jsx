@@ -45,6 +45,14 @@ function accentColour(value) {
   return accentColours[raw] || accentColours.blue
 }
 
+function accentTextColour(value) {
+  const hex = accentColour(value).slice(1)
+  const r = Number.parseInt(hex.slice(0, 2), 16)
+  const g = Number.parseInt(hex.slice(2, 4), 16)
+  const b = Number.parseInt(hex.slice(4, 6), 16)
+  return ((0.2126 * r) + (0.7152 * g) + (0.0722 * b)) > 165 ? '#10213f' : '#ffffff'
+}
+
 const defaultPrefixes = {
   incident: 'INC-',
   serviceRequest: 'REQ-',
@@ -266,7 +274,10 @@ export function OnboardingWizard({ session, onSessionChange }) {
   const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
   const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || '#3b82f6'
-  const shellStyle = { '--onboarding-accent': accentColour(activeAccent) }
+  const shellStyle = {
+    '--onboarding-accent': accentColour(activeAccent),
+    '--onboarding-accent-ink': accentTextColour(activeAccent),
+  }
   const meta = stepMeta[viewStep]
   const Icon = meta?.icon || Sparkles
   const progress = Math.round(((canonicalIndex + 1) / sequence.length) * 100)
