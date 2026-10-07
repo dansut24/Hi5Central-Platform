@@ -75,7 +75,7 @@ import { RmmDeviceToolWorkspace } from './RmmDeviceTools.jsx'
 import './RmmPlatformApp.css'
 
 const ACCENT_PRESETS = {
-  blue: '#3d73e8',
+  blue: '#3b82f6',
   cyan: '#089fc5',
   amber: '#d98a0a',
   emerald: '#188c61',
@@ -87,7 +87,7 @@ function resolveAccentHex(value) {
   const raw = String(value || '').trim().toLowerCase()
   if (ACCENT_PRESETS[raw]) return ACCENT_PRESETS[raw]
   if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
-  return '#3d73e8'
+  return '#3b82f6'
 }
 
 function rmmAccentStyle(value) {
