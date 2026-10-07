@@ -2998,14 +2998,6 @@ function WorkspaceRuntime() {
             </div>
           </div>
           <button
-            className="sidebar-toggle desktop-sidebar-toggle"
-            onClick={() => setSidebarMode(sidebarCollapsed ? 'expanded' : 'collapsed')}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            type="button"
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-          </button>
-          <button
             className="mobile-drawer-close"
             onClick={() => setMobileNavOpen(false)}
             title="Close navigation"
@@ -3063,6 +3055,15 @@ function WorkspaceRuntime() {
               <small>{metrics.slaPressure} SLA watch items</small>
             </div>
           </div>
+          <button
+            className="sidebar-footer-toggle desktop-sidebar-toggle"
+            onClick={() => setSidebarMode(sidebarCollapsed ? 'expanded' : 'collapsed')}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            type="button"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            <span>{sidebarCollapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
         </div>
       </aside>}
 
