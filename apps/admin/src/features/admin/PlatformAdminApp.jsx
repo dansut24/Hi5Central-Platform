@@ -1116,6 +1116,7 @@ export function PlatformAdminApp() {
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
   const [accent,setAccent]=useState('#3b82f6')
   const [organisationAccent,setOrganisationAccent]=useState('#3b82f6')
+  const [platformAccess,setPlatformAccess]=useState({admin:true,itsm:false,rmm:false})
   const [lastPreferences,setLastPreferences]=useState(null)
   const [density,setDensity]=useState('comfortable')
   const [navSide,setNavSide]=useState('left')
@@ -1133,21 +1134,24 @@ export function PlatformAdminApp() {
       : (appearance.theme==='dark'?'dark':'light')
     setThemeState(resolvedTheme)
     setAccent(appearance.accentMode==='personal'
-      ? (appearance.accent||'#3b82f6')
+      ? (appearance.accent||organisationAccent||'#3b82f6')
       : organisationAccent)
     setDensity(appearance.density==='compact'?'compact':'comfortable')
     setNavSide(navigation.desktopSide==='right'?'right':'left')
     setSidebarMode(navigation.sidebarMode==='collapsed'?'collapsed':'expanded')
   }
   useEffect(()=>{
-    api('/auth/session').then(r=>setUser(r.user)).catch(()=>{}).finally(()=>setLoading(false))
-    fetch(`${API}/api/v1/auth/session`, { credentials:'include', cache:'no-store' })
-      .then(async response => response.ok ? response.json() : null)
-      .then(payload => {
-        const nextAccent = payload?.settings?.theme?.accent || payload?.onboarding?.data?.theme?.accent
-        if (nextAccent) setOrganisationAccent(nextAccent)
+    api('/auth/session')
+      .then(r=>{
+        setUser(r.user)
+        setPlatformAccess(r.platformAccess||{admin:true,itsm:false,rmm:false})
+        if(r.tenant?.accent){
+          setOrganisationAccent(r.tenant.accent)
+          setAccent(r.tenant.accent)
+        }
       })
       .catch(()=>{})
+      .finally(()=>setLoading(false))
   },[])
 
   useEffect(()=>{
