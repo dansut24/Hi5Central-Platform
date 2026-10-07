@@ -177,8 +177,8 @@
   display: grid;
   place-items: center;
   border-radius: 7px;
-  background: var(--rmm-accent-soft);
-  color: var(--rmm-accent);
+  background: rgba(var(--accent-rgb), .14);
+  color: color-mix(in srgb, rgb(var(--accent-rgb)) 72%, var(--rmm-text));
   font-size: 8px;
   font-weight: 950;
 }
@@ -210,8 +210,8 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--rmm-accent-soft);
-  color: var(--rmm-accent);
+  background: rgba(var(--accent-rgb), .14);
+  color: color-mix(in srgb, rgb(var(--accent-rgb)) 72%, var(--rmm-text));
   font-size: 9px;
   font-weight: 950;
 }
