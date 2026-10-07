@@ -7,6 +7,30 @@ import './ProductionWorkspaceBootstrap.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const APP_URL = window.__HI5_CONFIG__?.appUrl || ''
+const SHARED_THEME_KEY = 'hi5central-theme-mode'
+
+function rawStoredTheme() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
+    return ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+function resolveThemeMode(userTheme = rawStoredTheme(), tenantTheme = 'system') {
+  const preferred = ['system', 'light', 'dark'].includes(userTheme)
+    ? userTheme
+    : (['system', 'light', 'dark'].includes(tenantTheme) ? tenantTheme : 'system')
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : preferred
+}
+
+function persistThemeMode(value) {
+  const next = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  try { window.localStorage.setItem(SHARED_THEME_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+}
 
 function sessionHasPermission(session, permission) {
   const effective = session?.access?.effectivePermissions || []
@@ -138,7 +162,7 @@ export function ProductionRmmBootstrap() {
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
-  const [theme, setTheme] = useState('light')
+  const [theme, setTheme] = useState(() => resolveThemeMode())
   const [accent, setAccent] = useState('#3b82f6')
   const [density, setDensity] = useState('comfortable')
   const [navSide, setNavSide] = useState('left')
@@ -171,6 +195,11 @@ export function ProductionRmmBootstrap() {
             window.location.replace(APP_URL || '/')
             return
           }
+          const tenantTheme = payload.settings?.theme?.mode || payload.onboarding?.data?.theme?.mode || 'system'
+          const userTheme = payload.preferences?.appearance?.theme
+          const preferredTheme = ['system', 'light', 'dark'].includes(userTheme) ? userTheme : tenantTheme
+          persistThemeMode(preferredTheme)
+          setTheme(resolveThemeMode(preferredTheme, tenantTheme))
           setSession(payload)
           setTenantState({
             companyName: payload.tenant?.companyName || surface.tenantName,
@@ -381,9 +410,11 @@ export function ProductionRmmBootstrap() {
   function applyUserPreferences(preferences = {}) {
     const appearance = preferences.appearance || {}
     const navigation = preferences.navigation || {}
-    const resolvedTheme = appearance.theme === 'system'
-      ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : (appearance.theme === 'dark' ? 'dark' : 'light')
+    const preferredTheme = ['system', 'light', 'dark'].includes(appearance.theme)
+      ? appearance.theme
+      : (session?.settings?.theme?.mode || session?.onboarding?.data?.theme?.mode || 'system')
+    persistThemeMode(preferredTheme)
+    const resolvedTheme = resolveThemeMode(preferredTheme, session?.settings?.theme?.mode)
     const organisationAccent = session?.settings?.theme?.accent || '#3b82f6'
     setTheme(resolvedTheme)
     setAccent(appearance.accentMode === 'personal' ? (appearance.accent || '#3b82f6') : organisationAccent)
@@ -414,7 +445,7 @@ export function ProductionRmmBootstrap() {
     setSession(null)
   }
 
-  if (loading) return <main className="hi5-loading-shell" aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
+  if (loading) return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if (!session) {
     const tenantName = tenantState?.companyName || surface.tenantName || surface.tenantSlug || 'your organisation'
     return (
