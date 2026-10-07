@@ -22,12 +22,27 @@ const DEPLOYMENT = deploymentConfig()
 const SELF_HOSTED = DEPLOYMENT.deploymentMode === 'self_hosted'
 
 const accentColours = {
-  amber: '#f59e0b',
   blue: '#3b82f6',
   cyan: '#06b6d4',
+  amber: '#f59e0b',
   emerald: '#10b981',
   violet: '#8b5cf6',
   rose: '#f43f5e',
+}
+
+const accentPresets = [
+  ['Hi5Central blue', '#3b82f6'],
+  ['Cyan', '#06b6d4'],
+  ['Amber', '#f59e0b'],
+  ['Emerald', '#10b981'],
+  ['Violet', '#8b5cf6'],
+  ['Rose', '#f43f5e'],
+]
+
+function accentColour(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return accentColours[raw] || accentColours.blue
 }
 
 const defaultPrefixes = {
@@ -250,8 +265,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
-  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || 'blue'
-  const shellStyle = { '--onboarding-accent': accentColours[activeAccent] || accentColours.blue }
+  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || '#3b82f6'
+  const shellStyle = { '--onboarding-accent': accentColour(activeAccent) }
   const meta = stepMeta[viewStep]
   const Icon = meta?.icon || Sparkles
   const progress = Math.round(((canonicalIndex + 1) / sequence.length) * 100)
@@ -485,7 +500,46 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <Section title="Default appearance" description="This becomes the starting experience for the tenant. Individual users can later have personal preferences.">
                 <div className="onboarding-form-grid">
                   <Field label="Appearance"><select value={data.mode || 'system'} onChange={(event) => update('mode', event.target.value)}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
-                  <Field label="Accent colour"><select value={data.accent || 'blue'} onChange={(event) => update('accent', event.target.value)}><option value="blue">Blue</option><option value="cyan">Cyan</option><option value="amber">Amber</option><option value="emerald">Emerald</option><option value="violet">Violet</option><option value="rose">Rose</option></select></Field>
+                  <Field label="Accent colour" hint="Choose any colour. The onboarding preview updates instantly.">
+                    <div className="onboarding-colour-picker">
+                      <input
+                        aria-label="Choose accent colour"
+                        className="onboarding-colour-input"
+                        type="color"
+                        value={accentColour(data.accent)}
+                        onChange={(event) => update('accent', event.target.value.toLowerCase())}
+                      />
+                      <input
+                        aria-label="Accent hex colour"
+                        className="onboarding-colour-hex"
+                        inputMode="text"
+                        maxLength="7"
+                        value={accentColour(data.accent)}
+                        onChange={(event) => {
+                          const next = event.target.value.trim()
+                          if (/^#[0-9a-fA-F]{0,6}$/.test(next)) update('accent', next)
+                        }}
+                        onBlur={(event) => {
+                          if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) update('accent', '#3b82f6')
+                        }}
+                      />
+                    </div>
+                  </Field>
+                  <div className="onboarding-accent-presets" aria-label="Accent colour shortcuts">
+                    {accentPresets.map(([label, colour]) => (
+                      <button
+                        aria-label={label}
+                        className={accentColour(data.accent) === colour ? 'is-selected' : ''}
+                        key={colour}
+                        onClick={() => update('accent', colour)}
+                        style={{ '--preset-colour': colour }}
+                        title={label}
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    ))}
+                  </div>
                   <Field label="Workspace brand name"><input value={data.brandName || ''} onChange={(event) => update('brandName', event.target.value)} /></Field>
                   {modules.itsm ? <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field> : null}
                 </div>
