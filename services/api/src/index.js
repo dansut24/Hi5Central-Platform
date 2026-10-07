@@ -617,10 +617,39 @@ app.post('/api/v1/onboarding/complete', async (c) => {
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   if (session.onboarding_completed_at) return c.json(sessionPayload(session))
   if (session.onboarding_step !== 'finish') return c.json({ error: 'Complete the remaining onboarding steps first.' }, 409)
-  await pool.query(
-    `UPDATE tenant_settings SET onboarding_step='complete',onboarding_completed_at=now(),configuration=CASE WHEN configuration='{}'::jsonb THEN onboarding_data ELSE configuration END,updated_at=now() WHERE tenant_id=$1`,
-    [session.tenant_id],
-  )
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(
+      `UPDATE tenant_settings
+       SET onboarding_step='complete',
+           onboarding_completed_at=now(),
+           configuration=CASE WHEN configuration='{}'::jsonb THEN onboarding_data ELSE configuration END,
+           updated_at=now()
+       WHERE tenant_id=$1`,
+      [session.tenant_id],
+    )
+    await client.query(
+      `INSERT INTO user_experience_preferences (
+         user_id,preferences,first_login_completed_at,platform_guidance,platform_getting_started,updated_at
+       ) VALUES ($1,'{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb,now())
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         preferences='{}'::jsonb,
+         first_login_completed_at=NULL,
+         platform_guidance='{}'::jsonb,
+         platform_getting_started='{}'::jsonb,
+         updated_at=now()`,
+      [session.user_id],
+    )
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+
   const refreshed = await resolveSession(c)
   return c.json(sessionPayload(refreshed))
 })
