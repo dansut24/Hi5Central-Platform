@@ -6,7 +6,7 @@ import './ProductionUserExperience.css'
 const API_BASE = window.__HI5_API_BASE__
 
 const ACCENTS = [
-  ['Hi5Central blue', '#3d73e8'],
+  ['Hi5Central blue', '#3b82f6'],
   ['Cyan', '#089fc5'],
   ['Amber', '#d98a0a'],
   ['Emerald', '#188c61'],
@@ -16,7 +16,7 @@ const ACCENTS = [
 
 function accentHex(value) {
   const presets = {
-    blue: '#3d73e8',
+    blue: '#3b82f6',
     cyan: '#089fc5',
     amber: '#d98a0a',
     emerald: '#188c61',
@@ -26,7 +26,7 @@ function accentHex(value) {
   const raw = String(value || '').trim().toLowerCase()
   if (presets[raw]) return presets[raw]
   if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
-  return '#3d73e8'
+  return '#3b82f6'
 }
 
 function accentVars(value) {
@@ -50,7 +50,7 @@ const TOUR = [
 
 function defaults() {
   return {
-    appearance: { theme: 'light', accentMode: 'tenant', accent: '#3d73e8', density: 'comfortable' },
+    appearance: { theme: 'light', accentMode: 'tenant', accent: '#3b82f6', density: 'comfortable' },
     navigation: { desktopSide: 'left', mobileSide: 'left', sidebarStyle: 'floating', sidebarMode: 'expanded' },
     guidance: { coachMarks: true },
   }
@@ -99,7 +99,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
   const setAppearance = (patch) => setPreferences({ ...preferences, appearance: { ...appearance, ...patch } })
   const setNavigation = (patch) => setPreferences({ ...preferences, navigation: { ...navigation, ...patch } })
 
-  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : (payload?.tenant?.accent || '#3d73e8')
+  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : (payload?.tenant?.accent || '#3b82f6')
 
   return createPortal(<div className="rmm-first-layer" style={accentVars(previewAccent)}>
     <section className="rmm-first-card">
@@ -129,7 +129,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
                     const next = event.target.value.trim()
                     if (/^#[0-9a-fA-F]{0,6}$/.test(next)) setAppearance({ accent: next })
                   }} onBlur={(event) => {
-                    if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) setAppearance({ accent: '#3d73e8' })
+                    if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) setAppearance({ accent: '#3b82f6' })
                   }} />
                 </div>
                 <div className="rmm-first-accents">{ACCENTS.map(([label,colour])=><button aria-label={label} className={accentHex(appearance.accent) === colour ? 'is-active' : ''} key={colour} onClick={() => setAppearance({ accent: colour })} style={{ '--swatch': colour }} type="button"><i /></button>)}</div>
