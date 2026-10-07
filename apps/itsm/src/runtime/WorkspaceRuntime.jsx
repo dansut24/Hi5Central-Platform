@@ -540,6 +540,18 @@ function WorkspaceRuntime() {
   }, [departments])
 
   useEffect(() => {
+    const applyUserPreferences = (event) => {
+      const next = event?.detail || {}
+      if (next.theme) setTheme(next.theme)
+      if (next.accent) setAccent(next.accent)
+      if (next.density) setDensity(next.density)
+      if (next.sidebarMode) setSidebarMode(next.sidebarMode)
+    }
+    window.addEventListener('hi5-user-preferences-applied', applyUserPreferences)
+    return () => window.removeEventListener('hi5-user-preferences-applied', applyUserPreferences)
+  }, [])
+
+  useEffect(() => {
     saveTheme(theme)
   }, [theme])
 
