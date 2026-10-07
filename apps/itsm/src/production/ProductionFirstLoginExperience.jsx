@@ -461,10 +461,30 @@ function GettingStarted({ payload, onDismiss }) {
   )
 }
 
-export function ProductionFirstLoginExperience() {
-  const [payload, setPayload] = useState(null)
-  const [preferences, setPreferences] = useState(defaultPreferences)
-  const [loading, setLoading] = useState(true)
+function experienceFromSession(session) {
+  if (!session) return null
+  const experience = session.userExperience || {}
+  return {
+    user: session.user || null,
+    tenant: session.tenant || null,
+    preferences: session.preferences || null,
+    firstLoginCompletedAt: experience.firstLoginCompletedAt || null,
+    tenantOnboardingCompletedAt: session.onboarding?.completedAt || null,
+    platform: 'itsm',
+    platformGuidance: experience.platformGuidance || {},
+    platformCoachmarksCompletedAt: experience.platformCoachmarksCompletedAt || null,
+    platformGettingStartedDismissedAt: experience.platformGettingStartedDismissedAt || null,
+  }
+}
+
+export function ProductionFirstLoginExperience({ bootstrapSession = null, onExperienceChange = null, blocking = false } = {}) {
+  const bootstrapPayload = experienceFromSession(bootstrapSession)
+  const [payload, setPayload] = useState(() => bootstrapPayload)
+  const [preferences, setPreferences] = useState(() => {
+    if (!bootstrapPayload?.firstLoginCompletedAt) return freshPreferences()
+    return bootstrapPayload?.preferences ? mergePreferences(bootstrapPayload.preferences) : defaultPreferences()
+  })
+  const [loading, setLoading] = useState(() => !bootstrapPayload)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [path, setPath] = useState(() => window.location.pathname)
@@ -481,7 +501,7 @@ export function ProductionFirstLoginExperience() {
       window.removeEventListener('popstate', update)
       window.removeEventListener('hi5-routechange', update)
     }
-  }, [])
+  }, [bootstrapSession?.user?.id, bootstrapSession?.onboarding?.completedAt])
 
   useEffect(() => {
     const scan = () => {
@@ -500,6 +520,25 @@ export function ProductionFirstLoginExperience() {
 
   useEffect(() => {
     let active = true
+
+    if (bootstrapSession) {
+      const seeded = experienceFromSession(bootstrapSession)
+      if (seeded) {
+        const handoffMatches = Boolean(
+          firstLoginHandoff
+            && firstLoginHandoff.tenantSlug === seeded.tenant?.slug
+            && (!firstLoginHandoff.userId || firstLoginHandoff.userId === seeded.user?.id),
+        )
+        const merged = (!seeded.firstLoginCompletedAt || handoffMatches)
+          ? freshPreferences()
+          : (seeded.preferences ? mergePreferences(seeded.preferences) : defaultPreferences())
+        setPayload(seeded)
+        setPreferences(merged)
+        applyPreferences(merged)
+        setLoading(false)
+      }
+    }
+
     getPreferences()
       .then((next) => {
         if (!active) return
@@ -549,8 +588,11 @@ export function ProductionFirstLoginExperience() {
       }
       clearFirstLoginHandoff()
       setFirstLoginHandoff(null)
-      if (window.location.pathname !== '/dashboard') navigate('/dashboard')
-      window.setTimeout(() => window.location.reload(), 180)
+      onExperienceChange?.(next)
+      if (!blocking) {
+        if (window.location.pathname !== '/dashboard') navigate('/dashboard')
+        window.setTimeout(() => window.location.reload(), 180)
+      }
     } catch (saveError) {
       setError(saveError.message)
     } finally {
@@ -597,9 +639,9 @@ export function ProductionFirstLoginExperience() {
           && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
         )
       )
-      && path !== '/login'
-      && !path.startsWith('/onboarding')
-  ), [firstLoginHandoff, loading, path, payload, tenantHandoffVisible])
+      && (blocking || path !== '/login')
+      && (blocking || !path.startsWith('/onboarding'))
+  ), [blocking, firstLoginHandoff, loading, path, payload, tenantHandoffVisible])
 
   const showGettingStarted = Boolean(
     payload?.firstLoginCompletedAt
