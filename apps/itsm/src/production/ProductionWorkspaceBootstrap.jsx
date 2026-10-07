@@ -101,7 +101,7 @@ function applyTenantPreferences(apiSession) {
       tenantSlug: apiSession?.tenant?.slug || '',
       theme: {
         mode: theme.mode || 'system',
-        accent: theme.accent || 'amber',
+        accent: theme.accent || 'blue',
         brandName: theme.brandName || apiSession?.tenant?.companyName || '',
         portalTitle: theme.portalTitle || 'IT Help Centre',
       },
@@ -773,7 +773,7 @@ export function ProductionWorkspaceBootstrap() {
     const navigationKey = preferenceKey.navigation || {}
     const workspaceKey = [
       appearanceKey.theme || themeKey.mode || 'system',
-      appearanceKey.accentMode === 'personal' ? (appearanceKey.accent || 'amber') : (themeKey.accent || 'amber'),
+      appearanceKey.accentMode === 'personal' ? (appearanceKey.accent || 'blue') : (themeKey.accent || 'blue'),
       appearanceKey.density || 'comfortable',
       navigationKey.sidebarMode || 'expanded',
       themeKey.brandName || serverSession?.tenant?.companyName || '',
