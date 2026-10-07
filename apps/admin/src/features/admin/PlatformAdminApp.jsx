@@ -155,7 +155,7 @@ function Login({ onLogin }) {
   )
 }
 
-function AdminSidebar({ activeView, collapsed = false, mobileOpen, navigate, onClose, onToggleCollapse }) {
+function AdminSidebar({ activeView, canItsm = false, canRmm = false, collapsed = false, mobileOpen, navigate, onClose, onToggleCollapse, user }) {
   const sections=[...new Set(navigation.map(item=>item.section))]
   return <>
     <button className={`rmm-sidebar-backdrop ${mobileOpen?'is-open':''}`} aria-label="Close navigation" onClick={onClose} type="button"/>
@@ -168,7 +168,7 @@ function AdminSidebar({ activeView, collapsed = false, mobileOpen, navigate, onC
       <nav className="rmm-nav">
         {sections.map(section=><div className="rmm-nav-section" key={section}><span>{section}</span>{navigation.filter(item=>item.section===section).map(({id,label,icon:Icon})=><button className={activeView===id?'active':''} key={id} onClick={()=>navigate(id)} type="button"><Icon size={17}/><span>{label}</span></button>)}</div>)}
       </nav>
-      <div className="rmm-sidebar-footer"><div className="rmm-product-switches">{config.appUrl ? <a href={config.appUrl}>ITSM</a> : null}{config.rmmUrl ? <a href={config.rmmUrl}>RMM</a> : null}</div><div className="rmm-sidebar-identity"><span>HC</span><div><strong>Hi5Central</strong><small>Platform administration</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div>
+      <div className="rmm-sidebar-footer"><div className="rmm-product-switches">{config.appUrl && canItsm ? <a href={config.appUrl}>ITSM</a> : null}{config.rmmUrl && canRmm ? <a href={config.rmmUrl}>RMM</a> : null}</div><div className="rmm-sidebar-identity"><span>{initials(user?.name || user?.email || 'HC')}</span><div><strong>{user?.name || user?.email || 'Hi5Central'}</strong><small>Platform Admin</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div>
     </aside>
   </>
 }
@@ -1169,7 +1169,7 @@ export function PlatformAdminApp() {
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
   if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
-  if(!user)return <Login onLogin={setUser}/>
+  if(!user)return <Login onLogin={()=>window.location.reload()}/>
   function navigate(next,options={}){
     if(!options.skipTab){
       const tab=adminWorkspaceTabForView(next)
@@ -1210,7 +1210,7 @@ export function PlatformAdminApp() {
   }
   return <>
     <div className={`rmm-app h5a-rmm-shell sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={adminAccentStyle(accent)}>
-      <AdminSidebar activeView={view} collapsed={sidebarMode==='collapsed'} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)} onToggleCollapse={()=>setSidebarMode(value=>value==='collapsed'?'expanded':'collapsed')}/>
+      <AdminSidebar activeView={view} canItsm={Boolean(platformAccess.itsm)} canRmm={Boolean(platformAccess.rmm)} collapsed={sidebarMode==='collapsed'} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)} onToggleCollapse={()=>setSidebarMode(value=>value==='collapsed'?'expanded':'collapsed')} user={user}/>
       <div className="rmm-shell-main">
         <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
         <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
