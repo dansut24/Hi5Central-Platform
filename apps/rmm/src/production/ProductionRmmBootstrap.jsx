@@ -414,7 +414,7 @@ export function ProductionRmmBootstrap() {
     setSession(null)
   }
 
-  if (loading) return <main className="production-auth-shell"><div className="production-auth-card">Opening RMM…</div></main>
+  if (loading) return <main className="hi5-loading-shell" aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if (!session) {
     const tenantName = tenantState?.companyName || surface.tenantName || surface.tenantSlug || 'your organisation'
     return (
