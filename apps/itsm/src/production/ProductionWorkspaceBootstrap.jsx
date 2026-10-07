@@ -35,6 +35,25 @@ const ORGANISATION_CACHE_KEYS = {
   sites: 'hi5central-organisation-sites-v1',
 }
 
+function firstLoginHandoffRequired(session) {
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_LOGIN_HANDOFF_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    const age = Date.now() - Number(parsed?.createdAt || 0)
+    const matches = age >= 0
+      && age <= 30 * 60 * 1000
+      && parsed?.tenantSlug === session?.tenant?.slug
+      && (!parsed?.userId || parsed.userId === session?.user?.id)
+
+    if (!matches) window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY)
+    return matches
+  } catch {
+    try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
+    return false
+  }
+}
+
 function initials(name = '') {
   return String(name)
     .split(/\s+/)
@@ -800,7 +819,13 @@ export function ProductionWorkspaceBootstrap() {
     return <OnboardingWizard session={serverSession} onSessionChange={acceptSession} />
   }
 
-  if (serverSession?.onboarding?.completedAt && !serverSession.userExperience?.firstLoginCompletedAt) {
+  if (
+    serverSession?.onboarding?.completedAt
+      && (
+        !serverSession.userExperience?.firstLoginCompletedAt
+        || firstLoginHandoffRequired(serverSession)
+      )
+  ) {
     return (
       <ProductionFirstLoginExperience
         blocking
