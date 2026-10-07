@@ -159,6 +159,7 @@ export function registerUserPreferenceRoutes(app) {
         slug: auth.session.slug,
         companyName: auth.session.company_name,
         modules: auth.session.modules || {},
+        accent: auth.session.configuration?.theme?.accent || auth.session.onboarding_data?.theme?.accent || '#3b82f6',
       },
       tenantOnboardingCompletedAt: auth.session.onboarding_completed_at,
       row,
