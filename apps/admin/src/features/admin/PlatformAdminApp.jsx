@@ -14,7 +14,7 @@ const API = config.apiUrl || `https://api.${config.rootDomain}`
 
 function adminAccentStyle(value) {
   const presets = {
-    blue: '#3d73e8',
+    blue: '#3b82f6',
     cyan: '#089fc5',
     amber: '#d98a0a',
     emerald: '#188c61',
@@ -22,7 +22,7 @@ function adminAccentStyle(value) {
     rose: '#d84e73',
   }
   const raw = String(value || '').trim().toLowerCase()
-  const hex = presets[raw] || (/^#[0-9a-f]{6}$/i.test(raw) ? raw : '#3d73e8')
+  const hex = presets[raw] || (/^#[0-9a-f]{6}$/i.test(raw) ? raw : '#3b82f6')
   const clean = hex.slice(1)
   const r = Number.parseInt(clean.slice(0, 2), 16)
   const g = Number.parseInt(clean.slice(2, 4), 16)
@@ -1048,7 +1048,7 @@ export function PlatformAdminApp() {
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
   const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
-  const [accent,setAccent]=useState('#3d73e8')
+  const [accent,setAccent]=useState('#3b82f6')
   const [density,setDensity]=useState('comfortable')
   const [navSide,setNavSide]=useState('left')
   const [data,setData]=useState({overview:null,releases:{environments:[],features:[],changes:[],promotions:[],actions:[]},tenants:[],billing:[],licenses:[],qualification:{runners:[],active:[],pending:[],recent:[]},catalogue:[],audit:[]})
@@ -1062,7 +1062,7 @@ export function PlatformAdminApp() {
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light')
       : (appearance.theme==='dark'?'dark':'light')
     setThemeState(resolvedTheme)
-    setAccent(appearance.accentMode==='personal'?(appearance.accent||'#3d73e8'):'#3d73e8')
+    setAccent(appearance.accentMode==='personal'?(appearance.accent||'#3b82f6'):'#3b82f6')
     setDensity(appearance.density==='compact'?'compact':'comfortable')
     setNavSide(navigation.desktopSide==='right'?'right':'left')
   }
