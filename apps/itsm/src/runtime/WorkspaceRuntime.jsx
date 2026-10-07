@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   X,
 } from 'lucide-react'
@@ -1716,6 +1717,18 @@ function WorkspaceRuntime() {
     setMobileNavOpen(false)
   }
 
+  function openProfileSection(section = 'profile') {
+    openTab('profile')
+    setProfileMenuOpen(false)
+    window.setTimeout(() => {
+      const url = new URL(window.location.href)
+      if (section === 'workspace') url.searchParams.set('section', 'workspace')
+      else url.searchParams.delete('section')
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    }, 0)
+  }
+
   function openNewTab() {
     if (!confirmLeavingDraft()) return
 
@@ -3155,57 +3168,17 @@ function WorkspaceRuntime() {
                   <span>{shellUserInitials}</span>
                   <div>
                     <strong>{session?.name || session?.user?.name || 'Hi5Central user'}</strong>
-                    <small>{session?.email || session?.user?.email || 'ITSM user'}</small>
+                    <small>{session?.username || session?.email || session?.user?.email || 'Hi5Central account'}</small>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setProfileMenuOpen(false)
-                    openTab('profile')
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
+                <button onClick={() => openProfileSection('profile')} role="menuitem" type="button">
                   <UserRound size={15} aria-hidden="true" />
-                  Profile
+                  My Profile
                 </button>
-                <button
-                  onClick={() => {
-                    setProfileMenuOpen(false)
-                    openTab('settings')
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <Settings size={15} aria-hidden="true" />
-                  Settings
+                <button onClick={() => openProfileSection('workspace')} role="menuitem" type="button">
+                  <SlidersHorizontal size={15} aria-hidden="true" />
+                  Workspace
                 </button>
-                {platform.rmmUrl && (
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false)
-                      window.location.assign(platform.rmmUrl)
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <Monitor size={15} aria-hidden="true" />
-                    Open RMM
-                  </button>
-                )}
-                {platform.adminUrl && (
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false)
-                      window.location.assign(platform.adminUrl)
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <ShieldCheck size={15} aria-hidden="true" />
-                    Open Admin
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     setProfileMenuOpen(false)
