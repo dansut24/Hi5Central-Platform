@@ -27,7 +27,6 @@ import {
   MapPin,
   Menu,
   Monitor,
-  Moon,
   MoreHorizontal,
   Network,
   Package,
@@ -42,7 +41,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sun,
   Tag,
   TerminalSquare,
   Trash2,
@@ -2559,7 +2557,7 @@ function RmmSettings({ navigate }) {
   return <><PageHeading activeView="settings" /><div className="rmm-settings-grid">{settings.map(({ icon: Icon, title, detail, target }) => <button className="rmm-card" key={title} onClick={() => target && navigate(target)} type="button"><span><Icon size={19} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={17} /></button>)}</div></>
 }
 
-export function RmmPlatformApp({ accent, canAdmin = false, canAudit = false, canBackstageRemote = false, canItsm = true, canRemote = false, currentUser, dataLoading = false, density = 'comfortable', devices = rmmDevices, sites = [], handleLogout, navSide = 'left', onCreateItsmIncident, onSitesChange, setTheme, setSidebarMode, sidebarMode = 'expanded', tenantName, theme, tickets = [] }) {
+export function RmmPlatformApp({ accent, canAdmin = false, canAudit = false, canBackstageRemote = false, canItsm = true, canRemote = false, currentUser, dataLoading = false, density = 'comfortable', devices = rmmDevices, sites = [], handleLogout, navSide = 'left', onCreateItsmIncident, onSitesChange, setSidebarMode, sidebarMode = 'expanded', tenantName, theme, tickets = [] }) {
   const initialRoute = rmmRouteFromLocation()
   const [activeView, setActiveView] = useState(initialRoute.viewId || 'dashboard')
   const [selectedDeviceId, setSelectedDeviceId] = useState(initialRoute.deviceId || '')
