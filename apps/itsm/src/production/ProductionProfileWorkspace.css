@@ -64,6 +64,44 @@
   line-height: 1.5;
 }
 
+.production-profile-section-tabs {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--soft-shadow);
+}
+
+.production-profile-section-tabs button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.production-profile-section-tabs button:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.production-profile-section-tabs button.is-active {
+  background: rgb(var(--accent-rgb));
+  color: var(--accent-ink, #fff);
+}
+
 .production-profile-state,
 .production-profile-error {
   padding: 16px 18px;
@@ -377,6 +415,15 @@
 
   .production-profile-heading {
     padding: 2px 4px 0;
+  }
+
+  .production-profile-section-tabs {
+    width: 100%;
+  }
+
+  .production-profile-section-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
   }
 
   .production-profile-heading h1 {
