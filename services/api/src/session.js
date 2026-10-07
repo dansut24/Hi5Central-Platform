@@ -253,7 +253,19 @@ export async function revokeCurrentSession(c) {
   }
   const cookieName = requestCookieName(c)
   const token = getCookie(c, cookieName)
-  if (token) await pool.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE token_hash=$1', [hashToken(token)])
+  if (token) {
+    const revoked = await pool.query(
+      'UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE token_hash=$1 RETURNING user_id',
+      [hashToken(token)],
+    )
+    const userId = revoked.rows[0]?.user_id
+    if (userId) {
+      await pool.query(
+        'UPDATE platform_admin_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL',
+        [userId],
+      )
+    }
+  }
   deleteNamedCookie(c, cookieName)
 }
 
