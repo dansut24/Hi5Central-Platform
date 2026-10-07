@@ -15,7 +15,7 @@ import {
   sessionPayload,
   setSessionCookie,
 } from './session.js'
-import { originMatchesTenant as deploymentOriginMatchesTenant } from './deploymentConfig.js'
+import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount } from './deploymentConfig.js'
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
@@ -392,7 +392,7 @@ function verifyMethodCode(method, code, { allowRecovery = true } = {}) {
 async function requireSession(c) {
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
-  if (!originMatchesTenant(c, session.slug)) return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
+  if (!originMatchesTenantAccount(c.req.header('origin'), session.slug)) return { error: c.json({ error: 'Tenant session mismatch.' }, 403) }
   return { session }
 }
 
