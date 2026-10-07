@@ -107,16 +107,25 @@ function StatusPill({ value }) {
 function Login({ onLogin }) {
   const [email,setEmail]=useState('')
   const [password,setPassword]=useState('')
+  const [passwordStep,setPasswordStep]=useState(false)
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
 
   async function submit(event){
     event.preventDefault()
-    setBusy(true)
     setError('')
+    if(!email.trim()) {
+      setError('Enter your email address to continue.')
+      return
+    }
+    if(!passwordStep) {
+      setPasswordStep(true)
+      return
+    }
+    setBusy(true)
     try {
-      const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email,password})})
-      onLogin(result.user)
+      const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email:email.trim(),password})})
+      onLogin(result)
     } catch(err){
       setError(err.message)
     } finally {
@@ -144,10 +153,13 @@ function Login({ onLogin }) {
             <span className="production-auth-icon"><LockKeyhole size={19}/></span>
             <div><span>Hi5Central</span><strong>Platform Admin</strong></div>
           </div>
-          <label><span>Email address</span><input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/></label>
-          <label><span>Password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
+          <label><span>Email address</span><input type="email" value={email} onChange={e=>{setEmail(e.target.value);if(passwordStep)setPasswordStep(false);setError('')}} autoComplete="username" required/></label>
+          {passwordStep
+            ? <label><span>Password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" autoFocus required/></label>
+            : <p className="production-auth-method-note">Hi5Central will check your Platform Admin access before opening the control plane.</p>}
           {error?<div className="production-auth-error">{error}</div>:null}
-          <button disabled={busy} type="submit">{busy?'Signing in…':'Sign in'}{!busy?<ArrowRight size={17}/>:null}</button>
+          <button disabled={busy} type="submit">{busy?'Signing in…':passwordStep?'Sign in':'Continue'}{!busy?<ArrowRight size={17}/>:null}</button>
+          {passwordStep?<button className="production-auth-secondary-action" type="button" onClick={()=>{setPasswordStep(false);setPassword('');setError('')}}>Use a different email</button>:null}
           {config.appUrl?<a href={config.appUrl}>Back to Hi5Central</a>:null}
         </form>
       </div>
