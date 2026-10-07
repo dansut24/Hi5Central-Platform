@@ -986,19 +986,23 @@ html[data-hi5-surface='workspace'] .production-workspace-mobile-nav {
     color: inherit !important;
   }
 
-  html[data-hi5-surface='workspace'] .sidebar .nav-item:hover {
-    background: rgba(255,255,255,.07) !important;
-    color: #fff !important;
+  /* Touch navigation deliberately has no hover treatment. Mobile browsers can
+     synthesize :hover while scrolling, which should not imply intent to open a page. */
+  html[data-hi5-surface='workspace'] .sidebar .nav-item:hover:not(.active) {
+    background: transparent !important;
+    color: rgba(255,255,255,.74) !important;
   }
 
+  html[data-hi5-surface='workspace'] .sidebar .nav-item:active,
   html[data-hi5-surface='workspace'] .sidebar .nav-item.active {
-    background: #fff !important;
-    color: #0d2d66 !important;
-    box-shadow: 0 8px 20px rgba(0,0,0,.14) !important;
+    background: rgb(var(--accent-rgb)) !important;
+    color: var(--accent-ink, #fff) !important;
+    box-shadow: 0 8px 20px rgba(0,0,0,.16) !important;
   }
 
+  html[data-hi5-surface='workspace'] .sidebar .nav-item:active svg,
   html[data-hi5-surface='workspace'] .sidebar .nav-item.active svg {
-    color: #0d2d66 !important;
+    color: var(--accent-ink, #fff) !important;
   }
 
   html[data-hi5-surface='workspace'] .sidebar .mobile-drawer-close {
