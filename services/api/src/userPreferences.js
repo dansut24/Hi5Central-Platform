@@ -40,7 +40,7 @@ export function normalisePreferences(input = {}) {
     appearance: {
       theme: ALLOWED_THEME.has(appearance.theme) ? appearance.theme : 'light',
       accentMode: appearance.accentMode === 'personal' ? 'personal' : 'tenant',
-      accent: ALLOWED_ACCENT.has(appearance.accent) ? appearance.accent : 'amber',
+      accent: ALLOWED_ACCENT.has(appearance.accent) ? appearance.accent : 'blue',
       density: ALLOWED_DENSITY.has(appearance.density) ? appearance.density : 'comfortable',
     },
     navigation: {
