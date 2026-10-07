@@ -6,7 +6,7 @@ import './ProductionUserExperience.css'
 const API_BASE = window.__HI5_API_BASE__
 
 const ACCENTS = [
-  ['Hi5Central blue', '#3d73e8'],
+  ['Hi5Central blue', '#3b82f6'],
   ['Cyan', '#089fc5'],
   ['Amber', '#d98a0a'],
   ['Emerald', '#188c61'],
@@ -16,7 +16,7 @@ const ACCENTS = [
 
 function accentHex(value) {
   const presets = {
-    blue: '#3d73e8',
+    blue: '#3b82f6',
     cyan: '#089fc5',
     amber: '#d98a0a',
     emerald: '#188c61',
@@ -26,7 +26,7 @@ function accentHex(value) {
   const raw = String(value || '').trim().toLowerCase()
   if (presets[raw]) return presets[raw]
   if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
-  return '#3d73e8'
+  return '#3b82f6'
 }
 
 function accentVars(value) {
@@ -50,7 +50,7 @@ const TOUR = [
 
 function defaults() {
   return {
-    appearance: { theme: 'light', accentMode: 'tenant', accent: '#3d73e8', density: 'comfortable' },
+    appearance: { theme: 'light', accentMode: 'tenant', accent: '#3b82f6', density: 'comfortable' },
     navigation: { desktopSide: 'left', mobileSide: 'left', sidebarStyle: 'floating', sidebarMode: 'expanded' },
     guidance: { coachMarks: true },
   }
@@ -97,7 +97,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
   const setAppearance=(patch)=>setPreferences({...preferences,appearance:{...appearance,...patch}})
   const setNavigation=(patch)=>setPreferences({...preferences,navigation:{...navigation,...patch}})
 
-  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : '#3d73e8'
+  const previewAccent = appearance.accentMode === 'personal' ? appearance.accent : '#3b82f6'
   return createPortal(<div className="admin-first-layer" style={accentVars(previewAccent)}><section className="admin-first-card">
     <header><img src="/hi5central-logo.png" alt=""/><span>Hi5Central</span><b>{step+1} / 3</b></header>
     <main>
@@ -110,7 +110,7 @@ function Personalise({ payload, preferences, setPreferences, onComplete, saving,
         </div><div className="admin-first-grid two">
           <Choice active={appearance.accentMode==='tenant'} title="Organisation accent" onClick={()=>setAppearance({accentMode:'tenant'})}/>
           <Choice active={appearance.accentMode==='personal'} title="Personal accent" onClick={()=>setAppearance({accentMode:'personal'})}/>
-        </div>{appearance.accentMode==='personal'?<div className="admin-first-colour"><div className="admin-first-colour-picker"><input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(e)=>setAppearance({accent:e.target.value.toLowerCase()})}/><input aria-label="Personal accent hex colour" maxLength="7" value={String(appearance.accent || "").startsWith("#") ? String(appearance.accent) : accentHex(appearance.accent)} onChange={(e)=>{const next=e.target.value.trim();if(/^#[0-9a-fA-F]{0,6}$/.test(next))setAppearance({accent:next})}} onBlur={(e)=>{if(!/^#[0-9a-fA-F]{6}$/.test(e.target.value))setAppearance({accent:'#3d73e8'})}}/></div><div className="admin-first-accents">{ACCENTS.map(([label,colour])=><button aria-label={label} className={accentHex(appearance.accent)===colour?'is-active':''} key={colour} onClick={()=>setAppearance({accent:colour})} style={{'--swatch':colour}} type="button"><i/></button>)}</div></div>:null}<div className="admin-first-grid two">
+        </div>{appearance.accentMode==='personal'?<div className="admin-first-colour"><div className="admin-first-colour-picker"><input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(e)=>setAppearance({accent:e.target.value.toLowerCase()})}/><input aria-label="Personal accent hex colour" maxLength="7" value={String(appearance.accent || "").startsWith("#") ? String(appearance.accent) : accentHex(appearance.accent)} onChange={(e)=>{const next=e.target.value.trim();if(/^#[0-9a-fA-F]{0,6}$/.test(next))setAppearance({accent:next})}} onBlur={(e)=>{if(!/^#[0-9a-fA-F]{6}$/.test(e.target.value))setAppearance({accent:'#3b82f6'})}}/></div><div className="admin-first-accents">{ACCENTS.map(([label,colour])=><button aria-label={label} className={accentHex(appearance.accent)===colour?'is-active':''} key={colour} onClick={()=>setAppearance({accent:colour})} style={{'--swatch':colour}} type="button"><i/></button>)}</div></div>:null}<div className="admin-first-grid two">
           <Choice active={appearance.density==='comfortable'} title="Comfortable" onClick={()=>setAppearance({density:'comfortable'})}/>
           <Choice active={appearance.density==='compact'} title="Compact" onClick={()=>setAppearance({density:'compact'})}/>
         </div></section>
