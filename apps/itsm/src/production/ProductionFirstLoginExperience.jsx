@@ -19,6 +19,9 @@ import {
   X,
 } from 'lucide-react'
 import {
+  accentHex,
+  accentInk,
+  accentRgb,
   loadAccent,
   loadDensity,
   loadSidebarMode,
@@ -38,12 +41,12 @@ const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const PREFERENCE_SYNC_KEY = 'hi5central-user-preference-sync-v1'
 
 const ACCENTS = [
-  ['blue', '#3b82f6'],
-  ['cyan', '#06b6d4'],
-  ['amber', '#f59e0b'],
-  ['emerald', '#10b981'],
-  ['violet', '#8b5cf6'],
-  ['rose', '#f43f5e'],
+  ['Hi5Central blue', '#3b82f6'],
+  ['Cyan', '#06b6d4'],
+  ['Amber', '#f59e0b'],
+  ['Emerald', '#10b981'],
+  ['Violet', '#8b5cf6'],
+  ['Rose', '#f43f5e'],
 ]
 
 const COACH_STEPS = [
@@ -100,7 +103,7 @@ function freshPreferences() {
     appearance: {
       theme: 'light',
       accentMode: 'tenant',
-      accent: 'blue',
+      accent: '#3b82f6',
       density: 'comfortable',
     },
     navigation: {
@@ -243,7 +246,22 @@ function AppearanceStep({ preferences, onChange }) {
           <Choice active={appearance.accentMode === 'tenant'} title="Use organisation accent" copy="Follows your Hi5Central brand." onClick={() => setAppearance({ accentMode: 'tenant' })} />
           <Choice active={appearance.accentMode === 'personal'} title="Personal accent" copy="Only changes your own workspace." onClick={() => setAppearance({ accentMode: 'personal' })} />
         </div>
-        {appearance.accentMode === 'personal' ? <div className="hi5-first-login-accents" aria-label="Personal accent colour">{ACCENTS.map(([id, colour]) => <button aria-label={id} className={appearance.accent === id ? 'is-active' : ''} key={id} onClick={() => setAppearance({ accent: id })} style={{ '--swatch': colour }} type="button"><span /></button>)}</div> : null}
+        {appearance.accentMode === 'personal' ? (
+          <div className="hi5-first-login-colour">
+            <div className="hi5-first-login-colour-picker">
+              <input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(event) => setAppearance({ accent: event.target.value.toLowerCase() })} />
+              <input aria-label="Personal accent hex colour" maxLength="7" value={accentHex(appearance.accent)} onChange={(event) => {
+                const next = event.target.value.trim()
+                if (/^#[0-9a-fA-F]{0,6}$/.test(next)) setAppearance({ accent: next })
+              }} onBlur={(event) => {
+                if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) setAppearance({ accent: '#3b82f6' })
+              }} />
+            </div>
+            <div className="hi5-first-login-accents" aria-label="Personal accent colour shortcuts">
+              {ACCENTS.map(([label, colour]) => <button aria-label={label} className={accentHex(appearance.accent) === colour ? 'is-active' : ''} key={colour} onClick={() => setAppearance({ accent: colour })} style={{ '--swatch': colour }} type="button"><span /></button>)}
+            </div>
+          </div>
+        ) : null}
         <div className="hi5-first-login-two">
           <Choice active={appearance.density === 'comfortable'} title="Comfortable" copy="More breathing room." onClick={() => setAppearance({ density: 'comfortable' })} />
           <Choice active={appearance.density === 'compact'} title="Compact" copy="More information at once." onClick={() => setAppearance({ density: 'compact' })} />
@@ -278,9 +296,17 @@ function FirstLoginDialog({ payload, preferences, setPreferences, onComplete, sa
   const user = payload.user || {}
   const company = payload.tenant?.companyName || payload.tenant?.slug || 'your organisation'
   const admin = ['owner', 'admin'].includes(user.tenantRole)
+  const previewAccent = preferences.appearance?.accentMode === 'personal'
+    ? accentHex(preferences.appearance?.accent)
+    : accentHex(tenantAccent())
+  const [previewR, previewG, previewB] = accentRgb(previewAccent)
+  const previewStyle = {
+    '--accent-rgb': `${previewR}, ${previewG}, ${previewB}`,
+    '--accent-ink': accentInk(previewAccent),
+  }
 
   return createPortal(
-    <div className="hi5-first-login-layer">
+    <div className="hi5-first-login-layer" style={previewStyle}>
       <div className="hi5-first-login-backdrop" />
       <section className="hi5-first-login-card" role="dialog" aria-modal="true" aria-label="Welcome to Hi5Central">
         <header className="hi5-first-login-header">
