@@ -579,8 +579,17 @@ export function ProductionFirstLoginExperience({ bootstrapSession = null, onExpe
     setSaving(true)
     setError('')
     try {
-      applyPreferences(nextPreferences)
-      const next = await patchPreferences(nextPreferences, { firstLoginComplete: true })
+      const preferencesToSave = nextPreferences?.appearance?.accentMode === 'tenant'
+        ? {
+            ...nextPreferences,
+            appearance: {
+              ...nextPreferences.appearance,
+              accent: accentHex(tenantAccent()),
+            },
+          }
+        : nextPreferences
+      applyPreferences(preferencesToSave)
+      const next = await patchPreferences(preferencesToSave, { firstLoginComplete: true })
       setPayload(next)
       setPreferences(mergePreferences(next.preferences))
       if (next.user?.id) {
