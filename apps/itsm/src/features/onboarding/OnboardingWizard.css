@@ -1,5 +1,5 @@
 .onboarding-shell {
-  --onboarding-accent: #f59e0b;
+  --onboarding-accent: #3b82f6;
   min-height: 100dvh;
   display: grid;
   grid-template-columns: 310px minmax(0, 1fr);
@@ -614,3 +614,11 @@
   color: #173052;
   font-size: 12px;
 }
+
+.onboarding-colour-picker{min-height:44px;display:grid;grid-template-columns:52px minmax(0,1fr);gap:9px;align-items:center}
+.onboarding-colour-input{width:52px!important;min-width:52px!important;height:44px!important;padding:3px!important;cursor:pointer}
+.onboarding-colour-hex{min-width:0;height:44px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-transform:uppercase}
+.onboarding-accent-presets{grid-column:1/-1;display:flex;align-items:center;gap:8px;margin-top:-6px}
+.onboarding-accent-presets button{width:30px;height:30px;display:grid;place-items:center;border:2px solid transparent;border-radius:999px;padding:3px;background:transparent;cursor:pointer}
+.onboarding-accent-presets button.is-selected{border-color:#10213f}
+.onboarding-accent-presets button span{width:100%;height:100%;border-radius:999px;background:var(--preset-colour);box-shadow:inset 0 0 0 1px rgba(16,33,63,.12)}
