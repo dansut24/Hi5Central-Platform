@@ -93,7 +93,7 @@ function defaultData(step, session) {
       employeeBand: '51-250',
     },
     theme: {
-      accent: 'blue',
+      accent: '#3b82f6',
       mode: 'light',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
