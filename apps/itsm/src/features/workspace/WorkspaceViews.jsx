@@ -1286,7 +1286,8 @@ function dashboardCustomRows(tickets, widget, currentUserName) {
   if (widget.status !== 'All') rows = rows.filter((ticket) => ticket.status === widget.status)
   if (widget.priority !== 'All') rows = rows.filter((ticket) => ticket.priority === widget.priority)
   if (widget.team !== 'All') rows = rows.filter((ticket) => ticket.team === widget.team)
-  if (widget.service !== 'All') rows = rows.filter((ticket) => ticket.service === widget.service)  if (widget.assignee !== 'All') rows = rows.filter((ticket) => (ticket.assignee || 'Unassigned') === widget.assignee)
+  if (widget.service !== 'All') rows = rows.filter((ticket) => ticket.service === widget.service)
+  if (widget.assignee !== 'All') rows = rows.filter((ticket) => (ticket.assignee || 'Unassigned') === widget.assignee)
 
   if (widget.dataSource === 'recent') {
     rows.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
