@@ -369,7 +369,9 @@ html[data-hi5-surface='workspace'] .rmm-sidebar-toggle:hover {
     z-index: 70;
     display: none;
     border: 0;
-    background: rgba(3,12,28,.46);
+    background: rgba(3,12,28,.36);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
   }
 
   html[data-hi5-surface='workspace'] .rmm-sidebar-backdrop.is-open {
