@@ -179,3 +179,30 @@
   .production-auth-card { width: 100%; gap: 14px; padding: 18px 16px; }
   .production-auth-card > img { width: min(148px, 46vw); max-height: 46px; }
 }
+
+.production-auth-loading-actions {
+  width: min(320px, 100%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 6px;
+}
+.production-auth-loading-actions button {
+  min-height: 40px;
+  border: 1px solid #cdd8e5;
+  border-radius: 9px;
+  background: #fff;
+  color: #31445f;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.production-auth-loading-actions button:first-child {
+  border-color: #10213f;
+  background: #10213f;
+  color: #fff;
+}
+@media (max-width: 520px) {
+  .production-auth-loading-actions { grid-template-columns: 1fr; }
+}
