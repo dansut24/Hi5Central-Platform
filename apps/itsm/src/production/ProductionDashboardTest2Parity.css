@@ -2476,3 +2476,167 @@ html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-
     gap: 7px !important;
   }
 }
+
+
+/* Definitive phone parity with RMM.
+   Mobile uses a dedicated lightweight tab strip so old workspace-tab rules
+   cannot hide or reposition it. Dashboard section rhythm mirrors RMM:
+   18x13 page gutters, 8px metric gaps, 16px after metrics and 14px card gaps. */
+.mobile-workspace-tabs {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .main-frame {
+    grid-template-rows: 62px 48px minmax(0, 1fr) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .main-frame > .itsm-topbar {
+    grid-row: 1 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .main-frame > .tabbar {
+    grid-row: 2 !important;
+    width: 100% !important;
+    height: 48px !important;
+    min-height: 48px !important;
+    margin: 0 !important;
+    padding: 4px 11px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--line) !important;
+    border-radius: 0 !important;
+    background: var(--surface) !important;
+    overflow: hidden !important;
+  }
+
+  html[data-hi5-surface='workspace'] .main-frame > .workspace {
+    grid-row: 3 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar > .tabbar-tab-zone {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tabs {
+    width: 100% !important;
+    height: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tabs::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tab {
+    box-sizing: border-box !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    min-width: 104px !important;
+    max-width: 172px !important;
+    display: inline-flex !important;
+    flex: 0 0 auto !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 7px !important;
+    padding: 0 10px !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 8px !important;
+    background: var(--surface-soft) !important;
+    color: var(--muted) !important;
+    font: inherit !important;
+    font-size: 10px !important;
+    font-weight: 850 !important;
+    white-space: nowrap !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tab > span:first-child {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tab.active {
+    border-color: rgb(var(--accent-rgb)) !important;
+    background: rgb(var(--accent-rgb)) !important;
+    color: var(--accent-ink, #fff) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tab-close {
+    width: 18px !important;
+    height: 18px !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    flex: 0 0 18px !important;
+    border-radius: 999px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .mobile-workspace-tab-add {
+    min-width: 36px !important;
+    width: 36px !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    color: var(--muted) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3) {
+    padding: 18px 13px calc(34px + env(safe-area-inset-bottom)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3 > .itsm-rmm-dashboard {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    align-content: start !important;
+    gap: 16px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading {
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-grid {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot {
+    margin: 0 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-summary {
+    grid-template-columns: minmax(0, 1fr) !important;
+    justify-items: center !important;
+    gap: 14px !important;
+    padding: 18px 20px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-legend {
+    width: 100% !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-ring,
+  html[data-hi5-surface='workspace'] .hi5-health-orb {
+    width: 112px !important;
+    height: 112px !important;
+    min-width: 112px !important;
+    min-height: 112px !important;
+  }
+}
