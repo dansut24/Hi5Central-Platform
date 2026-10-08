@@ -47,6 +47,7 @@ export function ProductionPortalApprovals() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [reviewDecision, setReviewDecision] = useState('')
 
   async function loadList() {
     setLoading(true)
@@ -65,6 +66,7 @@ export function ProductionPortalApprovals() {
     setSelectedId(id)
     setDetail(null)
     setNote('')
+    setReviewDecision('')
     setError('')
     try {
       setDetail(await api(`/api/v1/portal/approvals/${encodeURIComponent(id)}`))
@@ -76,7 +78,11 @@ export function ProductionPortalApprovals() {
   useEffect(() => { void loadList() }, [])
 
   async function decide(decision) {
-    if (!detail?.id || !detail?.request?.reference) return
+    if (!detail?.id || !detail?.request?.reference || !detail.canDecide || detail.status !== 'Pending' || busy || reviewDecision !== decision) return
+    if (decision === 'Rejected' && !note.trim()) {
+      setError('Please provide a reason for rejection.')
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -125,11 +131,26 @@ export function ProductionPortalApprovals() {
           <aside className="ppa-decision-card prp-card">
             <div className="ppa-decision-title"><ShieldCheck size={19} /><div><span>Your decision</span><strong>{detail.label}</strong></div></div>
             {detail.status === 'Pending' && detail.canDecide ? <>
-              <label><span>Decision note <small>optional</small></span><textarea rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add context for the requester and fulfilment team…" /></label>
-              <div className="ppa-decision-actions">
-                <button className="ppa-approve" type="button" disabled={busy} onClick={() => decide('Approved')}><CheckCircle2 size={17} /> Approve</button>
-                <button className="ppa-reject" type="button" disabled={busy} onClick={() => decide('Rejected')}><XCircle size={17} /> Reject</button>
-              </div>
+              {!reviewDecision ? <div className="ppa-decision-actions">
+                <button className="ppa-approve" type="button" disabled={busy} onClick={() => { setReviewDecision('Approved'); setNote(''); setError('') }}><CheckCircle2 size={17} /> Approve</button>
+                <button className="ppa-reject" type="button" disabled={busy} onClick={() => { setReviewDecision('Rejected'); setNote(''); setError('') }}><XCircle size={17} /> Reject</button>
+              </div> : <form className="ppa-confirmation-form" onSubmit={(event) => { event.preventDefault(); void decide(reviewDecision) }}>
+                <div className="ppa-confirmation-heading">
+                  <strong>{reviewDecision === 'Approved' ? 'Confirm request approval' : 'Confirm request rejection'}</strong>
+                  <p>{reviewDecision === 'Approved' ? 'Once all required approvals are complete, the request can move into fulfilment.' : 'The request will be rejected, and its pending fulfilment work will not proceed.'}</p>
+                </div>
+                <label>
+                  <span>{reviewDecision === 'Rejected' ? 'Reason for rejection' : 'Decision note'} <small>{reviewDecision === 'Rejected' ? 'required' : 'optional'}</small></span>
+                  <textarea rows={3} maxLength={5000} required={reviewDecision === 'Rejected'} value={note} onChange={(event) => setNote(event.target.value)} placeholder={reviewDecision === 'Rejected' ? 'Explain why this request cannot be approved…' : 'Add context for the requester and fulfilment team…'} />
+                </label>
+                <div className="ppa-confirmation-actions">
+                  <button type="button" className="ppa-cancel" disabled={busy} onClick={() => { setReviewDecision(''); setError('') }}>Cancel</button>
+                  <button type="submit" className={reviewDecision === 'Approved' ? 'ppa-approve' : 'ppa-reject'} disabled={busy || (reviewDecision === 'Rejected' && !note.trim())}>
+                    {busy ? <RefreshCw className="is-spinning" size={16} /> : reviewDecision === 'Approved' ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+                    {busy ? 'Saving…' : reviewDecision === 'Approved' ? 'Confirm approval' : 'Confirm rejection'}
+                  </button>
+                </div>
+              </form>}
             </> : <div className="ppa-decided"><ApprovalState status={detail.status} /><p>{detail.decisionNote || `This approval was ${String(detail.status).toLowerCase()}.`}</p><small>{formatDate(detail.decidedAt || detail.updatedAt)}</small></div>}
           </aside>
         </div>
