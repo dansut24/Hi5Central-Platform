@@ -946,7 +946,7 @@ function RecordWorkspace({ route }) {
                 : tab === 'details' ? renderInspector(true)
                   : renderAudit()
 
-  return <div className="record-lab-shell" ref={scrollRef}>
+  return <div className="record-lab-shell is-fixed-workspace" ref={scrollRef}>
     <nav className="record-lab-breadcrumbs" aria-label="Breadcrumb">
       <button type="button" onClick={() => navigateLab(`/${route.section}`)}>{route.section.charAt(0).toUpperCase() + route.section.slice(1)}</button>
       <ChevronRight size={13} aria-hidden="true" />
@@ -985,12 +985,17 @@ function RecordWorkspace({ route }) {
     </section>
 
 
-    {error ? <div className="record-lab-notice is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
-    {notice ? <div className="record-lab-notice is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
+    <nav className="record-lab-tabs record-lab-fixed-tabs" aria-label="Record workspace sections">
+      {tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value) }}>{label}</button>)}
+      <button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button>
+    </nav>
 
     <div className={`record-lab-workspace-grid${inspectorCollapsed ? ' is-inspector-collapsed' : ''}`}>
       <section className={`record-lab-primary-workspace${tab === 'activity' ? ' is-activity-view' : ''}`}>
-        <nav className="record-lab-tabs" aria-label="Record workspace sections">{tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value) }}>{label}</button>)}<button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button></nav>
+        {error || notice ? <div className="record-lab-notices" role="status">
+          {error ? <div className="record-lab-notice is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
+          {notice ? <div className="record-lab-notice is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
+        </div> : null}
         <main className="record-lab-content">{tabContent}</main>
       </section>
       {renderInspector()}
