@@ -2396,3 +2396,83 @@ html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-
   }
 }
 
+
+
+/* Final mobile ownership of ITSM shell rows.
+   The retired WorkspaceShellV2 CSS used to hide the native tab engine and
+   force the workspace into row 2. Explicitly own all three rows here so mobile
+   cannot overlap or leave an empty tab band. */
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .main-frame > .itsm-topbar {
+    grid-row: 1 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .main-frame > .tabbar {
+    grid-row: 2 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .main-frame > .workspace {
+    grid-row: 3 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone,
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list {
+    position: relative !important;
+    inset: auto !important;
+    transform: none !important;
+    pointer-events: auto !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .workspace-tab {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: var(--ink) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .workspace-tab.active {
+    border-color: var(--line) !important;
+    background: var(--surface-soft) !important;
+    color: var(--ink) !important;
+    box-shadow: inset 0 -2px 0 rgb(var(--accent-rgb)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .tab-add {
+    border: 1px solid transparent !important;
+    background: transparent !important;
+    color: var(--muted) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .tab-add svg,
+  html[data-hi5-surface='workspace'] .tabbar .workspace-tab * {
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-summary {
+    grid-template-columns: 112px minmax(0, 1fr) !important;
+    align-items: center !important;
+    gap: 14px !important;
+    padding: 16px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-ring,
+  html[data-hi5-surface='workspace'] .hi5-health-orb {
+    width: 112px !important;
+    height: 112px !important;
+    min-width: 112px !important;
+    min-height: 112px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-legend {
+    align-content: center !important;
+    gap: 8px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-health-legend > span {
+    grid-template-columns: 8px minmax(0, 1fr) auto !important;
+    gap: 7px !important;
+  }
+}
