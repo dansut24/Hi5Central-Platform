@@ -1326,30 +1326,8 @@ export function UnifiedRecordDetailView({
               <span>Updated {ticket.updated}</span>
             </div>
             <h2>{ticket.title}</h2>
-            <div className="unified-detail-badges">
-              <span className={`status-pill ${statusClass(ticket.status)}`}>{ticket.status}</span>
-              <span className={`unified-detail-priority ${priorityClass(ticket.priority)}`}><span className={`priority-dot ${priorityClass(ticket.priority)}`} />{ticket.priority}</span>
-              <span>{ticket.service}</span>
-              <span>{ticket.team}</span>
-            </div>
           </div>
 
-          <div className="unified-detail-header-actions">
-            <button onClick={assignToMe} type="button"><UserCheck size={15} /> Take ownership</button>
-            <button onClick={openAssignment} type="button"><Users size={15} /> Assign / transfer</button>
-            {ticket.assignee && ticket.assignee !== 'Unassigned' && <button onClick={returnToGroup} type="button"><Inbox size={15} /> Return to group</button>}
-            {ticket.type === 'Incident' && allowedTransitions.includes('In Progress') && <button onClick={() => beginTransition('In Progress')} type="button"><Wrench size={15} /> Start / resume work</button>}
-            {ticket.type === 'Incident' && allowedTransitions.includes('Pending') && <button onClick={() => beginTransition('Pending')} type="button"><Clock3 size={15} /> Pending</button>}
-            {ticket.type === 'Incident' && allowedTransitions.includes('Resolved') && <button className="primary" onClick={() => beginTransition('Resolved')} type="button"><CheckCircle2 size={15} /> Resolve</button>}
-            {ticket.type === 'Incident' && allowedTransitions.includes('Closed') && <button className="primary" onClick={() => beginTransition('Closed')} type="button"><CheckCircle2 size={15} /> Close</button>}
-            <label className="unified-detail-status-control">
-              <span>Next status</span>
-              <select disabled={!allowedTransitions.length} value={transitionTarget || ''} onChange={(event) => beginTransition(event.target.value)}>
-                <option value="">{allowedTransitions.length ? 'Choose transition…' : 'No further transitions'}</option>
-                {allowedTransitions.map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
-            </label>
-          </div>
         </header>
 
         <div className={`unified-detail-lifecycle ${ticket.type === 'Change' && ticket.status === 'Failed' ? 'has-exception' : ''}`.trim()} aria-label={`${meta.label} lifecycle`}>
@@ -1393,12 +1371,13 @@ export function UnifiedRecordDetailView({
 
         <section className="unified-record-summary-band" aria-label="Record summary">
           <div className="unified-record-summary-main">
-            <span className="eyebrow">${meta.label} summary</span>
+            <span className="eyebrow">{meta.label} summary</span>
             <p>{ticket.description || 'No description has been captured for this record.'}</p>
             <div className="unified-record-summary-actions">
-              <button onClick={() => setNoteMode('work')} type="button"><MessageSquarePlus size={15} /> Add note</button>
+              <button onClick={() => { setActiveTab('activity'); setNoteMode('work') }} type="button"><MessageSquarePlus size={15} /> Add note</button>
               <button onClick={openAssignment} type="button"><Users size={15} /> Assign</button>
               <button onClick={assignToMe} type="button"><UserCheck size={15} /> Take ownership</button>
+              {ticket.assignee && ticket.assignee !== 'Unassigned' && <button onClick={returnToGroup} type="button"><Inbox size={15} /> Return to group</button>}
             </div>
           </div>
           <aside className="unified-record-summary-context">
@@ -1426,9 +1405,13 @@ export function UnifiedRecordDetailView({
         </section>
 
         <div className="unified-record-quick-fields" aria-label="Record quick fields">
-          <button type="button" onClick={() => allowedTransitions[0] && beginTransition(allowedTransitions[0])}>
-            <span>Status</span><strong>{ticket.status}</strong>
-          </button>
+          <label>
+            <span>Status</span>
+            <select value="" onChange={(event) => beginTransition(event.target.value)}>
+              <option value="">{ticket.status}</option>
+              {allowedTransitions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </label>
           <button type="button" onClick={openAssignment}>
             <span>Assignee</span><strong>{ticket.assignee || 'Unassigned'}</strong>
           </button>
