@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CheckCircle2, ChevronDown, CircleDot, Clock3, Plus, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, CircleDot, Clock3, FileText, Plus, ShieldCheck, X } from 'lucide-react'
 import './RecordWorkflowPanels.css'
 
 const TASK_STATES = ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled']
@@ -26,6 +26,7 @@ function StatePill({ status }) {
 
 export function RecordTasksPanel({ tasks = [], isServiceRequest = false, canManage = false, saving = false, onCreate, onChangeStatus, onOpenTask }) {
   const [showCreate, setShowCreate] = useState(false)
+  const [expandedTaskId, setExpandedTaskId] = useState('')
   const [title, setTitle] = useState('')
   const [instructions, setInstructions] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -51,17 +52,24 @@ export function RecordTasksPanel({ tasks = [], isServiceRequest = false, canMana
     </form> : null}
     {tasks.length ? <div className="record-workflow-list">{tasks.map((task, index) => {
       const isFinished = FINISHED_STATES.has(task.status)
-      return <article className="record-workflow-row" key={task.id || `${task.title}-${index}`}>
+      const taskKey = String(task.id || task.title + '-' + index)
+      const expanded = expandedTaskId === taskKey
+      return <article className="record-workflow-row" key={taskKey}>
         <span className={`record-workflow-icon${isFinished ? ' is-complete' : ''}`}>{isFinished ? <CheckCircle2 size={18} /> : <CircleDot size={18} />}</span>
         <div className="record-workflow-row-main">
           <strong>{task.title || 'Untitled task'}</strong>
           <small>{[task.team, task.assignee || 'Unassigned', task.dueAt ? `Due ${dateLabel(task.dueAt)}` : ''].filter(Boolean).join(' · ')}</small>
-          {task.instructions ? <p>{task.instructions}</p> : null}
-          {task.completionNotes ? <small className="record-workflow-result">Completion: {task.completionNotes}</small> : null}
+          {task.completionNotes ? <small className="record-workflow-result">Completion recorded</small> : null}
         </div>
         <div className="record-workflow-row-actions">
+          <button type="button" className="record-workflow-details-toggle" aria-expanded={expanded} aria-label={(expanded ? 'Hide' : 'Show') + ' details for ' + task.title} onClick={() => setExpandedTaskId(expanded ? '' : taskKey)}>{expanded ? 'Less' : 'Details'} <ChevronDown size={13} /></button>
           {isServiceRequest ? <><StatePill status={task.status} />{onOpenTask && task.id ? <button type="button" onClick={() => onOpenTask(task)}>Open task</button> : null}</> : canManage ? <label className="record-workflow-status-picker"><span>Task status</span><select aria-label={`Status for ${task.title}`} disabled={saving} value={TASK_STATES.includes(task.status) ? task.status : 'Open'} onChange={(event) => onChangeStatus?.(task, event.target.value)}>{TASK_STATES.map((value) => <option key={value} value={value}>{value}</option>)}</select></label> : <StatePill status={task.status} />}
         </div>
+        {expanded ? <div className="record-workflow-task-details">
+          <div><strong>Instructions</strong><p>{task.instructions || 'No instructions supplied.'}</p></div>
+          {task.completionNotes ? <div><strong>Completion notes</strong><p>{task.completionNotes}</p></div> : null}
+          {task.dueAt ? <small>Due {dateLabel(task.dueAt)}</small> : null}
+        </div> : null}
       </article>
     })}</div> : <div className="record-workflow-empty"><CircleDot size={24} /><strong>No tasks yet</strong><p>{isServiceRequest ? 'This request has no fulfilment tasks attached.' : 'Add a task to assign and track the remaining work.'}</p></div>}
   </section>
@@ -72,32 +80,69 @@ export function RecordApprovalsPanel({ approvals = [], isServiceRequest = false,
   const [decisionNote, setDecisionNote] = useState('')
   const [decision, setDecision] = useState('Approved')
   const pending = approvals.filter((item) => item.status === 'Pending').length
+  const approved = approvals.filter((item) => item.status === 'Approved').length
+  const rejected = approvals.filter((item) => item.status === 'Rejected').length
 
+  const beginDecision = (id, nextDecision) => {
+    setReviewingId(id)
+    setDecision(nextDecision)
+    setDecisionNote('')
+  }
   const submitDecision = async (event, approval) => {
     event.preventDefault()
     if (!onDecision || (decision === 'Rejected' && !decisionNote.trim())) return
     const saved = await onDecision(approval, decision, decisionNote.trim())
-    if (saved) { setReviewingId(''); setDecisionNote(''); setDecision('Approved') }
+    if (saved) {
+      setReviewingId('')
+      setDecisionNote('')
+      setDecision('Approved')
+    }
   }
 
   return <section className="record-lab-panel record-lab-tab-panel record-workflow-panel">
-    <header className="record-workflow-header"><div><span>Governance</span><h2>Approvals</h2><small>{isServiceRequest ? 'Requests remain controlled by their assigned approvers.' : 'Change approval and authorisation context.'}</small></div><div className="record-workflow-count">{pending ? `${pending} awaiting decision` : `${approvals.length} total`}</div></header>
+    <header className="record-workflow-header">
+      <div><span>Governance</span><h2>Approvals</h2><small>{isServiceRequest ? 'Review decisions and the authorisation history for this request.' : 'Change authorisation overview.'}</small></div>
+      <div className="record-workflow-approval-counts" aria-label="Approval progress">
+        {pending ? <span className="is-pending">{pending} Pending</span> : null}
+        {approved ? <span className="is-approved">{approved} Approved</span> : null}
+        {rejected ? <span className="is-rejected">{rejected} Rejected</span> : null}
+        {!approvals.length ? <span>No approvals</span> : null}
+      </div>
+    </header>
     {approvals.length ? <div className="record-workflow-list">{approvals.map((approval) => {
       const canDecide = isServiceRequest && approval.status === 'Pending' && canDecideApproval(approval)
       const reviewing = reviewingId === approval.id
+      const completed = approval.status === 'Approved' || approval.status === 'Rejected'
       return <article className="record-workflow-approval" key={approval.id}>
         <div className="record-workflow-approval-main">
           <span className="record-workflow-icon"><ShieldCheck size={18} /></span>
-          <div><strong>{approval.label || 'Approval'}</strong><small>{approval.approver || 'Unassigned approver'}{approval.updated ? ` · Updated ${dateLabel(approval.updated)}` : ''}</small>{approval.decisionNote ? <p>{approval.decisionNote}</p> : null}</div>
+          <div>
+            <strong>{approval.label || 'Approval required'}</strong>
+            <small>Assigned to {approval.approver || 'an approver'}</small>
+          </div>
           <StatePill status={approval.status} />
         </div>
-        {canDecide ? <div className="record-workflow-approval-action">{!reviewing ? <button type="button" onClick={() => { setReviewingId(approval.id); setDecision('Approved'); setDecisionNote('') }}>Review decision <ChevronDown size={14} /></button> : <form className="record-workflow-form" onSubmit={(event) => submitDecision(event, approval)}>
-          <div className="record-workflow-form-title"><strong>Confirm approval decision</strong><button type="button" onClick={() => setReviewingId('')} aria-label="Close approval review"><X size={16} /></button></div>
-          <label>Decision<select value={decision} onChange={(event) => setDecision(event.target.value)}><option value="Approved">Approve</option><option value="Rejected">Reject</option></select></label>
-          <label>{decision === 'Rejected' ? 'Reason for rejection' : 'Decision note (optional)'}<textarea value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} rows={2} placeholder="Provide context for this decision" required={decision === 'Rejected'} /></label>
-          <div className="record-workflow-form-actions"><button type="button" onClick={() => setReviewingId('')}>Cancel</button><button type="submit" className={decision === 'Rejected' ? 'is-danger' : 'is-primary'} disabled={saving || (decision === 'Rejected' && !decisionNote.trim())}>{saving ? 'Saving…' : decision === 'Approved' ? 'Confirm approval' : 'Confirm rejection'}</button></div>
-        </form>}</div> : null}
+        {completed ? <div className="record-workflow-decision-history">
+          <div className="record-workflow-decision-heading"><CheckCircle2 size={15} /><strong>{approval.status} decision recorded</strong>{approval.decidedAt || approval.updated ? <time dateTime={approval.decidedAt || approval.updated}>{dateLabel(approval.decidedAt || approval.updated)}</time> : null}</div>
+          {approval.decisionNote ? <p>{approval.decisionNote}</p> : <small>No decision note supplied.</small>}
+        </div> : null}
+        {canDecide ? <div className="record-workflow-approval-action">
+          {!reviewing ? <div className="record-workflow-decision-buttons">
+            <button type="button" className="is-approve" disabled={saving} onClick={() => beginDecision(approval.id, 'Approved')}><Check size={14} />Approve</button>
+            <button type="button" className="is-reject" disabled={saving} onClick={() => beginDecision(approval.id, 'Rejected')}><X size={14} />Reject</button>
+          </div> : <form className="record-workflow-form record-workflow-decision-form" onSubmit={(event) => submitDecision(event, approval)}>
+            <div className="record-workflow-form-title"><strong>{decision === 'Approved' ? 'Confirm approval' : 'Confirm rejection'}</strong><button type="button" onClick={() => setReviewingId('')} aria-label="Cancel approval decision"><X size={16} /></button></div>
+            <p className="record-workflow-decision-explanation">{decision === 'Approved' ? 'Confirming this approval allows fulfilment to proceed once all required approvals are complete.' : 'Rejecting this request will mark it as rejected. Please provide a clear reason.'}</p>
+            <label>{decision === 'Rejected' ? 'Reason for rejection' : 'Decision note (optional)'}<textarea value={decisionNote} maxLength={5000} onChange={(event) => setDecisionNote(event.target.value)} rows={3} placeholder={decision === 'Rejected' ? 'Explain why this request cannot proceed' : 'Add context for this approval'} required={decision === 'Rejected'} /></label>
+            <div className="record-workflow-form-actions"><button type="button" disabled={saving} onClick={() => setReviewingId('')}>Cancel</button><button type="submit" className={decision === 'Rejected' ? 'is-danger' : 'is-primary'} disabled={saving || (decision === 'Rejected' && !decisionNote.trim())}>{saving ? 'Saving…' : decision === 'Approved' ? 'Confirm approval' : 'Confirm rejection'}</button></div>
+          </form>}
+        </div> : null}
+        {approval.status === 'Pending' && !canDecide ? <div className="record-workflow-approval-waiting"><Clock3 size={14} />Awaiting a decision from the assigned approver</div> : null}
       </article>
-    })}</div> : <div className="record-workflow-empty"><Clock3 size={24} /><strong>No approvals required</strong><p>{isServiceRequest ? 'This service request does not have an approval step.' : 'No approval steps are linked to this change yet.'}</p></div>}
+    })}</div> : <div className="record-workflow-empty">
+      <ShieldCheck size={24} />
+      <strong>{isServiceRequest ? 'No approval required' : 'No approval workflow configured'}</strong>
+      <p>{isServiceRequest ? 'This request can progress without an approval step.' : 'Change approval decisions are not yet available from this record. Review the change status and tasks instead.'}</p>
+    </div>}
   </section>
 }
