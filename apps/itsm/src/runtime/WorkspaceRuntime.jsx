@@ -288,11 +288,17 @@ function isTicketDraftDirty(draft, type = draft?.type || 'Incident') {
 }
 
 function restoreWorkspaceTabs(workspace, routeTab) {
-  const normalizeWorkspaceTab = (tab) =>
-    tab?.viewId === 'newtab'
-      ? makeTab('newtab', { ...tab, key: NEW_TAB_KEY, title: 'New Tab' })
-      : tab
+  const normalizeWorkspaceTab = (tab) => {
+    if (tab?.viewId === 'newtab') {
+      return makeTab('newtab', { ...tab, key: NEW_TAB_KEY, title: 'New Tab' })
+    }
+    if (tab?.viewId === 'home' || tab?.key === 'home') {
+      return makeTab('home', { ...tab, key: 'home', title: 'Dashboard', pinned: true })
+    }
+    return tab
+  }
 
+  const dashboardTab = makeTab('home', { key: 'home', title: 'Dashboard', pinned: true })
   const normalizedRouteTab = normalizeWorkspaceTab(routeTab)
   const savedTabs = Array.isArray(workspace?.tabs)
     ? workspace.tabs
@@ -300,16 +306,29 @@ function restoreWorkspaceTabs(workspace, routeTab) {
         .map((tab) => normalizeWorkspaceTab(makeTab(tab.viewId, tab)))
     : []
 
+  // Dashboard is the permanent first tab. Older saved workspaces may not
+  // contain it when the browser entered through a deep link such as /new-tab.
+  const withDashboard = savedTabs.some((tab) => tab.key === 'home')
+    ? savedTabs
+    : [dashboardTab, ...savedTabs]
+
   // This also cleans up duplicate launcher tabs persisted by older builds.
-  const deduped = savedTabs.filter(
+  const deduped = withDashboard.filter(
     (tab, index, list) => list.findIndex((candidate) => candidate.key === tab.key) === index,
   )
+
+  const dashboardIndex = deduped.findIndex((tab) => tab.key === 'home')
+  if (dashboardIndex > 0) {
+    const [dashboard] = deduped.splice(dashboardIndex, 1)
+    deduped.unshift({ ...dashboard, pinned: true, title: 'Dashboard', viewId: 'home' })
+  } else if (dashboardIndex === 0) {
+    deduped[0] = { ...deduped[0], pinned: true, title: 'Dashboard', viewId: 'home' }
+  }
 
   if (!deduped.some((tab) => tab.key === normalizedRouteTab.key)) {
     deduped.push(normalizedRouteTab)
   }
 
-  if (!deduped.length) return [normalizedRouteTab]
   if (deduped.length <= MAX_WORKSPACE_TABS) return deduped
 
   const essentials = deduped.filter((tab) => tab.pinned || tab.key === normalizedRouteTab.key)
@@ -317,7 +336,16 @@ function restoreWorkspaceTabs(workspace, routeTab) {
     .filter((tab) => !essentials.some((essential) => essential.key === tab.key))
     .slice(-(MAX_WORKSPACE_TABS - essentials.length))
 
-  return [...essentials, ...recent].slice(-MAX_WORKSPACE_TABS)
+  const trimmed = [...essentials, ...recent]
+    .filter((tab, index, list) => list.findIndex((candidate) => candidate.key === tab.key) === index)
+    .slice(0, MAX_WORKSPACE_TABS)
+
+  const homeIndex = trimmed.findIndex((tab) => tab.key === 'home')
+  if (homeIndex > 0) {
+    const [home] = trimmed.splice(homeIndex, 1)
+    trimmed.unshift(home)
+  }
+  return trimmed
 }
 
 function addWorkspaceTab(currentTabs, tab) {
