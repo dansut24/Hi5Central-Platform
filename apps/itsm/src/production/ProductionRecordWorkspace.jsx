@@ -42,6 +42,7 @@ import { deploymentConfig } from '../lib/deploymentConfig.js'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
 import { RecordLinkedDevices } from './RecordLinkedDevices.jsx'
+import { RecordTasksPanel, RecordApprovalsPanel } from './RecordWorkflowPanels.jsx'
 import './ProductionRecordWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -477,6 +478,7 @@ function RecordWorkspace({ route }) {
   const [requesterAssets, setRequesterAssets] = useState([])
   const [recordDevices, setRecordDevices] = useState([])
   const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
+  const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userEmail: '', tenantRole: '' })
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-lab-inspector-collapsed') === '1')
   const scrollRef = useRef(null)
   const timelineRef = useRef(null)
@@ -534,7 +536,8 @@ function RecordWorkspace({ route }) {
       const enabled = session.platformAccess?.rmm === true && permitted('rmm.access')
       const canView = enabled && permitted('rmm.devices.view')
       setRmmAccess({ checked: true, canView, canRemote: canView && permitted('rmm.devices.remote') })
-    }).catch(() => { if (active) setRmmAccess({ checked: true, canView: false, canRemote: false }) })
+      setWorkflowAccess({ canManageTasks: session.platformAccess?.itsm === true && permitted('itsm.tasks.manage'), userEmail: String(session.user?.email || '').trim().toLowerCase(), tenantRole: String(session.user?.tenantRole || '').toLowerCase() })
+    }).catch(() => { if (active) { setRmmAccess({ checked: true, canView: false, canRemote: false }); setWorkflowAccess({ canManageTasks: false, userEmail: '', tenantRole: '' }) } })
     return () => { active = false }
   }, [])
   useEffect(() => {
@@ -664,6 +667,36 @@ function RecordWorkspace({ route }) {
       await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/resolve`, { method: 'POST', body: JSON.stringify({ version: detail.version, resolutionCode, note, visibility: 'internal' }) })
     }
   }, route.type === 'Service Request' ? 'Request completed' : `${route.type} resolved`)
+
+  const createRecordTask = (task) => run(async () => {
+    if (route.type === 'Service Request' || !workflowAccess.canManageTasks) return
+    await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ version: detail.version, title: task.title, instructions: task.instructions, dueAt: task.dueAt }),
+    })
+  }, 'Task created')
+
+  const changeRecordTaskStatus = (task, status) => run(async () => {
+    if (route.type === 'Service Request' || !workflowAccess.canManageTasks || !task.id) return
+    await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/tasks/${encodeURIComponent(task.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: detail.version, status }),
+    })
+  }, 'Task updated')
+
+  const canDecideApproval = (approval) => {
+    if (route.type !== 'Service Request') return false
+    if (['owner', 'admin'].includes(workflowAccess.tenantRole)) return true
+    return Boolean(workflowAccess.userEmail && approval.approverEmail && workflowAccess.userEmail === String(approval.approverEmail).trim().toLowerCase())
+  }
+
+  const decideRequestApproval = (approval, decision, note) => run(async () => {
+    if (route.type !== 'Service Request' || !canDecideApproval(approval)) return
+    await apiJson(`/api/v1/service-requests/${encodeURIComponent(route.reference)}/approvals/${encodeURIComponent(approval.id)}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note }),
+    })
+  }, 'Approval decision recorded')
 
   const pending = ({ status, note }) => run(async () => {
     if (route.type === 'Service Request') {
@@ -796,7 +829,7 @@ function RecordWorkspace({ route }) {
         ['activity', `Activity${meaningfulActivities.length ? ` ${meaningfulActivities.length}` : ''}`],
         ['request', `Request${requestInformation.length ? ` ${requestInformation.length}` : ''}`],
         ['tasks', `Tasks${tasks.length ? ` ${tasks.length}` : ''}`],
-        ...(approvals.length ? [['approvals', `Approvals ${approvals.length}`]] : []),
+        ['approvals', `Approvals${approvals.length ? ` ${approvals.length}` : ''}`],
         ['sla', 'SLA'],
         ['related', 'Related'],
         ['attachments', `Attachments${attachments.length ? ` ${attachments.length}` : ''}`],
@@ -806,6 +839,7 @@ function RecordWorkspace({ route }) {
     : [
         ['activity', `Activity${meaningfulActivities.length ? ` ${meaningfulActivities.length}` : ''}`],
         ['tasks', `Tasks${tasks.length ? ` ${tasks.length}` : ''}`],
+        ...(route.type === 'Change' ? [['approvals', 'Approvals']] : []),
         ['sla', 'SLA'],
         ['related', 'Related'],
         ['attachments', `Attachments${attachments.length ? ` ${attachments.length}` : ''}`],
@@ -940,9 +974,23 @@ function RecordWorkspace({ route }) {
   </section>
 
 
-  const renderTasks = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Work</span><h2>{route.type === 'Service Request' ? 'Fulfilment tasks' : 'Record tasks'}</h2></header>{tasks.length ? <div className="record-lab-task-list">{tasks.map((task, index) => <button type="button" className={`record-lab-task is-${slug(task.status || 'waiting')}`} key={task.id || `${task.title}-${index}`} onClick={() => route.type === 'Service Request' && task.id && navigateLab(`/tasks/${encodeURIComponent(task.id)}`)}><span className="record-lab-task-state">{task.status === 'Completed' ? <CheckCircle2 size={18} /> : <CircleDot size={18} />}</span><div><strong>{task.title}</strong><small>{task.team || 'Unassigned team'} · {task.assignee || 'Unassigned'}{task.dueAt ? ` · due ${formatDate(task.dueAt)}` : ''}</small></div><LabPill tone={task.status === 'Completed' ? 'good' : task.status === 'Blocked' ? 'danger' : 'neutral'}>{task.status || 'Waiting'}</LabPill>{route.type === 'Service Request' ? <span className="record-lab-task-open">Open</span> : null}</button>)}</div> : <div className="record-lab-empty">No tasks are currently linked to this record.</div>}</section>
+  const renderTasks = () => <RecordTasksPanel
+    tasks={tasks}
+    isServiceRequest={route.type === 'Service Request'}
+    canManage={workflowAccess.canManageTasks}
+    saving={saving}
+    onCreate={createRecordTask}
+    onChangeStatus={changeRecordTaskStatus}
+    onOpenTask={(task) => task?.id && navigateLab(`/tasks/${encodeURIComponent(task.id)}`)}
+  />
 
-  const renderApprovals = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Governance</span><h2>Approvals</h2></header>{approvals.length ? <div className="record-lab-task-list">{approvals.map((approval) => <div className="record-lab-task" key={approval.id}><span className="record-lab-task-state"><ShieldCheck size={18} /></span><div><strong>{approval.label}</strong><small>{approval.approver || 'Approver'} · {approval.status}</small></div><LabPill tone={approval.status === 'Approved' ? 'good' : approval.status === 'Rejected' ? 'danger' : 'warning'}>{approval.status}</LabPill></div>)}</div> : <div className="record-lab-empty">No approval is required.</div>}</section>
+  const renderApprovals = () => <RecordApprovalsPanel
+    approvals={approvals}
+    isServiceRequest={route.type === 'Service Request'}
+    saving={saving}
+    canDecideApproval={canDecideApproval}
+    onDecision={decideRequestApproval}
+  />
 
   const renderRelated = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Relationships</span><h2>Related records</h2></header>{relationships.length ? <div className="record-lab-link-list">{relationships.map((item) => <div key={item.id}><Link2 size={18} /><span><strong>{item.targetReference || item.reference}</strong><small>{item.targetType || item.type} · {item.relationshipType || 'Related'}</small></span></div>)}</div> : <div className="record-lab-empty">No related records.</div>}</section>
 
