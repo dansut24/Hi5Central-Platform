@@ -1974,3 +1974,93 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
   }
 }
 
+/* Phone/tablet record details: single continuous page scroll, no nested activity scrolling. */
+@media (max-width: 820px) {
+  /* The workspace itself is the sole vertical scroll container on mobile. */
+  html[data-hi5-surface='workspace'] .workspace:has(.record-lab-shell.is-fixed-workspace) {
+    height: 100% !important;
+    min-height: 0 !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    align-content: stretch !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  html[data-hi5-surface='workspace'] .content-frame.production-record-workspace-mounted:has(.record-lab-shell.is-fixed-workspace) {
+    height: auto !important;
+    min-height: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 2px calc(24px + env(safe-area-inset-bottom)) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-breadcrumbs,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+    position: relative !important;
+    top: auto !important;
+    margin-bottom: 8px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-inspector-collapsed {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view > .record-lab-content {
+    display: block;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-composer {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-scroll {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior-y: auto;
+    scrollbar-gutter: auto;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+
