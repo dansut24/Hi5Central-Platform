@@ -458,6 +458,7 @@ function RecordWorkspace({ route }) {
   const [composerMode, setComposerMode] = useState('')
   const [showSystemEvents, setShowSystemEvents] = useState(() => window.localStorage.getItem('hi5central-record-lab-activity-mode') === 'all')
   const [activityQuery, setActivityQuery] = useState('')
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [attachment, setAttachment] = useState(null)
   const [contextView, setContextView] = useState('home')
   const [requesterAssets, setRequesterAssets] = useState([])
@@ -565,7 +566,7 @@ function RecordWorkspace({ route }) {
   }, [detail, rmmAccess.canView])
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [tab])
-  useEffect(() => { setContextView('home'); setActivityQuery('') }, [route.reference])
+  useEffect(() => { setContextView('home'); setActivityQuery(''); setSummaryExpanded(false) }, [route.reference])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-inspector-collapsed', inspectorCollapsed ? '1' : '0') }, [inspectorCollapsed])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-activity-mode', showSystemEvents ? 'all' : 'human') }, [showSystemEvents])
 
@@ -846,7 +847,7 @@ function RecordWorkspace({ route }) {
     return <aside className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
         <header>{contextView === 'home' ? <div><span>Record details</span><h2>Context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
-        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} /><button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
+        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} /><button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
       </section>
     </aside>
   }
@@ -883,10 +884,13 @@ function RecordWorkspace({ route }) {
     if (node instanceof HTMLElement) timelineRef.current.scrollTo({ top: Math.max(0, node.offsetTop - 8), behavior: 'smooth' })
   }
 
+  const originalSummary = detail.description?.trim() || ''
+  const summaryLong = originalSummary.length > 280 || originalSummary.split('\n').length > 5
   const renderActivity = () => <section className="record-lab-panel record-lab-tab-panel record-lab-activity-panel">
-    <div className="record-lab-issue-summary">
+    <div className={`record-lab-issue-summary${summaryExpanded ? ' is-expanded' : ''}`}>
       <div className="record-lab-issue-summary-heading"><span>{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</span><small>Original description</small></div>
-      <p>{detail.description?.trim() || 'No issue description has been provided yet.'}</p>
+      <p>{originalSummary || 'No issue description has been provided yet.'}</p>
+      {summaryLong ? <button type="button" className="record-lab-summary-expand" aria-expanded={summaryExpanded} onClick={() => setSummaryExpanded((current) => !current)}>{summaryExpanded ? 'Show less' : 'Read full description'} <ChevronDown size={14} aria-hidden="true" /></button> : null}
     </div>
     <div className="record-lab-activity-actions" role="group" aria-label="Add a record update">
       <button type="button" className={composerMode === 'internal' ? 'is-active' : ''} onClick={() => beginAction('internal')}><MessageSquareText size={17} />Internal note</button>
