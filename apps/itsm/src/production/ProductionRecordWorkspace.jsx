@@ -41,6 +41,7 @@ import {
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
+import { RecordLinkedDevices } from './RecordLinkedDevices.jsx'
 import './ProductionRecordWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -494,7 +495,7 @@ function RecordWorkspace({ route }) {
       if (!active) return
       const grants = session.access?.effectivePermissions || session.access?.permissions || []
       const permitted = (key) => grants.includes('*') || grants.includes(key) || grants.some((grant) => grant.endsWith('*') && key.startsWith(grant.slice(0, -1)))
-      const enabled = session.platformAccess?.rmm === true
+      const enabled = session.platformAccess?.rmm === true && permitted('rmm.access')
       const canView = enabled && permitted('rmm.devices.view')
       setRmmAccess({ checked: true, canView, canRemote: canView && permitted('rmm.devices.remote') })
     }).catch(() => { if (active) setRmmAccess({ checked: true, canView: false, canRemote: false }) })
@@ -814,7 +815,7 @@ function RecordWorkspace({ route }) {
     if (!mobile && inspectorCollapsed) return null
 
     const peekTitle = { user: 'Requester', assets: 'Assets & CIs', related: 'Related work', insights: 'Insights' }[contextView]
-    const openRecord = (item) => navigateLab(`/record-lab/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
+    const openRecord = (item) => navigateLab(`/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
     const coreContext = <div className="record-lab-inspector-facts">
       <button type="button" className="record-lab-inspector-action" onClick={() => setContextView('user')}><span>Requester</span><strong>{detail.requester || 'Not recorded'}</strong><small>{detail.requesterEmail || requesterPerson?.role || 'Open requester context'}</small></button>
       <OverviewFact label="Service" value={detail.service} />
@@ -858,7 +859,7 @@ function RecordWorkspace({ route }) {
     return <aside className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
         <header>{contextView === 'home' ? <div><span>Record details</span><h2>Context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
-        {contextView === 'home' ? <>{coreContext}{rmmAccess.canView && managedDevices.length ? <div className="record-lab-device-module"><div className="record-lab-inspector-section-title"><span>Managed devices</span><small>{managedDevices.length}</small></div>{managedDevices.slice(0, 3).map((asset, index) => <div className="record-lab-device-row" key={asset.id || asset.rmmReference || index}><span className="record-lab-device-symbol"><Laptop size={17} /></span><div><strong>{asset.name || asset.hostname || asset.rmmReference || 'Device'}</strong><small>{asset.agentDeviceId ? `Hi5Central Agent · ${asset.agentOnline ? 'Online' : 'Offline'}` : (asset.type || 'Inventory device')}</small></div><div className="record-lab-device-actions">{asset.rmmReference ? <a aria-label={`Open ${asset.name || 'device'} in RMM`} href={rmmDeviceHref(asset.rmmReference)} target="_blank" rel="noopener noreferrer" title="Open device in RMM"><ExternalLink size={16} /></a> : null}{rmmAccess.canRemote && asset.rmmReference && asset.agentDeviceId ? <a className={asset.agentOnline ? 'is-online' : 'is-offline'} aria-label={`Remote desktop for ${asset.name || 'device'}${asset.agentOnline ? '' : ' (agent offline)'}`} href={asset.agentOnline ? rmmDeviceHref(asset.rmmReference) : undefined} onClick={asset.agentOnline ? undefined : (event) => event.preventDefault()} aria-disabled={!asset.agentOnline} title={asset.agentOnline ? 'Open RMM to start remote desktop' : 'Agent offline — remote unavailable'} target="_blank" rel="noopener noreferrer"><Monitor size={16} /></a> : null}</div></div>)}</div> : null}<button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
+        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} /><button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
       </section>
     </aside>
   }
@@ -897,7 +898,7 @@ function RecordWorkspace({ route }) {
 
   const renderActivity = () => <section className="record-lab-panel record-lab-tab-panel record-lab-activity-panel">
     <div className="record-lab-issue-summary">
-      <div className="record-lab-issue-summary-heading"><span>Issue summary</span><small>Original description</small></div>
+      <div className="record-lab-issue-summary-heading"><span>{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</span><small>Original description</small></div>
       <p>{detail.description?.trim() || 'No issue description has been provided yet.'}</p>
     </div>
     <div className="record-lab-activity-actions" role="group" aria-label="Add a record update">
