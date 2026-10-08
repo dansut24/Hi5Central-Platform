@@ -942,10 +942,14 @@ html[data-hi5-surface='workspace'] .unified-new-record-submit .primary-action {
 }
 
 /* ITSM record details: issue and notes before metadata, with modular RMM context. */
+/* Shared .workspace owns the 20px / 30px page gutter (as on Dashboard).
+   The record shell must not apply that gutter a second time. */
 html[data-hi5-surface='workspace'] .record-lab-shell {
   width: 100%;
   max-width: none;
-  padding: 20px 30px 28px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box;
   background: var(--page) !important;
 }
 html[data-hi5-surface='workspace'] .record-lab-breadcrumbs {
@@ -1218,8 +1222,10 @@ html[data-hi5-surface='workspace'] .record-lab-context-asset-actions a[aria-disa
   }
 }
 @media (max-width: 820px) {
+  /* Mobile .workspace already owns the phone gutter; retain only
+     the small 2px inset and bottom clearance used by record pages. */
   html[data-hi5-surface='workspace'] .record-lab-shell {
-    padding: 14px 14px calc(28px + env(safe-area-inset-bottom)) !important;
+    padding: 4px 2px calc(34px + env(safe-area-inset-bottom)) !important;
   }
   html[data-hi5-surface='workspace'] .record-lab-workspace-grid,
   html[data-hi5-surface='workspace'] .record-lab-workspace-grid.is-inspector-collapsed {
