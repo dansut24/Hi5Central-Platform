@@ -374,3 +374,221 @@
     margin: 0 0 0 -40px;
   }
 }
+
+/* Approval decision polish and compact task rows. */
+.record-lab-shell .record-workflow-panel > .record-workflow-header {
+  min-height: 60px;
+  padding: 11px 15px;
+  gap: 10px;
+}
+.record-lab-shell .record-workflow-header h2 { font-size: 16px; }
+.record-lab-shell .record-workflow-list { gap: 6px; padding: 8px 10px 12px; }
+.record-lab-shell .record-workflow-row {
+  padding: 9px 11px;
+  gap: 10px;
+  border-radius: 9px;
+}
+.record-lab-shell .record-workflow-row-main { gap: 3px; }
+.record-lab-shell .record-workflow-row-main > strong { font-size: 12px; }
+.record-lab-shell .record-workflow-row small { font-size: 10px; }
+.record-lab-shell .record-workflow-status-picker > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+.record-lab-shell .record-workflow-row-actions > button.record-workflow-details-toggle {
+  min-height: 31px;
+  padding: 0 9px;
+}
+.record-lab-shell .record-workflow-details-toggle[aria-expanded='true'] svg { transform: rotate(180deg); }
+.record-lab-shell .record-workflow-task-details {
+  grid-column: 2 / -1;
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid var(--line);
+  padding: 10px 2px 3px;
+}
+.record-lab-shell .record-workflow-task-details > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.record-lab-shell .record-workflow-task-details strong {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+.record-lab-shell .record-workflow-task-details p {
+  color: var(--ink);
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.record-lab-shell .record-workflow-task-details > small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.record-lab-shell .record-workflow-approval-counts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.record-lab-shell .record-workflow-approval-counts span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 27px;
+  padding: 0 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+.record-lab-shell .record-workflow-approval-counts .is-pending {
+  color: #d7a74b;
+  background: rgba(195, 142, 18, .08);
+  border-color: rgba(195, 142, 18, .2);
+}
+.record-lab-shell .record-workflow-approval-counts .is-approved {
+  color: #24a873;
+  background: rgba(29, 145, 94, .08);
+  border-color: rgba(29, 145, 94, .2);
+}
+.record-lab-shell .record-workflow-approval-counts .is-rejected {
+  color: #eb7b87;
+  background: rgba(213, 66, 79, .08);
+  border-color: rgba(213, 66, 79, .2);
+}
+.record-lab-shell .record-workflow-approval-main {
+  padding: 10px 12px;
+  gap: 11px;
+}
+.record-lab-shell .record-workflow-approval-main strong { font-size: 12px; }
+.record-lab-shell .record-workflow-approval-main small { font-size: 10px; }
+.record-lab-shell .record-workflow-approval-action {
+  padding: 0 12px 12px 59px;
+}
+.record-lab-shell .record-workflow-decision-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+.record-lab-shell .record-workflow-decision-buttons > button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.record-lab-shell .record-workflow-decision-buttons .is-approve {
+  border-color: rgba(29, 145, 94, .35);
+  background: rgba(29, 145, 94, .10);
+  color: #32b984;
+}
+.record-lab-shell .record-workflow-decision-buttons .is-reject {
+  border-color: rgba(213, 66, 79, .3);
+  background: rgba(213, 66, 79, .08);
+  color: #ed7885;
+}
+.record-lab-shell .record-workflow-decision-buttons button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+.record-lab-shell .record-workflow-approval .record-workflow-decision-history {
+  display: grid;
+  gap: 6px;
+  margin: 0 12px 10px 59px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+.record-lab-shell .record-workflow-decision-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--muted);
+}
+.record-lab-shell .record-workflow-decision-heading svg { color: #29a871; }
+.record-lab-shell .record-workflow-decision-heading strong {
+  font-size: 10px;
+  color: var(--ink);
+}
+.record-lab-shell .record-workflow-decision-heading time {
+  font-size: 10px;
+  color: var(--muted);
+}
+.record-lab-shell .record-workflow-decision-history p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.record-lab-shell .record-workflow-decision-history small { font-size: 10px; color: var(--muted); }
+.record-lab-shell .record-workflow-approval-waiting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px 11px 59px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+.record-lab-shell .record-workflow-decision-form {
+  margin: 2px 0 0;
+}
+.record-lab-shell .record-workflow-decision-explanation {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .record-lab-shell .record-workflow-panel > .record-workflow-header {
+    padding: 11px;
+  }
+  .record-lab-shell .record-workflow-task-details {
+    grid-column: 1 / -1;
+  }
+  .record-lab-shell .record-workflow-approval-counts {
+    width: 100%;
+  }
+  .record-lab-shell .record-workflow-approval-action,
+  .record-lab-shell .record-workflow-approval-waiting {
+    padding-left: 10px;
+  }
+  .record-lab-shell .record-workflow-approval .record-workflow-decision-history {
+    margin-left: 10px;
+  }
+  .record-lab-shell .record-workflow-decision-form {
+    margin-left: 0;
+  }
+  .record-lab-shell .record-workflow-decision-buttons > button {
+    min-height: 40px;
+    flex: 1 1 120px;
+    font-size: 12px;
+  }
+}
+
