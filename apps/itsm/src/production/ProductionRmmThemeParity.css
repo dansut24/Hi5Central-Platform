@@ -1164,7 +1164,8 @@ html[data-hi5-surface='workspace'] .record-lab-device-actions {
   display: flex;
   gap: 5px;
 }
-html[data-hi5-surface='workspace'] .record-lab-device-actions a {
+html[data-hi5-surface='workspace'] .record-lab-device-actions a,
+html[data-hi5-surface='workspace'] .record-lab-device-actions .record-lab-device-remote-disabled {
   display: grid;
   place-items: center;
   width: 30px;
@@ -1173,6 +1174,17 @@ html[data-hi5-surface='workspace'] .record-lab-device-actions a {
   border-radius: 8px;
   background: var(--surface);
   color: var(--ink);
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions .record-lab-device-remote-disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-more {
+  display: block;
+  margin: 0 12px 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
 }
 html[data-hi5-surface='workspace'] .record-lab-device-actions a.is-online {
   border-color: rgba(var(--accent-rgb), .3);
