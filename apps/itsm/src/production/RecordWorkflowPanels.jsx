@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { CalendarDays, CheckCircle2, ChevronDown, CircleDot, Clock3, Plus, ShieldCheck, X } from 'lucide-react'
+import { CheckCircle2, ChevronDown, CircleDot, Clock3, Plus, ShieldCheck, X } from 'lucide-react'
+import './RecordWorkflowPanels.css'
 
 const TASK_STATES = ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled']
 const FINISHED_STATES = new Set(['Completed', 'Cancelled'])
