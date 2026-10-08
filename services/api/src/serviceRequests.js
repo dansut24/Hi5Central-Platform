@@ -411,7 +411,9 @@ async function requestPayload(db, requestRow, { requesterView = false } = {}) {
       approver: asObject(approval.approver_snapshot).name || 'Unassigned approver',
       approverEmail: asObject(approval.approver_snapshot).email || '',
       approverId: asObject(approval.approver_snapshot).personId || '',
+      approverUserId: approval.approver_user_id || null,
       decisionNote: approval.decision_note,
+      decidedAt: approval.decided_at || null,
       updated: approval.updated_at,
     })),
     requestTasks: tasksResult.rows.map((task) => ({
