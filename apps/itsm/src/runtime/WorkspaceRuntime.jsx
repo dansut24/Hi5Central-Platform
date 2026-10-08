@@ -3232,6 +3232,41 @@ function WorkspaceRuntime() {
         </header>
 
         <header className="tabbar" aria-label="Open workspace tabs">
+          <div className="mobile-workspace-tabs" aria-label="Open workspace tabs on mobile">
+            {tabs.map((tab) => (
+              <button
+                className={['mobile-workspace-tab', activeTabKey === tab.key ? 'active' : ''].filter(Boolean).join(' ')}
+                data-tab-key={tab.key}
+                key={`mobile-${tab.key}`}
+                onClick={() => activateTab(tab)}
+                type="button"
+              >
+                <span>{tab.title}</span>
+                {!tab.pinned && (
+                  <span
+                    className="mobile-workspace-tab-close"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      closeTab(tab.key)
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              aria-label="Open new workspace tab"
+              className="mobile-workspace-tab mobile-workspace-tab-add"
+              onClick={openNewTab}
+              type="button"
+            >
+              <Plus size={17} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+          </div>
+
           <div className="tabbar-tab-zone">
             <div className="tab-list" ref={tabListRef}>
             {tabs.map((tab) => {
