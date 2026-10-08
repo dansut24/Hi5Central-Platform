@@ -56,13 +56,17 @@ const recordTypeMeta = {
   Change: { className: 'change', label: 'Change' },
 }
 
-const commonTabs = [
-  { id: 'overview', label: 'Overview', icon: Inbox },
-  { id: 'activity', label: 'Activity', icon: MessageSquarePlus },
-  { id: 'tasks', label: 'Tasks', icon: ListChecks },
-  { id: 'related', label: 'Related', icon: Share2 },
-  { id: 'attachments', label: 'Attachments', icon: Paperclip },
-]
+function recordTabs(ticket) {
+  const tabs = [
+    { id: 'activity', label: 'Activity', icon: MessageSquarePlus },
+    { id: 'tasks', label: 'Tasks', icon: ListChecks },
+  ]
+  if (ticket.type === 'Service Request' || ticket.type === 'Change') {
+    tabs.push({ id: 'approvals', label: 'Approvals', icon: ClipboardCheck })
+  }
+  tabs.push({ id: 'attachments', label: 'Files', icon: Paperclip })
+  return tabs
+}
 
 
 
@@ -595,7 +599,7 @@ export function UnifiedRecordDetailView({
   transitionTicket,
   updateTicket,
 }) {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState('activity')
   const [noteMode, setNoteMode] = useState('work')
   const [transitionTarget, setTransitionTarget] = useState(null)
   const [transitionValues, setTransitionValues] = useState({})
@@ -623,6 +627,24 @@ export function UnifiedRecordDetailView({
     : []
   const tasks = useMemo(() => syntheticTasks(ticket), [ticket])
   const attachments = ticket.attachments || []
+  const approvals = useMemo(() => {
+    if (ticket.type === 'Service Request') return ticket.requestApprovals || []
+    if (ticket.type === 'Change') {
+      if (Array.isArray(ticket.changeApprovals) && ticket.changeApprovals.length) return ticket.changeApprovals
+      if (Array.isArray(ticket.approvals) && ticket.approvals.length) return ticket.approvals
+      if (ticket.approval || ticket.approvalRoute) {
+        return [{
+          id: `${ticket.id}-approval`,
+          label: ticket.approvalRoute || 'Change approval',
+          approver: ticket.approver || ticket.cab || 'Change authority',
+          status: ticket.approval || 'Pending',
+          updated: ticket.updated || 'Not updated',
+        }]
+      }
+    }
+    return []
+  }, [ticket])
+  const visibleTabs = useMemo(() => recordTabs(ticket), [ticket])
   const directoryPeople = Array.isArray(people) && people.length ? people : organisationPeople
   const directoryTeams = Array.isArray(teams) && teams.length ? teams : organisationTeams
   const actorName = currentUser?.name || 'Hi5Central User'
@@ -1225,6 +1247,43 @@ export function UnifiedRecordDetailView({
     )
   }
 
+  function renderApprovals() {
+    const approved = approvals.filter((item) => item.status === 'Approved').length
+    return (
+      <div className="unified-detail-approval-layout">
+        <div className="unified-detail-tab-intro">
+          <div>
+            <span className="eyebrow">Governance</span>
+            <h3>Approvals</h3>
+            <p>{ticket.type === 'Change'
+              ? 'Change authority, CAB and implementation approvals for this record.'
+              : 'Approval stages required before fulfilment can continue.'}</p>
+          </div>
+          <div><strong>{approved}/{approvals.length || 0}</strong><span>approved</span></div>
+        </div>
+        {approvals.length ? (
+          <div className="unified-detail-approval-list record-approval-list">
+            {approvals.map((approval, index) => (
+              <article key={approval.id || `${ticket.id}-approval-${index}`}>
+                <span className={`unified-detail-state ${statusClass(approval.status || 'Pending')}`}>{approval.status || 'Pending'}</span>
+                <div>
+                  <strong>{approval.label || approval.name || 'Approval'}</strong>
+                  <small>{approval.approver || approval.owner || 'Approver not assigned'} · {approval.updated || approval.updatedAt || 'Not updated'}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="unified-detail-empty">
+            <ClipboardCheck size={23} />
+            <strong>No approvals required</strong>
+            <span>This record currently has no approval stage.</span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   function renderAttachments() {
     return (
       <div className="unified-detail-attachment-layout">
@@ -1248,15 +1307,13 @@ export function UnifiedRecordDetailView({
     )
   }
 
-  const activePanel = activeTab === 'activity'
-    ? renderActivity()
-    : activeTab === 'tasks'
-      ? renderTasks()
-      : activeTab === 'related'
-        ? renderRelated()
-        : activeTab === 'attachments'
-          ? renderAttachments()
-          : renderOverview()
+  const activePanel = activeTab === 'tasks'
+    ? renderTasks()
+    : activeTab === 'approvals'
+      ? renderApprovals()
+      : activeTab === 'attachments'
+        ? renderAttachments()
+        : renderActivity()
 
   return (
     <div className={`unified-detail-page ${meta.className}`}>
@@ -1334,15 +1391,61 @@ export function UnifiedRecordDetailView({
           </section>
         )}
 
+        <section className="unified-record-summary-band" aria-label="Record summary">
+          <div className="unified-record-summary-main">
+            <span className="eyebrow">${meta.label} summary</span>
+            <p>{ticket.description || 'No description has been captured for this record.'}</p>
+            <div className="unified-record-summary-actions">
+              <button onClick={() => setNoteMode('work')} type="button"><MessageSquarePlus size={15} /> Add note</button>
+              <button onClick={openAssignment} type="button"><Users size={15} /> Assign</button>
+              <button onClick={assignToMe} type="button"><UserCheck size={15} /> Take ownership</button>
+            </div>
+          </div>
+          <aside className="unified-record-summary-context">
+            <div className="unified-record-person">
+              <span className="unified-detail-avatar">{initials(ticket.requester)}</span>
+              <div>
+                <strong>{ticket.requester}</strong>
+                <span>{ticket.requesterEmail || ticket.requesterJobTitle || 'Requester / stakeholder'}</span>
+                <small>{ticket.requesterPhone || ticket.phone || ticket.requesterDepartment || ticket.location || ''}</small>
+              </div>
+            </div>
+            {ticket.rmmDeviceId ? (
+              <a className="unified-record-device" href={rmmDeviceHref(ticket.rmmDeviceId)} target="_blank" rel="noreferrer">
+                <Monitor size={16} />
+                <span><strong>{ticket.rmmDeviceName || ticket.rmmDeviceId}</strong><small>{ticket.rmmSource || 'Managed device'}</small></span>
+                <ExternalLink size={13} />
+              </a>
+            ) : null}
+            <div className="unified-record-context-meta">
+              <span><small>Service</small><strong>{ticket.service || 'Not set'}</strong></span>
+              <span><small>Team</small><strong>{ticket.team || 'Unassigned'}</strong></span>
+              <span><small>Updated</small><strong>{ticket.updated || 'Unknown'}</strong></span>
+            </div>
+          </aside>
+        </section>
+
+        <div className="unified-record-quick-fields" aria-label="Record quick fields">
+          <button type="button" onClick={() => allowedTransitions[0] && beginTransition(allowedTransitions[0])}>
+            <span>Status</span><strong>{ticket.status}</strong>
+          </button>
+          <button type="button" onClick={openAssignment}>
+            <span>Assignee</span><strong>{ticket.assignee || 'Unassigned'}</strong>
+          </button>
+          <div>
+            <span>Priority</span><strong>{ticket.priority || 'Not set'}</strong>
+          </div>
+        </div>
+
         {renderWorkflowPanel()}
 
         <nav className="unified-detail-tabs" aria-label="Record sections">
-          {commonTabs.map(({ id, label, icon: Icon }) => (
+          {visibleTabs.map(({ id, label, icon: Icon }) => (
             <button className={activeTab === id ? 'active' : ''} key={id} onClick={() => setActiveTab(id)} type="button">
               <Icon size={16} />
               <span>{label}</span>
               {id === 'tasks' && <b>{tasks.length}</b>}
-              {id === 'related' && <b>{relatedRecords.length}</b>}
+              {id === 'approvals' && <b>{approvals.length}</b>}
               {id === 'attachments' && <b>{attachments.length}</b>}
             </button>
           ))}
