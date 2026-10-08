@@ -174,6 +174,27 @@ function slug(value = '') {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
+function inventoryDeviceToContext(device) {
+  return {
+    id: device.reference || device.id,
+    name: device.name,
+    type: [device.platform || device.operating_system, device.compliance_state ? `Compliance: ${device.compliance_state}` : '', device.source_connection_name || ''].filter(Boolean).join(' · '),
+    status: device.management_state || 'Managed',
+    source: device.source,
+    sourceTenant: device.source_connection_name || '',
+    sourceDirectoryTenantId: device.source_directory_tenant_id || '',
+    serialNumber: device.serial_number,
+    sourceDeviceId: device.source_device_id || '',
+    directoryDeviceId: device.directory_device_id || '',
+    rmmReference: device.rmm_reference || device.reference || '',
+    rmmMatchMethod: device.rmm_match_method || (device.source === 'hi5central_agent' ? 'agent' : 'inventory'),
+    deviceId: device.reference,
+    agentDeviceId: device.agent_device_id || null,
+    agentOnline: device.agent_online === true,
+    agentVersion: device.agent_version || '',
+  }
+}
+
 function serviceRequestToLab(request, assignment, organisation) {
   const activities = Array.isArray(request.activities) ? request.activities : []
   return {
@@ -440,6 +461,7 @@ function RecordWorkspace({ route }) {
   const [attachment, setAttachment] = useState(null)
   const [contextView, setContextView] = useState('home')
   const [requesterAssets, setRequesterAssets] = useState([])
+  const [recordDevices, setRecordDevices] = useState([])
   const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-lab-inspector-collapsed') === '1')
   const scrollRef = useRef(null)
@@ -516,28 +538,32 @@ function RecordWorkspace({ route }) {
     apiJson(`/api/v1/rmm/devices?personId=${encodeURIComponent(personLookupId)}`)
       .then((payload) => {
         if (!active) return
-        setRequesterAssets((payload.devices || []).map((device) => ({
-          id: device.reference || device.id,
-          name: device.name,
-          type: [device.platform || device.operating_system, device.compliance_state ? `Compliance: ${device.compliance_state}` : '', device.source_connection_name || ''].filter(Boolean).join(' · '),
-          status: device.management_state || 'Managed',
-          source: device.source,
-          sourceTenant: device.source_connection_name || '',
-          sourceDirectoryTenantId: device.source_directory_tenant_id || '',
-          serialNumber: device.serial_number,
-          sourceDeviceId: device.source_device_id || '',
-          directoryDeviceId: device.directory_device_id || '',
-          rmmReference: device.rmm_reference || device.reference || '',
-          rmmMatchMethod: device.rmm_match_method || (device.source === 'hi5central_agent' ? 'agent' : 'inventory'),
-          deviceId: device.reference,
-          agentDeviceId: device.agent_device_id || null,
-          agentOnline: device.agent_online === true,
-          agentVersion: device.agent_version || '',
-        })))
+        setRequesterAssets((payload.devices || []).map(inventoryDeviceToContext))
       })
       .catch(() => { if (active) setRequesterAssets([]) })
     return () => { active = false }
   }, [detail?.id, detail?.requesterEmail, detail?.requesterId, detail?.requester, rmmAccess.canView])
+  useEffect(() => {
+    if (!detail || !rmmAccess.canView) { setRecordDevices([]); return undefined }
+    const recordAssets = [
+      ...(Array.isArray(detail.assets) ? detail.assets : []),
+      ...(Array.isArray(detail.configurationItems) ? detail.configurationItems : []),
+      ...(Array.isArray(detail.recordData?.assets) ? detail.recordData.assets : []),
+      ...(Array.isArray(detail.recordData?.configurationItems) ? detail.recordData.configurationItems : []),
+    ]
+    const references = [...new Set([
+      detail.rmmDeviceId,
+      detail.rmmDeviceReference,
+      ...recordAssets.map((asset) => asset.rmmReference || asset.rmmDeviceId || ''),
+    ].map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 12)
+    if (!references.length) { setRecordDevices([]); return undefined }
+    let active = true
+    apiJson(`/api/v1/rmm/devices?references=${encodeURIComponent(references.join(','))}`)
+      .then((payload) => { if (active) setRecordDevices((payload.devices || []).map(inventoryDeviceToContext)) })
+      .catch(() => { if (active) setRecordDevices([]) })
+    return () => { active = false }
+  }, [detail, rmmAccess.canView])
+
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [tab])
   useEffect(() => { setContextView('home'); setActivityQuery('') }, [route.reference])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-inspector-collapsed', inspectorCollapsed ? '1' : '0') }, [inspectorCollapsed])
@@ -715,6 +741,7 @@ function RecordWorkspace({ route }) {
   const requesterManager = organisationPeople.find((person) => person.id === requesterPerson?.managerId)
   const contextRecentRecords = Array.isArray(detail.contextRecentRecords) ? detail.contextRecentRecords : []
   const linkedAssets = [
+    ...recordDevices,
     ...requesterAssets,
     ...(detail.rmmDeviceId ? [{ id: detail.rmmDeviceId, rmmReference: detail.rmmDeviceId, name: detail.rmmDeviceName || detail.rmmDeviceId, type: 'Record-linked RMM device' }] : []),
     ...(Array.isArray(detail.assets) ? detail.assets : []),
