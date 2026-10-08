@@ -478,7 +478,7 @@ function RecordWorkspace({ route }) {
   const [requesterAssets, setRequesterAssets] = useState([])
   const [recordDevices, setRecordDevices] = useState([])
   const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
-  const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userEmail: '', tenantRole: '' })
+  const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userId: '', userEmail: '', tenantRole: '' })
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-lab-inspector-collapsed') === '1')
   const scrollRef = useRef(null)
   const timelineRef = useRef(null)
@@ -536,8 +536,8 @@ function RecordWorkspace({ route }) {
       const enabled = session.platformAccess?.rmm === true && permitted('rmm.access')
       const canView = enabled && permitted('rmm.devices.view')
       setRmmAccess({ checked: true, canView, canRemote: canView && permitted('rmm.devices.remote') })
-      setWorkflowAccess({ canManageTasks: session.platformAccess?.itsm === true && permitted('itsm.tasks.manage'), userEmail: String(session.user?.email || '').trim().toLowerCase(), tenantRole: String(session.user?.tenantRole || '').toLowerCase() })
-    }).catch(() => { if (active) { setRmmAccess({ checked: true, canView: false, canRemote: false }); setWorkflowAccess({ canManageTasks: false, userEmail: '', tenantRole: '' }) } })
+      setWorkflowAccess({ canManageTasks: session.platformAccess?.itsm === true && permitted('itsm.tasks.manage'), userId: String(session.user?.id || ''), userEmail: String(session.user?.email || '').trim().toLowerCase(), tenantRole: String(session.user?.tenantRole || '').toLowerCase() })
+    }).catch(() => { if (active) { setRmmAccess({ checked: true, canView: false, canRemote: false }); setWorkflowAccess({ canManageTasks: false, userId: '', userEmail: '', tenantRole: '' }) } })
     return () => { active = false }
   }, [])
   useEffect(() => {
@@ -687,7 +687,9 @@ function RecordWorkspace({ route }) {
   const canDecideApproval = (approval) => {
     if (route.type !== 'Service Request') return false
     if (['owner', 'admin'].includes(workflowAccess.tenantRole)) return true
-    return Boolean(workflowAccess.userEmail && approval.approverEmail && workflowAccess.userEmail === String(approval.approverEmail).trim().toLowerCase())
+    const matchesAssignedUser = Boolean(workflowAccess.userId && approval.approverUserId && workflowAccess.userId === String(approval.approverUserId))
+    const matchesEmail = Boolean(workflowAccess.userEmail && approval.approverEmail && workflowAccess.userEmail === String(approval.approverEmail).trim().toLowerCase())
+    return matchesAssignedUser || matchesEmail
   }
 
   const decideRequestApproval = (approval, decision, note) => run(async () => {
