@@ -254,7 +254,7 @@ try {
         console.log('Password: ' + displayedPassword)
         console.log('Generated password is not stored in Git or printed on reruns.')
       } else console.log('Existing test account retained. To rotate the password, use --reset-password.')
-      console.log('Initial permissions: Portal Requester + Approver; no ITSM Analyst access.')
+      console.log('Portal Requester + Approver roles ensured. Existing ITSM permissions (if any) were left unchanged.')
     } else {
       if (!account) throw new Error('Create the manager first using --apply.')
       if (operation === '--reset-password') {
