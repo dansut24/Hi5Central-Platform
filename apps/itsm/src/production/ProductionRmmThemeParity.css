@@ -1272,3 +1272,23 @@ html[data-hi5-surface='workspace'] .record-lab-context-asset-actions a[aria-disa
     padding: 10px;
   }
 }
+
+/* Record details must also be reachable from the mobile Details tab. */
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy {
+    position: static !important;
+    display: grid !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0;
+    overflow: visible !important;
+    margin: 0;
+    grid-column: auto;
+    grid-row: auto;
+    align-content: start;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy .record-lab-inspector-card {
+    width: 100%;
+    min-width: 0;
+  }
+}
