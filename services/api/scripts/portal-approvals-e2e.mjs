@@ -196,19 +196,35 @@ try {
   assert(detail.response.ok && detail.payload.canDecide === true, 'Approval detail was not decision-enabled')
   assert(detail.payload.request?.requester === 'Approval Requester', 'Approval detail did not include requester context')
 
-  console.log('6. Approve from Portal and release only the first dependency-ready task')
+  console.log('6. Confirm a rejection without a reason is blocked')
+  const emptyRejection = await json(`/api/v1/service-requests/${reference}/approvals/${approval.id}/decision`, {
+    method: 'POST', origin: portalOrigin, cookie: approverPortalCookie,
+    body: { decision: 'Rejected', note: '  ' },
+  })
+  assert(emptyRejection.response.status === 400, 'Rejecting without a reason should be blocked')
+  const afterInvalid = await json(`/api/v1/portal/approvals/${approval.id}`, { origin: portalOrigin, cookie: approverPortalCookie })
+  assert(afterInvalid.response.ok && afterInvalid.payload.status === 'Pending', 'Blank-note rejection altered the approval')
+
+  console.log('7. Approve from Portal and verify the same decision in ITSM')
   const decision = await json(`/api/v1/service-requests/${reference}/approvals/${approval.id}/decision`, {
     method: 'POST', origin: portalOrigin, cookie: approverPortalCookie,
     body: { decision: 'Approved', note: 'Approved in Portal E2E.' },
   })
   assert(decision.response.ok, `Portal approval failed: ${decision.payload.error || decision.response.status}`)
 
+  const portalAfter = await json(`/api/v1/portal/approvals/${approval.id}`, { origin: portalOrigin, cookie: approverPortalCookie })
+  assert(portalAfter.response.ok && portalAfter.payload.status === 'Approved', 'Portal did not show the approved decision')
+  const itsmAfter = await json(`/api/v1/workflows/${reference}`, { cookie: approverWorkspaceCookie })
+  assert(itsmAfter.response.ok, 'ITSM could not reload the request workflow after portal approval')
+  assert(itsmAfter.payload.approvals?.[0]?.status === 'Approved', 'ITSM did not display the portal approval decision')
+  assert(itsmAfter.payload.approvals?.[0]?.canDecide === false, 'Already decided approval remained actionable in ITSM')
+
   const finalState = await db.query(
     `SELECT status, fulfilment_team_id, assigned_person_id
      FROM service_requests WHERE tenant_id=$1 AND reference=$2`,
     [tenantId, reference],
   )
-  assert(finalState.rows[0]?.status === 'Approved', `Approved parent request should remain in Approved queue, got ${finalState.rows[0]?.status}`)
+  assert(finalState.rows[0]?.status === 'New', `Approved request should become New for fulfilment, got ${finalState.rows[0]?.status}`)
   assert(finalState.rows[0]?.fulfilment_team_id === null, 'Approved parent request was automatically team-owned')
   assert(finalState.rows[0]?.assigned_person_id === null, 'Approved parent request was automatically person-owned')
 
@@ -220,10 +236,10 @@ try {
   )
   assert(tasks.rows.length === 2, 'Expected two fulfilment tasks')
   assert(tasks.rows[0]?.status === 'Ready', 'First task was not released after approval')
-  assert(tasks.rows[1]?.status === 'Waiting', 'Dependent task was released too early')
+  assert(tasks.rows[1]?.status === 'Ready', 'Approved request did not release waiting fulfilment task')
   assert(tasks.rows.every((task) => task.team_snapshot?.name === 'Service Desk'), 'Tasks did not retain their configured team routing')
 
-  console.log('Portal approvals E2E passed')
+  console.log('Portal and ITSM shared approvals E2E passed')
 } finally {
   await db.end()
 }
