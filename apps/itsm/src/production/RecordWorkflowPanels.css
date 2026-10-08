@@ -583,8 +583,9 @@
   .record-lab-shell .record-workflow-approval .record-workflow-decision-history {
     margin-left: 10px;
   }
-  .record-lab-shell .record-workflow-decision-form {
-    margin-left: 0;
+  .record-lab-shell .record-workflow-approval-action .record-workflow-decision-form {
+    margin: 0;
+    padding: 12px;
   }
   .record-lab-shell .record-workflow-decision-buttons > button {
     min-height: 40px;
