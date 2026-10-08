@@ -5,7 +5,7 @@ import { ExternalLink, Laptop, Monitor } from 'lucide-react'
  * RMM device workspace, which enforces its own session and viewer checks.
  * The caller must pass tenant-scoped inventory and effective RMM permissions.
  */
-export function RecordLinkedDevices({ devices = [], canView = false, canRemote = false, getDeviceUrl }) {
+export function RecordLinkedDevices({ devices = [], canView = false, canRemote = false, getDeviceUrl, onShowAll }) {
   if (!canView || !devices.length || typeof getDeviceUrl !== 'function') return null
 
   return (
@@ -38,7 +38,7 @@ export function RecordLinkedDevices({ devices = [], canView = false, canRemote =
           </div>
         )
       })}
-      {devices.length > 3 ? <small className="record-lab-device-more">View Assets & CIs for {devices.length - 3} more device{devices.length - 3 === 1 ? '' : 's'}.</small> : null}
+      {devices.length > 3 && onShowAll ? <button className="record-lab-device-more" type="button" onClick={onShowAll}>View all {devices.length} devices <ExternalLink size={13} aria-hidden="true" /></button> : null}
     </section>
   )
 }
