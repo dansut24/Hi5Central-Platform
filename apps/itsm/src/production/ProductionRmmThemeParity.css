@@ -1298,7 +1298,7 @@ html[data-hi5-surface='workspace'] .record-lab-issue-summary {
   max-height: none !important;
   overflow: visible !important;
 }
-html[data-hi5-surface='workspace'] .record-lab-issue-summary:not(.is-expanded) > p {
+html[data-hi5-surface='workspace'] .record-lab-issue-summary.is-collapsible:not(.is-expanded) > p {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
