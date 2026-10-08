@@ -903,7 +903,7 @@ function RecordWorkspace({ route }) {
   const originalSummary = detail.description?.trim() || ''
   const summaryLong = originalSummary.length > 280 || originalSummary.split('\n').length > 5
   const renderActivity = () => <section className="record-lab-panel record-lab-tab-panel record-lab-activity-panel">
-    <div className={`record-lab-issue-summary${summaryExpanded ? ' is-expanded' : ''}`}>
+    <div className={`record-lab-issue-summary${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>
       <div className="record-lab-issue-summary-heading"><span>{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</span><small>Original description</small></div>
       <p>{originalSummary || 'No issue description has been provided yet.'}</p>
       {summaryLong ? <button type="button" className="record-lab-summary-expand" aria-expanded={summaryExpanded} onClick={() => setSummaryExpanded((current) => !current)}>{summaryExpanded ? 'Show less' : 'Read full description'} <ChevronDown size={14} aria-hidden="true" /></button> : null}
