@@ -2180,3 +2180,189 @@ html[data-hi5-surface='workspace'] .dashboard-builder-v3.is-editing > .itsm-rmm-
     gap: 12px !important;
   }
 }
+
+
+/* Mobile ITSM chrome + Dashboard parity.
+   Keep the native workspace tabs visible on phones, remove the spare vertical
+   row left by older mobile chrome rules, and use the same compact page gutters
+   as the RMM mobile dashboard. */
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .main-frame {
+    grid-template-rows: 40px 40px minmax(0, 1fr) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar {
+    position: relative !important;
+    z-index: 12 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: 40px !important;
+    width: 100% !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 1px 8px 0 !important;
+    overflow: hidden !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    border-bottom: 1px solid var(--line) !important;
+    background: color-mix(in srgb, var(--surface) 90%, var(--page)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone {
+    display: grid !important;
+    grid-template-columns: 34px minmax(0, 1fr) !important;
+    grid-template-rows: 40px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    overflow: hidden !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tabbar-brand {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    display: inline-grid !important;
+    place-items: center !important;
+    align-self: center !important;
+    width: 34px !important;
+    min-width: 34px !important;
+    height: 32px !important;
+    margin: 0 !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    display: flex !important;
+    align-items: end !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 40px !important;
+    margin: 0 !important;
+    padding: 0 0 0 8px !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    flex-wrap: nowrap !important;
+    scrollbar-width: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar-tab-zone > .tab-list::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .workspace-tab,
+  html[data-hi5-surface='workspace'] .tabbar .tab-add {
+    display: inline-flex !important;
+    flex: 0 0 auto !important;
+    height: 39px !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .workspace-tab {
+    min-width: 118px !important;
+    max-width: 190px !important;
+    padding-inline: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .tabbar .tab-add {
+    width: 34px !important;
+    min-width: 34px !important;
+    justify-content: center !important;
+  }
+
+  html[data-hi5-surface='workspace'] .workspace:has(.dashboard-builder-v3) {
+    box-sizing: border-box !important;
+    padding: 18px 13px calc(34px + env(safe-area-inset-bottom)) !important;
+    gap: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+  }
+
+  html[data-hi5-surface='workspace'] .content-frame:has(.dashboard-builder-v3),
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3 {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+  }
+
+  html[data-hi5-surface='workspace'] .dashboard-builder-v3 > .itsm-rmm-dashboard {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading {
+    align-items: flex-start !important;
+    gap: 12px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading-actions {
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-metric-grid {
+    gap: 8px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 12px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot {
+    min-width: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot > .itsm-rmm-card {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-health-summary,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-attention-list,
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-card-slot .itsm-rmm-record-feed {
+    height: auto !important;
+  }
+}
+
+@media (max-width: 640px) {
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading {
+    flex-direction: column !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading-actions {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-heading-actions > * {
+    min-width: 0 !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher {
+    width: 100% !important;
+  }
+
+  html[data-hi5-surface='workspace'] .itsm-rmm-dashboard-switcher-button {
+    width: 100% !important;
+  }
+}
