@@ -338,7 +338,10 @@ function safeAttachments(value) {
 async function requestPayload(db, requestRow, { requesterView = false } = {}) {
   const [itemsResult, approvalsResult, tasksResult, activitiesResult, attachmentsResult, assigneeResult] = await Promise.all([
     db.query('SELECT * FROM service_request_items WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
-    db.query('SELECT * FROM service_request_approvals WHERE request_id = $1 ORDER BY sequence, created_at', [requestRow.id]),
+    db.query(`SELECT a.*, COALESCE(a.approver_user_id, p.user_id) AS effective_approver_user_id
+      FROM service_request_approvals a
+      LEFT JOIN organisation_people p ON p.id=a.approver_person_id AND p.tenant_id=a.tenant_id
+      WHERE a.request_id=$1 ORDER BY a.sequence,a.created_at`, [requestRow.id]),
     db.query('SELECT * FROM service_request_tasks WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
     db.query('SELECT * FROM service_request_activities WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
     db.query('SELECT id,file_name,mime_type,byte_size,sha256,visibility,uploaded_by_snapshot,created_at FROM service_request_attachments WHERE request_id = $1 ORDER BY created_at DESC', [requestRow.id]),
@@ -411,7 +414,7 @@ async function requestPayload(db, requestRow, { requesterView = false } = {}) {
       approver: asObject(approval.approver_snapshot).name || 'Unassigned approver',
       approverEmail: asObject(approval.approver_snapshot).email || '',
       approverId: asObject(approval.approver_snapshot).personId || '',
-      approverUserId: approval.approver_user_id || null,
+      approverUserId: approval.effective_approver_user_id || null,
       decisionNote: approval.decision_note,
       decidedAt: approval.decided_at || null,
       updated: approval.updated_at,
