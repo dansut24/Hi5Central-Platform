@@ -1346,3 +1346,55 @@ html[data-hi5-surface='workspace'] button.record-lab-device-more {
 html[data-hi5-surface='workspace'] button.record-lab-device-more:hover {
   text-decoration: underline;
 }
+
+/* Activity-first record details: compact inline note editor. */
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer:has(.record-lab-composer.is-note) {
+  padding: 0 15px 12px;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-composer .record-lab-composer.is-note {
+  margin-top: 10px;
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea {
+  min-height: 88px;
+  max-height: 180px;
+  margin: 0;
+  padding: 12px 13px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea::placeholder {
+  color: var(--muted);
+  opacity: .9;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note .record-lab-composer-attachments {
+  padding: 7px 12px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note > footer {
+  min-height: 52px;
+  padding: 8px 12px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note > footer > button {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer:has(.record-lab-composer.is-note) {
+    padding: 0 10px 10px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea {
+    min-height: 96px;
+    font-size: 14px;
+  }
+}
