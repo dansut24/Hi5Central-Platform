@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, CircleDot, Clock3, FileText, Plus, ShieldCheck, X } from 'lucide-react'
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, CircleDot, Clock3, Plus, ShieldCheck, X } from 'lucide-react'
 import './RecordWorkflowPanels.css'
 
 const TASK_STATES = ['Open', 'In Progress', 'Blocked', 'Completed', 'Cancelled']
@@ -123,7 +123,7 @@ export function RecordApprovalsPanel({ approvals = [], isServiceRequest = false,
           <StatePill status={approval.status} />
         </div>
         {completed ? <div className="record-workflow-decision-history">
-          <div className="record-workflow-decision-heading"><CheckCircle2 size={15} /><strong>{approval.status} decision recorded</strong>{approval.decidedAt || approval.updated ? <time dateTime={approval.decidedAt || approval.updated}>{dateLabel(approval.decidedAt || approval.updated)}</time> : null}</div>
+          <div className="record-workflow-decision-heading">{approval.status === 'Rejected' ? <AlertTriangle className="is-rejected" size={15} /> : <CheckCircle2 size={15} />}<strong>{approval.status} decision recorded</strong>{approval.decidedAt || approval.updated ? <time dateTime={approval.decidedAt || approval.updated}>{dateLabel(approval.decidedAt || approval.updated)}</time> : null}</div>
           {approval.decisionNote ? <p>{approval.decisionNote}</p> : <small>No decision note supplied.</small>}
         </div> : null}
         {canDecide ? <div className="record-workflow-approval-action">
