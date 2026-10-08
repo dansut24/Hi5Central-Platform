@@ -174,60 +174,60 @@ async function referenceFor(client, tenantId, kind, config) {
   const { prefix, digits } = numbering(config, kind)
   for (let i = 0; i < 300; i++) {
     const next = await client.query(
-      \`INSERT INTO tenant_record_counters (tenant_id, record_type, next_value, updated_at)
+      `INSERT INTO tenant_record_counters (tenant_id, record_type, next_value, updated_at)
        VALUES ($1,$2,1,now())
        ON CONFLICT (tenant_id,record_type) DO UPDATE SET
          next_value=tenant_record_counters.next_value+1, updated_at=now()
-       RETURNING next_value\`,
+       RETURNING next_value`,
       [tenantId, kind],
     )
     const reference = prefix + String(next.rows[0].next_value).padStart(digits, '0')
     const table = kind === 'change' ? 'itsm_records' : 'service_requests'
-    const existing = await client.query(\`SELECT 1 FROM \${table} WHERE tenant_id=$1 AND reference=$2\`, [tenantId, reference])
+    const existing = await client.query(`SELECT 1 FROM ${table} WHERE tenant_id=$1 AND reference=$2`, [tenantId, reference])
     if (!existing.rowCount) return reference
   }
-  throw new Error(\`Could not allocate an unused \${kind} reference (counter out of sync).\`)
+  throw new Error(`Could not allocate an unused ${kind} reference (counter out of sync).`)
 }
 
 async function findSeed(client, table, field, tenantId, key) {
   const result = await client.query(
-    \`SELECT reference FROM \${table} WHERE tenant_id=$1 AND \${field}->>'reviewSeedKey'=$2 LIMIT 1\`,
-    [tenantId, \`\${SEED}/\${key}\`],
+    `SELECT reference FROM ${table} WHERE tenant_id=$1 AND ${field}->>'reviewSeedKey'=$2 LIMIT 1`,
+    [tenantId, `${SEED}/${key}`],
   )
   return result.rows[0]?.reference || null
 }
 
 function json(value) { return JSON.stringify(value) }
 function requester(index) {
-  return { name: \`UI Review Requester \${String(index).padStart(2, '0')}\`, email: \`ui-review-\${index}@example.invalid\`, jobTitle: 'Test colleague', department: 'IT' }
+  return { name: `UI Review Requester ${String(index).padStart(2, '0')}`, email: `ui-review-${index}@example.invalid`, jobTitle: 'Test colleague', department: 'IT' }
 }
 
 async function createChange(client, tenantId, authorId, config, entry, index) {
   const existing = await findSeed(client, 'itsm_records', 'record_data', tenantId, entry.key)
   if (existing) return { type: 'Change', reference: existing, outcome: 'already exists' }
   const reference = await referenceFor(client, tenantId, 'change', config)
-  const recordData = { reviewSeedKey: \`\${SEED}/\${entry.key}\`, changeType: 'Normal', environment: 'Local DEV', risk: entry.priority, implementationPlan: entry.description }
+  const recordData = { reviewSeedKey: `${SEED}/${entry.key}`, changeType: 'Normal', environment: 'Local DEV', risk: entry.priority, implementationPlan: entry.description }
   const row = await client.query(
-    \`INSERT INTO itsm_records (
+    `INSERT INTO itsm_records (
        tenant_id, reference, record_type, requester_snapshot, title, description,
        service, category, priority, status, source, record_data, created_by_user_id
      ) VALUES ($1,$2,'Change',$3::jsonb,$4,$5,$6,'Change Management',$7,$8,'dev_review_seed',$9::jsonb,$10)
-     RETURNING id\`,
+     RETURNING id`,
     [tenantId, reference, json(requester(index)), entry.title, entry.description, entry.service, entry.priority, entry.status, json(recordData), authorId],
   )
   const recordId = row.rows[0].id
   for (const [taskTitle, status, instructions] of entry.tasks) {
     await client.query(
-      \`INSERT INTO itsm_record_tasks (tenant_id, record_id, title, status, instructions, created_by_user_id, created_by_snapshot, completed_at, due_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,CASE WHEN $4='Completed' THEN now() ELSE NULL END, now()+interval '7 days')\`,
+      `INSERT INTO itsm_record_tasks (tenant_id, record_id, title, status, instructions, created_by_user_id, created_by_snapshot, completed_at, due_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,CASE WHEN $4='Completed' THEN now() ELSE NULL END, now()+interval '7 days')`,
       [tenantId, recordId, taskTitle, status, instructions, authorId, json({ name: 'UI Review Seed' })],
     )
   }
   for (let i = 0; i < entry.notes.length; i++) {
     await client.query(
-      \`INSERT INTO itsm_record_activities
+      `INSERT INTO itsm_record_activities
        (tenant_id, record_id, actor_user_id, actor_snapshot, kind, visibility, body_text, metadata, created_at)
-       VALUES ($1,$2,$3,$4::jsonb,'note','internal',$5,$6::jsonb,now() - ($7::int * interval '1 day'))\`,
+       VALUES ($1,$2,$3,$4::jsonb,'note','internal',$5,$6::jsonb,now() - ($7::int * interval '1 day'))`,
       [tenantId, recordId, authorId, json({ name: 'UI Review Technician' }), entry.notes[i], json({ reviewSeedKey: SEED }), entry.notes.length - i],
     )
   }
@@ -238,21 +238,21 @@ async function createRequest(client, tenantId, author, entry, index, config) {
   const existing = await findSeed(client, 'service_requests', 'operational_data', tenantId, entry.key)
   if (existing) return { type: 'Service Request', reference: existing, outcome: 'already exists' }
   const reference = await referenceFor(client, tenantId, 'service_request', config)
-  const operationalData = { reviewSeedKey: \`\${SEED}/\${entry.key}\`, demoOnly: true }
+  const operationalData = { reviewSeedKey: `${SEED}/${entry.key}`, demoOnly: true }
   const reviewInformation = [
     { label: 'Purpose', value: 'Test the record workflow design and interactions' },
     { label: 'Environment', value: 'Local DEV' },
     { label: 'Review scenario', value: entry.status },
   ]
   const row = await client.query(
-    \`INSERT INTO service_requests (
+    `INSERT INTO service_requests (
        tenant_id, reference, requester_snapshot, title, description, service,
        priority, status, source, request_information, approval_mode_snapshot,
        operational_data, created_by_user_id, response_due_at, resolution_due_at, sla_paused_at
      ) VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7,$8,'dev_review_seed',$9::jsonb,$10,$11::jsonb,$12,
        now() + interval '4 hours',now() + interval '2 days',
        CASE WHEN $8='Pending Approval' THEN now() ELSE NULL END)
-     RETURNING id\`,
+     RETURNING id`,
     [tenantId, reference, json(requester(index + 5)), entry.title, entry.description, entry.service,
       entry.priority, entry.status, json(reviewInformation), entry.approval ? 'manager' : 'none',
       json(operationalData), author.id],
@@ -261,31 +261,31 @@ async function createRequest(client, tenantId, author, entry, index, config) {
   for (let i = 0; i < entry.tasks.length; i++) {
     const [taskTitle, status, instructions] = entry.tasks[i]
     await client.query(
-      \`INSERT INTO service_request_tasks
+      `INSERT INTO service_request_tasks
        (tenant_id, request_id, external_key, title, status, instructions, created_at, completed_at, due_at)
        VALUES ($1,$2,$3,$4,$5,$6,now()+($7::int * interval '1 minute'),
-         CASE WHEN $5='Completed' THEN now() ELSE NULL END, now()+interval '7 days')\`,
-      [tenantId, requestId, \`\${reference}-REVIEW-\${i+1}\`, taskTitle, status, instructions, i],
+         CASE WHEN $5='Completed' THEN now() ELSE NULL END, now()+interval '7 days')`,
+      [tenantId, requestId, `${reference}-REVIEW-${i+1}`, taskTitle, status, instructions, i],
     )
   }
   if (entry.approval) {
     const [status, label, note] = entry.approval
     await client.query(
-      \`INSERT INTO service_request_approvals (
+      `INSERT INTO service_request_approvals (
          tenant_id, request_id, sequence, label, status, approver_user_id,
          approver_snapshot, decision_note, decided_at
        ) VALUES ($1,$2,1,$3,$4,$5,$6::jsonb,$7,
-         CASE WHEN $4='Pending' THEN NULL ELSE now() END)\`,
+         CASE WHEN $4='Pending' THEN NULL ELSE now() END)`,
       [tenantId, requestId, label, status, author.id,
         json({ name: author.name, email: author.email, personId: '' }), note],
     )
   }
   for (let i = 0; i < entry.notes.length; i++) {
     await client.query(
-      \`INSERT INTO service_request_activities
+      `INSERT INTO service_request_activities
        (tenant_id, request_id, actor_user_id, actor_snapshot, kind, visibility,
          body_text, metadata, created_at)
-       VALUES ($1,$2,$3,$4::jsonb,'work','internal',$5,$6::jsonb,now()-($7::int * interval '1 day'))\`,
+       VALUES ($1,$2,$3,$4::jsonb,'work','internal',$5,$6::jsonb,now()-($7::int * interval '1 day'))`,
       [tenantId, requestId, author.id, json({ name: 'UI Review Technician' }),
         entry.notes[i], json({ reviewSeedKey: SEED }), entry.notes.length - i],
     )
@@ -298,20 +298,20 @@ await client.connect()
 let transactionOpen = false
 try {
   const result = await client.query(
-    \`SELECT t.id,t.slug,t.status,ts.modules,ts.configuration,ts.onboarding_data
+    `SELECT t.id,t.slug,t.status,ts.modules,ts.configuration,ts.onboarding_data
      FROM tenants t JOIN tenant_settings ts ON ts.tenant_id=t.id
-     WHERE t.slug=$1 LIMIT 1\`,
+     WHERE t.slug=$1 LIMIT 1`,
     [tenantSlug],
   )
-  if (!result.rowCount) throw new Error(\`Tenant "\${tenantSlug}" does not exist. Nothing was changed.\`)
+  if (!result.rowCount) throw new Error(`Tenant "${tenantSlug}" does not exist. Nothing was changed.`)
   const tenant = result.rows[0]
   if (tenant.status !== 'active' || tenant.modules?.itsm !== true) throw new Error('Tenant is not active with ITSM enabled.')
   const authorResult = await client.query(
-    \`SELECT u.id,u.name,u.email FROM tenant_memberships m
+    `SELECT u.id,u.name,u.email FROM tenant_memberships m
      JOIN users u ON u.id=m.user_id
      WHERE m.tenant_id=$1 AND m.status='active' AND m.role IN ('owner','admin')
      ORDER BY CASE m.role WHEN 'owner' THEN 0 ELSE 1 END,u.created_at
-     LIMIT 1\`,
+     LIMIT 1`,
     [tenant.id],
   )
   if (!authorResult.rowCount) throw new Error('No active tenant owner/admin to own the review approvals.')
@@ -319,7 +319,7 @@ try {
   const config = tenant.configuration && Object.keys(tenant.configuration).length
     ? tenant.configuration : (tenant.onboarding_data || {})
 
-  console.log(\`Tenant: \${tenant.slug} | App: \${appUrl} | Mode: \${apply ? 'APPLY' : 'PREVIEW'}\`)
+  console.log(`Tenant: ${tenant.slug} | App: ${appUrl} | Mode: ${apply ? 'APPLY' : 'PREVIEW'}`)
   console.log('Review records: 5 Changes and 5 Service Requests.')
   if (!apply) {
     for (const [table, field, entries] of [
@@ -328,7 +328,7 @@ try {
     ]) {
       for (const item of entries) {
         const ref = await findSeed(client, table, field, tenant.id, item.key)
-        console.log(\`  \${ref || '(new)'.padEnd(12)} \${item.title} — \${item.status}\`)
+        console.log(`  ${ref || '(new)'.padEnd(12)} ${item.title} — ${item.status}`)
       }
     }
     console.log('PREVIEW only. Run again with --apply to create any missing records.')
@@ -344,9 +344,9 @@ try {
     transactionOpen = false
     for (const item of output) {
       const route = item.type === 'Change' ? 'changes' : 'requests'
-      console.log(\`  \${item.outcome.padEnd(14)} \${appUrl}/\${route}/\${item.reference}\`)
+      console.log(`  ${item.outcome.padEnd(14)} ${appUrl}/${route}/${item.reference}`)
     }
-    console.log(\`Review set ready: \${output.filter(o=>o.outcome==='created').length} new, \${output.filter(o=>o.outcome==='already exists').length} already present.\`)
+    console.log(`Review set ready: ${output.filter(o=>o.outcome==='created').length} new, ${output.filter(o=>o.outcome==='already exists').length} already present.`)
     console.log('No emails were sent by this direct local fixture insert.')
   }
 } catch (error) {
