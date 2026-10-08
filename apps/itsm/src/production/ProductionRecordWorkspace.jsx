@@ -698,8 +698,6 @@ function RecordWorkspace({ route }) {
   const attachmentMap = new Map()
   ;[...recordAttachments, ...activityAttachments].forEach((item, index) => attachmentMap.set(item.id || item._key || `attachment-${index}`, item))
   const attachments = [...attachmentMap.values()]
-  const completeTasks = tasks.filter((item) => item.status === 'Completed').length
-  const pendingApprovals = approvals.filter((item) => item.status === 'Pending').length
   const responseState = detail.sla?.response?.state
   const resolutionState = detail.sla?.resolution?.state
   const primarySlaTone = resolutionState === 'breached' ? 'danger' : resolutionState === 'warning' ? 'warning' : resolutionState === 'met' ? 'good' : 'accent'
@@ -718,6 +716,7 @@ function RecordWorkspace({ route }) {
   const contextRecentRecords = Array.isArray(detail.contextRecentRecords) ? detail.contextRecentRecords : []
   const linkedAssets = [
     ...requesterAssets,
+    ...(detail.rmmDeviceId ? [{ id: detail.rmmDeviceId, rmmReference: detail.rmmDeviceId, name: detail.rmmDeviceName || detail.rmmDeviceId, type: 'Record-linked RMM device' }] : []),
     ...(Array.isArray(detail.assets) ? detail.assets : []),
     ...(Array.isArray(detail.configurationItems) ? detail.configurationItems : []),
     ...(Array.isArray(detail.recordData?.assets) ? detail.recordData.assets : []),
@@ -770,46 +769,7 @@ function RecordWorkspace({ route }) {
         ['details', 'Details'],
       ]
 
-  const latest = meaningfulActivities.slice(0, 4)
   const activeTabLabel = (tabs.find(([value]) => value === tab)?.[1] || 'Activity').replace(/\s+\d+$/, '')
-
-  const renderOverview = () => <div className="record-lab-overview-grid">
-    <section className="record-lab-panel record-lab-summary-panel">
-      <header><span>Record information</span><h2>{route.type === 'Service Request' ? 'Request summary' : 'What is happening?'}</h2></header>
-      <div className="record-lab-description">{detail.description?.trim() || 'No description has been recorded.'}</div>
-      <div className="record-lab-facts-grid">
-        <OverviewFact label="Requester" value={detail.requester} sub={detail.requesterEmail} />
-        <OverviewFact label="Service" value={detail.service} />
-        <OverviewFact label="Category" value={detail.category || detail.catalogueItemTitle} />
-        <OverviewFact label="Assignment" value={detail.team || 'Unassigned'} sub={detail.assignee || 'Unassigned'} />
-        <OverviewFact label="Created" value={formatDate(detail.createdAt, true)} />
-        <OverviewFact label="Last updated" value={formatDate(detail.updatedAt, true)} />
-      </div>
-    </section>
-
-    <aside className="record-lab-work-rail">
-      <section className="record-lab-panel">
-        <header><span>Work</span><h3>Next attention</h3></header>
-        {route.type === 'Service Request' ? <>
-          <OverviewFact label="Fulfilment" value={tasks.length ? `${completeTasks} of ${tasks.length} tasks complete` : (detail.nextStep || detail.status)} />
-          <OverviewFact label="Approvals" value={approvals.length ? (pendingApprovals ? `${pendingApprovals} pending` : 'Complete') : 'Not required'} />
-          <OverviewFact label="Cost" value={`${money(detail.oneOffCost, detail.currency)} one-off`} sub={`${money(detail.monthlyCost, detail.currency)}/month`} />
-        </> : <>
-          <OverviewFact label="Priority" value={detail.priority || 'Medium'} sub={`${detail.impact || 'Medium'} impact · ${detail.urgency || 'Medium'} urgency`} />
-          <OverviewFact label="SLA" value={primarySlaLabel} />
-          <OverviewFact label="Resolution" value={detail.resolutionCode || 'Not resolved'} />
-        </>}
-      </section>
-      <section className={`record-lab-panel record-lab-mini-sla is-${primarySlaTone}`} onClick={() => setTab('sla')} role="button" tabIndex="0">
-        <span>Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small>
-      </section>
-    </aside>
-
-    <section className="record-lab-panel record-lab-recent-panel">
-      <header><span>Recent activity</span><h2>Latest meaningful updates</h2><button type="button" onClick={() => setTab('activity')}>View all activity</button></header>
-      <div className="record-lab-recent-list">{latest.length ? latest.map((item) => <TimelineItem item={item} key={item.id} />) : <div className="record-lab-empty">No notes or customer updates yet.</div>}</div>
-    </section>
-  </div>
 
   const renderInspector = (mobile = false) => {
     if (!mobile && inspectorCollapsed) return null
