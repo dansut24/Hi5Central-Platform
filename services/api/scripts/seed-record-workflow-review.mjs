@@ -347,7 +347,7 @@ try {
       console.log(`  ${item.outcome.padEnd(14)} ${appUrl}/${route}/${item.reference}`)
     }
     console.log(`Review set ready: ${output.filter(o=>o.outcome==='created').length} new, ${output.filter(o=>o.outcome==='already exists').length} already present.`)
-    console.log('No emails were sent by this direct local fixture insert.')
+    console.log('Fixture inserted directly into local PostgreSQL; API notification handlers were not called.')
   }
 } catch (error) {
   if (transactionOpen) await client.query('ROLLBACK')
