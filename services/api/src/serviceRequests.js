@@ -734,6 +734,10 @@ export function registerServiceRequestRoutes(app) {
     }
     const decision = text(body?.decision, 20)
     if (!allowedDecisions.has(decision)) return c.json({ error: 'Decision must be Approved or Rejected.' }, 400)
+    const decisionNote = text(body?.note, 5000)
+    if (decision === 'Rejected' && !decisionNote) {
+      return c.json({ error: 'A rejection reason is required.' }, 400)
+    }
 
     const row = await lookupRequest(auth.session.tenant_id, c.req.param('reference'))
     if (!row) return c.json({ error: 'Service Request not found.' }, 404)
@@ -759,7 +763,7 @@ export function registerServiceRequestRoutes(app) {
         `UPDATE service_request_approvals
          SET status = $1, decision_note = $2, decided_at = now(), updated_at = now()
          WHERE id = $3`,
-        [decision, text(body?.note, 5000), approval.id],
+        [decision, decisionNote, approval.id],
       )
 
       if (decision === 'Rejected') {
@@ -791,7 +795,7 @@ export function registerServiceRequestRoutes(app) {
           auth.session.user_id,
           requester.person?.id || null,
           JSON.stringify({ name: requester.snapshot.name, email: requester.snapshot.email }),
-          `${requester.snapshot.name} ${decision.toLowerCase()} the approval${body?.note ? `: ${text(body.note, 1000)}` : '.'}`,
+          `${requester.snapshot.name} ${decision.toLowerCase()} the approval${decisionNote ? `: ${decisionNote.slice(0, 1000)}` : '.'}`,
           JSON.stringify({ event: 'approval.decided', decision, approvalId: approval.id }),
         ],
       )
