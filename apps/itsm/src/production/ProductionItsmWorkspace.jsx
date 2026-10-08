@@ -38,6 +38,7 @@ const VIEW_STYLES = [
   { id: 'table', label: 'Table', icon: TableProperties },
   { id: 'compact', label: 'Compact', icon: List },
   { id: 'cards', label: 'Cards', icon: LayoutGrid },
+  { id: 'kanban', label: 'Kanban', icon: Columns3 },
 ]
 const COLUMN_DEFINITIONS = [
   { key: 'reference', label: 'Reference', width: 118, locked: true },
@@ -344,17 +345,63 @@ function CardList({ items, onOpen, returnRecord }) {
   )
 }
 
-function QueueSkeleton({ viewStyle }) {
-  if (viewStyle === 'cards') {
-    return <div className="production-record-skeleton-cards" aria-label="Loading records">{Array.from({ length: 6 }, (_, index) => <div className="production-skeleton production-record-skeleton-card" key={index}><i /><i /><i /><i /></div>)}</div>
-  }
-  if (viewStyle === 'compact') {
-    return <div className="production-record-skeleton-compact" aria-label="Loading records">{Array.from({ length: 8 }, (_, index) => <div className="production-skeleton production-record-skeleton-line" key={index}><i /><i /><i /><i /></div>)}</div>
-  }
+function KanbanBoard({ items, onOpen, returnRecord }) {
+  const preferredOrder = [
+    'New', 'Assigned', 'In Progress', 'Pending', 'Pending Approval', 'Awaiting Approval',
+    'Approved', 'Scheduled', 'Review', 'Resolved', 'Closed', 'Cancelled',
+  ]
+  const statuses = [...new Set(items.map((record) => record.status || 'Unassigned'))]
+    .sort((a, b) => {
+      const aIndex = preferredOrder.indexOf(a)
+      const bIndex = preferredOrder.indexOf(b)
+      if (aIndex === -1 && bIndex === -1) return a.localeCompare(b)
+      if (aIndex === -1) return 1
+      if (bIndex === -1) return -1
+      return aIndex - bIndex
+    })
+
   return (
-    <div className="production-record-skeleton-table" aria-label="Loading records">
-      <div className="production-record-skeleton-head">{Array.from({ length: 8 }, (_, index) => <i key={index} />)}</div>
-      {Array.from({ length: 7 }, (_, row) => <div className="production-skeleton production-record-skeleton-row" key={row}>{Array.from({ length: 8 }, (_, cell) => <i key={cell} />)}</div>)}
+    <div className="production-record-kanban" aria-label="Kanban record view">
+      {statuses.map((status) => {
+        const records = items.filter((record) => (record.status || 'Unassigned') === status)
+        return (
+          <section className="production-record-kanban-column" key={status}>
+            <header>
+              <span className={`production-record-status ${statusClass(status)}`}>{status}</span>
+              <strong>{records.length}</strong>
+            </header>
+            <div className="production-record-kanban-stack">
+              {records.map((record) => (
+                <button
+                  className={`production-record-kanban-card${returnRecord === record.id ? ' is-returned' : ''}`}
+                  key={record.id}
+                  onClick={() => onOpen(record)}
+                  type="button"
+                >
+                  <span className="production-record-kanban-card-top">
+                    <strong>{record.id}</strong>
+                    <span className={`production-record-priority ${priorityClass(record.priority)}`}>{record.priority || 'Not set'}</span>
+                  </span>
+                  <b>{record.title}</b>
+                  <small>{record.requester || 'Requester not recorded'}</small>
+                  <span className="production-record-kanban-card-meta">
+                    <small>{record.team || 'Unassigned team'}</small>
+                    <small>{formatDate(record.updatedAt)}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+function QueueLoading() {
+  return (
+    <div className="production-record-logo-loader" aria-label="Loading records" role="status">
+      <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
     </div>
   )
 }
@@ -566,7 +613,7 @@ function ProductionQueue({ route }) {
   }
 
   const pageCount = Math.max(1, Math.ceil(Number(payload.total || 0) / pageSize))
-  const renderedViewStyle = isMobileQueue ? 'cards' : 'table'
+  const renderedViewStyle = isMobileQueue && viewStyle === 'table' ? 'cards' : viewStyle
   const activeFilterCount = [
     query.trim(),
     route.type === 'All' && filters.recordType !== 'All' ? filters.recordType : '',
@@ -584,19 +631,38 @@ function ProductionQueue({ route }) {
           <div className="production-record-view-pills" aria-label="Record quick views">
             {QUEUE_QUICK_VIEWS.map(([id, label]) => <button className={(filters.__view || 'all') === id ? 'is-active' : ''} key={id} onClick={() => applyQuickView(id)} type="button">{label}</button>)}
           </div>
+          <div className="production-record-view-style" aria-label="Record layout" role="group">
+            {VIEW_STYLES.map(({ id, label, icon: Icon }) => (
+              <button
+                aria-label={`${label} view`}
+                className={renderedViewStyle === id || (isMobileQueue && id === 'cards' && viewStyle === 'table') ? 'is-active' : ''}
+                key={id}
+                onClick={() => changeViewStyle(id)}
+                title={`${label} view`}
+                type="button"
+              >
+                <Icon size={15} aria-hidden="true" />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
           <button className="production-record-viewbar-filter" onClick={() => setMobileFilters(true)} type="button"><Filter size={15} />Filters{activeFilterCount > 0 ? <b>{activeFilterCount}</b> : null}</button>
           <button className="production-record-viewbar-new" onClick={createRecord} type="button"><Plus size={15} />New</button>
         </div>
 
         <div className="production-record-content" ref={contentRef}>
-          {loading ? <QueueSkeleton viewStyle={renderedViewStyle} /> : null}
+          {loading ? <QueueLoading /> : null}
           {!loading && error ? <div className="production-record-state is-error"><strong>Could not load this queue</strong><span>{error}</span><button onClick={() => setRevision((value) => value + 1)} type="button">Retry</button></div> : null}
           {!loading && !error && !payload.items?.length ? <div className="production-record-state"><strong>No {route.title.toLowerCase()} in this view</strong><span>Change the filters or create the first {route.singular}.</span></div> : null}
           {!loading && !error && payload.items?.length ? (
             <div className="production-motion-enter production-motion-enter-fast">
-              {renderedViewStyle === 'cards'
-                ? <CardList items={payload.items} onOpen={openRecord} returnRecord={returnRecord} />
-                : <RecordTable items={payload.items} onOpen={openRecord} columns={visibleColumns} widths={columnWidths} onWidthChange={(key, width) => setColumnWidths((current) => ({ ...current, [key]: width }))} returnRecord={returnRecord} />}
+              {renderedViewStyle === 'kanban'
+                ? <KanbanBoard items={payload.items} onOpen={openRecord} returnRecord={returnRecord} />
+                : renderedViewStyle === 'cards'
+                  ? <CardList items={payload.items} onOpen={openRecord} returnRecord={returnRecord} />
+                  : renderedViewStyle === 'compact'
+                    ? <CompactList items={payload.items} onOpen={openRecord} returnRecord={returnRecord} />
+                    : <RecordTable items={payload.items} onOpen={openRecord} columns={visibleColumns} widths={columnWidths} onWidthChange={(key, width) => setColumnWidths((current) => ({ ...current, [key]: width }))} returnRecord={returnRecord} />}
             </div>
           ) : null}
         </div>
