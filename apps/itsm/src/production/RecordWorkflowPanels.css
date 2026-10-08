@@ -530,6 +530,7 @@
   color: var(--muted);
 }
 .record-lab-shell .record-workflow-decision-heading svg { color: #29a871; }
+.record-lab-shell .record-workflow-decision-heading svg.is-rejected { color: #ed7885; }
 .record-lab-shell .record-workflow-decision-heading strong {
   font-size: 10px;
   color: var(--ink);
