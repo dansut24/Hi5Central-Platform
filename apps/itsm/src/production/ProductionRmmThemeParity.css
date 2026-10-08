@@ -1292,3 +1292,57 @@ html[data-hi5-surface='workspace'] .record-lab-context-asset-actions a[aria-disa
     min-width: 0;
   }
 }
+
+/* Record details: readable summary disclosure and actionable overflow devices. */
+html[data-hi5-surface='workspace'] .record-lab-issue-summary {
+  max-height: none !important;
+  overflow: visible !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary:not(.is-expanded) > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 9px 0 0;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--accent-rgb));
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand:hover {
+  text-decoration: underline;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand:focus-visible,
+html[data-hi5-surface='workspace'] .record-lab-device-more:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary.is-expanded .record-lab-summary-expand svg {
+  transform: rotate(180deg);
+}
+html[data-hi5-surface='workspace'] button.record-lab-device-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: rgb(var(--accent-rgb));
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] button.record-lab-device-more:hover {
+  text-decoration: underline;
+}
