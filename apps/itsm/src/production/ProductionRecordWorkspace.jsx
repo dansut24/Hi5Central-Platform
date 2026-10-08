@@ -893,11 +893,32 @@ function RecordWorkspace({ route }) {
     activityRows.push(<TimelineItem item={item} key={item.id} />)
   })
 
-  const jumpToLatest = () => timelineRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  // Desktop scrolls the timeline. Mobile scrolls the entire workspace;
+  // navigation controls must target whichever surface actually owns scrolling.
+  const scrollActivityTarget = (target) => {
+    if (!(target instanceof HTMLElement)) return
+    const mobile = window.matchMedia('(max-width: 820px)').matches
+    if (mobile) {
+      const workspace = scrollRef.current?.closest('.workspace')
+      if (workspace instanceof HTMLElement) {
+        const offset = target.getBoundingClientRect().top - workspace.getBoundingClientRect().top
+        workspace.scrollTo({ top: Math.max(0, workspace.scrollTop + offset - 8), behavior: 'smooth' })
+      } else {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+      return
+    }
+    if (!timelineRef.current) return
+    const offset = target.getBoundingClientRect().top - timelineRef.current.getBoundingClientRect().top
+    timelineRef.current.scrollTo({ top: Math.max(0, timelineRef.current.scrollTop + offset - 8), behavior: 'smooth' })
+  }
+  const jumpToLatest = () => {
+    if (timelineRef.current) scrollActivityTarget(timelineRef.current.firstElementChild || timelineRef.current)
+  }
   const jumpToDay = (dayKey) => {
     if (!dayKey || !timelineRef.current) return
     const node = timelineRef.current.querySelector(`[data-day-key="${dayKey}"]`)
-    if (node instanceof HTMLElement) timelineRef.current.scrollTo({ top: Math.max(0, node.offsetTop - 8), behavior: 'smooth' })
+    if (node instanceof HTMLElement) scrollActivityTarget(node)
   }
 
   const originalSummary = detail.description?.trim() || ''
