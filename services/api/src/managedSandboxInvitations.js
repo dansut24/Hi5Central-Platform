@@ -48,6 +48,16 @@ export function sandboxInvitationGate(config, tenant, bootstrap, approval, modul
       || !String(approval.approved_by || '').trim() || !approval.approved_at) {
     return { allowed:false, reason:'approval_missing' }
   }
+  // A copied bootstrap or incorrectly configured tenant URL must never
+  // let an invitation redirect credentials into a different runtime.
+  const expectedHostname = `${tenant.slug}${config.runtimeEnvironment}.${config.rootDomain}`
+  if (bootstrap.expected_hostname !== expectedHostname
+      || bootstrap.database_instance_id !== tenant.runtime_database_instance_id
+      || tenant.tenant_url !== `https://${expectedHostname}`
+      || tenant.portal_url !== `https://${tenant.slug}${config.runtimeEnvironment}-portal.${config.rootDomain}`
+      || tenant.rmm_url !== null) {
+    return { allowed:false, reason:'runtime_binding_mismatch' }
+  }
   if (!modules || modules.rmm !== false) return { allowed:false, reason:'rmm_enabled' }
   return { allowed:true, reason:'approved' }
 }
