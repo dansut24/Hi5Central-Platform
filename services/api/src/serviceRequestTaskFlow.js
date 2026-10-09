@@ -1,3 +1,20 @@
+// Only dependencies whose predecessors are completed become Ready.
+export async function unlockDependentRequestTasks(db, requestId) {
+  await db.query(
+    `UPDATE service_request_tasks candidate
+     SET status='Ready',updated_at=now()
+     WHERE candidate.request_id=$1 AND candidate.status='Waiting'
+       AND NOT EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements_text(COALESCE(candidate.dependencies,'[]'::jsonb)) dependency(task_key)
+         LEFT JOIN service_request_tasks previous
+           ON previous.request_id=candidate.request_id AND previous.external_key=dependency.task_key
+         WHERE previous.id IS NULL OR previous.status<>'Completed'
+       )`,
+    [requestId],
+  )
+}
+
 // Shared transactional transition for fulfilment tasks. Called only after
 // the task update (and dependency unlock) has succeeded in the same transaction.
 // Never bypass request approvals or the Closed/Rejected state.
