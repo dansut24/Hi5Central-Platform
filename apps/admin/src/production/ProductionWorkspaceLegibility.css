@@ -26,3 +26,7 @@ body[data-hi5-surface='admin'] :is(.h5a-tenant-edit-grid,.h5a-billing-editor,.h5
 @media (max-width: 820px) {
   body[data-hi5-surface='admin'] .rmm-nav-section button { font-size: 13px !important; }
 }
+
+body[data-hi5-surface='admin'] .rmm-nav-section > span { color: rgba(255,255,255,.75) !important; }
+body[data-hi5-surface='admin'] .rmm-nav-section button:not(.active) { color: rgba(255,255,255,.9) !important; }
+body[data-hi5-surface='admin'] :is(.rmm-product-switches a,.rmm-sidebar-footer small,.h5a-page-error) { font-size: 11px !important; }
