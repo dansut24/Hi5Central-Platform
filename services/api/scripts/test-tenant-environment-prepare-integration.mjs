@@ -400,6 +400,8 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.equal(before.json.tenantStatus,'suspended','Approval alone must not activate')
     const badReview=operator('uat','--activate',{INDEPENDENT_REVIEWER:'stranger'})
     assert.notEqual(badReview.code,0)
+    const selfApproval=operator('uat','--activate',{ACTIVATION_OPERATOR:'operator-one'})
+    assert.notEqual(selfApproval.code,0,'Original approving operator must not activate')
     const activated=operator('uat','--activate')
     assert.equal(activated.code,0,activated.stderr)
     assert.equal(activated.json.controlPlaneReady,false)
