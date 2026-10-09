@@ -361,14 +361,15 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
 
 
 
-/* Header: all available horizontal space belongs to the tabs.
-   Explicit equal-width CSS grid tracks shrink as many times as necessary,
-   without a desktop scroll area or forced minimum tab width. */
+/* REAL DESKTOP AUTO-FIT — NO GRID TRACKS OR HORIZONTAL SCROLL
+   Equal flex shares with a zero basis are guaranteed to shrink as tabs open.
+   Native scroll/focus cannot move the rail because overflow is CLIP.
+   The + button is always a separate fixed-width flex child. */
 @media (min-width: 901px) {
   html[data-hi5-surface='workspace'] .app-shell > .main-frame > .itsm-topbar {
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    column-gap: clamp(8px, 1vw, 14px) !important;
-    padding: 8px clamp(12px, 1.3vw, 23px) !important;
+    grid-template-columns: minmax(0,1fr) auto !important;
+    column-gap: clamp(8px,1vw,14px) !important;
+    padding: 8px clamp(12px,1.3vw,23px) !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .itsm-menu-button {
@@ -376,76 +377,73 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar,
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar-tab-zone {
-    min-width: 0 !important;
-    width: 100% !important;
-    max-width: none !important;
-    overflow: clip !important;
-    overflow-x: clip !important;
-    overflow-y: clip !important;
-  }
-
-  /* Align the pills with the centres of the right-hand action icons.
-     The previous tab strip sat approximately 5px lower. */
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar {
-    transform: translateY(-5px) !important;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list {
-    display: grid !important;
-    /* Explicit tracks from the live tab count; not a horizontally scrollable
-       strip. overflow:clip is essential: overflow:hidden STILL permits
-       programmatic/focus scrolling, hiding tabs off the left edge. */
-    grid-template-columns: minmax(0, 1fr) 28px;
-    grid-template-rows: 38px !important;
-    flex: 0 1 auto !important;
-    justify-items: stretch !important;
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar > .tabbar-tab-zone {
+    display: flex !important;
+    flex: 1 1 0% !important;
     align-items: center !important;
-    align-content: center !important;
-    column-gap: 3px !important;
-    width: min(100%, var(--hi5-tab-max-width)) !important;
-    max-width: 100% !important;
+    width: 100% !important;
     min-width: 0 !important;
-    height: 42px !important;
-    padding: 1px 0 !important;
-    margin: 0 !important;
+    max-width: 100% !important;
     overflow: clip !important;
     overflow-x: clip !important;
     overflow-y: clip !important;
-    scrollbar-width: none !important;
-    scroll-snap-type: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar-tab-zone > .tab-list {
+    display: flex !important;
+    flex-flow: row nowrap !important;
+    flex: 0 1 auto !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    gap: 3px !important;
+    box-sizing: border-box !important;
+    width: min(100%, var(--hi5-tab-group-width)) !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    height: 42px !important;
+    margin: 0 !important;
+    padding: 1px 0 !important;
+    grid-template-columns: none !important;
+    grid-template-rows: none !important;
+    overflow: clip !important;
+    overflow-x: clip !important;
+    overflow-y: clip !important;
     scroll-behavior: auto !important;
+    scroll-snap-type: none !important;
+    scrollbar-width: none !important;
     touch-action: manipulation !important;
   }
 
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list::-webkit-scrollbar {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar-tab-zone > .tab-list::-webkit-scrollbar {
     display: none !important;
     width: 0 !important;
     height: 0 !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab {
-    box-shadow: none !important;
-    filter: none !important;
     display: inline-flex !important;
-    grid-row: 1 !important;
-    flex: none !important;
+    flex: 1 1 0% !important;
+    flex-grow: 1 !important;
+    flex-shrink: 1 !important;
+    flex-basis: 0% !important;
     box-sizing: border-box !important;
-    width: 100% !important;
+    width: 0 !important;
     min-width: 0 !important;
     max-width: none !important;
     height: 36px !important;
     min-height: 36px !important;
-    padding: 0 6px !important;
     margin: 0 !important;
+    padding: 0 6px !important;
+    box-shadow: none !important;
+    filter: none !important;
     overflow: hidden !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .tab-add {
     display: inline-grid !important;
-    grid-row: 1 !important;
+    flex: 0 0 28px !important;
     place-items: center !important;
-    flex: none !important;
+    box-sizing: border-box !important;
     width: 28px !important;
     min-width: 28px !important;
     max-width: 28px !important;
@@ -460,20 +458,20 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .workspace-tab-label {
     display: flex !important;
-    flex: 1 1 0 !important;
+    flex: 1 1 0% !important;
     align-items: center !important;
     width: 100% !important;
-    max-width: 100% !important;
     min-width: 0 !important;
+    max-width: 100% !important;
     overflow: hidden !important;
     white-space: nowrap !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .workspace-tab-title {
     display: block !important;
-    flex: 1 1 0 !important;
-    max-width: 100% !important;
+    flex: 1 1 0% !important;
     min-width: 0 !important;
+    max-width: 100% !important;
     overflow: hidden !important;
     white-space: nowrap !important;
     text-overflow: ellipsis !important;
@@ -488,42 +486,34 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     min-width: 14px !important;
     height: 18px !important;
     padding: 0 !important;
-    margin-left: 2px !important;
+    margin: 0 0 0 2px !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] {
-    column-gap: 2px !important;
+    gap: 2px !important;
   }
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] > .workspace-tab {
     padding-inline: 4px !important;
     border-radius: 11px !important;
   }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'],
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] {
-    column-gap: 1px !important;
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) {
+    gap: 1px !important;
   }
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'], [data-tab-density='ultra']) > .workspace-tab {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) > .workspace-tab {
     padding-inline: 2px !important;
     border-radius: 9px !important;
   }
 
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'], [data-tab-density='ultra']) > .workspace-tab {
-    min-width: 0 !important;
-    max-width: none !important;
-  }
-
-  /* In a crowded header, text takes priority. Close any tab using its
-     existing right-click menu; the X still appears on hover before ultra. */
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'], [data-tab-density='ultra']) .tab-close {
+  /* Preserve text at higher densities. Right click can still close any tab. */
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) .tab-close {
     display: none !important;
   }
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'] > .workspace-tab:is(:hover, .active) .tab-close {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'] > .workspace-tab:is(:hover,.active) .tab-close {
     display: inline-grid !important;
-    flex-basis: 13px !important;
+    flex: 0 0 13px !important;
     width: 13px !important;
     min-width: 13px !important;
-    margin-left: 0 !important;
+    margin: 0 !important;
   }
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] .workspace-tab-title {
     font-size: 9px !important;
