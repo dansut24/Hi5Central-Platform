@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
-import { managedSandboxBlocksRmm } from './managedSandboxPolicy.js'
+import { requiresConnectCodeHmacKey } from './managedSandboxPolicy.js'
 import { pool } from './db.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
@@ -25,7 +25,7 @@ const CONNECT_CODE_HMAC_KEY = clean(process.env.CONNECT_CODE_HMAC_KEY) || (() =>
   const rootKey = clean(process.env.RMM_RECOVERY_KEY_ENCRYPTION_KEY)
   return rootKey ? createHmac('sha256', rootKey).update('hi5central-connect-code-hmac-v1').digest('hex') : ''
 })()
-if (process.env.NODE_ENV === 'production' && !managedSandboxBlocksRmm(deployment) && CONNECT_CODE_HMAC_KEY.length < 32) {
+if (requiresConnectCodeHmacKey(deployment, process.env.NODE_ENV) && CONNECT_CODE_HMAC_KEY.length < 32) {
   throw new Error('Connect code HMAC key material is unavailable in production.')
 }
 
