@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict'
 import pg from 'pg'
 import { randomUUID } from 'node:crypto'
 import { checkProvisioningPreflight, validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
-import { suspendedTenantSeed, matchesPreparedIdentity } from '../src/tenantEnvironmentBootstrap.js'
+import { suspendedTenantSeed, matchesPreparedIdentity, isValidUuid } from '../src/tenantEnvironmentBootstrap.js'
 
 function requireEnv(key) {
   const value = String(process.env[key] || '').trim()
@@ -59,7 +58,7 @@ async function run() {
   }
   const mode = args[0] === '--apply' ? 'apply' : 'check'
   const requestId = requireEnv('PROVISION_REQUEST_ID')
-  assert.match(requestId,/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  if (!isValidUuid(requestId)) throw new Error('PROVISION_REQUEST_ID must be a valid UUID.')
   const environment = requireEnv('TARGET_ENVIRONMENT').toLowerCase()
   if (!['uat','test'].includes(environment)) throw new Error('Only UAT and Test can be prepared.')
   const rootDomain = requireEnv('ROOT_DOMAIN').toLowerCase()
