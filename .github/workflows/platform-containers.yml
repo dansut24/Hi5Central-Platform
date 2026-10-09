@@ -55,6 +55,9 @@ jobs:
       - name: Validate sandbox invitation endpoint module syntax
         if: matrix.name == 'API'
         run: node --check services/api/src/managedSandboxInvitationRoutes.js
+      - name: Verify initial-owner operator syntax
+        if: matrix.name == 'API'
+        run: node --check services/api/scripts/tenant-environment-owner-invite.mjs
       - name: Verify isolated tenant provisioning operator syntax
         if: matrix.name == 'API'
         run: node --check services/api/scripts/tenant-environment-prepare.mjs
