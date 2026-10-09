@@ -28,7 +28,17 @@ TENANCY_MODE_VALUE="$(json_escape "$TENANCY_MODE_RAW")"
 RUNTIME_ENVIRONMENT_VALUE="$(json_escape "$RUNTIME_ENVIRONMENT_RAW")"
 FEATURE_MODE_VALUE="$(json_escape "$FEATURE_MODE_RAW")"
 ROOT_DOMAIN_VALUE="$(json_escape "$ROOT_DOMAIN_RAW")"
-PRIMARY_TENANT_VALUE="$(json_escape "${PRIMARY_TENANT_SLUG:-demo-tenant}")"
+# A managed multi-tenant UAT/Test surface must never synthesize a demo tenant.
+# Customer identity is resolved only from an attested environment hostname.
+PRIMARY_TENANT_RAW="${PRIMARY_TENANT_SLUG:-}"
+if [ "$DEPLOYMENT_MODE_RAW" = "managed" ] \
+  && [ "$TENANCY_MODE_RAW" = "multi" ] \
+  && { [ "$RUNTIME_ENVIRONMENT_RAW" = "uat" ] || [ "$RUNTIME_ENVIRONMENT_RAW" = "test" ]; }; then
+  PRIMARY_TENANT_RAW=""
+elif [ -z "$PRIMARY_TENANT_RAW" ]; then
+  PRIMARY_TENANT_RAW="demo-tenant"
+fi
+PRIMARY_TENANT_VALUE="$(json_escape "$PRIMARY_TENANT_RAW")"
 APP_URL_VALUE="$(json_escape "$APP_URL_RAW")"
 API_URL_VALUE="$(json_escape "$API_URL_RAW")"
 PORTAL_URL_VALUE="$(json_escape "${PORTAL_URL:-}")"
