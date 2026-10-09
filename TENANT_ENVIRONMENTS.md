@@ -291,6 +291,46 @@ promotion is performed by this phase. The next increment must implement
 scoped one-time invitations and an audited approval process, along with
 Agent/Connect channel isolation testing before RMM is unlocked.
 
+## Phase 9 — disposable customer lifecycle integration gate
+
+The `Platform Containers` workflow runs the lifecycle test
+`services/api/scripts/test-tenant-environment-prepare-integration.mjs`
+**before** publishing the API image. The gate operates only against an
+ephemeral GitHub Actions PostgreSQL container and two individually isolated,
+ephemeral Redis containers. It creates and later destroys three randomized
+databases (control, UAT, Test). The tests require:
+`GITHUB_ACTIONS=true`, `HI5_PROVISIONING_TEST_SCOPE=isolated-github-actions`,
+a loopback-only PostgreSQL connection to the `postgres` admin database, and
+loopback Redis connections; they must never run against VPS Dev/Prod databases.
+
+The test sequentially verifies:
+- Minimal suspended identities in separate UAT/Test databases, no copied
+  real customers, users, MFA secrets, devices or tokens; wrong DB/Redis
+  binding and incomplete operator attestation rejected.
+- Operator `--check` is read-only, wrong confirmation and same-person
+  approval rejected, distinct recorded approval participants required before
+  a different operator can activate a sandbox.
+- Only the UAT tenant activates; the Test tenant remains suspended; the
+  control plane stays in `claimed/provisioning` and no DNS or RMM access opens.
+- Initial owner invitation is delivered to an **in-process disposable SMTP
+  sink** (never a real recipient). Raw tokens are never logged or stored in
+  plaintext. Invitation redemption is one-time, returns no session, and
+  secure login must then complete MFA.
+- Authenticated UAT sessions are bound to the exact customer origin.
+  Suspension revokes sessions and unaccepted invitations; reuse or login
+  after suspension is rejected.
+- All disposable databases are dropped on completion and Redis test
+  containers removed by GitHub Actions cleanup.
+
+**Scope limits:** These are integration checks for a disposable simulated
+environment, not a live customer activation or production browser/DNS/TLS
+test. Operator identifiers remain privileged attestation strings, not
+independently authenticated human approvals. The isolated Dev runtime
+remains single-tenant; customer DNS, platform readiness flags, Agent and
+Connect networking and live UAT/Test application hosts remain untouched.
+Release remains blocked for customers until those checks and configuration
+promotion/release-channel controls are independently verified.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
