@@ -20,3 +20,9 @@ export function managedSandboxBlocksPublicSignup(config) {
 export function managedSandboxBlocksRmm(config) {
   return isManagedCustomerSandbox(config)
 }
+
+// Production runtimes with RMM/Connect disabled must not require an
+// otherwise unused remote-control signing secret simply to start.
+export function requiresConnectCodeHmacKey(config, nodeEnvironment = 'production') {
+  return nodeEnvironment === 'production' && !managedSandboxBlocksRmm(config)
+}
