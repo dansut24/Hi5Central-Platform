@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  AlignCenter, AlignLeft, AlignRight, Bold, Braces, Code2, Eraser, Expand, Heading2,
+  AlignCenter, AlignLeft, AlignRight, Bold, Braces, Eraser, Expand,
   ImagePlus, Italic, Link2, List, ListOrdered, Minus, Pilcrow, Quote, Redo2, Shrink,
   Smile, Strikethrough, Table2, Underline, Undo2,
 } from 'lucide-react'
@@ -131,7 +131,7 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     insertHtml('<img src="'+escapeRichText(safe)+'" alt="'+escapeRichText(alt)+'"/>')
   }
   const table = () => insertHtml('<table><tbody><tr><th>Heading 1</th><th>Heading 2</th></tr><tr><td>Value</td><td>Value</td></tr></tbody></table><p><br></p>')
-  const insertEmoji = (emoji) => { exec('insertText',emoji); document.activeElement?.blur?.() }
+  const insertEmoji = (emoji) => exec('insertText',emoji)
   const toggleSource = () => {
     if (!source) { setSourceValue(ref.current?.innerHTML || ''); setSource(true) }
     else {
@@ -142,6 +142,7 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     }
   }
   const onPaste = (event) => {
+    if (source) return
     event.preventDefault()
     const htmlValue = event.clipboardData?.getData('text/html') || ''
     const plain = event.clipboardData?.getData('text/plain') || ''
@@ -175,7 +176,14 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     </div>
     <div className="record-lab-rich-input-wrap">
       <div ref={ref} contentEditable={!source} suppressContentEditableWarning role="textbox" aria-label="Note content" aria-multiline="true" data-placeholder={placeholder} className="record-lab-rich-input" onInput={sync} onMouseUp={remember} onKeyUp={remember} onBlur={remember} onPaste={onPaste} onDrop={event=>event.preventDefault()} />
-      {source ? <textarea className="record-lab-rich-source" value={sourceValue} aria-label="Edit note HTML source" onChange={event=>setSourceValue(event.target.value)}/> : null}
+      {source ? <textarea className="record-lab-rich-source" value={sourceValue} aria-label="Edit note HTML source" onChange={event=>{
+        const value = event.target.value
+        setSourceValue(value)
+        const cleaned = sanitizeNoteHtml(value)
+        const holder = document.createElement('div')
+        holder.innerHTML = cleaned
+        onChange({html: cleaned, text: holder.innerText || holder.textContent || ''})
+      }}/> : null}
     </div>
     {source ? <button type="button" className="record-lab-rich-source-apply" onClick={toggleSource}>Apply safe HTML</button> : null}
   </div>
