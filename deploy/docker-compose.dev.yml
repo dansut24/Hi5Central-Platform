@@ -52,15 +52,15 @@ services:
   api:
     image: node:24-alpine
     working_dir: /app
-    # Migrations install npm packages into the shared api_node_modules volume.
-    # Do not reinstall them while starting the API: this can delay startup
-    # and mask the underlying import/runtime error behind npm output.
+    # Migrate installs npm packages into the shared api_node_modules volume.
+    # Never perform apk/npm network installations on API startup: on developer
+    # machines these may block indefinitely and prevent all three UIs from
+    # reaching the API. Install optional OS inspection utilities separately
+    # when testing the specialised RMM package-inspection jobs.
     command:
       - sh
       - -ec
       - |
-        echo '[API] Installing runtime utilities...'
-        apk add --no-cache binutils coreutils dpkg file findutils grep rpm tar >/dev/null
         echo '[API] Checking shared Node dependencies...'
         node --input-type=module -e "Promise.all([import('hono'), import('@hono/node-server'), import('ws')]).catch((err) => { console.error(err); process.exit(1) })"
         echo '[API] Starting Hi5Central API...'
