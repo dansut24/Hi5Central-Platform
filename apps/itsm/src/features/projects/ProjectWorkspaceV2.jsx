@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { RichActivityBody } from '../../production/ProductionRichNoteEditor.jsx'
 import {
   AlertTriangle,
   CalendarDays,
@@ -629,7 +630,7 @@ function ProjectDetailView({ onAddActivity, onAddTask, onCreateMilestone, onCrea
   const activity = (
     <div className="project-activity-view">
       <section className="project-activity-composer"><div><span className="eyebrow">Project journal</span><strong>Add update</strong></div><textarea onChange={(event) => setActivityNote(event.target.value)} placeholder="Record a decision, status update, handover or delivery note" value={activityNote} /><footer><span>Visible to the project team</span><button className="primary-action compact" disabled={!activityNote.trim()} onClick={postActivity} type="button">Add update</button></footer></section>
-      <section className="project-activity-list">{activityItems.map((item) => <article key={item.id}><span className="project-activity-dot" /><div><header><strong>{item.actor}</strong><span>{item.meta}</span></header><p>{item.action}</p></div></article>)}</section>
+      <section className="project-activity-list">{activityItems.map((item) => <article key={item.id}><span className="project-activity-dot" /><div><header><strong>{item.actor}</strong><span>{item.meta}</span></header><RichActivityBody html={item.metadata?.richHtml} text={item.action} /></div></article>)}</section>
     </div>
   )
 
