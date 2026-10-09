@@ -52,7 +52,14 @@ export function validateSandboxEnvironment(v, peer=null) {
   if(v.PRIMARY_TENANT_SLUG) errors.push('A shared managed sandbox must not use PRIMARY_TENANT_SLUG')
   if(env==='uat' && v.FEATURE_MODE!=='controlled') errors.push('UAT must use controlled features')
   if(env==='test' && !['controlled','all_enabled'].includes(v.FEATURE_MODE)) errors.push('Invalid Test feature mode')
-  if(v.API_URL!==`https://${env}-api.${v.ROOT_DOMAIN}`) errors.push('API_URL must be the environment-specific API hostname')
+  // Parallel pilots cannot reuse existing canonical UAT/Test API hosts,
+  // which are still owned by the live legacy single-tenant gateways.
+  const routeChannel=v.SANDBOX_ROUTE_CHANNEL || 'canonical'
+  if(!['canonical','parallel'].includes(routeChannel)) errors.push('Unsupported sandbox route channel')
+  const expectedApiHost=routeChannel==='parallel'
+    ? `pilot-${env}-api.${v.ROOT_DOMAIN}`
+    : `${env}-api.${v.ROOT_DOMAIN}`
+  if(v.API_URL!==`https://${expectedApiHost}`) errors.push('API_URL does not match sandbox route channel and environment')
   if(v.MARKETING_URL!==`https://${v.ROOT_DOMAIN}`) errors.push('Marketing URL must not redirect through an environment workspace')
   for(const key of ['POSTGRES_IMAGE','REDIS_IMAGE','API_IMAGE','ITSM_IMAGE']) {
     if(!shaImage.test(String(v[key]||''))) errors.push(key+' must use a sha256 digest, never latest/dev or mutable tag')
