@@ -50,6 +50,7 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { assertManagedRuntimeAttestation } from './managedRuntimeGuard.js'
+import { isManagedCustomerSandbox, managedSandboxBlocksPublicSignup, managedSandboxBlocksRmm } from './managedSandboxPolicy.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
@@ -147,6 +148,20 @@ app.use('/api/*', cors({
   credentials: true,
   maxAge: 600,
 }))
+// Agent enrolment, RMM management and the Connect handshake stay disabled
+// until sandbox activation includes independent Agent/Redis scope approval.
+app.use('/api/v1/agent/*', async (c, next) => {
+  if (managedSandboxBlocksRmm(deployment)) return c.json({ error: 'RMM is disabled pending sandbox isolation verification.', code: 'SANDBOX_RMM_LOCKED' }, 423)
+  return next()
+})
+app.use('/api/v1/rmm/*', async (c, next) => {
+  if (managedSandboxBlocksRmm(deployment)) return c.json({ error: 'RMM is disabled pending sandbox isolation verification.', code: 'SANDBOX_RMM_LOCKED' }, 423)
+  return next()
+})
+app.use('/api/v1/connect/*', async (c, next) => {
+  if (managedSandboxBlocksRmm(deployment)) return c.json({ error: 'Remote Connect is disabled pending sandbox isolation verification.', code: 'SANDBOX_RMM_LOCKED' }, 423)
+  return next()
+})
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))
@@ -228,6 +243,11 @@ app.get('/api/v1/auth/tenant-state/:slug', async (c) => {
 })
 
 app.post('/api/v1/auth/login', async (c) => {
+  // Sandbox logins must pass the challenge-based MFA route; never issue a
+  // password-only session through the legacy endpoint.
+  if (isManagedCustomerSandbox(deployment)) {
+    return c.json({ error: 'Multi-factor authentication is required. Use secure sign-in.', code: 'MFA_REQUIRED' }, 403)
+  }
   let body
   try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
   const tenantSlug = normaliseSlug(body?.tenantSlug || (deployment.tenancyMode === 'single' ? deployment.primaryTenantSlug : ''))
@@ -270,6 +290,11 @@ app.post('/api/v1/auth/login', async (c) => {
 })
 
 app.post('/api/v1/auth/signup', async (c) => {
+  // No unsolicited organisations in the shared customer sandbox database.
+  // Customer identities are prepared by the audited operator only.
+  if (managedSandboxBlocksPublicSignup(deployment)) {
+    return c.json({ error: 'Customer sandbox sign-up is disabled. Invitations will be issued after activation.', code: 'SANDBOX_INVITATION_REQUIRED' }, 403)
+  }
   const redisClient = await ensureRedisConnected()
   const allowed = await rateLimit(redisClient, `signup:${requestIp(c)}:${Math.floor(Date.now() / 60000)}`, 5, 60)
   if (!allowed) return c.json({ error: 'Too many signup attempts. Please try again shortly.' }, 429)
@@ -718,12 +743,17 @@ await pool.query('SELECT 1')
 await assertManagedRuntimeAttestation(pool, deployment)
 console.log('[API] Database environment attestation passed; connecting to Redis...')
 await ensureRedisConnected()
-console.log('[API] Redis ready; initializing RMM agent broker...')
-await initializeAgentBroker()
-console.log('[API] RMM agent broker initialized; starting schedulers...')
+if (!managedSandboxBlocksRmm(deployment)) {
+  console.log('[API] Redis ready; initializing RMM agent broker...')
+  await initializeAgentBroker()
+  console.log('[API] RMM agent broker initialized')
+} else {
+  console.log('[API] Managed sandbox RMM broker disabled until independently verified')
+}
+console.log('[API] Starting permitted schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
-if (backgroundWorkersEnabled) {
+if (backgroundWorkersEnabled && !managedSandboxBlocksRmm(deployment)) {
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
   startSoftwareVendorSyncScheduler()
@@ -735,10 +765,12 @@ if (backgroundWorkersEnabled) {
 }
 console.log('[API] Starting HTTP listener...')
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port })
-attachRmmAgentWebSocket(server)
-attachRmmViewerWebSocket(server)
-attachRmmConnectWebSockets(server)
-attachRmmDeviceToolWebSocket(server)
+if (!managedSandboxBlocksRmm(deployment)) {
+  attachRmmAgentWebSocket(server)
+  attachRmmViewerWebSocket(server)
+  attachRmmConnectWebSockets(server)
+  attachRmmDeviceToolWebSocket(server)
+}
 console.log(`Hi5Central API listening on port ${port}`)
 
 async function shutdown(signal) {
