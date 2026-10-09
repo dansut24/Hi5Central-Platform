@@ -392,6 +392,33 @@ No existing UAT/Test services, gateways, Production routes, databases or
 DNS records were altered as part of Phase 11. New sandbox runtime instances
 have not been started.
 
+## Phase 12 — empty pilot bridge preparation and public ingress evidence
+
+Two labelled **empty**, dedicated Docker internal bridges are prepared on
+the VPS: `hi5central-sandbox-uat-edge` and
+`hi5central-sandbox-test-edge`. No gateway, customer, Agent or application
+container was connected. A transient no-volume/no-port Node TCP probe
+verified local TCP availability and cross-environment TCP denial in both
+directions, then removed itself. Existing shared, Dev, UAT/Test legacy and
+Production network memberships remained unchanged.
+
+Public HTTPS testing with valid wildcard certificates found that proposed
+`pilot-uat-api`, `pilot-test-api` and unapproved example customer-qualified
+hosts currently respond HTTP 200 with generic HTML. The existing canonical
+UAT/Test hosts return their legacy API JSON. No customer data exposure was
+established, but **unknown customer hostnames do not yet return explicit
+rejection**, so activation and public pilot routing remain blocked. DNS
+resolution and wildcard TLS alone never permit a customer session.
+
+New source checks in `infrastructure/managed-sandbox/` validate strict
+Docker bridge labels/emptiness, disposable connectivity probes and the
+fail-closed public route policy; the CI API gate includes their unit and
+syntax tests. See `PHASE12_NETWORK_AND_EDGE.md` for operator evidence and
+unresolved gateway, controlled SMTP egress, attestation, browser/MFA and
+roll-back prerequisites. No new database migration is required.
+The internal engineering Dev runtime stays single-tenant and is not a
+customer sandbox.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
