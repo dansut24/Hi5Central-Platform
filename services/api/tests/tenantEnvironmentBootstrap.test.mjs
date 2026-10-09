@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { suspendedTenantSeed, matchesPreparedIdentity } from '../src/tenantEnvironmentBootstrap.js'
+import { suspendedTenantSeed, matchesPreparedIdentity, isValidUuid } from '../src/tenantEnvironmentBootstrap.js'
+
+test('standard five-group provisioning UUIDs are accepted and malformed IDs are rejected',()=>{
+  for(const valid of [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+    'c8f680e5-3207-4531-9a18-a2b4a0e09f83',
+  ]) assert.equal(isValidUuid(valid), true, valid)
+  for(const invalid of [
+    '11111111-1111-4111-8111-1111-111111111111',
+    '11111111-1111-4111-8111',
+    '11111111111141118111111111111111',
+    'zzzzzzzz-1111-4111-8111-111111111111',
+    '',null,undefined,
+  ]) assert.equal(isValidUuid(invalid), false, String(invalid))
+})
 
 const id1='11111111-1111-4111-8111-111111111111'
 const id2='22222222-2222-4222-8222-222222222222'
