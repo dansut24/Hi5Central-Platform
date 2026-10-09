@@ -61,6 +61,8 @@ await check('My Tasks uses assigned technician','mine',['itsm.tasks.view','proje
 await check('Project Tasks view returns all active projects','project',['itsm.tasks.view','projects.view'],(page)=>{
   assert.match(page,/q\.source='project'/)
   assert.match(page,/NOT q\.is_complete/)
+  assert.match(page,/p\.status<>'Cancelled'/)
+  assert.doesNotMatch(page,/p\.status<>'Complete'/,'unfinished tasks remain visible even if their parent project is marked Complete')
 })
 {
   const db = mockDatabase()
