@@ -203,6 +203,54 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
     expect(wrongInvite,401,e.env+' cross-customer invitation session')
     if(Number(sql(e,'SELECT count(*) FROM tenant_memberships;').split('\n')[0])!==1)
       throw new Error(e.env+' unexpected memberships after owner invite')
+
+    // Actual API email delivery is captured by the isolated scratch SMTP inbox.
+    const requesterEmail=`synthetic-requester-${e.env}@example.invalid`
+    const invitation=request(e,{
+      path:invitationIssuePath,method:'POST',cookie:e.ownerCookie,
+      body:{email:requesterEmail,name:'Synthetic Requester',role:'requester'},
+    })
+    expect(invitation,201,e.env+' owner issues requester invite via SMTP')
+    const mail=spawnSync('docker',['exec',e.smtp,'cat','/tmp/phase15-mail-1.eml'],{
+      encoding:'utf8',timeout:9000,maxBuffer:1024*1024,
+    })
+    if(mail.status!==0 || !mail.stdout.includes(requesterEmail))
+      throw new Error(e.env+' isolated mailbox did not receive requester email')
+    const decoded=mail.stdout.replace(/=\r?\n/g,'').replace(/=3D/gi,'=')
+    const link=decoded.match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
+    if(!link)throw new Error(e.env+' email did not contain the one-time acceptance link')
+    const requesterPassword='Phase15-Requester-Strong-Passphrase!'
+    const acceptedRequester=request(e,{path:acceptPath,method:'POST',body:{
+      tenantSlug:e.customerSlug,token:link[1],password:requesterPassword,
+    }})
+    expect(acceptedRequester,200,e.env+' requester redeems emailed link')
+    if(acceptedRequester.cookie)throw new Error('Requester invitation bypassed MFA')
+    const requesterLogin=request(e,{path:loginPath,method:'POST',body:{
+      tenantSlug:e.customerSlug,email:requesterEmail,password:requesterPassword,
+    }})
+    expect(requesterLogin,200,e.env+' requester login challenge')
+    if(!requesterLogin.data?.mfaRequired || !requesterLogin.data.challengeToken
+        || requesterLogin.cookie) throw new Error(e.env+' requester MFA skipped')
+    const requesterChallenge=requesterLogin.data.challengeToken
+    const requesterSetup=request(e,{path:'/api/v1/auth/mfa/setup',method:'POST',
+      body:{challengeToken:requesterChallenge}})
+    expect(requesterSetup,200,e.env+' requester MFA enrolment')
+    const requesterVerified=request(e,{path:'/api/v1/auth/mfa/verify',method:'POST',
+      body:{challengeToken:requesterChallenge,code:totp(requesterSetup.data.secret)}})
+    expect(requesterVerified,200,e.env+' requester MFA completed')
+    e.requesterCookie=requesterVerified.cookie.split(';')[0]
+    if(!e.requesterCookie)throw new Error(e.env+' requester session missing')
+    expect(request(e,{path:sessionPath,cookie:e.requesterCookie}),200,
+      e.env+' requester authenticated session')
+    const forbidden=request(e,{
+      path:invitationIssuePath,method:'POST',cookie:e.requesterCookie,
+      body:{email:'another-requester@example.invalid',name:'Another User',role:'requester'},
+    })
+    expect(forbidden,403,e.env+' requester RBAC denies invite')
+    if(Number(sql(e,'SELECT count(*) FROM tenant_memberships;').split('\n')[0])!==2)
+      throw new Error(e.env+' requester membership count unexpected')
+    report(e.env,'isolated email delivery, requester MFA and RBAC denial passed')
+
     report(e.env,'synthetic invite one-time, MFA challenge and TOTP, host-only session, cross-customer denial PASS')
   }
 
@@ -225,6 +273,8 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
     sql(e,`UPDATE tenants SET status='suspended' WHERE id='${e.customerId}';`)
     const noSession=request(e,{path:sessionPath,cookie:e.ownerCookie})
     expect(noSession,401,e.env+' suspended tenant revokes session')
+    expect(request(e,{path:sessionPath,cookie:e.requesterCookie}),401,
+      e.env+' suspended tenant revokes requester session')
     const noLogin=request(e,{path:loginPath,method:'POST',body:{
       tenantSlug:e.customerSlug,email:e.ownerEmail,password:e.ownerPassword,
     }})
