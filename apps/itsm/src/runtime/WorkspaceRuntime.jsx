@@ -936,12 +936,39 @@ function WorkspaceRuntime() {
     }
   }, [tabContextMenu])
 
-  // overflow:hidden used to allow the browser to retain scrollLeft after
-  // switching an active tab. Reset it synchronously when desktop tabs change.
-  // The CSS uses overflow:clip so focus can no longer move the list sideways.
+  // Desktop tab sizing is enforced directly on the native buttons because
+  // legacy touch-capable/responsive styles can still set min-width: 116px and
+  // flex: 0 0 auto on a desktop with a touchscreen. Those computed values
+  // prevent every later tab from fitting, even though the rail is wide enough.
+  // Inline important declarations outrank the older competing styles.
   useLayoutEffect(() => {
-    if (!window.matchMedia?.('(min-width: 901px)').matches) return
-    if (tabListRef.current) tabListRef.current.scrollLeft = 0
+    const list = tabListRef.current
+    if (!list) return undefined
+
+    const applyDesktopSizing = () => {
+      const desktop = window.matchMedia('(min-width: 901px)').matches
+      const buttons = list.querySelectorAll(':scope > .workspace-tab')
+      for (const button of buttons) {
+        if (!(button instanceof HTMLElement)) continue
+        for (const property of ['flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'min-width', 'width', 'max-width']) {
+          if (!desktop) button.style.removeProperty(property)
+        }
+        if (desktop) {
+          button.style.setProperty('flex', '1 1 0%', 'important')
+          button.style.setProperty('flex-grow', '1', 'important')
+          button.style.setProperty('flex-shrink', '1', 'important')
+          button.style.setProperty('flex-basis', '0%', 'important')
+          button.style.setProperty('min-width', '0px', 'important')
+          button.style.setProperty('width', '0px', 'important')
+          button.style.setProperty('max-width', 'none', 'important')
+        }
+      }
+      if (desktop) list.scrollLeft = 0
+    }
+
+    applyDesktopSizing()
+    window.addEventListener('resize', applyDesktopSizing)
+    return () => window.removeEventListener('resize', applyDesktopSizing)
   }, [activeTabKey, tabs.length])
 
   useEffect(() => {
