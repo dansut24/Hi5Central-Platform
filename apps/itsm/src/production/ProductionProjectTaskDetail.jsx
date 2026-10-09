@@ -65,6 +65,7 @@ export function ProjectTaskDetail({taskKey,onNavigate}) {
       <div className="project-task-detail-heading">
         <span className="project-task-detail-icon"><ClipboardList size={20}/></span>
         <div><small>Project task · {task.id}</small><h1>{task.title}</h1><p>{project.name} · {project.id}</p></div>
+        <button type="button" className="project-task-detail-open-project" onClick={()=>onNavigate(`/projects/${encodeURIComponent(projectId)}`)}><ExternalLink size={15}/>Open project</button>
         <button type="button" onClick={()=>void load(true)} title="Refresh task"><RefreshCw size={16}/></button>
       </div>
       <div className="project-task-detail-grid">
