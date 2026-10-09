@@ -69,6 +69,7 @@ import './production/RmmSidebarParity.css'
 import './production/ProductionDashboardTest2Parity.css'
 import './production/ProductionRecordDensity.css'
 import './production/ProductionWorkspaceLegibility.css'
+import './production/ProductionActivityFocus.css'
 
 installWorkspaceTabSessionIsolation()
 
