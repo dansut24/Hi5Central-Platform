@@ -327,6 +327,20 @@ function TenantEditor({ tenant, onSaved }) {
       setNotice('Pending owner transfer cancelled.')
     })
   }
+  async function requestProvision(environment){
+    if(!window.confirm(`Queue isolated ${environment.toUpperCase()} provisioning for ${tenant.company_name}? This requests operator setup, not immediate activation.`))return
+    await run(`provision-${environment}`,async()=>{
+      await api(`/tenants/${tenant.id}/environments/${environment}/provision`,{method:'POST',body:'{}'})
+      setNotice(`${environment.toUpperCase()} provisioning requested. Routing remains disabled until isolation has been verified.`)
+    })
+  }
+  async function cancelProvision(environment){
+    if(!window.confirm(`Cancel the pending ${environment.toUpperCase()} provisioning request?`))return
+    await run(`cancel-${environment}`,async()=>{
+      await api(`/tenants/${tenant.id}/environments/${environment}/cancel-provision`,{method:'POST',body:'{}'})
+      setNotice(`${environment.toUpperCase()} provisioning request cancelled.`)
+    })
+  }
   return <div className="h5a-tenant-admin">
     {notice?<div className="h5a-notice healthy">{notice}</div>:null}
     {error?<div className="h5a-page-error">{error}</div>:null}
@@ -360,7 +374,23 @@ function TenantEditor({ tenant, onSaved }) {
               <StatusPill value={status}/>
               {environment==='live' && details?.status==='ready' && tenant.tenant_url
                 ? <a href={tenant.tenant_url} target="_blank" rel="noreferrer">Open</a>
-                : <span className="h5a-tenant-environment-note">{status==='pending'?'Awaiting isolated provisioning':status==='unavailable'?'No environment reservation':'Not available'}</span>}
+                : <span className="h5a-tenant-environment-note">{status==='pending'?'Not yet provisioned':status==='unavailable'?'No environment reservation':'Not available'}</span>}
+              {environment!=='live' && status==='pending' && ['requested','claimed'].includes(details?.requestState)
+                ? <div className="h5a-tenant-provision-action">
+                    <small>{details.requestState==='claimed'?'Operator provisioning in progress':'Provisioning request queued'}</small>
+                    {details.requestState==='requested'
+                      ? <button className="rmm-secondary compact" disabled={Boolean(busy)} onClick={()=>cancelProvision(environment)}>Cancel request</button>
+                      : null}
+                  </div>
+                : null}
+              {environment!=='live' && ['pending','failed'].includes(status) && !['requested','claimed'].includes(details?.requestState)
+                ? <button className="rmm-secondary compact"
+                    disabled={Boolean(busy)||config.deploymentMode!=='managed'||config.tenancyMode!=='multi'||tenant.status!=='active'}
+                    title={config.tenancyMode!=='multi'?'Requires the managed multi-tenant control plane':'Request isolated environment provisioning'}
+                    onClick={()=>requestProvision(environment)}>
+                    Request setup
+                  </button>
+                : null}
             </div>
           })}
         </div>}
