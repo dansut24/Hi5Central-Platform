@@ -937,6 +937,8 @@ function WorkspaceRuntime() {
   }, [tabContextMenu])
 
   useEffect(() => {
+    // Desktop tabs all fit in one row; don't trigger old horizontal scrolling.
+    if (window.matchMedia?.('(min-width: 901px)').matches) return
     const list = tabListRef.current
     const activeTabElement = list
       ? Array.from(list.children).find((element) => element.dataset?.tabKey === activeTabKey)
@@ -3177,6 +3179,7 @@ function WorkspaceRuntime() {
             <div
               className="tab-list"
               data-tab-density={tabs.length >= 18 ? 'ultra' : tabs.length >= 12 ? 'dense' : tabs.length >= 8 ? 'compact' : 'normal'}
+              style={{ '--hi5-tab-count': tabs.length, '--hi5-tab-max-width': `${tabs.length * 176 + 40}px` }}
               ref={tabListRef}
             >
             {tabs.map((tab) => {
