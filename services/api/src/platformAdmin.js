@@ -1292,7 +1292,7 @@ export function registerPlatformAdminRoutes(app) {
     try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
     const companyName = clean(body?.companyName, 120)
     const slug = clean(body?.slug, 48).toLowerCase()
-    if (companyName.length < 2 || !validSlug(slug) || (deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) {
+    if (companyName.length < 2 || !validSlug(slug) || (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) {
       return c.json({ error: 'Company name and a valid tenant slug are required.' }, 400)
     }
     const itsm = body?.modules?.itsm !== false
