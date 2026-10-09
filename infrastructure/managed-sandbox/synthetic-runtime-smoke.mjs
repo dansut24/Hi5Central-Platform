@@ -100,7 +100,12 @@ async function apiProbe(e,mode){
   await waitUntil(()=>logs(name).includes('Managed customer runtime startup blocked:')
     ||state(name)==='exited',e.env+' fail-closed '+mode,20)
   const out=logs(name)
-  check(out.includes('Managed customer runtime startup blocked:'),e.env+' failed for wrong reason in '+mode)
+  if(!out.includes('Managed customer runtime startup blocked:')) {
+    const cleaned=out.replaceAll(e.dbPassword,'[REDACTED]')
+      .replaceAll(e.redisPassword,'[REDACTED]')
+      .replaceAll(e.mfaKey,'[REDACTED]')
+    throw new Error(e.env+' failed for wrong reason in '+mode+': '+cleaned.slice(-950))
+  }
   check(!out.includes('Hi5Central API listening on port 3001'),e.env+' unapproved API listener started')
   check(mode==='without-database' ? out.includes('no operator-attested identity')
     :out.includes('Redis has no operator-attested runtime identity'),
