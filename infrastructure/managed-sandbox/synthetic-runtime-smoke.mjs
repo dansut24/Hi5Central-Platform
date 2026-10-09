@@ -85,6 +85,9 @@ function apiEnv(e){
     DATABASE_URL:`postgresql://h5probe:${e.dbPassword}@${e.pg}:5432/h5phase14`,
     REDIS_URL:`redis://:${e.redisPassword}@${e.redis}:6379/0`,
     MFA_ENCRYPTION_KEY:e.mfaKey,
+    // The previously published API image still loads the disabled Connect module.
+    // Supply a synthetic ephemeral key until the dedicated sandbox build lands.
+    CONNECT_CODE_HMAC_KEY:e.connectKey,
     DB_POOL_MAX:'2',
   }
 }
@@ -105,7 +108,7 @@ async function apiProbe(e,mode){
   if(!out.includes('Managed customer runtime startup blocked:')) {
     const cleaned=out.replaceAll(e.dbPassword,'[REDACTED]')
       .replaceAll(e.redisPassword,'[REDACTED]')
-      .replaceAll(e.mfaKey,'[REDACTED]')
+      .replaceAll(e.mfaKey,'[REDACTED]').replaceAll(e.connectKey,'[REDACTED]')
     throw new Error(e.env+' failed for wrong reason in '+mode+': '+('len='+cleaned.length+' tail='+JSON.stringify(cleaned.slice(-950))))
   }
   check(!out.includes('Hi5Central API listening on port 3001'),e.env+' unapproved API listener started')
@@ -156,6 +159,7 @@ async function main(){
       dbPassword:randomBytes(24).toString('hex'),
       redisPassword:randomBytes(24).toString('hex'),
       mfaKey:randomBytes(32).toString('hex'),
+      connectKey:randomBytes(32).toString('hex'),
     }
     entries.push(e)
     publiclessNetwork(e)
