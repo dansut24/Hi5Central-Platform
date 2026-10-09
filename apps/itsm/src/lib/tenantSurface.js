@@ -151,7 +151,7 @@ export function resolveTenantSurface(location = window.location) {
     ? hostname.slice(0, -rootHost.length - 1).replace(/-(?:rmm|portal)$/, '')
     : ''
   const environmentMatch = environmentLabel.match(/^([a-z0-9-]+?)(uat|test)$/)
-  if (environmentMatch) {
+  if (config.deploymentMode === 'managed' && environmentMatch) {
     const [, base, environment] = environmentMatch
     const reservedBases = new Set(['admin', 'api', 'dev', 'test', 'uat', 'www', 'downloads', 'help', 'turn'])
     if (/^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(base)
