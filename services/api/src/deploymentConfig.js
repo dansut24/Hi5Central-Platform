@@ -103,8 +103,9 @@ export function tenantUrls(slug, { rmm = false } = {}) {
     }
   }
 
-  if (deployment.deploymentMode === 'managed') {
-    return managedTenantUrls(tenantSlug, deployment.rootDomain, deployment.runtimeEnvironment === 'dev' ? 'live' : deployment.runtimeEnvironment, { rmm })
+  // Keep legacy managed Production URLs unchanged during the migration.
+  if (deployment.deploymentMode === 'managed' && ['uat','test'].includes(deployment.runtimeEnvironment)) {
+    return managedTenantUrls(tenantSlug, deployment.rootDomain, deployment.runtimeEnvironment, { rmm })
   }
 
   return {
