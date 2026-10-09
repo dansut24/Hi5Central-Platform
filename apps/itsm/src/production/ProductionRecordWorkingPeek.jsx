@@ -22,6 +22,7 @@ import {
 } from '../services/productionServiceRequests.js'
 import { PeekRecordRail, PeekContextRail, PeekActivity } from './ProductionWorkingPeekWorkbench.jsx'
 import './ProductionRecordWorkingPeek.css'
+import './ProductionWorkingPeekWorkbench.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const GENERIC_TYPES = { incidents: 'Incident', problems: 'Problem', changes: 'Change' }
