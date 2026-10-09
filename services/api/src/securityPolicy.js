@@ -54,6 +54,8 @@ export function mfaGraceEndsAt(row) {
 
 export function sessionNeedsMfa(row, now = new Date()) {
   if (!mfaRequiredFor(row)) return false
+  // No pre-enforcement grace period for sandbox sessions.
+  if (managedSandboxRequiresMfa(deployment)) return !row?.mfa_verified_at
   if (row?.mfa_verified_at) return false
 
   const graceEndsAt = mfaGraceEndsAt(row)
