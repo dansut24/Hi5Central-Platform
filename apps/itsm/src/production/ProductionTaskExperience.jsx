@@ -54,7 +54,7 @@ const COLUMNS = [
   { key: 'summary', label: 'Summary', width: 245, locked: true },
   { key: 'priority', label: 'Priority / risk', width: 110 },
   { key: 'status', label: 'Status', width: 125 },
-  { key: 'requester', label: 'Requester', width: 150 },
+  { key: 'requester', label: 'Requester / project', width: 170 },
   { key: 'service', label: 'Type / service', width: 140 },
   { key: 'assignment', label: 'Assignment', width: 180 },
   { key: 'due', label: 'Due / target', width: 155 },
