@@ -508,7 +508,8 @@ function RecordWorkspace({ route }) {
     return saved === 'collapsed' || (!saved && window.matchMedia('(min-width: 821px) and (max-width: 1260px)').matches)
   })
   const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false)
-  const contextPinned = workbenchMode === 'workbench' && !inspectorCollapsed
+  const [compactWorkbench, setCompactWorkbench] = useState(() => window.matchMedia('(max-width: 1260px)').matches)
+  const contextPinned = workbenchMode === 'workbench' && !inspectorCollapsed && !compactWorkbench
   const scrollRef = useRef(null)
   const timelineRef = useRef(null)
 
@@ -610,6 +611,12 @@ function RecordWorkspace({ route }) {
     return () => { active = false }
   }, [detail, rmmAccess.canView])
 
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1260px)')
+    const update = (event) => { setCompactWorkbench(event.matches); setInspectorDrawerOpen(false) }
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [tab])
   useEffect(() => { setContextView('home'); setActivityQuery(''); setSummaryExpanded(false); setInspectorDrawerOpen(false) }, [route.reference])
   useEffect(() => { window.localStorage.setItem('hi5central-record-workbench-mode', workbenchMode) }, [workbenchMode])
@@ -969,7 +976,7 @@ function RecordWorkspace({ route }) {
     return <aside id={mobile ? undefined : 'record-lab-context-panel'} aria-label="Record context" className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}${!mobile && !contextPinned ? ' is-overlay' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
         <header>{contextView === 'home' ? <div><span>At a glance</span><h2>{workbenchMode === 'workbench' ? 'Requester & devices' : 'Record context'}</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <div className="record-lab-context-header-actions">
-          {!contextPinned ? <button type="button" className="record-lab-context-pin" onClick={() => { setWorkbenchMode('workbench'); setInspectorCollapsed(false); setInspectorDrawerOpen(false) }} title="Pin context beside activity"><Pin size={16} /><span>Pin</span></button> : null}
+          {!contextPinned && !compactWorkbench ? <button type="button" className="record-lab-context-pin" onClick={() => { setWorkbenchMode('workbench'); setInspectorCollapsed(false); setInspectorDrawerOpen(false) }} title="Pin context beside activity"><Pin size={16} /><span>Pin</span></button> : null}
           <button type="button" className="record-lab-inspector-collapse" onClick={() => { setInspectorDrawerOpen(false); setInspectorCollapsed(true) }} title={!contextPinned ? 'Close record context' : 'Unpin context'} aria-label={!contextPinned ? 'Close record context' : 'Unpin record context'}>{!contextPinned ? <X size={17} /> : <PanelLeftClose size={17} />}</button>
         </div> : null}</header>
         {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
