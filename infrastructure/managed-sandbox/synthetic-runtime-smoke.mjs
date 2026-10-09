@@ -222,6 +222,7 @@ async function main(){
   }
   safeLog('cleanup','temporary containers and networks removed; approved pilot bridges unchanged')
 }
+}
 main().catch(error=>{
   // Do not dump Docker stderr here: application configuration can contain secrets.
   console.error('PHASE14_SYNTHETIC_RUNTIME_SMOKE: FAILED: '+String(error.message).slice(0,500))
