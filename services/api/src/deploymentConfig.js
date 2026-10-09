@@ -116,6 +116,13 @@ export function tenantUrls(slug, { rmm = false } = {}) {
 
 export function allowedRequestOrigin(origin) {
   if (!origin) return ''
+  // Managed customer sandboxes never trust marketing/Admin or another
+  // environment merely because those origins share the root domain.
+  if (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
+    && ['uat','test'].includes(deployment.runtimeEnvironment)) {
+    const match = classifyManagedCustomerOrigin(origin, deployment.rootDomain)
+    return match?.environment === deployment.runtimeEnvironment ? origin : ''
+  }
   const normalized = String(origin).toLowerCase()
   const explicit = new Set([
     originOf(deployment.appUrl),
@@ -129,10 +136,6 @@ export function allowedRequestOrigin(origin) {
   if (explicit.has(normalized)) return origin
 
   if (deployment.tenancyMode === 'multi') {
-    if (deployment.deploymentMode === 'managed' && ['uat','test'].includes(deployment.runtimeEnvironment)) {
-      const match = classifyManagedCustomerOrigin(origin, deployment.rootDomain)
-      return match?.environment === deployment.runtimeEnvironment ? origin : ''
-    }
     const root = escapeRegex(deployment.rootDomain)
     const matcher = new RegExp(`^https:\\/\\/[a-z0-9-]+(?:-portal|-rmm)?\\.${root}$`, 'i')
     if (matcher.test(origin)) return origin
