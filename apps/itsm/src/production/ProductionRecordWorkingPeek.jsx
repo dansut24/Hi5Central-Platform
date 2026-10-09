@@ -317,6 +317,10 @@ function ServiceRequestWorkingPeek({ route }) {
   }
 
   async function decide(approval, decision) {
+    if (decision === 'Rejected' && !approvalNote.trim()) {
+      setError('Enter a reason before rejecting this approval.')
+      return
+    }
     setSaving(true); setError(''); setNotice('')
     try {
       await decideProductionServiceRequestApproval(route.reference, approval.id, decision, approvalNote)
@@ -356,7 +360,7 @@ function ServiceRequestWorkingPeek({ route }) {
 
       {view === 'tasks' ? <div className="hi5-working-peek-task-view">{tasks.length ? tasks.map((task) => <article key={task.id}><div><strong>{task.title}</strong><select disabled={saving} value={task.status} onChange={(event) => updateTask(task, event.target.value)}>{['Waiting','Ready','In Progress','Completed','Blocked'].map((status) => <option key={status}>{status}</option>)}</select></div><small>{task.team || 'Unassigned'} · {task.assignee || 'Unassigned'}{task.dueAt ? ` · Due ${formatDate(task.dueAt)}` : ''}</small></article>) : <div className="hi5-working-peek-empty">No fulfilment tasks.</div>}</div> : null}
 
-      {view === 'approvals' ? <div className="hi5-working-peek-approval-view"><textarea value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} placeholder="Optional approval decision note" />{approvals.length ? approvals.map((approval) => <article key={approval.id}><div><ShieldCheck size={16} /><span><strong>{approval.label}</strong><small>{approval.approver || approval.approverName || 'Approver'} · {approval.status}</small></span></div>{approval.status === 'Pending' ? <div><button type="button" disabled={saving} onClick={() => decide(approval, 'Approved')}>Approve</button><button type="button" disabled={saving} onClick={() => decide(approval, 'Rejected')}>Reject</button></div> : null}</article>) : <div className="hi5-working-peek-empty">No approvals required.</div>}</div> : null}
+      {view === 'approvals' ? <div className="hi5-working-peek-approval-view"><textarea value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} placeholder="Optional approval decision note" />{approvals.length ? approvals.map((approval) => <article key={approval.id}><div><ShieldCheck size={16} /><span><strong>{approval.label}</strong><small>{approval.approver || approval.approverName || 'Approver'} · {approval.status}</small></span></div>{approval.status === 'Pending' ? <div><button type="button" disabled={saving} onClick={() => decide(approval, 'Approved')}>Approve</button><button type="button" disabled={saving} onClick={() => decide(approval, 'Rejected')} title={!approvalNote.trim() ? 'Enter a rejection reason above' : 'Reject approval'}>Reject</button></div> : null}</article>) : <div className="hi5-working-peek-empty">No approvals required.</div>}</div> : null}
 
       {view === 'attachments' ? <div className="hi5-working-peek-attachments"><div className="hi5-working-peek-upload"><label><Paperclip size={16} /><span>{attachment ? `${attachment.name} · ${formatBytes(attachment.size)}` : 'Choose attachment'}</span><input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label><button type="button" disabled={saving || !attachment} onClick={uploadAttachment}><Upload size={15} />Add</button></div>{activityAttachments.length ? activityAttachments.map((item, index) => <article key={`${item.id || item.name}-${index}`}><FileText size={17} /><span><strong>{item.name || 'Attachment'}</strong><small>{formatBytes(item.size)} · {item.type || 'File'}</small></span></article>) : <div className="hi5-working-peek-empty">No attachments on this request.</div>}<small className="hi5-working-peek-attachment-note">Service Request attachments are currently stored against the activity entry, matching the existing request model.</small></div> : null}
     </div>
