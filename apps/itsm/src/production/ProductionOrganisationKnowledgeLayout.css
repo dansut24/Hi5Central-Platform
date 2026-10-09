@@ -84,3 +84,46 @@ html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='knowledg
  visibility:visible!important;
  opacity:1!important;
 }
+
+
+/*
+ * Fix the root cause of the blank People/Knowledge pages:
+ * ProductionItsmRecordTheme gives .workspace auto-sized grid rows; with
+ * absolutely positioned pages, that auto track has zero intrinsic height.
+ * These two routes use a height-constrained flex column and in-flow children.
+ * Other routed pages retain their existing grid/scroll contracts.
+ */
+html[data-hi5-surface='workspace'] .app-shell .workspace:has(> .content-frame:is([data-hi5-active-view='people'],[data-hi5-active-view='knowledge'])) {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  align-content: stretch !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .app-shell .workspace > .content-frame:is([data-hi5-active-view='people'],[data-hi5-active-view='knowledge']) {
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative !important;
+  flex: 1 1 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .app-shell .content-frame[data-hi5-active-view='people'] > .organisation-view,
+html[data-hi5-surface='workspace'] .app-shell .content-frame[data-hi5-active-view='knowledge'] > .production-knowledge-root {
+  position: relative !important;
+  inset: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0 !important;
+  align-self: stretch !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
