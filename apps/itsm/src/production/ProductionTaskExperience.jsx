@@ -262,6 +262,7 @@ function taskCanBeTaken(record) {
 }
 
 function TaskOwnershipButton({ record, onTake, busyTask }) {
+  if (record.source === 'project') return <button type="button" className="production-task-ownership-button" onClick={(event) => { event.stopPropagation(); navigate(`/tasks/${encodeURIComponent(record.id)}`) }}><ExternalLink size={14}/>Open task</button>
   if (!taskCanBeTaken(record)) return <span className="production-task-ownership-state">{record.status === 'Ready' ? record.assignee : '—'}</span>
   const busy = busyTask === record.id
   return <button type="button" className="production-task-ownership-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onTake(record) }}><UserPlus size={14} />{busy ? 'Taking…' : 'Take task'}</button>
@@ -280,7 +281,7 @@ function TaskCardList({ items, onOpen, onTake, busyTask }) {
     const due = dueMeta(record.dueAt, record.status)
     return <article className={`production-record-card production-record-card-enhanced production-task-mobile-card${due.overdue ? ' is-task-overdue' : ''}`} key={record.id}>
       <button className="production-record-card-open production-task-mobile-card-open" type="button" onClick={() => onOpen(record)}>
-        <span className="production-record-card-icon is-service-request"><ListChecks size={18} /></span>
+        <span className={`production-record-card-icon ${record.source === 'project' ? 'is-project' : 'is-service-request'}`}><ListChecks size={18}/></span>
         <span className="production-record-card-copy">
           <strong>{record.id}</strong>
           <b>{record.title}</b>
