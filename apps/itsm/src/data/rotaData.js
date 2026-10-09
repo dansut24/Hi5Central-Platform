@@ -10,8 +10,10 @@ function mondayFor(value = new Date()) {
   return isoDate(date)
 }
 
-export const ROTA_TODAY = isoDate(new Date())
-export const ROTA_WEEK_START = mondayFor()
+const current = new Date()
+const localToday = new Date(Date.UTC(current.getFullYear(), current.getMonth(), current.getDate(), 12))
+export const ROTA_TODAY = isoDate(localToday)
+export const ROTA_WEEK_START = mondayFor(localToday)
 
 export const rotaEntryTypes = [
   { id: 'Early', label: 'Early', category: 'shift', start: '07:30', end: '15:30', capacityHours: 8 },
