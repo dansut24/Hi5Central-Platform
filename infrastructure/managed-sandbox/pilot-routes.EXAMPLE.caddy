@@ -1,0 +1,22 @@
+# TEMPLATE ONLY: this file is NOT imported by any live gateway.
+# 1. Manually verify signed/approved image digests, database/Redis identities,
+#    edge network attachments, environment settings, DNS, certificate policy,
+#    and first-owner/tenant approvals.
+# 2. Before ANY wildcard Production route, explicitly reject unapproved
+#    reserved *uat and *test customer names. Do not configure fallback to Live.
+# 3. Only then install explicitly approved hostnames on the trusted gateway.
+#
+# This example is a **UAT** sandbox pilot. Test requires different hostnames
+# and separate hi5-sandbox-test-* Docker DNS aliases on its dedicated edge.
+#
+# https://uat-api.hi5central.com {
+#   reverse_proxy hi5-sandbox-uat-api:3001
+# }
+#
+# https://approvedcustomeruat.hi5central.com,
+# https://approvedcustomeruat-portal.hi5central.com {
+#   reverse_proxy hi5-sandbox-uat-itsm:80
+# }
+#
+# There is intentionally NO RMM hostname or remote-connect endpoint.
+# Do NOT publish Caddy routes merely because the Compose preflight passes.
