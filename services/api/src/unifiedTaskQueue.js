@@ -77,7 +77,7 @@ queue AS (
     AND ${allowProjects ? "p.status<>'Cancelled' AND (p.status<>'Complete' OR t.status='Done')" : 'FALSE'}
 )`
 
-export async function unifiedTaskQueue(session, query, viewer) {
+export async function unifiedTaskQueue(session, query, viewer, database = pool) {
   const tenantId = session.tenant_id
   const allowProjects = hasPermission(session.access, 'projects.view')
   const scope = clean(query('scope') || 'team',30).toLowerCase()
@@ -125,15 +125,15 @@ export async function unifiedTaskQueue(session, query, viewer) {
   const offset = Math.max(0,Math.floor(Number(query('offset')||0)||0))
   // Do not paginate each source independently: this is one sorted queue.
   const [page,count,aggregates] = await Promise.all([
-    pool.query(`${sql}
+    database.query(`${sql}
       SELECT q.* FROM queue q WHERE ${selection}
       ORDER BY
         CASE WHEN NOT q.is_complete AND q.due_at<now() THEN 0 ELSE 1 END,
         CASE q.status WHEN 'In Progress' THEN 0 WHEN 'Ready' THEN 1 WHEN 'To Do' THEN 2 WHEN 'Backlog' THEN 3 WHEN 'Blocked' THEN 4 ELSE 5 END,
         q.due_at NULLS LAST, q.updated_at DESC, q.id
       LIMIT $${values.length+1} OFFSET $${values.length+2}`, [...values,limit,offset]),
-    pool.query(`${sql} SELECT count(*)::int total FROM queue q WHERE ${selection}`,values),
-    pool.query(`${sql}
+    database.query(`${sql} SELECT count(*)::int total FROM queue q WHERE ${selection}`,values),
+    database.query(`${sql}
       SELECT
         count(*) FILTER (WHERE NOT is_complete)::int AS all,
         count(*) FILTER (WHERE NOT is_complete AND assignee_person_id=$2::uuid)::int AS mine,
