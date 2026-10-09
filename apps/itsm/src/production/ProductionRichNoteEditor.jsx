@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   AlignCenter, AlignLeft, AlignRight, Bold, Braces, Eraser, Expand,
   ImagePlus, Italic, Link2, List, ListOrdered, Minus, Pilcrow, Quote, Redo2, Shrink,
@@ -75,17 +75,34 @@ const Tool = ({title,Icon,onClick,disabled=false,active=false}) => <button type=
 
 export function RichNoteEditor({ html, text, onChange, placeholder='Write a note…' }) {
   const ref = useRef(null)
+  const dialogRef = useRef(null)
   const savedSelection = useRef(null)
   const [expanded,setExpanded] = useState(false)
   const [source,setSource] = useState(false)
   const [sourceValue,setSourceValue] = useState('')
-  const initial = useRef(false)
-  useEffect(() => {
-    if (!ref.current || initial.current) return
+  // Switching to the native dialog remounts the editable content. Restore the
+  // parent-held draft each time without overwriting keystrokes on normal rerenders.
+  useLayoutEffect(() => {
+    if (!ref.current) return
     ref.current.innerHTML = sanitizeNoteHtml(html || (text ? escapeRichText(text).replace(/\n/g,'<br>') : ''))
-    initial.current = true
+    savedSelection.current = null
     ref.current.focus()
-  }, [html,text])
+  }, [expanded])
+  // showModal uses the browser top layer: neither sticky headers nor scrolling
+  // ancestors can render over the editor or clip its bounds.
+  useLayoutEffect(() => {
+    if (!expanded) return undefined
+    const dialog = dialogRef.current
+    if (!dialog) return undefined
+    if (!dialog.open) dialog.showModal()
+    return () => { if (dialog.open) dialog.close() }
+  }, [expanded])
+  useEffect(() => {
+    if (!expanded) return undefined
+    const priorOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = priorOverflow }
+  }, [expanded])
   const sync = () => {
     if (!ref.current) return
     const value = ref.current.innerHTML
@@ -150,7 +167,7 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     if (htmlValue) exec('insertHTML',sanitizeNoteHtml(htmlValue))
     else exec('insertText',plain)
   }
-  return <div className={'record-lab-rich-editor'+(expanded?' is-expanded':'')} aria-label="Rich text note editor">
+  const editor = <div className={'record-lab-rich-editor'+(expanded?' is-expanded':'')} aria-label="Rich text note editor">
     <div className="record-lab-rich-toolbar" role="toolbar" aria-label="Text formatting">
       <Tool title={expanded?'Exit full screen':'Full screen'} Icon={expanded?Shrink:Expand} onClick={()=>setExpanded(v=>!v)}/>
       <button type="button" className="record-lab-rich-ai" title="AI writing assistant requires an AI service connection" disabled>AI</button>
@@ -188,4 +205,11 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     </div>
     {source ? <button type="button" className="record-lab-rich-source-apply" onClick={toggleSource}>Apply safe HTML</button> : null}
   </div>
+  return expanded ? <dialog
+    ref={dialogRef}
+    className="record-lab-rich-fullscreen-dialog"
+    aria-label="Full-screen note editor"
+    onCancel={(event) => { event.preventDefault(); setExpanded(false) }}
+    onClose={() => setExpanded(false)}
+  >{editor}</dialog> : editor
 }
