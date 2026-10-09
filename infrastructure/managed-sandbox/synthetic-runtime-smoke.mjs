@@ -106,7 +106,7 @@ async function apiProbe(e,mode){
     const cleaned=out.replaceAll(e.dbPassword,'[REDACTED]')
       .replaceAll(e.redisPassword,'[REDACTED]')
       .replaceAll(e.mfaKey,'[REDACTED]')
-    throw new Error(e.env+' failed for wrong reason in '+mode+': '+JSON.stringify(cleaned.split(/\\r?\\n/).map(x=>x.trim()).filter(x=>x.length>0&&x.length<350).slice(-18)).slice(0,1600))
+    throw new Error(e.env+' failed for wrong reason in '+mode+': '+('len='+cleaned.length+' tail='+JSON.stringify(cleaned.slice(-950))))
   }
   check(!out.includes('Hi5Central API listening on port 3001'),e.env+' unapproved API listener started')
   check(mode==='without-database' ? out.includes('no operator-attested identity')
