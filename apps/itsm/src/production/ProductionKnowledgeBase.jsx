@@ -181,7 +181,7 @@ export function ProductionKnowledgeBase() {
               <section className="pkb-card pkb-editor-main">
                 <label><span>Title</span><input value={draft.title} onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))} /></label>
                 <label><span>Summary</span><textarea rows={3} value={draft.summary} onChange={(e) => setDraft((v) => ({ ...v, summary: e.target.value }))} /></label>
-                <div className="pkb-rich-field"><span>Article content</span><RichNoteEditor html={isFormattedKnowledge(draft.bodyText) ? draft.bodyText : undefined} text={isFormattedKnowledge(draft.bodyText) ? undefined : draft.bodyText} onChange={({ html }) => setDraft((v) => ({ ...v, bodyText: sanitizeNoteHtml(html) }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></div>
+                <div className="pkb-rich-field"><span>Article content</span><RichNoteEditor html={isFormattedKnowledge(draft.bodyText) ? draft.bodyText : undefined} text={isFormattedKnowledge(draft.bodyText) ? undefined : draft.bodyText} onChange={({ html }) => setDraft((v) => ({ ...v, bodyText: '<div>' + sanitizeNoteHtml(html) + '</div>' }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></div>
               </section>
               <aside className="pkb-card pkb-editor-side">
                 <label><span>Category</span><input list="pkb-categories" value={draft.category} onChange={(e) => setDraft((v) => ({ ...v, category: e.target.value }))} /><datalist id="pkb-categories">{categories.map((item) => <option key={item} value={item} />)}</datalist></label>

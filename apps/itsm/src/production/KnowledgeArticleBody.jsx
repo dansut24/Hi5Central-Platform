@@ -1,6 +1,6 @@
 import { escapeRichText, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
 
-// Support the existing plain-text article library as well as newly formatted articles.
+// Support legacy plain-text articles alongside newer rich HTML fragments. The editor wraps new fragments in a block so even mixed text and inline formatting render correctly.
 // Every HTML fragment is sanitised before it enters the DOM, including portal articles.
 export function isFormattedKnowledge(content) {
   return /^\s*<(?:p|div|h[234]|ul|ol|blockquote|table|pre|hr|strong|em|a|img)\b/i.test(String(content || ''))

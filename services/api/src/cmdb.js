@@ -228,6 +228,15 @@ export function registerCmdbRoutes(app) {
     }
     const ci = await item(pool, auth.session.tenant_id, text(c.req.param('key'), 160))
     if (!ci) return c.json({ error: 'Configuration item not found.' }, 404)
+    // A relationship is meaningful only when the record exists in this tenant.
+    const record = await pool.query(
+      `SELECT 1 FROM itsm_records WHERE tenant_id=$1 AND upper(reference)=$2
+       UNION ALL
+       SELECT 1 FROM service_requests WHERE tenant_id=$1 AND upper(reference)=$2
+       LIMIT 1`,
+      [auth.session.tenant_id, reference],
+    )
+    if (!record.rowCount) return c.json({ error: 'No ITSM record with that reference exists in this tenant.' }, 404)
     await pool.query(
       `INSERT INTO cmdb_record_links(tenant_id, ci_id, record_reference)
        VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
