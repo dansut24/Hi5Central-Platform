@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { createServer } from 'node:net'
+import { createClient } from 'redis'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import pg from 'pg'
@@ -41,6 +43,106 @@ const instanceIds = Object.freeze({
   test:'77777777-7777-4777-8777-777777777777',
 })
 const workerPath = fileURLToPath(new URL('./tenant-environment-prepare.mjs',import.meta.url))
+const activationPath=fileURLToPath(new URL('./tenant-environment-activate.mjs',import.meta.url))
+const ownerInvitationPath=fileURLToPath(new URL('./tenant-environment-owner-invite.mjs',import.meta.url))
+const httpTestPath=fileURLToPath(new URL('./test-sandbox-lifecycle-http.mjs',import.meta.url))
+const redisPorts={uat:55438,test:55439}
+const redisInstanceIds={uat:'88888888-8888-4888-8888-888888888888',test:'99999999-9999-4999-8999-999999999999'}
+function redisUrl(env){return `redis://127.0.0.1:${redisPorts[env]}`}
+function operator(env,flag,extra={}) {
+  const slug=env==='uat'?'acme':'bravo'
+  const envs={...process.env,CONTROL_DATABASE_URL:dbUrl('control'),
+    TARGET_DATABASE_URL:dbUrl(env),TARGET_ENVIRONMENT:env,ROOT_DOMAIN:rootDomain,
+    TENANT_SLUG:slug,TARGET_REDIS_URL:redisUrl(env),
+    ACTIVATION_OPERATOR:'operator-two',INDEPENDENT_REVIEWER:'reviewer-one',
+    CONFIRM_SANDBOX_ACTIVATION:`${slug}:${env}:${requestIds[env]}:${flag.slice(2)}`,
+    ...extra,
+  }
+  const result=spawnSync(process.execPath,[activationPath,flag],{
+    env:envs,encoding:'utf8',timeout:20000,maxBuffer:1024*1024,
+  })
+  return {code:result.status,stdout:result.stdout,stderr:result.stderr,
+    json:result.status===0?JSON.parse(result.stdout):null}
+}
+function initialOwner(env,flag,extra={}){
+  const slug=env==='uat'?'acme':'bravo'
+  const envs={...process.env,
+    TARGET_DATABASE_URL:dbUrl(env),TARGET_ENVIRONMENT:env,
+    ROOT_DOMAIN:rootDomain,TENANT_SLUG:slug,
+    INITIAL_OWNER_EMAIL:`first-owner-${env}@example.invalid`,
+    INITIAL_OWNER_NAME:'First Sandbox Owner',
+    CONFIRM_SANDBOX_OWNER_INVITATION:`${slug}:${env}:${extra.tenantId||''}`,
+    SMTP_HOST:'127.0.0.1',SMTP_PORT:'55440',
+    SMTP_USER:'isolated-ci@example.invalid',SMTP_PASSWORD:'isolated-ci-only',
+    ...extra,
+  }
+  return envs
+}
+function processAsync(script,args,env,timeout=20000) {
+  return new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,[script,...args],{env,stdio:['ignore','pipe','pipe']})
+    let stdout='',stderr=''
+    const timer=setTimeout(()=>child.kill('SIGKILL'),timeout)
+    child.stdout.on('data',v=>stdout+=String(v))
+    child.stderr.on('data',v=>stderr+=String(v))
+    child.on('error',reject)
+    child.on('close',code=>{clearTimeout(timer);resolve({code,stdout,stderr,
+      json:code===0?JSON.parse(stdout):null})})
+  })
+}
+function smtpSink() {
+  const messages=[]
+  const server=createServer(socket=>{
+    socket.setEncoding('utf8')
+    socket.write('220 hi5central-isolated-ci-smtp ESMTP\\r\\n')
+    let buffer='',inData=false,data=''
+    socket.on('data',chunk=>{
+      buffer+=chunk
+      let stop
+      while((stop=buffer.indexOf('\\n'))>=0) {
+        const line=buffer.slice(0,stop).replace(/\\r$/,'')
+        buffer=buffer.slice(stop+1)
+        if(inData){
+          if(line==='.'){
+            messages.push(data)
+            data='';inData=false
+            socket.write('250 accepted for ephemeral test\\r\\n')
+          }else data+=(line.startsWith('..')?line.slice(1):line)+'\\n'
+        }else if(/^EHLO|^HELO/i.test(line))socket.write('250-hi5-isolated\\r\\n250-AUTH PLAIN LOGIN\\r\\n250 8BITMIME\\r\\n')
+        else if(/^AUTH PLAIN/i.test(line))socket.write('235 Authentication successful\\r\\n')
+        else if(/^AUTH LOGIN/i.test(line))socket.write('334 VXNlcm5hbWU6\\r\\n')
+        else if(/^MAIL FROM|^RCPT TO|^RSET/i.test(line))socket.write('250 OK\\r\\n')
+        else if(/^DATA/i.test(line)){inData=true;socket.write('354 Send data\\r\\n')}
+        else if(/^QUIT/i.test(line)){socket.write('221 Closing\\r\\n');socket.end()}
+        else if(/^NOOP/i.test(line))socket.write('250 OK\\r\\n')
+        else socket.write('235 OK\\r\\n')
+      }
+    })
+  })
+  return {server,messages}
+}
+async function attestedRedis(env){
+  const client=createClient({url:redisUrl(env)})
+  await client.connect()
+  await client.set('hi5central:managed:runtime:identity',JSON.stringify({
+    environment:env,rootDomain,databaseInstanceId:instanceIds[env],
+    redisInstanceId:redisInstanceIds[env],verifiedBy:'isolated-ci-operator',
+    verifiedAt:new Date().toISOString(),
+  }))
+  await client.quit()
+}
+function httpWorker(env,flag,opts={}){
+  return processAsync(httpTestPath,[flag],{
+    ...process.env,GITHUB_ACTIONS:'true',
+    HI5_PROVISIONING_TEST_SCOPE:'isolated-github-actions',
+    DATABASE_URL:dbUrl(env),REDIS_URL:redisUrl(env),
+    RUNTIME_ENVIRONMENT:env,DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
+    ROOT_DOMAIN:rootDomain,COOKIE_DOMAIN:'',
+    MFA_ENCRYPTION_KEY:'b'.repeat(64),
+    ...opts,
+  },30000)
+}
+
 const rootDomain = 'hi5central.com'
 const fixtures = [
   '../migrations/core/001_core.sql',
@@ -271,4 +373,101 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.deepEqual(row.rows[0],{status:'suspended',slug:'bravo'})
     assert.equal((await counts('test')).environment_rows,0)
   })
+  await t.test('isolated Redis binding and two-person operator approve/activate; no implicit DNS',async()=>{
+    const unbound=operator('uat','--check')
+    assert.notEqual(unbound.code,0,'Unattested Redis must block operator')
+    await attestedRedis('uat')
+    await attestedRedis('test')
+    const wrong=operator('uat','--check',{TARGET_REDIS_URL:redisUrl('test')})
+    assert.notEqual(wrong.code,0,'Another environment Redis must reject the request')
+    const check=operator('uat','--check')
+    assert.equal(check.code,0,check.stderr)
+    assert.equal(check.json.tenantStatus,'suspended')
+    assert.equal(check.json.controlPlaneReady,false)
+    assert.equal(check.json.dnsChanged,false)
+    const samePeople=operator('uat','--approve',{
+      ACTIVATION_OPERATOR:'same-person',INDEPENDENT_REVIEWER:'same-person',
+    })
+    assert.notEqual(samePeople.code,0)
+    const noConfirm=operator('uat','--approve',{CONFIRM_SANDBOX_ACTIVATION:'WRONG'})
+    assert.notEqual(noConfirm.code,0)
+    const approved=operator('uat','--approve',{
+      ACTIVATION_OPERATOR:'operator-one',INDEPENDENT_REVIEWER:'reviewer-one',
+    })
+    assert.equal(approved.code,0,approved.stderr)
+    assert.equal((await query('uat',"SELECT count(*)::int AS count FROM managed_environment_access_approvals WHERE state='approved'")).rows[0].count,1)
+    const before=operator('uat','--check')
+    assert.equal(before.json.tenantStatus,'suspended','Approval alone must not activate')
+    const badReview=operator('uat','--activate',{INDEPENDENT_REVIEWER:'stranger'})
+    assert.notEqual(badReview.code,0)
+    const activated=operator('uat','--activate')
+    assert.equal(activated.code,0,activated.stderr)
+    assert.equal(activated.json.controlPlaneReady,false)
+    assert.equal(activated.json.dnsChanged,false)
+    assert.equal((await query('uat',"SELECT status FROM tenants WHERE slug='acme'")).rows[0].status,'active')
+    assert.equal((await query('test','SELECT status FROM tenants WHERE slug=\'bravo\'')).rows[0].status,'suspended')
+    const audits=await query('uat','SELECT action,operator_id,independent_reviewer_id FROM managed_environment_activation_audit ORDER BY created_at')
+    assert.deepEqual(audits.rows.map(x=>x.action),['approve','activate'])
+    const control=await query('control',`SELECT q.state,e.provisioning_status FROM tenant_environment_provision_requests q
+      JOIN tenant_environment_instances e ON e.tenant_id=q.tenant_id AND e.environment=q.environment WHERE q.id=$1`,[requestIds.uat])
+    assert.deepEqual(control.rows[0],{state:'claimed',provisioning_status:'provisioning'})
+  })
+
+  let activeCookie=''
+  await t.test('first-owner email invitation, replay rejection and real TOTP HTTP sign-in',async()=>{
+    const local=(await query('uat',"SELECT id FROM tenants WHERE slug='acme'")).rows[0]
+    const notConfirmed=await processAsync(ownerInvitationPath,['--apply'],
+      initialOwner('uat','--apply',{tenantId:local.id,CONFIRM_SANDBOX_OWNER_INVITATION:'wrong'}))
+    assert.notEqual(notConfirmed.code,0)
+    assert.equal((await query('uat','SELECT count(*)::int AS c FROM managed_environment_invitations')).rows[0].c,0)
+    const dry=await processAsync(ownerInvitationPath,['--check'],
+      initialOwner('uat','--check',{tenantId:local.id}))
+    assert.equal(dry.code,0,dry.stderr)
+    const smtp=smtpSink()
+    await new Promise((resolve,reject)=>{
+      smtp.server.once('error',reject)
+      smtp.server.listen(55440,'127.0.0.1',resolve)
+    })
+    let delivered
+    try {
+      delivered=await processAsync(ownerInvitationPath,['--apply'],
+        initialOwner('uat','--apply',{tenantId:local.id}),30000)
+    }finally{
+      await new Promise(resolve=>smtp.server.close(resolve))
+    }
+    assert.equal(delivered.code,0,delivered.stderr)
+    assert.equal(delivered.json.result,'invitation_sent')
+    assert.equal(smtp.messages.length,1,'One invite sent to ephemeral local mailbox')
+    const emailBody=smtp.messages[0].replace(/=\\n/g,'')
+    const match=emailBody.match(/accept-invitation\\?token=([A-Za-z0-9_-]{43})/)
+    assert.ok(match,'Invitation token must exist in isolated mailbox, never stdout')
+    assert.ok(!delivered.stdout.includes(match[1]))
+    const http=await httpWorker('uat','--accept-mfa',{HI5_TEST_INVITE_TOKEN:match[1]})
+    assert.equal(http.code,0,http.stderr)
+    assert.equal(http.json.authenticated,true)
+    activeCookie=http.json.cookie
+    assert.equal((await query('uat','SELECT count(*)::int AS c FROM auth_sessions WHERE revoked_at IS NULL')).rows[0].c,1)
+    assert.equal((await query('uat','SELECT count(*)::int AS c FROM managed_environment_invitations WHERE accepted_at IS NOT NULL')).rows[0].c,1)
+    assert.equal((await query('test','SELECT count(*)::int AS c FROM users')).rows[0].c,0)
+  })
+
+  await t.test('suspending the tenant revokes sessions, unused invites and all future logins',async()=>{
+    const local=(await query('uat',"SELECT id FROM tenants WHERE slug='acme'")).rows[0]
+    await query('uat',`INSERT INTO managed_environment_invitations
+       (tenant_id,email,name,role,token_hash,expires_at)
+       VALUES ($1,'pending@example.invalid','Pending Invite','requester',$2,now()+interval '24 hours')`,
+       [local.id,'a'.repeat(64)])
+    const suspended=operator('uat','--suspend')
+    assert.equal(suspended.code,0,suspended.stderr)
+    assert.equal((await query('uat',"SELECT status FROM tenants WHERE slug='acme'")).rows[0].status,'suspended')
+    assert.equal((await query('uat','SELECT count(*)::int AS c FROM auth_sessions WHERE revoked_at IS NULL')).rows[0].c,0)
+    assert.equal((await query('uat','SELECT count(*)::int AS c FROM managed_environment_invitations WHERE accepted_at IS NULL AND revoked_at IS NULL')).rows[0].c,0)
+    const attempt=await httpWorker('uat','--revoked',{HI5_TEST_SESSION_COOKIE:activeCookie})
+    assert.equal(attempt.code,0,attempt.stderr)
+    assert.equal(attempt.json.loginDenied,true)
+    const audit=await query('uat','SELECT action FROM managed_environment_activation_audit ORDER BY created_at')
+    assert.deepEqual(audit.rows.map(r=>r.action),['approve','activate','suspend'])
+    assert.equal((await query('test','SELECT count(*)::int AS c FROM managed_environment_invitations')).rows[0].c,0)
+  })
+
 })
