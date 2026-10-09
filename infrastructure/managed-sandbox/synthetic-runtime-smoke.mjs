@@ -150,6 +150,10 @@ function testNetwork(e,foreign){
 }
 async function main(){
   try {
+  const apiRevision=docker(['image','inspect',apiImage,'--format','{{index .Config.Labels "org.opencontainers.image.revision"}}'])
+  const itsmRevision=docker(['image','inspect',itsmImage,'--format','{{index .Config.Labels "org.opencontainers.image.revision"}}'])
+  check(apiRevision.length>=7 && itsmRevision===apiRevision,
+    'API and ITSM images must represent exactly the same published revision')
   for(const env of environments){
     const e={
       env,
@@ -212,6 +216,31 @@ async function main(){
     check(Number(sql(e,'SELECT count(*) FROM tenants;').split('\n')[0])===0,
       env+' created a tenant unexpectedly')
     safeLog(env,'API healthy; multi-tenant runtime attested; RMM/Connect 423; unauthenticated sessions 401; tenants 0')
+    const webName=`hi5-p14-web-${env}-${suffix}`
+    startContainer(['--network',e.network,
+      ...envPairs({
+        DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
+        RUNTIME_ENVIRONMENT:env,FEATURE_MODE:'controlled',
+        ROOT_DOMAIN:'hi5central.com',
+        API_URL:`https://pilot-${env}-api.hi5central.com`,
+        MARKETING_URL:'https://hi5central.com',PRIMARY_TENANT_SLUG:'',
+        APP_URL:'',PORTAL_URL:'',RMM_URL:'',ADMIN_URL:'',TURN_URL:'',
+      }),itsmImage],webName)
+    await waitUntil(()=>safelyRun(['exec',webName,'wget','-q','-O','-',
+      'http://127.0.0.1/healthz']).text.trim()==='ok',env+' ITSM frontend',20)
+    const runtime=docker(['exec',webName,'wget','-q','-O','-',
+      'http://127.0.0.1/runtime-config.js'])
+    const homepage=docker(['exec',webName,'wget','-q','-O','-','http://127.0.0.1/'])
+    check(homepage.includes('<!doctype html>') || homepage.includes('<!DOCTYPE html>'),
+      env+' frontend does not serve the application entry point')
+    for(const item of [
+      `runtimeEnvironment: "${env}"`,
+      'tenancyMode: "multi"',
+      `apiUrl: "https://pilot-${env}-api.hi5central.com"`,
+      'rmmUrl: ""','adminUrl: ""','primaryTenantSlug: ""',
+    ]) check(runtime.includes(item),env+' unsafe frontend runtime configuration: '+item)
+    safeLog(env,'ITSM/Portal healthy; environment API set; no RMM/Admin; no default demo customer')
+
   }
   testNetwork(entries[0],entries[1])
   testNetwork(entries[1],entries[0])
