@@ -70,6 +70,7 @@ jobs:
           node --check infrastructure/managed-sandbox/inventory-legacy.mjs
           node --check infrastructure/managed-sandbox/prepare-empty-edges.mjs
           node --check infrastructure/managed-sandbox/probe-edge-isolation.mjs
+          node --check infrastructure/managed-sandbox/synthetic-runtime-smoke.mjs
           node --check infrastructure/managed-sandbox/public-route-audit.mjs
           HI5_PHASE10_SMOKE=true node infrastructure/managed-sandbox/test-compose.mjs
       - name: Verify isolated tenant provisioning operator syntax
@@ -83,7 +84,7 @@ jobs:
         run: node --check services/api/scripts/test-tenant-environment-prepare-integration.mjs
       - name: Validate tenant environment hostnames
         if: matrix.name == 'API'
-        run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs services/api/tests/managedEnvironmentIsolation.test.mjs services/api/tests/tenantEnvironmentOperatorChecks.test.mjs services/api/tests/tenantEnvironmentBootstrap.test.mjs services/api/tests/managedRuntimeGuard.test.mjs services/api/tests/managedSandboxAccess.test.mjs services/api/tests/managedSandboxInvitations.test.mjs services/api/tests/managedSandboxActivation.test.mjs
+        run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs services/api/tests/managedEnvironmentIsolation.test.mjs services/api/tests/tenantEnvironmentOperatorChecks.test.mjs services/api/tests/tenantEnvironmentBootstrap.test.mjs services/api/tests/managedRuntimeGuard.test.mjs services/api/tests/managedSandboxAccess.test.mjs services/api/tests/managedSandboxInvitations.test.mjs services/api/tests/managedSandboxActivation.test.mjs services/api/tests/managedSandboxPolicy.test.mjs services/api/tests/sandboxDeploymentConfig.test.mjs
       - name: Integration test sandbox identity preparation in disposable PostgreSQL
         if: matrix.name == 'API'
         shell: bash
@@ -122,7 +123,7 @@ jobs:
             node --test services/api/scripts/test-tenant-environment-prepare-integration.mjs
       - name: Validate customer environment frontend routing
         if: matrix.name == 'ITSM'
-        run: node --test apps/itsm/tests/tenantSurfaceEnvironments.test.mjs
+        run: node --test apps/itsm/tests/tenantSurfaceEnvironments.test.mjs apps/itsm/tests/runtimeEntrypointSandbox.test.mjs apps/itsm/tests/deploymentConfigSandbox.test.mjs
       - name: Use built-in Docker builder without Docker Hub bootstrap
         run: |
           docker buildx use default
