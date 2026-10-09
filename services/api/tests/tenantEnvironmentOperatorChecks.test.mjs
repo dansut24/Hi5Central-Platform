@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { checkProvisioningPreflight } from '../src/tenantEnvironmentOperatorChecks.js'
+import { checkProvisioningPreflight, validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
 
 const base = {
   request: {
@@ -48,4 +48,21 @@ test('preflight blocks invalid states, reserved names and mismatched host reserv
 test('missing request is rejected safely',()=>{
   const result=checkProvisioningPreflight({...base,request:null})
   assert.equal(result.approvedForIsolationSetup,false)
+})
+
+test('control plane must have independent managed multi-tenant attestation',()=>{
+  const valid={
+    deployment_mode:'managed',tenancy_mode:'multi',
+    root_domain:'hi5central.com',
+    instance_id:'55555555-5555-4555-8555-555555555555',
+    verified_by:'isolated-ci-operator',verified_at:new Date(),
+  }
+  assert.equal(validateControlPlaneAttestation(valid,'hi5central.com').allowed,true)
+  for(const identity of [
+    null,{...valid,tenancy_mode:'single'},
+    {...valid,deployment_mode:'self_hosted'},
+    {...valid,root_domain:'other.example'},
+    {...valid,verified_at:null},
+    {...valid,instance_id:null},
+  ]) assert.equal(validateControlPlaneAttestation(identity,'hi5central.com').allowed,false)
 })
