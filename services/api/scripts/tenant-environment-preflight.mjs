@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
-import { checkProvisioningPreflight } from '../src/tenantEnvironmentOperatorChecks.js'
+import { checkProvisioningPreflight, validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
 
 // Read-only preflight for a future privileged tenant environment operator.
 // Never copies data, creates users, changes tenant status, or configures DNS.
@@ -38,6 +38,16 @@ async function main() {
     // Both connections are explicitly read-only. This script cannot fulfill
     // queued requests or mark a managed customer sandbox as ready.
     await Promise.all([control.query('BEGIN READ ONLY'),target.query('BEGIN READ ONLY')])
+    // An independently attested control plane is required: the internal
+    // single-tenant Dev database must never become a provisioning source.
+    const controlIdentity = (await control.query(
+      `SELECT deployment_mode,tenancy_mode,root_domain,instance_id,verified_by,verified_at
+         FROM managed_control_plane_identity WHERE singleton=true`,
+    )).rows[0] || null
+    const controlValidation = validateControlPlaneAttestation(controlIdentity, rootDomain)
+    if (!controlValidation.allowed) throw new Error(
+      `Control-plane identity verification failed: ${controlValidation.errors.join('; ')}`,
+    )
     const reqResult = await control.query(
       `SELECT q.id,q.state AS request_state,q.environment,t.slug,t.status AS tenant_status,
               e.provisioning_status,e.hostname_label
