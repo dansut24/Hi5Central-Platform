@@ -3,11 +3,27 @@ import { pool } from './db.js'
 
 // A single read model over two authoritative task tables. Updates continue to
 // use their native endpoints and are never replicated into another task table.
-const validScopes = new Set(['mine','team','unassigned','blocked','all','completed'])
+const validScopes = new Set(['mine','team','unassigned','blocked','all','completed','project'])
 const validStatuses = new Set(['Ready','In Progress','Blocked','Completed','Backlog','To Do','Done'])
 const validDue = new Set(['Overdue','Next 24 hours','Next 7 days','No due date'])
 const validSources = new Set(['All','service-request','project'])
 const clean = (value, max=160) => String(value ?? '').trim().slice(0,max)
+
+// A project task belongs to its assignee and their team(s), even when
+// the parent project has no team or is routed to a different team.
+// Service-request fulfilment tasks retain their existing routing semantics.
+export const projectTeamVisibilitySql = `(
+  q.team_id=ANY($3::uuid[])
+  OR (q.source='project' AND (
+    q.assignee_person_id=$2::uuid
+    OR EXISTS (
+      SELECT 1 FROM organisation_team_memberships assignment_team
+      WHERE assignment_team.tenant_id=$1
+        AND assignment_team.person_id=q.assignee_person_id
+        AND assignment_team.team_id=ANY($3::uuid[])
+    )
+  ))
+)`
 
 const baseSql = (allowProjects) => `
 WITH queue_params AS (SELECT $2::uuid AS person_id, $3::uuid[] AS team_ids),
@@ -77,7 +93,8 @@ export async function unifiedTaskQueue(session, query, viewer) {
   const values = [tenantId, viewer?.id || null, teamIds]
   const where = [scope==='completed' ? 'q.is_complete' : 'NOT q.is_complete']
   if (scope==='mine') where.push('q.assignee_person_id=$2::uuid')
-  if (scope==='team') where.push('q.team_id=ANY($3::uuid[])')
+  if (scope==='team') where.push(projectTeamVisibilitySql)
+  if (scope==='project') where.push("q.source='project'")
   if (scope==='unassigned') where.push('q.assignee_person_id IS NULL')
   if (scope==='blocked') where.push('q.is_blocked')
   const add = (fragment, value) => {
@@ -120,7 +137,19 @@ export async function unifiedTaskQueue(session, query, viewer) {
       SELECT
         count(*) FILTER (WHERE NOT is_complete)::int AS all,
         count(*) FILTER (WHERE NOT is_complete AND assignee_person_id=$2::uuid)::int AS mine,
-        count(*) FILTER (WHERE NOT is_complete AND team_id=ANY($3::uuid[]))::int AS team,
+        count(*) FILTER (WHERE NOT is_complete AND (
+          team_id=ANY($3::uuid[])
+          OR (source='project' AND (
+            assignee_person_id=$2::uuid
+            OR EXISTS (
+              SELECT 1 FROM organisation_team_memberships assignment_team
+              WHERE assignment_team.tenant_id=$1
+                AND assignment_team.person_id=queue.assignee_person_id
+                AND assignment_team.team_id=ANY($3::uuid[])
+            )
+          ))
+        ))::int AS team,
+        count(*) FILTER (WHERE NOT is_complete AND source='project')::int AS project,
         count(*) FILTER (WHERE NOT is_complete AND assignee_person_id IS NULL)::int AS unassigned,
         count(*) FILTER (WHERE NOT is_complete AND is_blocked)::int AS blocked,
         count(*) FILTER (WHERE NOT is_complete AND due_at<now())::int AS overdue,
@@ -148,7 +177,7 @@ export async function unifiedTaskQueue(session, query, viewer) {
       personId:viewer?.external_key||'',name:viewer?.name||session.name||'',
       email:viewer?.email||session.email||'',teams:Array.isArray(viewer?.team_names)?viewer.team_names:[],
     },
-    views:Object.fromEntries(['mine','team','unassigned','blocked','overdue','all','completed'].map(key=>[key,Number(totals[key]||0)])),
+    views:Object.fromEntries(['mine','team','unassigned','blocked','overdue','all','completed','project'].map(key=>[key,Number(totals[key]||0)])),
     filters:{
       statuses:totals.statuses||[],priorities:totals.priorities||[],
       teams:totals.teams||[],assignees:totals.assignees||[],
