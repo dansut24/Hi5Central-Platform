@@ -67,6 +67,9 @@ jobs:
       - name: Validate isolated sandbox HTTP lifecycle test driver syntax
         if: matrix.name == 'API'
         run: node --check services/api/scripts/test-sandbox-lifecycle-http.mjs
+      - name: Validate isolated provisioning and lifecycle integration test syntax
+        if: matrix.name == 'API'
+        run: node --check services/api/scripts/test-tenant-environment-prepare-integration.mjs
       - name: Validate tenant environment hostnames
         if: matrix.name == 'API'
         run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs services/api/tests/managedEnvironmentIsolation.test.mjs services/api/tests/tenantEnvironmentOperatorChecks.test.mjs services/api/tests/tenantEnvironmentBootstrap.test.mjs services/api/tests/managedRuntimeGuard.test.mjs services/api/tests/managedSandboxAccess.test.mjs services/api/tests/managedSandboxInvitations.test.mjs services/api/tests/managedSandboxActivation.test.mjs
