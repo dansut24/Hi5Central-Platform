@@ -67,6 +67,7 @@ import './production/ProductionItsmRecordTheme.css'
 import './production/ProductionRmmThemeParity.css'
 import './production/RmmSidebarParity.css'
 import './production/ProductionDashboardTest2Parity.css'
+import './production/ProductionRecordDensity.css'
 
 installWorkspaceTabSessionIsolation()
 
