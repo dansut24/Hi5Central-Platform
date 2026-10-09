@@ -94,6 +94,12 @@ async function main(){
   const session=await call('/probe/session',null,{Cookie:cookie})
   assert.equal(session.data.authenticated,true)
   assert.equal(session.data.tenantSlug,slug)
+  const crossTenant=await call('/probe/session',null,{
+    Origin:`https://another${environment}.hi5central.com`,Cookie:cookie,
+  })
+  assert.equal(crossTenant.data.authenticated,false,'Cookie must not cross customer subdomains')
+  const missingOrigin=await call('/probe/session',null,{Origin:'',Cookie:cookie})
+  assert.equal(missingOrigin.data.authenticated,false,'Sandbox session requires tenant origin')
   // CI-only cookie returned to isolated harness, never printed to runner logs.
   console.log(JSON.stringify({
     accepted:true,replayRejected:true,mfaChallenged:true,mfaVerified:true,
