@@ -7,6 +7,8 @@ import { secureHeaders } from 'hono/secure-headers'
 import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
+import { registerCmdbRoutes } from './cmdb.js'
+import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
@@ -675,6 +677,8 @@ registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
+registerCmdbRoutes(app)
+registerKnowledgeRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
 registerUserPreferenceRoutes(app)
