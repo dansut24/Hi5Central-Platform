@@ -1,0 +1,408 @@
+/* Record workbench: tabs | record information | activity | requester/device context.
+   This layer owns layout after older activity-first and density styles. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+  margin: 0 !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid {
+  min-height: 0 !important;
+  height: 100% !important;
+  gap: 10px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column {
+  grid-template-columns: minmax(210px, 238px) minmax(0, 1fr) minmax(245px, 286px) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column.is-inspector-collapsed {
+  grid-template-columns: minmax(210px, 238px) minmax(0, 1fr) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-focus-mode {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-summary-rail {
+  grid-row: 1;
+  grid-column: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column .record-lab-primary-workspace {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-focus-mode .record-lab-primary-workspace {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column .record-lab-inspector:not(.is-mobile-copy):not(.is-overlay) {
+  grid-column: 3 !important;
+  grid-row: 1 !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column .record-lab-inspector.is-overlay:not(.is-mobile-copy) {
+  grid-column: auto !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: 0;
+  gap: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  box-shadow: var(--rmm-shadow);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 13px 12px 5px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-type-icon {
+  width: 35px;
+  min-width: 35px;
+  height: 35px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), .1);
+  color: rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-identity > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-reference {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-type-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-title {
+  margin: 0 !important;
+  padding: 6px 12px 8px;
+  color: var(--ink);
+  font-size: 17px !important;
+  font-weight: 850;
+  line-height: 1.32;
+  letter-spacing: -.018em;
+  overflow-wrap: anywhere;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 12px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-status-row .record-lab-pill {
+  min-height: 24px;
+  font-size: 11px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-section {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-section-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-description.is-expanded {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-expand {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--accent-rgb));
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-expand[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-assignment {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 41px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-assignment > span {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-assignment strong {
+  font-size: 12px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-assignment small {
+  color: var(--muted);
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-assignment:hover {
+  border-color: rgba(var(--accent-rgb), .35);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-fields {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 4px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-fields > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-fields span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-fields strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 780;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-sla {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  margin: 4px 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-sla > span {
+  flex: 1 1 auto;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-sla small {
+  font-size: 11px;
+  color: var(--muted);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-sla strong {
+  font-size: 12px;
+  color: var(--ink);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-signal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  margin: 2px 9px 8px;
+  padding: 4px 8px;
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 8px;
+  background: rgba(var(--accent-rgb), .06);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-signal span {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 9px;
+  border-top: 1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-actions button {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 33px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-actions button:hover {
+  border-color: rgba(var(--accent-rgb), .36);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-record-actions button,.record-lab-record-expand,.record-lab-record-assignment,.record-lab-record-sla,.record-lab-record-signal):focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch > button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch > button.is-selected {
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,.08);
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch > button:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 1px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-pill {
+  white-space: normal;
+  line-height: 1.25;
+}
+@media (min-width: 821px) and (max-width: 1260px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column.is-inspector-collapsed {
+    grid-template-columns: minmax(195px, 220px) minmax(0, 1fr) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column .record-lab-inspector:not(.is-mobile-copy):not(.is-overlay) {
+    position: absolute !important;
+    z-index: 41;
+    right: 0;
+    top: 0;
+    width: min(305px, calc(100% - 35px));
+    max-height: 100% !important;
+    overflow-y: auto !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-title {
+    font-size: 16px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch > button {
+    padding: 0 6px;
+  }
+}
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-three-column.is-inspector-collapsed,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-focus-mode {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-summary-rail {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin-bottom: 9px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card {
+    border-radius: 11px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-identity {
+    padding: 10px 12px 2px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-title {
+    font-size: 17px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-section {
+    padding: 8px 12px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-actions button {
+    min-height: 39px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch {
+    display: none !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
