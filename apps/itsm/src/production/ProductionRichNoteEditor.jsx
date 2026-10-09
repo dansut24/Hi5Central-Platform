@@ -35,7 +35,7 @@ export function sanitizeNoteHtml(raw) {
     const src = tag === 'img' ? safeRichUrl(node.getAttribute('src'), true) : ''
     const title = tag === 'a' ? String(node.getAttribute('title') || '').slice(0,200) : ''
     const alt = tag === 'img' ? String(node.getAttribute('alt') || '').slice(0,200) : ''
-    const align = (node.getAttribute('style') || '').match(/(?:^|;)\s*text-align\s*:\s*(center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase() || ''
+    const align = (node.getAttribute('style') || '').match(/(?:^|;)\s*text-align\s*:\s*(center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase() || (node.getAttribute('class') || '').match(/(?:^|\s)rt-align-(center|right|justify)(?:\s|$)/)?.[1] || ''
     for (const attr of [...node.attributes]) node.removeAttribute(attr.name)
     if (tag === 'a' && href) {
       node.setAttribute('href',href)
