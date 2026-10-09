@@ -4,6 +4,7 @@
 // persist volumes, publish host ports, or create operator approvals.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { statSync } from 'node:fs'
 
 const IS_EXPLICIT = process.argv.length === 5
   && process.argv[2] === '--run'
@@ -30,6 +31,11 @@ const pgImage='public.ecr.aws/docker/library/postgres:17-alpine'
 const redisImage='redis:8-alpine'
 const apiImage='ghcr.io/dansut24/hi5central-platform-api:dev'
 const itsmImage='ghcr.io/dansut24/hi5central-platform-itsm:dev'
+const frontendEntrypoint=process.env.HI5_PHASE14_ITSM_ENTRYPOINT || ''
+if(frontendEntrypoint && (!frontendEntrypoint.startsWith('/tmp/hi5-phase14/')
+  || !statSync(frontendEntrypoint).isFile())){
+  throw new Error('Only a local disposable test-only ITSM entrypoint under /tmp/hi5-phase14 is allowed.')
+}
 const environments=['uat','test']
 const entries=[]
 const created={containers:[],networks:[]}
@@ -218,6 +224,7 @@ async function main(){
     safeLog(env,'API healthy; multi-tenant runtime attested; RMM/Connect 423; unauthenticated sessions 401; tenants 0')
     const webName=`hi5-p14-web-${env}-${suffix}`
     startContainer(['--network',e.network,
+      ...(frontendEntrypoint?['--mount',`type=bind,src=${frontendEntrypoint},dst=/usr/bin/hi5-runtime-entrypoint,readonly`]:[]),
       ...envPairs({
         DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
         RUNTIME_ENVIRONMENT:env,FEATURE_MODE:'controlled',
