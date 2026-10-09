@@ -488,7 +488,17 @@ html[data-hi5-surface='workspace'] .project-workbench-tabs button:focus-visible 
     border-radius:10px;
     background:color-mix(in srgb,var(--surface) 92%,transparent);
   }
-  html[data-hi5-surface='workspace'] .project-workbench-main .project-board { overflow-x:auto; }
+  /* Override the desktop nested-scroll optimisation on phones: task cards
+     and timeline sections remain within the natural document flow. */
+  html[data-hi5-surface='workspace'] .project-workbench-grid > .project-workbench-main:has(.project-task-list-view),
+  html[data-hi5-surface='workspace'] .project-workbench-grid > .project-workbench-main:has(.project-timeline-view) {
+    overflow:visible !important;
+  }
+  html[data-hi5-surface='workspace'] .project-workbench-main .project-task-list-view {
+    height:auto !important;
+    grid-template-rows:auto auto;
+  }
+    html[data-hi5-surface='workspace'] .project-workbench-main .project-board { overflow-x:auto; }
   html[data-hi5-surface='workspace'] .project-workbench-main .project-timeline-shell { max-width:100%;overflow-x:auto; }
 }
 @media (prefers-reduced-transparency:reduce) {
