@@ -313,6 +313,17 @@ export function registerServiceRequestOperationRoutes(app) {
           error.status = 400
           throw error
         }
+        if (targetStatus === 'Completed') {
+          const outstanding = await client.query(
+            "SELECT count(*)::int AS pending FROM service_request_tasks WHERE request_id=$1 AND status<>'Completed'",
+            [request.id],
+          )
+          if (Number(outstanding.rows[0]?.pending || 0) > 0) {
+            const error = new Error('Complete all fulfilment tasks before completing the Service Request.')
+            error.status = 409
+            throw error
+          }
+        }
         if (request.status === 'Completed' && targetStatus === 'In Progress' && !text(values.reopenReason, 10_000)) {
           const error = new Error('Reopen reason is required before fulfilment resumes.')
           error.status = 400
