@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { CALENDAR_TODAY, calendarEventTypes } from '../../data/calendarData.js'
+import { CalendarTeamSidebar, CalendarPersonLane } from './CalendarTeamView.jsx'
 import './CalendarView.css'
 
 const SOURCE_META = {
@@ -400,6 +401,24 @@ export function CalendarView({
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
   const filtersRef = useRef(null)
   const filterToggleRef = useRef(null)
+  const teamTrackRef = useRef(null)
+  const [teamSidebarOpen, setTeamSidebarOpen] = useState(false)
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('hi5-calendar-selected-people') || '[]')
+      return Array.isArray(saved) ? saved.filter(id => typeof id === 'string' || typeof id === 'number').slice(0, 60) : []
+    } catch { return [] }
+  })
+  const selectedPeople = selectedCalendarIds.map(id => people.find(person => person.id === id)).filter(Boolean)
+  const chooseCalendars = (ids) => {
+    const allowed = new Set(people.map(person => person.id))
+    setSelectedCalendarIds([...new Set(ids)].filter(id => allowed.has(id)))
+  }
+  useEffect(() => {
+    window.localStorage.setItem('hi5-calendar-selected-people', JSON.stringify(selectedCalendarIds))
+    const track = teamTrackRef.current
+    if (track) track.scrollTo({ left: selectedCalendarIds.length ? track.scrollWidth : 0, behavior: 'smooth' })
+  }, [selectedCalendarIds])
   useEffect(() => {
     if (!mobileFiltersOpen) return undefined
     const close = (event) => {
@@ -415,17 +434,17 @@ export function CalendarView({
   const conflicts = useMemo(() => detectConflicts(allEvents), [allEvents])
   const eventTypes = useMemo(() => [...new Set(allEvents.map((event) => event.kind).filter(Boolean))].sort(), [allEvents])
 
-  const filteredEvents = useMemo(() => {
+  const teamEvents = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return allEvents.filter((event) => {
       if (sourceFilter !== 'all' && event.source !== sourceFilter) return false
       if (teamFilter !== 'all' && event.team !== teamFilter) return false
-      if (personFilter !== 'all' && event.personId !== personFilter && event.personName !== personFor(people, personFilter)) return false
       if (typeFilter !== 'all' && event.kind !== typeFilter) return false
       if (needle && ![event.title, event.sourceLabel, event.team, event.personName, event.status, event.priority, event.projectName, event.recordId].filter(Boolean).join(' ').toLowerCase().includes(needle)) return false
       return true
     })
-  }, [allEvents, sourceFilter, teamFilter, personFilter, typeFilter, query, people])
+  }, [allEvents, sourceFilter, teamFilter, typeFilter, query])
+  const filteredEvents = useMemo(() => teamEvents.filter(event => personFilter === 'all' || event.personId === personFilter || event.personName === personFor(people, personFilter)), [teamEvents, personFilter, people])
 
   const activeFilterCount = [sourceFilter, teamFilter, personFilter, typeFilter].filter((value) => value !== 'all').length
   const visibleConflictCount = new Set(filteredEvents.filter((event) => conflicts.has(event.id)).map((event) => event.id)).size
@@ -538,6 +557,7 @@ export function CalendarView({
         <div className="calendar-view-switch" aria-label="Calendar view">
           {['month', 'week', 'day', 'agenda'].map((item) => <button className={view === item ? 'active' : ''} key={item} onClick={() => setView(item)} type="button">{item[0].toUpperCase() + item.slice(1)}</button>)}
         </div>
+        <button className={`calendar-team-toggle ${teamSidebarOpen || selectedPeople.length ? 'is-active' : ''}`} type="button" aria-expanded={teamSidebarOpen} aria-controls="calendar-team-sidebar" onClick={() => setTeamSidebarOpen(value => !value)}><Users size={15}/>Team calendars{selectedPeople.length ? ` (${selectedPeople.length})` : ''}</button>
         <button className={`calendar-filter-toggle ${activeFilterCount || query ? 'active' : ''}`} ref={filterToggleRef} aria-controls="calendar-filters" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen((value) => !value)} type="button"><Filter size={15} />Filters{activeFilterCount || query ? ` (${activeFilterCount + (query ? 1 : 0)})` : ''}</button>
       </section>
 
@@ -560,6 +580,10 @@ export function CalendarView({
         </section>
       </section>
 
+      <div className={`calendar-team-layout${teamSidebarOpen ? ' has-sidebar' : ''}`}>
+        {teamSidebarOpen ? <div className="calendar-team-sidebar-slot" id="calendar-team-sidebar"><CalendarTeamSidebar people={people} teams={teams} selectedIds={selectedCalendarIds} onChange={chooseCalendars} onClose={() => setTeamSidebarOpen(false)}/></div> : null}
+        <div className={`calendar-team-track${selectedPeople.length ? ' has-people' : ''}`} ref={teamTrackRef} aria-label="Calendar comparison">
+          <div className="calendar-primary-panel" aria-label="Unified schedule">
       {view === 'month' && (
         <section className="calendar-month-shell">
           <div className="calendar-weekday-row">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <span key={day}>{day}</span>)}</div>
@@ -605,6 +629,11 @@ export function CalendarView({
           <div>{Array.from(new Set(periodEvents.map((event) => event.date))).map((date) => <section className="calendar-agenda-day" key={date}><header><strong>{formatDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>{date === CALENDAR_TODAY && <span>Today</span>}</header>{(eventsByDate.get(date) || []).map((event) => <EventListItem conflicts={conflicts} event={event} key={event.id} onOpen={openEvent} />)}</section>)}{!periodEvents.length && <div className="calendar-empty-state"><CircleDot size={26} /><strong>No matching events</strong><span>Adjust the filters or add a calendar event.</span></div>}</div>
         </section>
       )}
+
+          </div>
+          {selectedPeople.map(person => <CalendarPersonLane key={person.id} person={person} events={teamEvents} period={period} view={view} selectedDate={selectedDate} conflicts={conflicts} onOpen={openEvent} onRemove={id => chooseCalendars(selectedCalendarIds.filter(value => value !== id))} />)}
+        </div>
+      </div>
 
       <CalendarPanel conflicts={conflicts} draft={draft} event={selectedEvent} onChangeDraft={setDraft} onClose={() => { setDraft(null); setSelectedEvent(null) }} onDelete={deleteDraft} onEdit={editEvent} onSave={saveDraft} people={people} teams={teams} />
     </div>
