@@ -10,8 +10,9 @@ export function ManagedSandboxInvitationPage() {
   const [pending,setPending] = useState(false)
   const [complete,setComplete] = useState(false)
   const [error,setError] = useState('')
-  const params = new URLSearchParams(window.location.search)
-  const token = params.get('token') || ''
+  // Preserve the token in component memory after removing it from browser
+  // history, so typing a password never accidentally clears the invitation.
+  const [token] = useState(() => new URLSearchParams(window.location.search).get('token') || '')
 
   useEffect(() => {
     document.title = 'Accept your Hi5Central invitation'
