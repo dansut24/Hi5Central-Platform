@@ -1,0 +1,344 @@
+/* Team calendars: Outlook-inspired selectable colleague schedules that extend
+   horizontally beside the existing unified calendar without replacing it. */
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-team-layout {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:9px;
+  min-width:0;
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-team-layout.has-sidebar {
+  grid-template-columns:minmax(190px,222px) minmax(0,1fr);
+}
+html[data-hi5-surface='workspace'] .calendar-view .calendar-team-sidebar-slot {
+  min-width:0;
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar {
+  display:grid;
+  grid-template-rows:auto auto auto auto minmax(0,1fr);
+  min-height:0;
+  height:100%;
+  padding:10px 9px;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:color-mix(in srgb,var(--surface) 93%,transparent);
+  color:var(--ink);
+  overflow:hidden;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar-heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar-heading > span {
+  display:inline-flex;align-items:center;gap:7px;min-width:0;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar-heading strong {
+  font-size:13px;font-weight:850;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar-heading > button,
+html[data-hi5-surface='workspace'] .calendar-person-lane-header > button {
+  width:30px;height:30px;flex:0 0 30px;display:grid;place-items:center;
+  padding:0;border:1px solid var(--line);border-radius:8px;
+  background:var(--surface-soft);color:var(--ink);cursor:pointer;
+}
+html[data-hi5-surface='workspace'] .calendar-team-sidebar > p {
+  margin:8px 0;font-size:11px;line-height:1.45;color:var(--muted);
+}
+html[data-hi5-surface='workspace'] .calendar-team-people-search {
+  min-height:37px;display:flex;align-items:center;gap:7px;
+  padding:0 9px;border:1px solid var(--line);
+  border-radius:8px;color:var(--muted);background:var(--surface);
+}
+html[data-hi5-surface='workspace'] .calendar-team-people-search input {
+  width:100%;min-width:0;border:0;background:transparent;color:var(--ink);
+  outline:0;font:inherit;font-size:12px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-select-meta {
+  display:flex;align-items:center;justify-content:space-between;
+  gap:8px;min-height:34px;font-size:11px;color:var(--muted);
+}
+html[data-hi5-surface='workspace'] .calendar-team-select-meta button {
+  padding:4px 0;border:0;background:transparent;color:rgb(var(--accent-rgb));
+  cursor:pointer;font:inherit;font-size:11px;font-weight:760;
+}
+html[data-hi5-surface='workspace'] .calendar-team-groups {
+  min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;padding-right:3px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-group { margin-bottom:10px; }
+html[data-hi5-surface='workspace'] .calendar-team-group-heading {
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  min-height:31px;border-bottom:1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .calendar-team-group-heading > button:first-child {
+  display:flex;align-items:center;gap:5px;min-width:0;flex:1;
+  border:0;background:transparent;color:var(--ink);
+  padding:6px 0;text-align:left;cursor:pointer;
+}
+html[data-hi5-surface='workspace'] .calendar-team-group-heading strong {
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;font-weight:800;
+}
+html[data-hi5-surface='workspace'] .calendar-team-group-heading small {
+  color:var(--muted);font-size:10px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-group-heading svg { transition:transform .12s; }
+html[data-hi5-surface='workspace'] .calendar-team-group-heading svg.is-expanded { transform:rotate(90deg); }
+html[data-hi5-surface='workspace'] .calendar-team-select-team {
+  flex:0 0 auto;border:0;background:transparent;color:rgb(var(--accent-rgb));
+  font:inherit;font-size:10px;font-weight:800;cursor:pointer;padding:4px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-list { display:grid;gap:2px;padding:4px 0; }
+html[data-hi5-surface='workspace'] .calendar-team-member-list > label {
+  display:flex;align-items:center;gap:7px;min-width:0;
+  min-height:41px;padding:5px 4px;border-radius:8px;
+  cursor:pointer;
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-list > label:hover,
+html[data-hi5-surface='workspace'] .calendar-team-member-list > label.is-selected {
+  background:rgba(var(--accent-rgb),.07);
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-list input {
+  flex:0 0 auto;width:15px;height:15px;
+  accent-color:rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .calendar-team-avatar {
+  flex:0 0 29px;display:grid;place-items:center;
+  width:29px;height:29px;border-radius:50%;
+  background:rgba(var(--accent-rgb),.12);
+  color:rgb(var(--accent-rgb));font-size:10px;font-weight:850;
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-name {
+  display:grid;gap:2px;min-width:0;
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-name strong {
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--ink);font-size:12px;
+}
+html[data-hi5-surface='workspace'] .calendar-team-member-name small {
+  color:var(--muted);font-size:10px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+html[data-hi5-surface='workspace'] .calendar-team-empty {
+  padding:10px 5px;color:var(--muted);font-size:12px;
+}
+/* One horizontal scrollbar owns the unified grid and all added colleagues. */
+html[data-hi5-surface='workspace'] .calendar-team-track {
+  display:flex;
+  align-items:stretch;
+  min-width:0;
+  min-height:0;
+  height:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  overscroll-behavior-x:contain;
+  scrollbar-width:thin;
+  scroll-snap-type:x proximity;
+  border:1px solid var(--line);
+  border-radius:11px;
+  background:var(--surface);
+}
+html[data-hi5-surface='workspace'] .calendar-team-track > .calendar-primary-panel {
+  display:grid;
+  grid-template-rows:minmax(0,1fr);
+  flex:1 0 100%;
+  min-width:0;
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+  scroll-snap-align:start;
+}
+html[data-hi5-surface='workspace'] .calendar-team-track.has-people > .calendar-primary-panel {
+  flex:0 0 max(440px,62%);
+}
+html[data-hi5-surface='workspace'] .calendar-primary-panel > :is(.calendar-month-shell,.calendar-week-shell,.calendar-day-shell,.calendar-agenda-shell) {
+  display:block;
+  min-width:0;
+  min-height:0 !important;
+  height:100% !important;
+  max-height:100%;
+  overflow:auto !important;
+  border:0 !important;
+  border-radius:0 !important;
+  box-shadow:none !important;
+  background:var(--surface);
+}
+html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+}
+html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell .calendar-month-grid {
+  min-height:0;grid-auto-rows:minmax(83px,1fr);
+}
+html[data-hi5-surface='workspace'] .calendar-team-track.has-people .calendar-person-lane {
+  flex:0 0 306px;
+  min-width:306px;
+  scroll-snap-align:start;
+  border-left:1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+  background:var(--surface);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-header {
+  position:sticky;top:0;z-index:2;
+  display:flex;align-items:center;gap:9px;
+  min-height:58px;padding:9px 10px;
+  border-bottom:1px solid var(--line);
+  background:color-mix(in srgb,var(--surface) 92%,transparent);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-header > div {
+  min-width:0;flex:1;display:grid;gap:3px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-header strong {
+  font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-header small {
+  font-size:11px;color:var(--muted);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content {
+  min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;padding:10px 9px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content > section {
+  min-width:0;margin-bottom:9px;
+  border:1px solid var(--line);border-radius:9px;
+  background:color-mix(in srgb,var(--surface-soft) 54%,transparent);
+  overflow:hidden;
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content > section.is-selected-date {
+  border-color:rgba(var(--accent-rgb),.34);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content > section > header {
+  display:flex;align-items:center;gap:5px;
+  min-height:32px;padding:7px 9px;
+  background:var(--surface-soft);
+  border-bottom:1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content > section > header strong {
+  font-size:11px;flex:1;
+}
+html[data-hi5-surface='workspace'] .calendar-person-lane-content > section > header small {
+  font-size:10px;color:rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .calendar-person-event {
+  display:grid;grid-template-columns:49px minmax(0,1fr);
+  grid-template-areas:"time title" "time source";
+  gap:2px 7px;align-items:center;
+  width:calc(100% - 12px);
+  min-height:44px;margin:6px;padding:7px;
+  border:1px solid var(--line);border-left:3px solid var(--calendar-source, var(--line));
+  border-radius:7px;
+  background:var(--calendar-soft,var(--surface));
+  color:var(--ink);text-align:left;
+  cursor:pointer;
+}
+html[data-hi5-surface='workspace'] .calendar-person-event:disabled {
+  opacity:.82;cursor:default;
+}
+html[data-hi5-surface='workspace'] .calendar-person-event.has-conflict {
+  border-color:color-mix(in srgb,var(--warning) 53%,var(--line));
+}
+html[data-hi5-surface='workspace'] .calendar-person-event-time {
+  grid-area:time;font-size:10px;font-weight:800;color:var(--muted);
+  align-self:start;padding-top:2px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-event strong {
+  grid-area:title;font-size:12px;overflow-wrap:anywhere;
+}
+html[data-hi5-surface='workspace'] .calendar-person-event small {
+  grid-area:source;color:var(--muted);font-size:10px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-empty-day {
+  padding:13px 9px;color:var(--muted);font-size:11px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-empty-range {
+  display:grid;place-items:center;gap:8px;
+  padding:30px 15px;text-align:center;
+  color:var(--muted);font-size:12px;
+}
+html[data-hi5-surface='workspace'] .calendar-person-empty-range strong {
+  color:var(--ink);font-size:13px;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar .calendar-team-toggle {
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  min-height:32px;padding:0 10px;
+  border:1px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--ink);
+  font:inherit;font-size:12px;font-weight:800;
+  cursor:pointer;flex:0 0 auto;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar .calendar-team-toggle.is-active {
+  border-color:rgba(var(--accent-rgb),.35);
+  background:rgba(var(--accent-rgb),.08);
+  color:var(--ink);
+}
+html[data-hi5-surface='workspace'] :is(.calendar-team-sidebar,.calendar-person-lane,.calendar-team-toggle) :is(button,input):focus-visible {
+  outline:2px solid rgb(var(--accent-rgb));outline-offset:1px;
+}
+@media (max-width:1150px) {
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar {
+    flex-wrap:wrap !important;
+  }
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-team-layout.has-sidebar {
+    grid-template-columns:minmax(175px,195px) minmax(0,1fr);
+  }
+  html[data-hi5-surface='workspace'] .calendar-team-track.has-people > .calendar-primary-panel {
+    flex-basis:max(370px,63%);
+  }
+}
+@media (max-width:820px) {
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-team-layout,
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-team-layout.has-sidebar {
+    position:relative;display:grid;grid-template-columns:minmax(0,1fr);
+    min-width:0;min-height:0;
+  }
+  html[data-hi5-surface='workspace'] .calendar-view .calendar-team-sidebar-slot {
+    position:absolute;z-index:70;top:0;bottom:0;left:0;
+    width:min(290px,90vw);
+    border-radius:11px;box-shadow:12px 10px 36px rgba(0,0,0,.18);
+  }
+  html[data-hi5-surface='workspace'] .calendar-team-track.has-people > .calendar-primary-panel {
+    flex:0 0 max(270px,74%);
+  }
+  html[data-hi5-surface='workspace'] .calendar-team-track.has-people .calendar-person-lane {
+    flex-basis:285px;min-width:285px;
+  }
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell {
+    display:block;
+  }
+}
+@media (max-width:720px) {
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar {
+    flex-wrap:wrap !important;
+  }
+  html[data-hi5-surface='workspace'] .calendar-team-track.has-people > .calendar-primary-panel {
+    flex-basis:min(90vw,340px);
+  }
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell .calendar-weekday-row,
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell .calendar-month-grid,
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-week-shell .calendar-week-grid {
+    display:none;
+  }
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-month-shell .calendar-mobile-month-list,
+  html[data-hi5-surface='workspace'] .calendar-primary-panel > .calendar-week-shell .calendar-mobile-days {
+    display:grid;
+  }
+  html[data-hi5-surface='workspace'] .calendar-team-track.has-people .calendar-person-lane {
+    flex-basis:min(89vw,320px);min-width:min(89vw,320px);
+  }
+}
+@media (prefers-reduced-motion:reduce) {
+  html[data-hi5-surface='workspace'] .calendar-team-group-heading svg { transition:none; }
+}
