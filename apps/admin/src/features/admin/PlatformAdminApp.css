@@ -1384,3 +1384,41 @@ body[data-hi5-surface='admin'] #root {
 .h5a-release-deployment-options small { color:var(--rmm-muted); font-size:8px; line-height:1.4; }
 .h5a-release-deployment-options > button.active { border-color:var(--rmm-accent); background:var(--rmm-accent-soft); color:var(--rmm-accent); }
 @media (max-width:760px) { .h5a-release-deployment-options { grid-template-columns:1fr; padding-left:12px; padding-right:12px; } }
+
+/* Tenant environments are reservations until separately provisioned.
+   Pending UAT/Test destinations are intentionally not clickable. */
+.h5a-tenant-environments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+.h5a-tenant-environment {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rmm-border, #dbe4f0);
+  border-radius: 12px;
+  background: var(--rmm-surface, #f6f8fc);
+}
+.h5a-tenant-environment > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.h5a-tenant-environment strong { font-size: 12px; }
+.h5a-tenant-environment small {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  color: var(--rmm-muted, #71809a);
+}
+.h5a-tenant-environment-note {
+  font-size: 10px;
+  color: var(--rmm-muted, #71809a);
+}
+@media (max-width: 700px) {
+  .h5a-tenant-environments { grid-template-columns: 1fr; }
+}
