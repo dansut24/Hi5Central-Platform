@@ -73,6 +73,7 @@ import './production/ProductionActivityFocus.css'
 import './production/ProductionRecordWorkbench.css'
 import './production/ProductionRecordLiquidGlass.css'
 import './production/ProductionRecordInlineComposer.css'
+import './production/ProductionRichNoteEditor.css'
 
 installWorkspaceTabSessionIsolation()
 
