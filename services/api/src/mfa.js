@@ -16,7 +16,8 @@ import {
   sessionPayload,
   setSessionCookie,
 } from './session.js'
-import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount } from './deploymentConfig.js'
+import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount, deployment } from './deploymentConfig.js'
+import { sandboxTenantAccess } from './managedSandboxAccess.js'
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
@@ -460,6 +461,9 @@ export function registerMfaRoutes(app) {
     }
     if (account.tenant_status !== 'active' || account.membership_status !== 'active') {
       return c.json({ error: 'This Hi5Central account is not currently active.' }, 403)
+    }
+    if (!await sandboxTenantAccess(pool, deployment, account.tenant_id)) {
+      return c.json({ error: 'Customer environment access has not been approved.', code:'SANDBOX_NOT_ACTIVE' }, 423)
     }
 
     const valid = await verifyPassword(password, account.password_hash)
