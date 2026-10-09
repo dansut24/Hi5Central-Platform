@@ -53,10 +53,11 @@ async function targetEvidence(db, requestId, slug) {
   return { identity, bootstrap, tenant, settings }
 }
 async function run() {
-  const mode = process.argv.includes('--apply') ? 'apply' : 'check'
-  if (process.argv.slice(2).some(arg=>!['--check','--apply'].includes(arg))) {
+  const args = process.argv.slice(2)
+  if (args.length > 1 || args.some(arg => !['--check','--apply'].includes(arg))) {
     throw new Error('Usage: node tenant-environment-prepare.mjs [--check|--apply]')
   }
+  const mode = args[0] === '--apply' ? 'apply' : 'check'
   const requestId = requireEnv('PROVISION_REQUEST_ID')
   assert.match(requestId,/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
   const environment = requireEnv('TARGET_ENVIRONMENT').toLowerCase()
