@@ -230,6 +230,35 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
        [rootDomain,instanceIds.control])
   })
 
+  await t.test('partially committed target is suspended and requires manual reconciliation',async()=>{
+    const inserted=await query('test',
+      `INSERT INTO tenants (slug,company_name,status)
+       VALUES ('bravo','bravo Company','suspended') RETURNING id`)
+    const localId=inserted.rows[0].id
+    await query('test',
+      `INSERT INTO tenant_settings
+         (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
+       VALUES ($1,$2::jsonb,'company',$3,$4,NULL)`,
+      [localId,JSON.stringify({itsm:true,selfService:true,rmm:false}),
+       'https://bravotest.hi5central.com','https://bravotest-portal.hi5central.com'])
+    await query('test',
+      `INSERT INTO managed_environment_tenant_bootstrap
+         (control_request_id,control_tenant_id,local_tenant_id,environment,database_instance_id,expected_hostname)
+       VALUES ($1,$2,$3,'test',$4,'bravotest.hi5central.com')`,
+      [requestIds.test,tenantIds.test,localId,instanceIds.test])
+    const rejected=worker('test','--apply')
+    assert.notEqual(rejected.code,0)
+    assert.match(rejected.stderr,/control-plane request state is inconsistent/)
+    assert.equal((await counts('test')).tenants,1)
+    const pending=await query('control','SELECT state FROM tenant_environment_provision_requests WHERE id=$1',[requestIds.test])
+    assert.equal(pending.rows[0].state,'requested')
+    // Only this test fixture is reconciled; a live operator would require
+    // manual review and must never automatically delete or activate it.
+    await query('test','DELETE FROM managed_environment_tenant_bootstrap WHERE local_tenant_id=$1',[localId])
+    await query('test','DELETE FROM tenant_settings WHERE tenant_id=$1',[localId])
+    await query('test','DELETE FROM tenants WHERE id=$1',[localId])
+  })
+
   await t.test('Test can prepare independently without creating UAT records',async()=>{
     const result=worker('test','--apply')
     assert.equal(result.code,0,result.stderr)
