@@ -49,7 +49,7 @@ import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseF
 import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
-import { assertManagedRuntimeAttestation } from './managedRuntimeGuard.js'
+import { assertManagedRuntimeAttestation, assertManagedRuntimeRedisAttestation } from './managedRuntimeGuard.js'
 import { isManagedCustomerSandbox, managedSandboxBlocksPublicSignup, managedSandboxBlocksRmm } from './managedSandboxPolicy.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
@@ -740,9 +740,11 @@ app.onError((error, c) => {
 
 console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
-await assertManagedRuntimeAttestation(pool, deployment)
+const sandboxDatabaseIdentity = await assertManagedRuntimeAttestation(pool, deployment)
 console.log('[API] Database environment attestation passed; connecting to Redis...')
-await ensureRedisConnected()
+const runtimeRedis = await ensureRedisConnected()
+await assertManagedRuntimeRedisAttestation(runtimeRedis, deployment, sandboxDatabaseIdentity)
+console.log('[API] Redis runtime attestation passed')
 if (!managedSandboxBlocksRmm(deployment)) {
   console.log('[API] Redis ready; initializing RMM agent broker...')
   await initializeAgentBroker()
