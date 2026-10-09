@@ -50,3 +50,43 @@ export function classifyManagedCustomerHostname(hostname, rootDomain = 'hi5centr
   }
   return isValidCustomerSlug(label) ? { tenantSlug: label, environment: 'live' } : null
 }
+
+/**
+ * Resolve per-customer origins for a *single* managed runtime environment.
+ * This must not be used to assert that a reserved hostname is provisioned.
+ */
+export function managedTenantUrls(slug, rootDomain = 'hi5central.com', environment = 'live', { rmm = false } = {}) {
+  if (!isValidCustomerSlug(slug)) throw new Error('Invalid or reserved managed tenant slug.')
+  if (!['live', 'uat', 'test'].includes(environment)) throw new Error('Invalid managed environment.')
+  const hostnames = customerEnvironmentHostnames(slug, rootDomain)
+  const hostname = hostnames[environment]
+  const label = hostname.slice(0, -String(rootDomain).length - 1)
+  return {
+    tenantUrl: `https://${hostname}`,
+    portalUrl: `https://${label}-portal.${rootDomain}`,
+    rmmUrl: rmm ? `https://${label}-rmm.${rootDomain}` : null,
+  }
+}
+
+export function classifyManagedCustomerOrigin(origin, rootDomain = 'hi5central.com') {
+  let parsed
+  try { parsed = new URL(origin) } catch { return null }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+    || parsed.port || parsed.pathname !== '/' || parsed.search || parsed.hash) return null
+  const host = parsed.hostname.toLowerCase()
+  const domain = String(rootDomain).toLowerCase()
+  const suffix = `.${domain}`
+  if (!host.endsWith(suffix)) return null
+  const label = host.slice(0, -suffix.length)
+  let product = 'workspace'
+  let baseHost = host
+  if (label.endsWith('-portal')) {
+    product = 'portal'
+    baseHost = `${label.slice(0, -7)}${suffix}`
+  } else if (label.endsWith('-rmm')) {
+    product = 'rmm'
+    baseHost = `${label.slice(0, -4)}${suffix}`
+  }
+  const resolved = classifyManagedCustomerHostname(baseHost, domain)
+  return resolved ? { ...resolved, product } : null
+}
