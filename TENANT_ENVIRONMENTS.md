@@ -89,6 +89,49 @@ are not given Production database access as a workaround.
 - API and ITSM hostname tests in the container workflow.
 - Dev database migration syntax/backfill validated in a transaction and rolled back.
 
+## Phase 3 — environment-scoped runtime and operator preflight
+
+The managed multi-tenant UAT and Test API runtimes use:
+- `TENANCY_MODE=multi`, `DEPLOYMENT_MODE=managed`, `RUNTIME_ENVIRONMENT=uat|test`.
+- Environment-specific customer hostnames (`acmeuat.hi5central.com` etc.).
+- Strict HTTPS origin matching, including separate RMM/Portal origins.
+- Environment-specific workspace and portal session cookie names; no
+  parent-domain `COOKIE_DOMAIN` on UAT/Test.
+- Separate PostgreSQL and Redis backing services for each runtime.
+
+`managed_runtime_database_identity` (migration 133) starts **empty**.
+An infrastructure operator must independently inspect the target
+PostgreSQL service and manually attest its environment, instance and root
+domain before any provisioning can proceed. Do not stamp this table from a
+client-supplied hostname or an unauthenticated request.
+
+The preflight script is read-only and requires distinct control and target
+database connections. Example (run on the secured operator machine, with
+secrets supplied by its secret store, **not** in source control):
+
+```sh
+PROVISION_REQUEST_ID="<approved request UUID>" \\
+TARGET_ENVIRONMENT="uat" \\
+ROOT_DOMAIN="hi5central.com" \\
+CONTROL_DATABASE_URL="<central-control-plane-DB-secret>" \\
+TARGET_DATABASE_URL="<isolated-uat-DB-secret>" \\
+node services/api/scripts/tenant-environment-preflight.mjs
+```
+
+It checks request state, tenant lifecycle, reserved hostname, target database
+identity, schema presence, and that the customer does not already exist in
+the target environment. **A passing preflight permits only further setup**:
+it does not create a customer tenant, issue logins, enable agents or mark an
+environment ready. Activation additionally requires scoped Redis, RMM, MFA,
+permissions, integration/egress restrictions, verified DNS/TLS and a tested
+cross-tenant isolation suite.
+
+The currently deployed `dev`, `uat` and `test` VPS stacks remain in
+single-tenant mode. **Do not flip them to multi-tenant or enable wildcard
+routing until their account/session/agent safety checks and operator flow
+have been validated in a dedicated pilot.** Existing customer Production
+routing and cookies remain unchanged.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
