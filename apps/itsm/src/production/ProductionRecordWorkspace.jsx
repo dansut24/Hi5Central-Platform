@@ -363,11 +363,18 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
   const [resolutionCode, setResolutionCode] = useState('Fixed')
   const [actionFiles, setActionFiles] = useState([])
   const [fileError, setFileError] = useState('')
+  const textareaRef = useRef(null)
   const customer = mode === 'customer'
   const noteMode = mode === 'internal' || mode === 'customer'
   const attachmentsSupported = noteMode
   const text = noteMode ? (noteDraft?.text || '') : actionText
   const files = noteMode ? (noteDraft?.files || []) : actionFiles
+  useEffect(() => {
+    if (!noteMode || !textareaRef.current) return
+    const field = textareaRef.current
+    field.style.height = 'auto'
+    field.style.height = `${Math.max(96, field.scrollHeight)}px`
+  }, [noteMode, text])
   const setText = (value) => noteMode ? onNoteDraftChange?.({ text: value }) : setActionText(value)
   const setFiles = (value) => {
     if (!noteMode) return setActionFiles(value)
@@ -449,7 +456,10 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
   }[mode] || 'Update record'
 
   return <div className={`record-lab-composer${noteMode ? ' is-note' : ''}`}>
-    {!noteMode ? <header><div><span>Working action</span><strong>{label}</strong></div><button type="button" onClick={onClose}><X size={16} />Close</button></header> : null}
+    <header className={noteMode ? 'record-lab-inline-draft-heading' : undefined}>
+      <div><span>{noteMode ? 'New activity · Draft' : 'Working action'}</span><strong>{label}</strong></div>
+      <button type="button" onClick={onClose} disabled={saving}><X size={15} />{noteMode ? 'Cancel' : 'Close'}</button>
+    </header>
     {mode === 'reassign' ? <div className="record-lab-composer-fields">
       <label className="record-lab-person-picker-field"><span>Assignment group</span><Hi5EntityTypeahead
         items={teams}
@@ -474,9 +484,9 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
     </div> : null}
     {mode === 'resolve' && detail.type === 'Incident' ? <div className="record-lab-composer-fields is-single"><label><span>Resolution code</span><select value={resolutionCode} onChange={(event) => setResolutionCode(event.target.value)}>{['Fixed','Workaround','User education','Configuration change','Known error','Duplicate','No fault found','Other'].map((value) => <option key={value}>{value}</option>)}</select></label></div> : null}
     {mode === 'pending' ? <div className="record-lab-composer-fields is-single"><label><span>Pending status</span><select value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value)}><option>Pending Customer</option><option>Pending Vendor</option></select></label></div> : null}
-    <textarea aria-label={noteMode ? (customer ? 'Customer-visible update' : 'Internal work note') : label} rows={noteMode ? 3 : undefined} autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={customer ? 'Write a customer-visible update…' : mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an internal work note…'} />
+    <textarea ref={textareaRef} aria-label={noteMode ? (customer ? 'Customer-visible update' : 'Internal work note') : label} rows={noteMode ? 3 : undefined} autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={customer ? 'Write a customer-visible update…' : mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an internal work note…'} />
     {attachmentsSupported ? <div className="record-lab-composer-attachments"><label><Paperclip size={14} />Attach files<input type="file" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = '' }} /></label>{files.length ? <div className="record-lab-composer-file-list">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={12} /><b>{file.name}</b><small>{formatBytes(file.size)}</small><button type="button" onClick={() => removeFile(index)} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}{fileError ? <small className="record-lab-composer-file-error">{fileError}</small> : null}</div> : null}
-    <footer><span>{customer ? 'Visible to requester' : mode === 'reassign' ? `Selected: ${assignee || 'Unassigned'}` : files.length ? `${files.length} attachment${files.length === 1 ? '' : 's'} will be added with this note` : 'Technician workspace'}</span><button type="button" disabled={saving || ((mode === 'internal' || mode === 'customer') && !text.trim() && !files.length)} onClick={submit}><Send size={16} />{saving ? 'Saving…' : label}</button></footer>
+    <footer><span>{customer ? 'Visible to requester' : mode === 'reassign' ? `Selected: ${assignee || 'Unassigned'}` : files.length ? `${files.length} attachment${files.length === 1 ? '' : 's'} will be added with this note` : 'Technician workspace'}</span><button type="button" disabled={saving || ((mode === 'internal' || mode === 'customer') && !text.trim() && !files.length)} onClick={submit}><Send size={16} />{saving ? 'Saving…' : noteMode ? (customer ? 'Send update' : 'Save note') : label}</button></footer>
   </div>
 }
 
@@ -488,6 +498,7 @@ function RecordWorkspace({ route }) {
   const [notice, setNotice] = useState('')
   const [tab, setTab] = useState('activity')
   const [composerMode, setComposerMode] = useState('')
+  const [newNotePosted, setNewNotePosted] = useState(false)
   const [noteDrafts, setNoteDrafts] = useState({ internal: { text: '', files: [] }, customer: { text: '', files: [] } })
   const updateNoteDraft = (visibility, patch) => setNoteDrafts((current) => ({
     ...current,
@@ -628,6 +639,30 @@ function RecordWorkspace({ route }) {
     return () => document.removeEventListener('keydown', dismiss)
   }, [inspectorDrawerOpen])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-activity-mode', showSystemEvents ? 'all' : 'human') }, [showSystemEvents])
+  // The latest note and editor share one scroll owner on desktop. On mobile
+  // the existing workspace page scrolls naturally instead.
+  useEffect(() => {
+    if (!composerMode || tab !== 'activity') return
+    const feed = timelineRef.current
+    const draft = feed?.querySelector('.record-lab-activity-composer')
+    if (!feed || !draft) return
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      draft.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    } else {
+      feed.scrollTop = 0
+    }
+  }, [composerMode, tab])
+  useEffect(() => {
+    if (!newNotePosted || composerMode || tab !== 'activity') return
+    setNewNotePosted(false)
+    const feed = timelineRef.current
+    if (!feed) return
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      feed.querySelector('.record-lab-timeline-card')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    } else {
+      feed.scrollTop = 0
+    }
+  }, [newNotePosted, composerMode, tab])
 
   const run = async (handler, success) => {
     setSaving(true); setError(''); setNotice('')
@@ -689,7 +724,11 @@ function RecordWorkspace({ route }) {
       })
     }
   }, visibility === 'customer' ? 'Customer update sent' : 'Internal note added').then((saved) => {
-    if (saved) updateNoteDraft(visibility, { text: '', files: [] })
+    if (saved) {
+      updateNoteDraft(visibility, { text: '', files: [] })
+      setActivityQuery('')
+      setNewNotePosted(true)
+    }
     return saved
   })
 
@@ -1105,8 +1144,10 @@ function RecordWorkspace({ route }) {
         <button type="button" className={composerMode === 'customer' ? 'is-active' : ''} onClick={() => beginAction('customer')} title="Visible to the requester"><Send size={14} />Customer update</button>
       </div>
       <div className="record-lab-activity-heading-tools">{longActivity ? <><label className="record-lab-activity-search"><Search size={13} /><input type="search" value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search activity…" /></label>{activityDays.length > 1 ? <select aria-label="Jump to activity date" defaultValue="" onChange={(event) => { jumpToDay(event.target.value); event.target.value = '' }}><option value="">Jump to date…</option>{activityDays.map((day) => <option key={day.key} value={day.key}>{day.label}</option>)}</select> : null}<button type="button" className="record-lab-jump-latest" onClick={jumpToLatest}><ArrowUp size={13} />Latest</button></> : null}<div className="record-lab-activity-filter"><button type="button" className={!showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(false)}>Human updates</button><button type="button" className={showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(true)}>All events{auditActivities.length ? ` ${auditActivities.length}` : ''}</button></div></div></header>
-    {composerMode ? <div className="record-lab-activity-composer"><ActionComposer key={composerMode} mode={composerMode} detail={detail} saving={saving} onClose={() => setComposerMode('')} onPost={postNote} onReassign={reassign} onResolve={resolve} onPending={pending} noteDraft={noteDrafts[composerMode]} onNoteDraftChange={(patch) => updateNoteDraft(composerMode, patch)} /></div> : null}
-    <div className="record-lab-timeline record-lab-timeline-scroll" ref={timelineRef}>{visibleActivities.length ? activityRows : <div className="record-lab-empty">{normalizedActivityQuery ? 'No activity matches this search.' : 'No notes or customer updates have been recorded yet.'}</div>}</div>
+    <div className="record-lab-timeline record-lab-timeline-scroll" ref={timelineRef}>
+      {composerMode ? <div className="record-lab-activity-composer is-timeline-draft" aria-label="Draft record update"><ActionComposer key={composerMode} mode={composerMode} detail={detail} saving={saving} onClose={() => setComposerMode('')} onPost={postNote} onReassign={reassign} onResolve={resolve} onPending={pending} noteDraft={noteDrafts[composerMode]} onNoteDraftChange={(patch) => updateNoteDraft(composerMode, patch)} /></div> : null}
+      {visibleActivities.length ? activityRows : <div className="record-lab-empty">{normalizedActivityQuery ? 'No activity matches this search.' : 'No notes or customer updates have been recorded yet.'}</div>}
+    </div>
   </section>
 
 
