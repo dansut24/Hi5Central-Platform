@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
+import { syncServiceRequestTaskFlow } from './serviceRequestTaskFlow.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 import { attachmentPolicyFor } from './itsmConfig.js'
@@ -650,6 +651,15 @@ export function registerServiceRequestOperationRoutes(app) {
           bodyText: `${actor.snapshot.name} updated task ${task.external_key}${changeStatus ? ` to ${body.status}` : ''}.`,
           metadata: { event: 'request.task.updated', taskKey: task.external_key },
         })
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          // Parent fulfilment only advances through the same approval-safe
+          // transaction as the task. Never auto-close a Service Request.
+          await syncServiceRequestTaskFlow(client, {
+            tenantId:auth.session.tenant_id,requestId:request.id,
+            actorUserId:auth.session.user_id,actorPersonId:actor.person?.id,
+            actorSnapshot:actor.snapshot,triggeringTaskKey:task.external_key,taskStatus:body.status,
+          })
+        }
         return { reference: request.reference, taskKey: task.external_key, updated: true }
       })
       return c.json(result)
