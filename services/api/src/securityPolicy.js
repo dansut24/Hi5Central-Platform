@@ -1,3 +1,6 @@
+import { deployment } from './deploymentConfig.js'
+import { managedSandboxRequiresMfa } from './managedSandboxPolicy.js'
+
 const allowedSessionHours = new Set([8, 12, 24])
 const MFA_GRACE_MINUTES = 15
 
@@ -27,6 +30,9 @@ export function securitySettings(row) {
 }
 
 export function mfaRequiredFor(row) {
+  // No owner, technician or requester may bypass MFA in customer sandboxes,
+  // including during onboarding before the ordinary tenant policy exists.
+  if (managedSandboxRequiresMfa(deployment)) return true
   if (!row?.onboarding_completed_at) return false
   const security = securitySettings(row)
   return security.requireMfa && ['owner', 'admin'].includes(row.tenant_role)
