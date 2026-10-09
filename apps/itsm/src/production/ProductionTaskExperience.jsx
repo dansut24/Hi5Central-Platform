@@ -620,6 +620,6 @@ export function ProductionTaskExperience() {
   return <>
     <TaskNavButton target={targets.nav} />
     <AwaitingApprovalButton target={targets.approvalTarget} statusSelect={targets.approvalSelect} />
-    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? (/^PRJ-\\d+-T\\d+$/i.test(taskRoute.taskKey) ? <ProjectTaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} onNavigate={navigate} /> : <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} />) : <TaskQueue />, targets.content) : null}
+    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? (/^PRJ-\d+-T\d+$/i.test(taskRoute.taskKey) ? <ProjectTaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} onNavigate={navigate} /> : <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} />) : <TaskQueue />, targets.content) : null}
   </>
 }
