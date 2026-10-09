@@ -948,6 +948,22 @@ function WorkspaceRuntime() {
     const applyDesktopSizing = () => {
       const desktop = window.matchMedia('(min-width: 901px)').matches
       const buttons = list.querySelectorAll(':scope > .workspace-tab')
+
+      // Use an ordinary tab width while there is spare header space. Once
+      // the tab group reaches the available width, flex-shrink compresses all
+      // tabs proportionally. Inline important is needed because legacy
+      // responsive styles already override this rail with !important.
+      if (desktop) {
+        const preferredGroupWidth = buttons.length * 136 + 28
+        list.style.setProperty('flex', `0 1 ${preferredGroupWidth}px`, 'important')
+        list.style.setProperty('width', `${preferredGroupWidth}px`, 'important')
+        list.style.setProperty('max-width', '100%', 'important')
+      } else {
+        for (const property of ['flex', 'width', 'max-width']) {
+          list.style.removeProperty(property)
+        }
+      }
+
       for (const button of buttons) {
         if (!(button instanceof HTMLElement)) continue
         for (const property of ['flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'min-width', 'width', 'max-width']) {
