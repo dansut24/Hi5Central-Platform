@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { pool, withTransaction } from './db.js'
+import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword } from './password.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
@@ -1251,7 +1252,14 @@ export function registerPlatformAdminRoutes(app) {
               transfer.proposed_owner_name,transfer.created_at AS owner_transfer_requested_at,
               transfer.expires_at AS owner_transfer_expires_at,
               (SELECT count(*)::int FROM tenant_memberships m WHERE m.tenant_id=t.id) AS user_count,
-              (SELECT count(*)::int FROM rmm_agent_devices d WHERE d.tenant_id=t.id) AS device_count
+              (SELECT count(*)::int FROM rmm_agent_devices d WHERE d.tenant_id=t.id) AS device_count,
+              (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'environment',e.environment,
+                'hostnameLabel',e.hostname_label,
+                'status',e.provisioning_status,
+                'isolationVerified',e.isolation_verified_at IS NOT NULL
+              ) ORDER BY CASE e.environment WHEN 'live' THEN 1 WHEN 'uat' THEN 2 ELSE 3 END),'[]'::jsonb)
+                 FROM tenant_environment_instances e WHERE e.tenant_id=t.id) AS environments
          FROM tenants t
          JOIN tenant_settings ts ON ts.tenant_id=t.id
          LEFT JOIN tenant_commercial_settings cs ON cs.tenant_id=t.id
@@ -1284,7 +1292,7 @@ export function registerPlatformAdminRoutes(app) {
     try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
     const companyName = clean(body?.companyName, 120)
     const slug = clean(body?.slug, 48).toLowerCase()
-    if (companyName.length < 2 || !validSlug(slug)) {
+    if (companyName.length < 2 || !validSlug(slug) || (deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) {
       return c.json({ error: 'Company name and a valid tenant slug are required.' }, 400)
     }
     const itsm = body?.modules?.itsm !== false
