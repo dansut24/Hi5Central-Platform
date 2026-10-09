@@ -36,3 +36,12 @@ test('legacy Dev single-tenant hostname remains a workspace', () => {
   assert.equal(surface.kind, 'workspace')
   assert.equal(surface.tenantSlug, 'dev')
 })
+
+test('self-hosted MSP does not inherit managed tenant suffix rules', () => {
+  globalThis.window = {
+    __HI5_CONFIG__: { tenancyMode: 'multi', deploymentMode: 'self_hosted', rootDomain: 'msp.example.com' },
+  }
+  const surface = resolveTenantSurface(locationFor('acmetest.msp.example.com'))
+  assert.equal(surface.kind, 'workspace')
+  assert.equal(surface.tenantSlug, 'acmetest')
+})
