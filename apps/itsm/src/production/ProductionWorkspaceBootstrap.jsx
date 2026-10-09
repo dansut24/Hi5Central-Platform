@@ -393,6 +393,20 @@ function ProductionLogin({ tenant, onAuthenticated }) {
     setError('')
   }
 
+  async function confirmSecureSession() {
+    // Confirm the browser actually retained its HttpOnly login cookie before
+    // navigating to a first-login flow or any authenticated workspace.
+    const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || !payload?.authenticated || payload.tenant?.slug !== tenant.slug) {
+      throw new Error('Sign-in succeeded, but the browser did not retain the secure session. Allow cookies for the Hi5Central Dev API and sign in again.')
+    }
+    return payload
+  }
+
   async function submit(event) {
     event.preventDefault()
     setError('')
@@ -442,7 +456,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
         return
       }
       if (!payload.authenticated) throw new Error('Hi5Central could not complete sign in.')
-      await onAuthenticated(payload)
+      await onAuthenticated(await confirmSecureSession())
     } catch (loginError) {
       setError(loginError.message || 'Sign in failed.')
     } finally {
@@ -470,7 +484,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
         setRecoveryCodes(payload.recoveryCodes)
         return
       }
-      await onAuthenticated(payload)
+      await onAuthenticated(await confirmSecureSession())
     } catch (verifyError) {
       setError(verifyError.message || 'MFA verification failed.')
     } finally {
@@ -483,7 +497,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
     setError('')
     try {
       if (!authenticatedPayload?.authenticated) throw new Error('The authenticated session is no longer available.')
-      await onAuthenticated(authenticatedPayload)
+      await onAuthenticated(await confirmSecureSession())
     } catch (continueError) {
       setError(continueError.message || 'Could not open the Hi5Central workspace.')
     } finally {

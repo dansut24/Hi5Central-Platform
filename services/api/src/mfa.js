@@ -6,6 +6,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from 'node:crypto'
+import { attachAccess, effectiveAccessForUser } from './access.js'
 import { pool, withTransaction } from './db.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected } from './redis.js'
@@ -231,11 +232,19 @@ async function accountByCredentials(tenantSlug, email) {
        ts.configuration,
        ts.tenant_url,
        ts.portal_url,
-       ts.rmm_url
+       ts.rmm_url,
+       up.preferences AS user_preferences,
+       up.first_login_completed_at AS user_first_login_completed_at,
+       up.platform_guidance AS user_platform_guidance,
+       up.platform_getting_started AS user_platform_getting_started,
+       pam.role AS platform_admin_role,
+       pam.status AS platform_admin_status
      FROM tenants t
      JOIN tenant_memberships m ON m.tenant_id = t.id
      JOIN users u ON u.id = m.user_id
      JOIN tenant_settings ts ON ts.tenant_id = t.id
+     LEFT JOIN user_experience_preferences up ON up.user_id = u.id
+     LEFT JOIN platform_admin_members pam ON pam.user_id = u.id
      WHERE t.slug = $1 AND u.email = $2
      LIMIT 1`,
     [tenantSlug, email],
@@ -262,16 +271,31 @@ async function accountByIds(db, tenantId, userId) {
        ts.configuration,
        ts.tenant_url,
        ts.portal_url,
-       ts.rmm_url
+       ts.rmm_url,
+       up.preferences AS user_preferences,
+       up.first_login_completed_at AS user_first_login_completed_at,
+       up.platform_guidance AS user_platform_guidance,
+       up.platform_getting_started AS user_platform_getting_started,
+       pam.role AS platform_admin_role,
+       pam.status AS platform_admin_status
      FROM tenants t
      JOIN tenant_memberships m ON m.tenant_id = t.id
      JOIN users u ON u.id = m.user_id
      JOIN tenant_settings ts ON ts.tenant_id = t.id
+     LEFT JOIN user_experience_preferences up ON up.user_id = u.id
+     LEFT JOIN platform_admin_members pam ON pam.user_id = u.id
      WHERE t.id = $1 AND u.id = $2
      LIMIT 1`,
     [tenantId, userId],
   )
   return result.rows[0] || null
+}
+
+// Match /auth/session: avoid returning a login response without the user's
+// saved first-login state, role grants or platform permissions.
+async function authenticatedLoginPayload(account) {
+  const access = await effectiveAccessForUser(pool, account.tenant_id, account.user_id, account.tenant_role)
+  return sessionPayload(attachAccess(account, access, 'workspace'))
 }
 
 async function enabledMethod(db, tenantId, userId) {
@@ -449,7 +473,7 @@ export function registerMfaRoutes(app) {
         ttlSeconds: ttl,
       }))
       setSessionCookie(c, token, ttl)
-      return c.json(sessionPayload(account))
+      return c.json(await authenticatedLoginPayload(account))
     }
 
     const result = await withTransaction(async (client) => {
@@ -580,14 +604,14 @@ export function registerMfaRoutes(app) {
         ok: true,
         token,
         ttl,
-        payload: sessionPayload({ ...account, mfa_verified_at: new Date().toISOString() }),
+        account: { ...account, mfa_verified_at: new Date().toISOString() },
         recoveryCodes,
       }
     })
 
     if (!result.ok) return c.json({ error: result.error }, result.status)
     setSessionCookie(c, result.token, result.ttl)
-    return c.json({ ...result.payload, recoveryCodes: result.recoveryCodes })
+    return c.json({ ...await authenticatedLoginPayload(result.account), recoveryCodes: result.recoveryCodes })
   })
 
   app.get('/api/v1/mfa/status', async (c) => {

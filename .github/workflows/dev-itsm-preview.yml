@@ -7,6 +7,7 @@ on:
     branches: [develop]
     paths:
       - '.github/workflows/dev-itsm-preview.yml'
+      - 'apps/itsm/src/production/ProductionWorkspaceBootstrap.jsx'
   workflow_dispatch:
 
 permissions:
