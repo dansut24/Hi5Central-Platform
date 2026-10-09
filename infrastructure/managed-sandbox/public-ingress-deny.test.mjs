@@ -5,7 +5,10 @@ import test from 'node:test'
 const snippet=readFileSync(new URL('./public-ingress-deny.caddy',import.meta.url),'utf8')
 const matcher=snippet.match(/^@unapprovedSandbox expression \{http\.request\.host\}\.matches\('([^']+)'\)$/m)
 if(!matcher)throw new Error('Public gateway deny matcher missing or replaced')
-const reserved=new RegExp(matcher[1])
+const pattern=matcher[1]
+if(!pattern.startsWith('(?i)'))throw new Error('Case-insensitive host validation is mandatory')
+const reserved=new RegExp(pattern.slice(4),'i')
+const fallback=readFileSync(new URL('./public-ingress-unknown-host.caddy',import.meta.url),'utf8')
 
 test('public gateway snippet must use a first-class handle, not a late-sorted respond',()=>{
   assert.match(snippet,/handle @unapprovedSandbox\s*\{\s*respond "Not Found" 404\s*\}/)
@@ -35,6 +38,20 @@ test('explicit legacy, engineering Dev, Production and normal tenant routes rema
     'acme.hi5central.com','acme-portal.hi5central.com',
     'acme-rmm.hi5central.com','othercompany.hi5central.com',
   ])assert.equal(reserved.test(host),false,host)
+})
+test('mixed-case host headers and trailing dots never bypass customer-prefix denial',()=>{
+  for(const host of [
+    'PiLoT-UaT-Api.Hi5Central.Com',
+    'PILOTEXAMPLEUAT.HI5CENTRAL.COM',
+    'pilot-uat-api.hi5central.com.',
+    'pilotexampleuat.hi5central.com.',
+    'AcMeTeSt-RmM.Hi5Central.Com.',
+  ])assert.equal(reserved.test(host),true,host)
+})
+test('public TLS catchall must explicitly reject unmatched virtual hosts without a new CA',()=>{
+  assert.match(fallback,/^https:\/\/:443\s*\{\s*respond "Misdirected Request" 421\s*\}/m)
+  assert.doesNotMatch(fallback,/tls\s+internal/)
+  assert.match(fallback,/OUTSIDE/)
 })
 test('host denial expressions cannot be escaped with suffix or second-level host trickery',()=>{
   for(const host of [
