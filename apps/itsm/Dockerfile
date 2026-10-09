@@ -1,11 +1,11 @@
-FROM node:24-alpine AS build
+FROM public.ecr.aws/docker/library/node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY . .
 RUN npm run build
 
-FROM caddy:2-alpine
+FROM public.ecr.aws/docker/library/caddy:2-alpine
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
 COPY deployment/runtime-config-entrypoint.sh /usr/bin/hi5-runtime-entrypoint
