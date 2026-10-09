@@ -54,13 +54,13 @@ const COLUMNS = [
   { key: 'priority', label: 'Priority / risk', width: 110 },
   { key: 'status', label: 'Status', width: 125 },
   { key: 'requester', label: 'Requester', width: 150 },
-  { key: 'service', label: 'Service', width: 140 },
+  { key: 'service', label: 'Type / service', width: 140 },
   { key: 'assignment', label: 'Assignment', width: 180 },
   { key: 'due', label: 'Due / target', width: 155 },
   { key: 'updated', label: 'Updated', width: 145 },
   { key: 'actions', label: 'Action', width: 125, locked: true },
 ]
-const DEFAULT_FILTERS = { scope: 'team', status: 'All', priority: 'All', team: 'All', assignee: 'All', service: 'All', due: 'All' }
+const DEFAULT_FILTERS = { scope: 'team', status: 'All', priority: 'All', team: 'All', assignee: 'All', service: 'All', source: 'All', due: 'All' }
 
 function routeFromPath(pathname = window.location.pathname) {
   if (pathname === '/tasks' || pathname === '/tasks/') return { kind: 'list' }
@@ -127,9 +127,11 @@ function taskRecord(task) {
     id: task.id,
     title: task.title,
     status: task.status,
-    priority: task.primaryRequest?.priority || 'Medium',
-    requester: task.primaryRequest?.requester || 'Not recorded',
-    service: task.primaryRequest?.service || 'Unclassified',
+    source: task.source || 'service-request',
+    project: task.project || null,
+    priority: task.priority || task.primaryRequest?.priority || 'Medium',
+    requester: task.source === 'project' ? task.project?.name || 'Project' : task.primaryRequest?.requester || 'Not recorded',
+    service: task.source === 'project' ? 'Project' : task.primaryRequest?.service || 'Unclassified',
     team: task.team || 'Unassigned team',
     assignee: task.assignee || 'Unassigned',
     assigneeEmail: task.assigneeEmail || '',
@@ -228,6 +230,7 @@ function TaskFilters({ payload, filters, onChange, onClear, query, onQueryChange
       <FilterSelect label="Priority / risk" value={filters.priority} options={options.priorities} onChange={(value) => onChange({ ...filters, priority: value })} />
       <FilterSelect label="Assignment group" value={filters.team} options={options.teams} onChange={(value) => onChange({ ...filters, team: value })} />
       <FilterSelect label="Assignee" value={filters.assignee} options={options.assignees} onChange={(value) => onChange({ ...filters, assignee: value })} />
+      <FilterSelect label="Type" value={filters.source} options={['service-request','project'].filter(value => (options.sources || []).includes(value))} onChange={(value) => onChange({ ...filters, source: value })} />
       <FilterSelect label="Service" value={filters.service} options={options.services} onChange={(value) => onChange({ ...filters, service: value })} />
       <FilterSelect label="Due / target" value={filters.due} options={options.due} onChange={(value) => onChange({ ...filters, due: value })} />
       <button className="production-record-clear" type="button" onClick={onClear}>Reset to Team Queue</button>
@@ -242,11 +245,11 @@ function TaskWorkViews({ payload, active, onChange }) {
 
 function renderCell(record, key) {
   if (key === 'reference') return <strong className="production-record-reference">{record.id}</strong>
-  if (key === 'summary') return <><strong>{record.title}</strong><small>{record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'}</small></>
+  if (key === 'summary') return <><strong>{record.title}</strong><small>{record.project ? `Project ${record.project.id} · ${record.project.name}` : record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'}</small></>
   if (key === 'priority') return <span className={`production-record-priority ${priorityClass(record.priority)}`}>{record.priority}</span>
   if (key === 'status') return <span className={`production-record-status ${statusClass(record.status)}`}>{record.status}</span>
   if (key === 'requester') return <span>{record.requester}</span>
-  if (key === 'service') return <span>{record.service}</span>
+  if (key === 'service') return <span>{record.source === 'project' ? 'Project task' : record.service}</span>
   if (key === 'assignment') return <span className="production-task-assignment"><strong>{record.team}</strong><small>{record.assignee}</small></span>
   if (key === 'due') return <TaskDue record={record} />
   if (key === 'updated') return <span>{formatDate(record.updatedAt)}</span>
@@ -254,7 +257,7 @@ function renderCell(record, key) {
 }
 
 function taskCanBeTaken(record) {
-  return record.status === 'Ready' && (!record.assignee || record.assignee === 'Unassigned')
+  return record.source !== 'project' && record.status === 'Ready' && (!record.assignee || record.assignee === 'Unassigned')
 }
 
 function TaskOwnershipButton({ record, onTake, busyTask }) {
@@ -280,7 +283,7 @@ function TaskCardList({ items, onOpen, onTake, busyTask }) {
         <span className="production-record-card-copy">
           <strong>{record.id}</strong>
           <b>{record.title}</b>
-          <small>{record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'} · {record.team || 'Unassigned'}</small>
+          <small>{record.project ? `Project ${record.project.id}` : record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'} · {record.team || 'Unassigned'}</small>
         </span>
         <span className={`production-record-status ${statusClass(record.status)}`}>{record.status}</span>
         <span className="production-record-card-facts">
@@ -316,7 +319,7 @@ function TaskQueue() {
     setError('')
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize), scope: filters.scope })
     if (query.trim()) params.set('search', query.trim())
-    for (const key of ['status', 'priority', 'team', 'assignee', 'service', 'due']) {
+    for (const key of ['status', 'priority', 'team', 'assignee', 'service', 'source', 'due']) {
       if (filters[key] && filters[key] !== 'All') params.set(key, filters[key])
     }
     apiJson(`/api/v1/task-work-queue?${params}`)
@@ -343,6 +346,7 @@ function TaskQueue() {
     filters.team !== 'All' ? filters.team : '',
     filters.assignee !== 'All' ? filters.assignee : '',
     filters.service !== 'All' ? filters.service : '',
+    filters.source !== 'All' ? filters.source : '',
     filters.due !== 'All' ? filters.due : '',
   ].filter(Boolean).length
 
