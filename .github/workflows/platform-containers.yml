@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate tenant environment hostnames
         if: matrix.name == 'API'
-        run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs
+        run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs
       - name: Validate customer environment frontend routing
         if: matrix.name == 'ITSM'
         run: node --test apps/itsm/tests/tenantSurfaceEnvironments.test.mjs
