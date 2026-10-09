@@ -381,7 +381,9 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     display: flex !important;
     flex: 1 1 0% !important;
     align-items: center !important;
-    width: 0 !important;
+    /* The parent must use its full grid-cell width. Only the INNER tab list
+       should use width:0 plus flex-basis:0 for shrinkable content. */
+    width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
     overflow: clip !important;
