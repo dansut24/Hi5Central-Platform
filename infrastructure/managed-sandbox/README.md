@@ -181,3 +181,20 @@ generates fake UAT/Test credentials in disposable local folders, renders
 both real Compose models and verifies unsafe settings are rejected. The folders
 are deleted in `finally`, and the command never executes `up`, `run` or
 `create`. The API build workflow runs both checks before publishing images.
+
+## Phase 14 — real-image private synthetic runtime smoke
+
+See [PHASE14_SYNTHETIC_RUNTIME.md](./PHASE14_SYNTHETIC_RUNTIME.md).
+A disposable end-to-end smoke created separate private PostgreSQL/Redis
+containers and internal Docker networks for synthetic UAT and Test, applied
+the complete migrations, proved startup fails until both environment
+attestations are present, and verified an attested API and ITSM frontend
+remain environment-local with zero tenants and RMM/Connect denied.
+
+All scratch services and networks were removed after successful testing.
+Three real source fixes were identified: disabled Connect no longer requires
+a production signing secret, multi-tenant UAT/Test frontends never inject a
+demo tenant slug, and isolated managed environments never inherit the
+Production Admin URL. They require a new green build and repeated smoke
+without compatibility overrides before any customer pilot.
+
