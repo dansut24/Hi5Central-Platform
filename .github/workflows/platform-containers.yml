@@ -88,7 +88,10 @@ jobs:
       - name: Validate customer environment frontend routing
         if: matrix.name == 'ITSM'
         run: node --test apps/itsm/tests/tenantSurfaceEnvironments.test.mjs
-      - uses: docker/setup-buildx-action@v3
+      - name: Use built-in Docker builder without Docker Hub bootstrap
+        run: |
+          docker buildx use default
+          docker buildx inspect default
       - uses: docker/login-action@v3
         if: github.event_name != 'pull_request'
         with:
@@ -107,8 +110,11 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          builder: default
+          # Native builder avoids moby/buildkit pulls. Classic Docker image
+          # storage does not support GitHub cache or provenance exports.
+          provenance: false
+          sbom: false
 
   dev:
     name: Dev release
@@ -119,7 +125,10 @@ jobs:
       name: Dev
       url: https://dev.hi5central.com
     steps:
-      - uses: docker/setup-buildx-action@v3
+      - name: Use built-in Docker builder without Docker Hub bootstrap
+        run: |
+          docker buildx use default
+          docker buildx inspect default
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -143,7 +152,10 @@ jobs:
       name: Production
       url: https://hi5central.com
     steps:
-      - uses: docker/setup-buildx-action@v3
+      - name: Use built-in Docker builder without Docker Hub bootstrap
+        run: |
+          docker buildx use default
+          docker buildx inspect default
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
