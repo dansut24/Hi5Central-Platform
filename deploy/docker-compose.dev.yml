@@ -41,9 +41,10 @@ services:
     command: ["sh", "-c", "npm ci && npm run migrate"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-hi5central}:${POSTGRES_PASSWORD:-hi5central-local-only}@postgres:5432/${POSTGRES_DB:-hi5central}
+    # Migration installs must never touch the API's live dependencies.
     volumes:
       - ../services/api:/app
-      - api_node_modules:/app/node_modules
+      - migrate_node_modules:/app/node_modules
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,19 +53,32 @@ services:
   api:
     image: node:24-alpine
     working_dir: /app
-    # Migrate installs npm packages into the shared api_node_modules volume.
-    # Never perform apk/npm network installations on API startup: on developer
-    # machines these may block indefinitely and prevent all three UIs from
-    # reaching the API. Install optional OS inspection utilities separately
-    # when testing the specialised RMM package-inspection jobs.
+    # Migration has its own node_modules volume. The API installs dependencies
+    # only on a clean/changed lockfile or to repair an incomplete install.
+    # Do not use node --watch here: it watches imported node_modules files and
+    # can restart mid-install, leaving a running but permanently unhealthy
+    # container. Restart just the API when editing backend source files.
     command:
       - sh
       - -ec
       - |
-        echo '[API] Checking shared Node dependencies...'
-        node --input-type=module -e "Promise.all([import('hono'), import('@hono/node-server'), import('ws')]).catch((err) => { console.error(err); process.exit(1) })"
+        echo '[API] Checking isolated Node dependencies...'
+        lock_hash="$(sha256sum package-lock.json | cut -d ' ' -f 1)"
+        installed_hash="$(cat node_modules/.hi5-api-lock-hash 2>/dev/null || true)"
+        needs_install=0
+        if [ "$installed_hash" != "$lock_hash" ]; then
+          needs_install=1
+        elif ! node --input-type=module -e "await Promise.all([import('hono'), import('@hono/node-server'), import('ws')])"; then
+          needs_install=1
+        fi
+        if [ "$needs_install" -eq 1 ]; then
+          echo '[API] Installing/repairing API dependencies in its own volume...'
+          npm ci --prefer-offline --no-audit --no-fund
+          node --input-type=module -e "await Promise.all([import('hono'), import('@hono/node-server'), import('ws')])"
+          echo "$lock_hash" > node_modules/.hi5-api-lock-hash
+        fi
         echo '[API] Starting Hi5Central API...'
-        exec node --watch src/index.js
+        exec node src/index.js
     environment:
       NODE_ENV: development
       PORT: "3001"
@@ -198,6 +212,7 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  migrate_node_modules:
   api_node_modules:
   itsm_node_modules:
   rmm_node_modules:
