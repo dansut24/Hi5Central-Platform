@@ -80,7 +80,7 @@ test('managed sandbox rejects explicit cross-subdomain cookie settings', () => {
 })
 
 test('managed Production preserves legacy tenant URLs and session rules', () => {
-  const result=runtimeCheck('live')
+  const result=runtimeCheck('live',{COOKIE_DOMAIN:'.hi5central.com'})
   assert.equal(result.status,0,result.stderr)
   const output=JSON.parse(result.stdout.trim())
   assert.equal(output.urls.tenantUrl,'https://acme.hi5central.com')
