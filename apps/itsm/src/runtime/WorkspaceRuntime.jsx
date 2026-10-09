@@ -691,6 +691,15 @@ function WorkspaceRuntime() {
       const scrollTarget = findScrollTarget(target) || findActiveScrollTarget()
       if (scrollTarget && scrollTarget.scrollTop > 1) return
 
+      // Measure the real start of the scrollable content. Mobile tabs live
+      // inside the header, whose height differs across shell layouts.
+      // Anchoring to the content prevents the pull indicator hiding behind tabs.
+      const workspace = mainFrame.querySelector(':scope > .workspace')
+      if (workspace instanceof HTMLElement) {
+        const contentTop = workspace.getBoundingClientRect().top - mainFrame.getBoundingClientRect().top
+        mainFrame.style.setProperty('--pull-refresh-content-top', `${Math.max(0, contentTop)}px`)
+      }
+
       const touch = event.touches[0]
       pullRefreshGestureRef.current = {
         active: true,
@@ -3170,21 +3179,23 @@ function WorkspaceRuntime() {
         ].filter(Boolean).join(' ')}
         ref={mainFrameRef}
       >
-        <div
-          aria-live="polite"
-          className="pull-refresh-indicator"
-          role="status"
-        >
-          <span className="pull-refresh-icon" aria-hidden="true">
-            {pullRefreshing ? <RefreshCw size={16} /> : <ArrowDown size={16} />}
-          </span>
-          <span>
-            {pullRefreshing
-              ? 'Refreshing…'
-              : pullRefreshArmed
-                ? 'Release to refresh'
-                : 'Pull to refresh'}
-          </span>
+        <div className="pull-refresh-viewport">
+          <div
+            aria-live="polite"
+            className="pull-refresh-indicator"
+            role="status"
+          >
+            <span className="pull-refresh-icon" aria-hidden="true">
+              {pullRefreshing ? <RefreshCw size={16} /> : <ArrowDown size={16} />}
+            </span>
+            <span>
+              {pullRefreshing
+                ? 'Refreshing…'
+                : pullRefreshArmed
+                  ? 'Release to refresh'
+                  : 'Pull to refresh'}
+            </span>
+          </div>
         </div>
 
         <header className="itsm-topbar">
