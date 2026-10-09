@@ -54,7 +54,7 @@ async function targetEvidence(db, requestId, slug) {
 }
 async function run() {
   const mode = process.argv.includes('--apply') ? 'apply' : 'check'
-  if (process.argv.some(arg=>!['--check','--apply'].includes(arg.slice(0,2) === '--' ? arg : ''))) {
+  if (process.argv.slice(2).some(arg=>!['--check','--apply'].includes(arg))) {
     throw new Error('Usage: node tenant-environment-prepare.mjs [--check|--apply]')
   }
   const requestId = requireEnv('PROVISION_REQUEST_ID')
