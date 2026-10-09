@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { MarketingApp } from './features/marketing/MarketingApp.jsx'
@@ -39,7 +39,8 @@ import { ManagedSandboxInvitationPage } from './production/ManagedSandboxInvitat
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
 import { ProductionWorkspaceTabPersistence, installWorkspaceTabSessionIsolation } from './production/ProductionWorkspaceTabPersistence.jsx'
-import { resolveTenantSurface } from './lib/tenantSurface.js'
+import { resolveTenantSurface, markManagedWorkspaceVerified } from './lib/tenantSurface.js'
+import { deploymentConfig } from './lib/deploymentConfig.js'
 import './features/settings/ProductionSettingsFloating.css'
 import './features/people/OrganisationContextual.css'
 import './features/onboarding/OnboardingViewportFix.css'
@@ -92,26 +93,27 @@ document.documentElement.dataset.hi5Surface = initialSurface.kind
 document.body.dataset.hi5Surface = initialSurface.kind
 if (rootElement) rootElement.dataset.hi5Surface = initialSurface.kind
 
-const productionWorkspace = initialSurface.kind === 'workspace'
+function AppComposition({ surface }) {
+const productionWorkspace = surface.kind === 'workspace'
 const productionPortal = initialSurface.kind === 'portal'
 const productionOnboarding = productionWorkspace
   && (window.location.pathname === '/onboarding' || window.location.pathname.startsWith('/onboarding/'))
 
 let RootApp = ProductionWorkspaceBootstrap
-if (initialSurface.kind === 'marketing') {
+if (surface.kind === 'marketing') {
   RootApp = window.location.pathname === '/signup' || window.location.pathname.startsWith('/signup/')
     ? SignupPage
     : MarketingApp
 }
 if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
-if (initialSurface.kind === 'environment-pending') RootApp = CustomerEnvironmentPending
-if (initialSurface.kind === 'environment-pending' && window.location.pathname === '/accept-invitation') {
+if (surface.kind === 'environment-pending') RootApp = CustomerEnvironmentPending
+if (surface.kind === 'environment-pending' && window.location.pathname === '/accept-invitation') {
   RootApp = ManagedSandboxInvitationPage
 }
 
-createRoot(rootElement).render(
-  <StrictMode>
+return (
+  <>
     <RootApp />
     {initialSurface.kind === 'workspace' && !productionOnboarding && !productionWorkspace ? <KnowledgeContextEnhancer /> : null}
     {initialSurface.kind === 'workspace' && !productionOnboarding ? <OrganisationSitesEnhancer /> : null}
@@ -146,5 +148,66 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionPasswordRecoveryEnhancer /> : null}
     {productionPortal ? <ProductionPortalKnowledgeChat /> : null}
     {productionPortal ? <ProductionPortalLiveChatOperations /> : null}
+  </>
+)
+}
+
+function ManagedCustomerEnvironmentGateway({ surface }) {
+  const [approved, setApproved] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    const config = deploymentConfig()
+    const apiBase = window.__HI5_API_BASE__ || config.apiUrl
+    const expectedHost = `${surface.tenantSlug}${surface.environment}.${config.rootDomain}`
+    const validScope = config.deploymentMode === 'managed'
+      && config.tenancyMode === 'multi'
+      && config.runtimeEnvironment === surface.environment
+      && window.location.hostname.toLowerCase() === expectedHost
+      && window.location.protocol === 'https:'
+    let api
+    try { api = new URL(apiBase) } catch { return undefined }
+    // Customer workspaces must never fall back to the Live API.
+    if (!validScope || api.protocol !== 'https:'
+        || api.hostname === `api.${config.rootDomain}`
+        || api.origin !== new URL(config.apiUrl).origin) return undefined
+
+    async function verify() {
+      try {
+        const url = new URL('/api/v1/system/customer-environment/status', api)
+        url.searchParams.set('tenantSlug', surface.tenantSlug)
+        const response = await fetch(url, { credentials:'omit', cache:'no-store' })
+        if (!response.ok || cancelled) return
+        const status = await response.json()
+        if (cancelled || status.active !== true
+            || status.environment !== surface.environment
+            || status.tenantSlug !== surface.tenantSlug) return
+        markManagedWorkspaceVerified({
+          hostname: window.location.hostname, environment: surface.environment,
+          tenantSlug: surface.tenantSlug,
+        })
+        setApproved(true)
+      } catch { /* Keep the pending screen on any error. */ }
+    }
+    verify()
+    return () => { cancelled = true }
+  }, [surface.environment, surface.tenantSlug])
+
+  if (!approved) return <CustomerEnvironmentPending />
+  const activeSurface = resolveTenantSurface(window.location)
+  if (activeSurface.kind !== 'workspace') return <CustomerEnvironmentPending />
+  document.documentElement.dataset.hi5Surface = 'workspace'
+  document.body.dataset.hi5Surface = 'workspace'
+  if (rootElement) rootElement.dataset.hi5Surface = 'workspace'
+  return <AppComposition surface={activeSurface} />
+}
+
+createRoot(rootElement).render(
+  <StrictMode>
+    {initialSurface.kind === 'environment-pending'
+      && window.location.pathname !== '/accept-invitation'
+      && !window.location.hostname.toLowerCase().match(/-(?:rmm|portal)\./)
+      ? <ManagedCustomerEnvironmentGateway surface={initialSurface} />
+      : <AppComposition surface={initialSurface} />}
   </StrictMode>,
 )
