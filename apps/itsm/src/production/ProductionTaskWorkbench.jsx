@@ -82,8 +82,10 @@ export function TaskWorkbenchFrame({
         <button type="button" className="task-record-refresh" aria-label="Refresh task" title="Refresh task" onClick={onRefresh}><RefreshCw size={16}/></button>
       </div>
     </div>
-    {alert?<p className="task-record-alert" role="alert">{alert}</p>:null}
-    {notice?<p className="task-record-notice" role="status"><CheckCircle2 size={15}/>{notice}</p>:null}
+    <div className="task-record-feedback">
+      {alert?<p className="task-record-alert" role="alert">{alert}</p>:null}
+      {notice?<p className="task-record-notice" role="status"><CheckCircle2 size={15}/>{notice}</p>:null}
+    </div>
     <nav className="task-record-tabs" aria-label="Task sections">
       <button type="button" className={tab==='activity'?'is-active':''} onClick={()=>setTab('activity')}>Activity</button>
       <button type="button" className={tab==='details'?'is-active':''} onClick={()=>setTab('details')}>Details</button>
