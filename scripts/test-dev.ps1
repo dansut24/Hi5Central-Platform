@@ -4,6 +4,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Prefer the IPv4 Docker Desktop port on Windows; "localhost" may resolve to ::1.
+if ($HostName -eq 'localhost') { $HostName = '127.0.0.1' }
+
 $checks = @(
   @{ Name = 'API live'; Url = "http://$($HostName):3001/live"; Json = $true },
   @{ Name = 'API health'; Url = "http://$($HostName):3001/health"; Json = $true },

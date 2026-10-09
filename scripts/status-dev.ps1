@@ -8,8 +8,12 @@ if (-not (Test-Path '.env.local')) {
 
 docker compose --env-file .env.local -f deploy/docker-compose.dev.yml ps
 Write-Host ''
+Write-Host 'Recent migration logs (including exit errors):'
+docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 50 migrate
+
+Write-Host ''
 Write-Host 'Recent API logs:'
-docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 40 api
+docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 80 api
 
 
 Write-Host ''

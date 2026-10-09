@@ -115,32 +115,58 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $healthy = $false
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
+$apiUrl = 'http://127.0.0.1:3001/live'
+$lastApiError = ''
+Write-Host "Waiting for the local API at $apiUrl ..."
+
+# Use IPv4 explicitly. On some Windows hosts "localhost" resolves to IPv6,
+# while Docker Desktop is only publishing the API on IPv4.
+for ($attempt = 1; $attempt -le 30; $attempt++) {
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:3001/live' -TimeoutSec 2
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $apiUrl -TimeoutSec 2
     if ($response.StatusCode -eq 200) {
       $healthy = $true
+      Write-Host ("  [PASS] API ready after {0} check(s)" -f $attempt)
       break
     }
+    $lastApiError = "HTTP $($response.StatusCode)"
   } catch {
-    Start-Sleep -Seconds 2
+    $lastApiError = $_.Exception.Message
   }
+
+  if ($attempt -eq 1 -or ($attempt % 5) -eq 0) {
+    Write-Host ("  Waiting for API ({0}/30): {1}" -f $attempt, $lastApiError)
+  }
+  if ($attempt -lt 30) { Start-Sleep -Seconds 2 }
 }
 
 docker compose --env-file .env.local -f deploy/docker-compose.dev.yml ps
 
 Write-Host ''
 if (-not $healthy) {
-  Write-Warning 'The containers started, but the API health endpoint did not become ready. Run .\scripts\status-dev.ps1 and inspect the API/migrate logs.'
+  Write-Warning "API did not become reachable at $apiUrl. Last error: $lastApiError"
+  Write-Host 'Recent migration and API logs:'
+  docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 70 migrate api
+  throw 'Local API startup failed. The database is preserved. Run .\scripts\status-dev.ps1 after checking the logs above.'
+}
+
+try {
+  $databaseHealth = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3001/health' -TimeoutSec 5
+  if ($databaseHealth.StatusCode -eq 200) {
+    Write-Host '  [PASS] API database and Redis health'
+  }
+} catch {
+  Write-Warning "API is responding but PostgreSQL/Redis health failed: $($_.Exception.Message)"
+  docker compose --env-file .env.local -f deploy/docker-compose.dev.yml logs --tail 50 api migrate
 }
 
 Write-Host ''
 Write-Host 'Frontend readiness'
 $frontendChecks = @(
-  @{ Name = 'ITSM / Portal'; Url = 'http://localhost:3000' },
+  @{ Name = 'ITSM / Portal'; Url = 'http://127.0.0.1:3000' },
   @{ Name = 'Runtime config'; Url = 'http://localhost:3000/runtime-config.js' },
-  @{ Name = 'RMM'; Url = 'http://localhost:3002' },
-  @{ Name = 'Admin'; Url = 'http://localhost:3003' }
+  @{ Name = 'RMM'; Url = 'http://127.0.0.1:3002' },
+  @{ Name = 'Admin'; Url = 'http://127.0.0.1:3003' }
 )
 
 foreach ($check in $frontendChecks) {
