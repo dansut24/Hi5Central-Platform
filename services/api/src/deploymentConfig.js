@@ -64,6 +64,10 @@ export const deployment = Object.freeze((() => {
   const adminUrl = deploymentMode === 'self_hosted' && selfHostEdition === 'standard'
     ? ''
     : cleanUrl(process.env.ADMIN_URL, `https://admin.${rootDomain}`)
+  if (deploymentMode === 'managed' && tenancyMode === 'multi'
+    && ['uat','test'].includes(runtimeEnvironment) && String(process.env.COOKIE_DOMAIN || '').trim()) {
+    throw new Error('Managed UAT/Test must use host-only API session cookies (COOKIE_DOMAIN must be unset).')
+  }
 
   return {
     deploymentMode,
@@ -179,7 +183,11 @@ export function portalRequestFromHeaders(origin = '', referer = '') {
 
   if (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
     && ['uat','test'].includes(deployment.runtimeEnvironment)) {
-    const match = classifyManagedCustomerOrigin(origin || referer, deployment.rootDomain)
+    let source = origin
+    if (!source && referer) {
+      try { source = new URL(referer).origin } catch { return false }
+    }
+    const match = classifyManagedCustomerOrigin(source, deployment.rootDomain)
     return match?.environment === deployment.runtimeEnvironment && match.product === 'portal'
   }
   const root = escapeRegex(deployment.rootDomain)
