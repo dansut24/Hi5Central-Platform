@@ -92,7 +92,7 @@ function SourceBadge({ person }) {
   )
 }
 
-function PersonDrawer({ auditEvents, currentPerson, departments, onClose, onEdit, person, people, teams }) {
+function PersonDrawer({ auditEvents, currentPerson, departments, onClose, onEdit, person, people, teams, records = [] }) {
   if (!person) return null
   const team = personTeam(person, teams)
   const department = departmentForPerson(person, teams, departments)
@@ -102,6 +102,16 @@ function PersonDrawer({ auditEvents, currentPerson, departments, onClose, onEdit
   const source = directorySourceFor(person)
   const accessProfile = accessProfileFor(person)
   const recentAudit = auditEvents.filter((event) => event.entityType === 'person' && event.entityId === person.id).slice(0, 6)
+  const linkedWork = records.filter((record) => {
+    const name = String(person.name || '').trim().toLowerCase()
+    const email = String(person.email || '').trim().toLowerCase()
+    if (!name && !email) return false
+    return [record.assignee, record.requester, record.assigneeName, record.requesterName]
+      .some((value) => name && String(value || '').trim().toLowerCase() === name)
+      || [record.assigneeEmail, record.requesterEmail]
+        .some((value) => email && String(value || '').trim().toLowerCase() === email)
+  }).slice(0, 25)
+
 
   return (
     <div className="org-drawer-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -144,6 +154,18 @@ function PersonDrawer({ auditEvents, currentPerson, departments, onClose, onEdit
           ) : (
             <p>This profile is managed directly in Hi5Central. When a directory or HR integration owns selected fields, those fields will automatically become read-only here.</p>
           )}
+        </section>
+
+        <section className="org-detail-section">
+          <div className="org-section-title"><div><span className="eyebrow">Service desk</span><h3>Linked work ({linkedWork.length})</h3></div><History size={18} /></div>
+          {linkedWork.length ? <div className="org-person-work-list">
+            {linkedWork.slice(0, 8).map((record) => {
+              const section = record.type === 'Incident' ? 'incidents' : record.type === 'Service Request' ? 'requests' : record.type === 'Problem' ? 'problems' : 'changes'
+              return <a key={record.id} href={`/${section}/${encodeURIComponent(record.id)}`}>
+                <span><strong>{record.id} · {record.title || record.summary || 'Record'}</strong><small>{record.type} · {record.status || 'New'}</small></span><ChevronLeft className="org-work-arrow" size={16} />
+              </a>
+            })}
+          </div> : <p className="org-muted-copy">No requested or assigned records found for this person.</p>}
         </section>
 
         <section className="org-detail-section">
@@ -320,7 +342,7 @@ function EntityEditor({ departments, entity, kind, onClose, onSave, people }) {
   )
 }
 
-export function PeopleView({ auditEvents = [], currentPerson, departments, onSaveDepartment, onSavePerson, onSaveTeam, people, teams }) {
+export function PeopleView({ auditEvents = [], currentPerson, departments, onSaveDepartment, onSavePerson, onSaveTeam, people, teams, tickets = [] }) {
   const [section, setSection] = useState('people')
   const [query, setQuery] = useState('')
   const [teamFilter, setTeamFilter] = useState('All')
@@ -432,7 +454,7 @@ export function PeopleView({ auditEvents = [], currentPerson, departments, onSav
         </div>
       </div>
 
-      <PersonDrawer auditEvents={auditEvents} currentPerson={currentPerson} departments={departments} onClose={() => setSelectedPersonId('')} onEdit={() => setEditor({ kind: 'person', entity: selectedPerson })} person={selectedPerson} people={people} teams={teams} />
+      <PersonDrawer auditEvents={auditEvents} currentPerson={currentPerson} departments={departments} onClose={() => setSelectedPersonId('')} onEdit={() => setEditor({ kind: 'person', entity: selectedPerson })} person={selectedPerson} people={people} teams={teams} records={tickets} />
       {editor?.kind === 'person' && <PersonEditor actor={currentPerson} departments={departments} onClose={() => setEditor(null)} onSave={(value) => { onSavePerson(value); setSelectedPersonId(value.id); setEditor(null) }} person={editor.entity} people={people} teams={teams} />}
       {editor?.kind === 'team' && canManageTeam(currentPerson, editor.entity || null, teams) && <EntityEditor
         departments={accessProfile.scope === 'all' ? departments : departments.filter((department) => editableDepartmentIdsFor(currentPerson, departments, teams).includes(department.id))}

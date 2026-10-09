@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Archive, BookOpen, Check, ChevronRight, FileClock, Link2, Plus, Search, Send, X } from 'lucide-react'
+import { RichNoteEditor, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
+import { KnowledgeArticleBody, isFormattedKnowledge } from './KnowledgeArticleBody.jsx'
 import './ProductionKnowledgeLiveChat.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -179,7 +181,7 @@ export function ProductionKnowledgeBase() {
               <section className="pkb-card pkb-editor-main">
                 <label><span>Title</span><input value={draft.title} onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))} /></label>
                 <label><span>Summary</span><textarea rows={3} value={draft.summary} onChange={(e) => setDraft((v) => ({ ...v, summary: e.target.value }))} /></label>
-                <label><span>Article content</span><textarea className="pkb-body-editor" rows={18} value={draft.bodyText} onChange={(e) => setDraft((v) => ({ ...v, bodyText: e.target.value }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></label>
+                <div className="pkb-rich-field"><span>Article content</span><RichNoteEditor html={isFormattedKnowledge(draft.bodyText) ? draft.bodyText : undefined} text={isFormattedKnowledge(draft.bodyText) ? undefined : draft.bodyText} onChange={({ html }) => setDraft((v) => ({ ...v, bodyText: sanitizeNoteHtml(html) }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></div>
               </section>
               <aside className="pkb-card pkb-editor-side">
                 <label><span>Category</span><input list="pkb-categories" value={draft.category} onChange={(e) => setDraft((v) => ({ ...v, category: e.target.value }))} /><datalist id="pkb-categories">{categories.map((item) => <option key={item} value={item} />)}</datalist></label>
@@ -194,7 +196,7 @@ export function ProductionKnowledgeBase() {
           <article className="pkb-article">
             <header><div><small>{selected.reference} · {selected.category}</small><h1>{selected.title}</h1><p>{selected.summary}</p><div className="pkb-tags">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div></div><div className="pkb-actions"><button className="pkb-secondary" onClick={openVersions}><FileClock size={16} /> Versions</button><button className="pkb-secondary" onClick={editArticle}>Edit</button>{selected.status !== 'Published' ? <button className="pkb-primary" onClick={() => changeStatus('Published')} disabled={busy}>Publish</button> : <button className="pkb-secondary" onClick={() => changeStatus('Draft')} disabled={busy}>Unpublish</button>}{selected.status !== 'Archived' ? <button className="pkb-icon" onClick={() => changeStatus('Archived')} title="Archive"><Archive size={17} /></button> : null}</div></header>
             <div className="pkb-meta"><span>Status <strong>{selected.status}</strong></span><span>Visibility <strong>{selected.visibility}</strong></span><span>Version <strong>{selected.version}</strong></span><span>Published <strong>{formatDate(selected.publishedAt)}</strong></span><span>Review <strong>{formatDate(selected.reviewAt)}</strong></span></div>
-            <section className="pkb-card pkb-article-body">{selected.bodyText ? selected.bodyText.split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>) : <p className="pkb-muted">No article content yet.</p>}</section>
+            <section className="pkb-card pkb-article-body"><KnowledgeArticleBody content={selected.bodyText} /></section>
             <div className="pkb-detail-grid"><section className="pkb-card"><h3>Linked ITSM records</h3>{selected.links?.length ? <div className="pkb-links">{selected.links.map((link) => <span key={link.id}><Link2 size={14} /> {link.recordReference} <small>{link.recordType}</small></span>)}</div> : <p className="pkb-muted">No records linked yet.</p>}<form className="pkb-link-form" onSubmit={addLink}><input value={linkRecord} onChange={(e) => setLinkRecord(e.target.value)} placeholder="INC-00001, PRB-00001…" /><button disabled={busy || !linkRecord.trim()}><Link2 size={15} /> Link</button></form></section><section className="pkb-card"><h3>Portal feedback</h3><div className="pkb-feedback"><span><strong>{selected.helpfulCount}</strong> Helpful</span><span><strong>{selected.notHelpfulCount}</strong> Not helpful</span></div><p className="pkb-muted">Feedback comes only from authenticated portal users viewing a published article.</p></section></div>
           </article>
         ) : <div className="pkb-empty large"><BookOpen size={42} /><strong>Build trustworthy support knowledge</strong><span>Create a draft, publish it internally or to the Help Centre, then link it to ITSM records.</span><button className="pkb-primary" onClick={newArticle}><Plus size={16} /> New article</button></div>}

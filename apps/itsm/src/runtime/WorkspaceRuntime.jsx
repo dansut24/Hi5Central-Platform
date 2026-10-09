@@ -2975,6 +2975,7 @@ function WorkspaceRuntime() {
           onSaveTeam={saveTeam}
           people={people}
           teams={teams}
+          tickets={tickets}
         />
       )
     }

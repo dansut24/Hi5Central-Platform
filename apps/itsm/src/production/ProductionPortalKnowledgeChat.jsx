@@ -13,6 +13,7 @@ import {
   ThumbsUp,
   X,
 } from 'lucide-react'
+import { KnowledgeArticleBody } from './KnowledgeArticleBody.jsx'
 import './ProductionKnowledgeLiveChat.css'
 import './ProductionPortalFloatingChat.css'
 
@@ -152,7 +153,7 @@ function PortalKnowledge({ initialItems, routePath, onNavigate }) {
             <div>{(selected.tags || []).map((tag) => <small key={tag}>{tag}</small>)}</div>
           </header>
           <div className="ppx-article-body">
-            {String(selected.bodyText || '').split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+            <KnowledgeArticleBody content={selected.bodyText} />
           </div>
           <footer>
             <strong>Was this article helpful?</strong>
