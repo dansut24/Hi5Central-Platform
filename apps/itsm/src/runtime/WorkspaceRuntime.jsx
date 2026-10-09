@@ -119,6 +119,7 @@ import { RotaView } from '../features/rota/RotaView.jsx'
 import { LiveChatView } from '../features/live-chat/LiveChatView.jsx'
 import { NotificationDrawer } from '../features/notifications/NotificationDrawer.jsx'
 import { PeopleView } from '../features/people/PeopleView.jsx'
+import { ProductionKnowledgeBase } from '../production/ProductionKnowledgeBase.jsx'
 import {
   ChangesView,
   CmdbRecordView,
@@ -2995,19 +2996,9 @@ function WorkspaceRuntime() {
       return <CmdbView assets={assets} openAsset={openAsset} tickets={tickets} />
     }
 
-    if (activeView === 'knowledge') {
-      if (selectedArticle) {
-        return <KnowledgeArticleView article={selectedArticle} />
-      }
-      return (
-        <KnowledgeView
-          openArticle={openArticle}
-          portalQuery={portalQuery}
-          portalResults={portalResults}
-          setPortalQuery={setPortalQuery}
-        />
-      )
-    }
+    // Production Knowledge is a regular workspace page, not a competing
+    // document-level portal layered over the demo Knowledge view.
+    if (activeView === 'knowledge') return <ProductionKnowledgeBase />
 
     if (activeView === 'reports') {
       return <ReportsView metrics={metrics} tickets={tickets} />
@@ -3487,7 +3478,7 @@ function WorkspaceRuntime() {
         )}
 
         <main className="workspace">
-          <section className="content-frame">{renderActiveView()}</section>
+          <section className="content-frame" data-hi5-active-view={activeView}>{renderActiveView()}</section>
         </main>
       </section>
 
