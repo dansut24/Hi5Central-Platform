@@ -3,6 +3,7 @@ import { pool, withTransaction } from './db.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 import { attachmentPolicyFor } from './itsmConfig.js'
+import { sanitizeActivityHtml } from './itsmRichText.js'
 
 const priorities = new Set(['Low', 'Medium', 'High', 'Critical'])
 const taskStatuses = new Set(['Waiting', 'Ready', 'In Progress', 'Completed', 'Blocked'])
@@ -416,7 +417,7 @@ export function registerServiceRequestOperationRoutes(app) {
     }
     const visibility = requestedKind === 'work' ? 'internal' : 'customer'
     const bodyText = text(body?.text, 20_000)
-    const bodyHtml = String(body?.html || '').slice(0, 100_000)
+    const bodyHtml = sanitizeActivityHtml(body?.html)
     const attachments = safeAttachments(body?.attachments, visibility)
     if (!bodyText && !bodyHtml && !attachments.length) return c.json({ error: 'Add a message or attachment.' }, 400)
 
