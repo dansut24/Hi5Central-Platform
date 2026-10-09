@@ -1,20 +1,18 @@
-# Place these lines FIRST INSIDE the existing public
-# *.hi5central.com { ... } site block, BEFORE all @managed* and @tenant*
-# handle directives and BEFORE any file_server or reverse_proxy fallback.
-# Do not add this matcher to the generic self-hosted Caddyfile.
+# Place this fragment FIRST INSIDE the existing public
+# *.hi5central.com { ... } site block, BEFORE all @managed*
+# and @tenant* handle directives and generic fallback proxy routes.
+# Do not place this in generic customer self-hosted gateways.
 #
-# This regex reserves customer-qualified UAT/Test and all pilot-* hostnames.
-# Explicit legacy uat.hi5central.com, test.hi5central.com, uat-api, test-api,
-# test-rmm and test-admin remain outside the expression and continue routing.
+# Explicit legacy uat.hi5central.com, test.hi5central.com,
+# uat-api, test-api, test-rmm and test-admin remain outside the match.
+# Mixed-case host headers are handled with (?i).
 #
-# handle is required; a top-level "respond @unapprovedSandbox" is sorted
-# AFTER the existing handle directives by the Caddyfile adapter.
-# (?i) handles mixed-case Host values. The top-level HTTPS catchall (separate\n# snippet) returns 421 for trailing-dot hosts if wildcard site selection fails.\n# In CEL regexp strings use [.] instead of \. to avoid escape parsing errors.
-@unapprovedSandbox expression {http.request.host}.matches('(?i)^(?:[a-z0-9-]+(?:uat|test)(?:-(?:api|portal|rmm|admin|downloads|connect|turn))?|pilot-[a-z0-9-]+)[.]hi5central[.]com[.]*
-handle @unapprovedSandbox {
-    respond "Not Found" 404
-}
-)
+# Use "handle @unapprovedSandbox", not a top-level respond:
+# top-level respond runs AFTER existing handle directives in this
+# Caddyfile adapter and would not prevent Production ITSM fallback.
+# CEL regular expressions use [.] for literal dots; the separate
+# unmatched HTTPS site handles trailing-dot virtual host mismatches.
+@unapprovedSandbox expression {http.request.host}.matches('(?i)^(?:[a-z0-9-]+(?:uat|test)(?:-(?:api|portal|rmm|admin|downloads|connect|turn))?|pilot-[a-z0-9-]+)[.]hi5central[.]com[.]*$')
 handle @unapprovedSandbox {
     respond "Not Found" 404
 }
