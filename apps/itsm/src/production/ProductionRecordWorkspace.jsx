@@ -236,6 +236,28 @@ function serviceRequestToLab(request, assignment, organisation) {
   }
 }
 
+// Three or four readable workflow phases without inventing transition timestamps.
+// This is a status indicator only; it does not change the record lifecycle.
+function recordWorkflowPhases(type, status) {
+  const value = String(status || '').toLowerCase()
+  if (type === 'Incident') return {
+    labels: ['Triage', 'In progress', 'Resolved'],
+    active: ['resolved', 'closed'].includes(value) ? 2 : ['new'].includes(value) ? 0 : 1,
+  }
+  if (type === 'Service Request') return {
+    labels: ['Requested', 'Approval', 'Fulfilment'],
+    active: value === 'pending approval' ? 1 : ['new'].includes(value) ? 0 : 2,
+  }
+  if (type === 'Change') return {
+    labels: ['Assessment', 'Approval', 'Implementation', 'Review'],
+    active: ['review', 'completed'].includes(value) ? 3 : ['scheduled', 'implementing'].includes(value) ? 2 : value === 'awaiting approval' ? 1 : 0,
+  }
+  return {
+    labels: ['Opened', 'Investigation', 'Resolved'],
+    active: ['resolved', 'closed'].includes(value) ? 2 : value === 'new' ? 0 : 1,
+  }
+}
+
 function activityText(item) {
   return item.text || item.label || item.message || 'Record updated'
 }
@@ -854,21 +876,54 @@ function RecordWorkspace({ route }) {
 
     const peekTitle = { user: 'Requester', assets: 'Assets & CIs', related: 'Related work', insights: 'Insights' }[contextView]
     const openRecord = (item) => navigateLab(`/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
-    const coreContext = <div className="record-lab-inspector-facts">
-      <button type="button" className="record-lab-inspector-action" onClick={() => setContextView('user')}><span>Requester</span><strong>{detail.requester || 'Not recorded'}</strong><small>{detail.requesterEmail || requesterPerson?.role || 'Open requester context'}</small></button>
-      <OverviewFact label="Service" value={detail.service} />
-      <OverviewFact label="Category" value={detail.category || detail.catalogueItemTitle} />
-      <button type="button" className="record-lab-inspector-action" onClick={() => beginAction('reassign')}><span>Assignment</span><strong>{detail.team || 'Unassigned'}</strong><small>{detail.assignee || 'Unassigned'}</small></button>
-      <OverviewFact label="Priority" value={detail.priority || 'Medium'} sub={route.type === 'Incident' ? `${detail.impact || 'Medium'} impact · ${detail.urgency || 'Medium'} urgency` : ''} />
-      <OverviewFact label="Created" value={formatDate(detail.createdAt, true)} />
-      <OverviewFact label="Last updated" value={formatDate(detail.updatedAt, true)} />
-    </div>
+    const email = detail.requesterEmail || requesterPerson?.email || ''
+    const phone = requesterPerson?.phone || detail.requesterPhone || ''
+    const site = (organisation.sites || []).find((entry) => entry.id === requesterPerson?.siteId)?.name
+      || requesterPerson?.location || detail.requesterLocation || detail.requesterSite || ''
+    const department = requesterDepartment?.name || detail.requesterDepartment || ''
+    const managerName = requesterManager?.name || ''
+    const phases = recordWorkflowPhases(route.type, detail.status)
+    const stageIndex = String(detail.status || '').toLowerCase()
+    const hasProgress = !['cancelled', 'rejected'].includes(stageIndex)
 
-    const contextMenu = <div className="record-lab-context-menu">
-      <button type="button" onClick={() => setContextView('user')}><UserRound size={16} /><span><strong>User</strong><small>{requesterPerson?.role || detail.requesterJobTitle || 'Requester profile and recent records'}</small></span></button>
-      <button type="button" onClick={() => setContextView('assets')}><Laptop size={16} /><span><strong>Assets & CIs</strong><small>{linkedAssets.length ? `${linkedAssets.length} linked item${linkedAssets.length === 1 ? '' : 's'}` : 'No linked assets yet'}</small></span></button>
-      <button type="button" onClick={() => setContextView('related')}><Link2 size={16} /><span><strong>Related</strong><small>{relationships.length ? `${relationships.length} linked record${relationships.length === 1 ? '' : 's'}` : 'No linked records'}</small></span></button>
-      <button type="button" onClick={() => setContextView('insights')}><Sparkles size={16} /><span><strong>Insights</strong><small>{contextualInsights.length ? `${contextualInsights.length} evidence-based signal${contextualInsights.length === 1 ? '' : 's'}` : 'No immediate exceptions detected'}</small></span></button>
+    const coreContext = <>
+      {hasProgress ? <div className="record-lab-compact-progress" aria-label={`Workflow stage: ${phases.labels[phases.active]}`}>
+        {phases.labels.map((label, index) => <span key={label} className={`record-lab-compact-stage${index < phases.active ? ' is-past' : ''}${index === phases.active ? ' is-current' : ''}`} title={label}>{label}</span>)}
+      </div> : null}
+      <div className="record-lab-inspector-section-title"><span>Ticket information</span></div>
+      <div className="record-lab-compact-facts">
+        <div><span>Service</span><strong>{detail.service || 'Not recorded'}</strong></div>
+        <div><span>Category</span><strong>{detail.category || detail.catalogueItemTitle || 'Not recorded'}</strong></div>
+        <button type="button" className="record-lab-compact-assignment" onClick={() => beginAction('reassign')} title="Change assignment">
+          <span>Assigned to <UserRoundCog size={13} /></span>
+          <strong>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.assignee : detail.team || 'Unassigned'}</strong>
+          <small>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.team : 'Select a technician or team'}</small>
+        </button>
+        <div><span>Created</span><strong>{formatDate(detail.createdAt, true)}</strong></div>
+      </div>
+      <div className="record-lab-inspector-section-title"><span>End-user details</span></div>
+      <div className="record-lab-compact-requester">
+        <button type="button" className="record-lab-compact-requester-link" onClick={() => setContextView('user')} title="Open requester profile">
+          <span className="record-lab-user-avatar">{initials(detail.requester || '')}</span>
+          <span><strong>{detail.requester || 'Requester not recorded'}</strong><small>{requesterPerson?.jobTitle || detail.requesterJobTitle || 'Requester'}</small></span>
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+        {(email || phone) ? <div className="record-lab-requester-contacts">
+          {email ? <a href={`mailto:${email}`} title={email}><MessageSquareText size={13} /><span>{email}</span></a> : null}
+          {phone ? <a href={`tel:${String(phone).replace(/[^+\d]/g, '')}`} title={phone}><UserRound size={13} /><span>{phone}</span></a> : null}
+        </div> : null}
+        {(department || site || managerName) ? <div className="record-lab-requester-facts">
+          {department ? <div><span>Department</span><strong>{department}</strong></div> : null}
+          {site ? <div><span>Site</span><strong>{site}</strong></div> : null}
+          {managerName ? <div><span>Manager</span><strong>{managerName}</strong></div> : null}
+        </div> : null}
+      </div>
+    </>
+
+    const contextMenu = <div className="record-lab-compact-shortcuts" aria-label="Additional record context">
+      <button type="button" onClick={() => setContextView('assets')}><Laptop size={15} /><span>Assets{linkedAssets.length ? ` · ${linkedAssets.length}` : ''}</span></button>
+      <button type="button" onClick={() => setContextView('related')}><Link2 size={15} /><span>Related{relationships.length ? ` · ${relationships.length}` : ''}</span></button>
+      <button type="button" onClick={() => setContextView('insights')}><Sparkles size={15} /><span>Insights{contextualInsights.length ? ` · ${contextualInsights.length}` : ''}</span></button>
     </div>
 
     let peekContent = null
@@ -896,8 +951,8 @@ function RecordWorkspace({ route }) {
 
     return <aside className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
-        <header>{contextView === 'home' ? <div><span>Record details</span><h2>Context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
-        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} /><button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
+        <header>{contextView === 'home' ? <div><span>At a glance</span><h2>Record context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
+        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
       </section>
     </aside>
   }
