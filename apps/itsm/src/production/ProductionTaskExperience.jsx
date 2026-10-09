@@ -45,7 +45,8 @@ const VIEW_STYLES = [
 ]
 const WORK_VIEWS = [
   { id: 'mine', label: 'My Tasks', description: 'Work currently assigned to you' },
-  { id: 'team', label: 'Team Queue', description: 'Active work routed to your teams' },
+  { id: 'team', label: 'Team Queue', description: 'Work assigned to you or your teams' },
+  { id: 'project', label: 'Project Tasks', description: 'Active tasks across accessible projects' },
   { id: 'unassigned', label: 'Unassigned', description: 'Ready work waiting to be taken' },
   { id: 'blocked', label: 'Blocked', description: 'Work that needs attention' },
 ]
@@ -381,7 +382,7 @@ function TaskQueue() {
       <div className="production-record-content">
         {loading ? <div className="production-record-state"><strong>Loading tasks…</strong><span>Checking your current fulfilment queues.</span></div> : null}
         {!loading && error ? <div className="production-record-state is-error"><strong>Could not load this queue</strong><span>{error}</span><button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></div> : null}
-        {!loading && !error && !records.length ? <div className="production-record-state"><strong>No tasks in {currentView?.label || 'this view'}</strong><span>Waiting workflow steps stay hidden until their dependencies are complete.</span></div> : null}
+        {!loading && !error && !records.length ? <div className="production-record-state"><strong>No tasks in {currentView?.label || 'this view'}</strong><span>{filters.scope === 'project' ? 'No active project tasks match these filters. Completed tasks are in the Completed view.' : 'Check My Tasks, Project Tasks or All active, or adjust filters to see more work.'}</span></div> : null}
         {!loading && !error && records.length ? <div className="production-motion-enter production-motion-enter-fast">{renderedViewStyle === 'cards' ? <TaskCardList items={records} onOpen={(record) => navigate(`/tasks/${encodeURIComponent(record.id)}`)} onTake={takeTask} busyTask={ownershipBusy} /> : <TaskTable items={records} columns={columns} onOpen={(record) => navigate(`/tasks/${encodeURIComponent(record.id)}`)} onTake={takeTask} busyTask={ownershipBusy} />}</div> : null}
       </div>
 
