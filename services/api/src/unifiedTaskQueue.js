@@ -74,7 +74,7 @@ queue AS (
   LEFT JOIN organisation_teams team ON team.id=p.team_id
   LEFT JOIN organisation_people assignee ON assignee.id=t.assignee_person_id
   WHERE t.tenant_id=$1
-    AND ${allowProjects ? "p.status<>'Cancelled' AND (p.status<>'Complete' OR t.status='Done')" : 'FALSE'}
+    AND ${allowProjects ? "p.status<>'Cancelled'" : 'FALSE'}
 )`
 
 export async function unifiedTaskQueue(session, query, viewer, database = pool) {
