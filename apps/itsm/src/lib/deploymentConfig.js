@@ -85,7 +85,9 @@ export function deploymentConfig() {
   const appUrl = cleanUrl(runtime.appUrl || env.VITE_APP_URL, defaultAppUrl)
   const portalUrl = cleanUrl(runtime.portalUrl || env.VITE_PORTAL_URL)
   const rmmUrl = cleanUrl(runtime.rmmUrl || env.VITE_RMM_URL)
-  const adminUrl = cleanUrl(runtime.adminUrl || env.VITE_ADMIN_URL, `https://admin.${rootDomain}`)
+  const managedSandbox = deploymentMode === 'managed' && tenancyMode === 'multi'
+    && ['uat', 'test'].includes(runtimeEnvironment)
+  const adminUrl = managedSandbox ? '' : cleanUrl(runtime.adminUrl || env.VITE_ADMIN_URL, `https://admin.${rootDomain}`)
   const apiUrl = cleanUrl(runtime.apiUrl || env.VITE_API_URL)
   const marketingUrl = cleanUrl(
     runtime.marketingUrl || env.VITE_MARKETING_URL,
