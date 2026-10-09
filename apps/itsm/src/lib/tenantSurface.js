@@ -143,6 +143,34 @@ export function resolveTenantSurface(location = window.location) {
     }
   }
 
+  // Customer UAT/Test addresses are reserved now, but must not open a
+  // Production workspace until their independent data/agent/session scopes
+  // have been provisioned. Keep infrastructure and legacy single-tenant
+  // Dev URLs on their existing routes.
+  const environmentLabel = hostname.endsWith(`.${rootHost}`)
+    ? hostname.slice(0, -rootHost.length - 1).replace(/-(?:rmm|portal)$/, '')
+    : ''
+  const environmentMatch = environmentLabel.match(/^([a-z0-9-]+?)(uat|test)$/)
+  if (environmentMatch) {
+    const [, base, environment] = environmentMatch
+    const reservedBases = new Set(['admin', 'api', 'dev', 'test', 'uat', 'www', 'downloads', 'help', 'turn'])
+    if (/^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(base)
+      && !base.includes('--')
+      && !base.endsWith('uat')
+      && !base.endsWith('test')
+      && !reservedBases.has(base)) {
+      return {
+        kind: 'environment-pending',
+        environment,
+        tenantSlug: base,
+        tenantName: tenantDisplayName(base),
+        canonical: true,
+        preview: false,
+        pathBased: false,
+      }
+    }
+  }
+
   const rmmHost = hostname.match(new RegExp(`^([a-z0-9-]+)-rmm\\.${rootDomain}$`, 'i'))
   if (rmmHost) {
     const tenantSlug = normaliseSlug(rmmHost[1])
