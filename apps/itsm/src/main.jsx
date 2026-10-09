@@ -75,6 +75,7 @@ import './production/ProductionRecordLiquidGlass.css'
 import './production/ProductionRecordInlineComposer.css'
 import './production/ProductionRichNoteEditor.css'
 import './production/ProductionWorkingPeekModal.css'
+import './production/ProductionCalendarWorkbench.css'
 
 installWorkspaceTabSessionIsolation()
 
