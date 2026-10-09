@@ -44,6 +44,32 @@ foreach ($check in $checks) {
   }
 }
 
+# These tenant-scoped endpoints must exist and reject unauthenticated callers.
+# A 404 means the route was never registered; a 200 could expose tenant data.
+$protectedRoutes = @(
+  @{ Name = 'CMDB API'; Url = "http://$($HostName):3001/api/v1/cmdb" },
+  @{ Name = 'Knowledge Base API'; Url = "http://$($HostName):3001/api/v1/knowledge" },
+  @{ Name = 'People directory API'; Url = "http://$($HostName):3001/api/v1/organisation" }
+)
+
+foreach ($check in $protectedRoutes) {
+  $code = 0
+  try {
+    $result = Invoke-WebRequest -UseBasicParsing -Uri $check.Url -TimeoutSec 8
+    $code = [int]$result.StatusCode
+  } catch {
+    if ($_.Exception.Response) {
+      $code = [int]$_.Exception.Response.StatusCode
+    }
+  }
+  if ($code -in @(401, 403)) {
+    Write-Host ("[PASS] {0} - protected (HTTP {1})" -f $check.Name, $code)
+  } else {
+    $failures += $check.Name
+    Write-Host ("[FAIL] {0} - expected 401/403, received {1}" -f $check.Name, $code)
+  }
+}
+
 try {
   $deployment = Invoke-RestMethod -Uri "http://$($HostName):3001/api/v1/system/deployment" -TimeoutSec 8
   Write-Host ''
