@@ -85,6 +85,24 @@ RMM devices or automation jobs into UAT/Test. Use local suspended identities
 and synthetic test data only. This blueprint omits RMM, TURN and Platform Admin
 services deliberately. No pilot tenant or DNS record was created by this phase.
 
+## VPS discovery — legacy UAT/Test stacks (read-only inspection)
+
+The VPS already runs `hi5central-uat` and `hi5central-test` Compose
+projects, using **managed, single-tenant** control-server builds from the
+earlier deployment architecture. Both also contain RMM Web and TURN components.
+These are **not** the managed multi-tenant, RMM-locked pilot runtimes described
+here. Their gateway processes are attached to the existing shared
+`hi5central` edge, with locally bound gateway ports and additional
+TURN UDP port mappings.
+
+**Deployment blocker:** do not reuse those legacy project names, data volumes,
+Redis databases, session credentials, or gateway routes. Before a customer
+pilot, inventory/retain required data, agree whether to retire or isolate the
+legacy stacks, audit all current public gateway/wildcard routes, and verify
+that no unapproved customer `*uat`/`*test` hostname resolves to Production.
+The new project names and network aliases deliberately avoid the old stacks.
+No existing container or route is modified by this blueprint.
+
 ## Automated evidence
 
 `node --test infrastructure/managed-sandbox/validate.test.mjs` runs
