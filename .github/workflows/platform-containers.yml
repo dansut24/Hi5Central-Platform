@@ -66,7 +66,8 @@ jobs:
       - name: Check managed UAT/Test deployment isolation blueprint
         if: matrix.name == 'API'
         run: |
-          node --test infrastructure/managed-sandbox/validate.test.mjs infrastructure/managed-sandbox/plan-routes.test.mjs
+          node --test infrastructure/managed-sandbox/validate.test.mjs infrastructure/managed-sandbox/plan-routes.test.mjs infrastructure/managed-sandbox/reconcile-legacy.test.mjs
+          node --check infrastructure/managed-sandbox/inventory-legacy.mjs
           HI5_PHASE10_SMOKE=true node infrastructure/managed-sandbox/test-compose.mjs
       - name: Verify isolated tenant provisioning operator syntax
         if: matrix.name == 'API'
