@@ -23,8 +23,8 @@ test('parallel pilot uses distinct unpublished API origin while keeping tenant h
     const r=planRoutes(env,'acme','hi5central.com','parallel')
     assert.equal(r.routeChannel,'parallel')
     assert.equal(r.apiOrigin,`https://pilot-${env}-api.hi5central.com`)
-    assert.equal(r.DNSChanges,false)
-    assert.equal(r.TLSChanges,false)
+    assert.equal(r.dnsChanges,false)
+    assert.equal(r.tlsChanges,false)
     assert.equal(r.rmmHost,null)
   }
   assert.throws(()=>planRoutes('uat','acme','hi5central.com','unexpected'))
