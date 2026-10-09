@@ -94,28 +94,28 @@ function smtpSink() {
   const messages=[]
   const server=createServer(socket=>{
     socket.setEncoding('utf8')
-    socket.write('220 hi5central-isolated-ci-smtp ESMTP\\r\\n')
+    socket.write('220 hi5central-isolated-ci-smtp ESMTP\r\n')
     let buffer='',inData=false,data=''
     socket.on('data',chunk=>{
       buffer+=chunk
       let stop
-      while((stop=buffer.indexOf('\\n'))>=0) {
-        const line=buffer.slice(0,stop).replace(/\\r$/,'')
+      while((stop=buffer.indexOf('\n'))>=0) {
+        const line=buffer.slice(0,stop).replace(/\r$/,'')
         buffer=buffer.slice(stop+1)
         if(inData){
           if(line==='.'){
             messages.push(data)
             data='';inData=false
-            socket.write('250 accepted for ephemeral test\\r\\n')
-          }else data+=(line.startsWith('..')?line.slice(1):line)+'\\n'
-        }else if(/^EHLO|^HELO/i.test(line))socket.write('250-hi5-isolated\\r\\n250-AUTH PLAIN LOGIN\\r\\n250 8BITMIME\\r\\n')
-        else if(/^AUTH PLAIN/i.test(line))socket.write('235 Authentication successful\\r\\n')
-        else if(/^AUTH LOGIN/i.test(line))socket.write('334 VXNlcm5hbWU6\\r\\n')
-        else if(/^MAIL FROM|^RCPT TO|^RSET/i.test(line))socket.write('250 OK\\r\\n')
-        else if(/^DATA/i.test(line)){inData=true;socket.write('354 Send data\\r\\n')}
-        else if(/^QUIT/i.test(line)){socket.write('221 Closing\\r\\n');socket.end()}
-        else if(/^NOOP/i.test(line))socket.write('250 OK\\r\\n')
-        else socket.write('235 OK\\r\\n')
+            socket.write('250 accepted for ephemeral test\r\n')
+          }else data+=(line.startsWith('..')?line.slice(1):line)+'\n'
+        }else if(/^EHLO|^HELO/i.test(line))socket.write('250-hi5-isolated\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n')
+        else if(/^AUTH PLAIN/i.test(line))socket.write('235 Authentication successful\r\n')
+        else if(/^AUTH LOGIN/i.test(line))socket.write('334 VXNlcm5hbWU6\r\n')
+        else if(/^MAIL FROM|^RCPT TO|^RSET/i.test(line))socket.write('250 OK\r\n')
+        else if(/^DATA/i.test(line)){inData=true;socket.write('354 Send data\r\n')}
+        else if(/^QUIT/i.test(line)){socket.write('221 Closing\r\n');socket.end()}
+        else if(/^NOOP/i.test(line))socket.write('250 OK\r\n')
+        else socket.write('235 OK\r\n')
       }
     })
   })
@@ -447,8 +447,8 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.equal(delivered.code,0,delivered.stderr)
     assert.equal(delivered.json.result,'invitation_sent')
     assert.equal(smtp.messages.length,1,'One invite sent to ephemeral local mailbox')
-    const emailBody=smtp.messages[0].replace(/=\\n/g,'')
-    const match=emailBody.match(/accept-invitation\\?token=([A-Za-z0-9_-]{43})/)
+    const emailBody=smtp.messages[0].replace(/=\n/g,'').replace(/=3D/gi,'=')
+    const match=emailBody.match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
     assert.ok(match,'Invitation token must exist in isolated mailbox, never stdout')
     assert.ok(!delivered.stdout.includes(match[1]))
     const http=await httpWorker('uat','--accept-mfa',{HI5_TEST_INVITE_TOKEN:match[1]})
