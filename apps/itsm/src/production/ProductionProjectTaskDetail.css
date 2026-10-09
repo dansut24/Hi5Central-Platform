@@ -9,6 +9,8 @@
 .project-task-detail-heading small{color:var(--muted);font-size:11px;}
 .project-task-detail-heading h1{margin:4px 0;font-size:18px;line-height:1.35;overflow-wrap:anywhere;}
 .project-task-detail-heading p{margin:0;color:var(--muted);font-size:12px;}
+.project-task-detail-heading>.project-task-detail-open-project{display:inline-flex;align-items:center;gap:6px;min-width:auto;width:auto;padding:6px 10px;font-size:12px;font-weight:760;color:rgb(var(--accent-rgb));white-space:nowrap;}
+@media(max-width:760px){.project-task-detail-heading>.project-task-detail-open-project{padding:6px;white-space:normal;text-align:center;}}
 .project-task-detail-heading>button{min-width:34px;min-height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft);color:var(--ink);cursor:pointer;}
 .project-task-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,280px);gap:12px;min-height:0;}
 .project-task-detail-main,.project-task-detail-context{min-width:0;padding:14px;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--surface) 90%,transparent);}
