@@ -1,7 +1,7 @@
-import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { checkProvisioningPreflight, validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
+import { isValidUuid } from '../src/tenantEnvironmentBootstrap.js'
 
 // Read-only preflight for a future privileged tenant environment operator.
 // Never copies data, creates users, changes tenant status, or configures DNS.
@@ -21,7 +21,7 @@ function endpointIdentity(connectionString) {
 
 async function main() {
   const requestId = required('PROVISION_REQUEST_ID')
-  assert.match(requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+  if (!isValidUuid(requestId)) throw new Error('PROVISION_REQUEST_ID must be a valid UUID.')
   const environment = required('TARGET_ENVIRONMENT').toLowerCase()
   const rootDomain = required('ROOT_DOMAIN').toLowerCase()
   const controlUrl = required('CONTROL_DATABASE_URL')
