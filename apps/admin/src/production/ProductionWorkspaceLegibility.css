@@ -2,7 +2,7 @@
    marketing, sign-in imagery and decorative charts. */
 body[data-hi5-surface='admin'] #root { font-size: 14px; }
 body[data-hi5-surface='admin'] #root small { font-size: max(11px, .72rem) !important; line-height: 1.4; }
-body[data-hi5-surface='admin'] .rmm-nav-section > span { font-size: 10px !important; letter-spacing: .045em; }
+body[data-hi5-surface='admin'] .rmm-nav-section > span { font-size: 11px !important; letter-spacing: .045em; }
 body[data-hi5-surface='admin'] .rmm-nav-section button { font-size: 12px !important; }
 body[data-hi5-surface='admin'] :is(.rmm-sidebar-brand strong,.rmm-sidebar-footer strong,.rmm-topbar-title strong) { font-size: 12px !important; }
 body[data-hi5-surface='admin'] :is(.rmm-sidebar-brand span,.rmm-sidebar-footer small,.rmm-topbar-title span) { font-size: 10px !important; }
@@ -13,11 +13,11 @@ body[data-hi5-surface='admin'] .rmm-page-heading h1 { font-size: 25px !important
 body[data-hi5-surface='admin'] .rmm-page-heading p { font-size: 12px !important; line-height: 1.5; }
 body[data-hi5-surface='admin'] .rmm-card-heading h2 { font-size: 16px !important; }
 body[data-hi5-surface='admin'] .rmm-card-heading button { font-size: 12px !important; }
-body[data-hi5-surface='admin'] .rmm-metric-grid span:not(.rmm-metric-icon) { font-size: 11px !important; }
+body[data-hi5-surface='admin'] .rmm-metric-grid span:not(.rmm-metric-icon) { font-size: 12px !important; }
 body[data-hi5-surface='admin'] .rmm-metric-grid small { font-size: 11px !important; }
 body[data-hi5-surface='admin'] :is(.h5a-card-body p,.h5a-info-card p,.h5a-runner p,.h5a-owner-transfer p) { font-size: 12px !important; line-height: 1.5; }
 body[data-hi5-surface='admin'] .h5a-table-wrap :is(th,td) { font-size: 12px !important; }
-body[data-hi5-surface='admin'] .h5a-table-wrap th { font-size: 11px !important; }
+body[data-hi5-surface='admin'] .h5a-table-wrap th { font-size: 12px !important; }
 body[data-hi5-surface='admin'] .h5a-table-wrap td strong { font-size: 13px !important; }
 body[data-hi5-surface='admin'] .h5a-table-wrap td small { font-size: 11px !important; }
 body[data-hi5-surface='admin'] :is(.h5a-stack strong,.h5a-owner-transfer strong,.h5a-runner h2,.h5a-tenant-head strong) { font-size: 13px !important; }
