@@ -146,6 +146,13 @@ function httpWorker(env,flag,opts={}){
 const rootDomain = 'hi5central.com'
 const fixtures = [
   '../migrations/core/001_core.sql',
+  '../migrations/identity-access/002_auth_activation.sql',
+  '../migrations/core/003_tenant_configuration.sql',
+  '../migrations/identity-access/008_mfa_security.sql',
+  '../migrations/identity-access/015_user_preferences.sql',
+  '../migrations/identity-access/026_stackable_rbac.sql',
+  '../migrations/platform-admin/082_platform_admin_control_plane.sql',
+  '../migrations/identity-access/118_global_user_experience.sql',
   '../migrations/platform-admin/116_tenant_environment_instances.sql',
   '../migrations/platform-admin/132_tenant_environment_provision_requests.sql',
   '../migrations/platform-admin/133_managed_runtime_database_identity.sql',
