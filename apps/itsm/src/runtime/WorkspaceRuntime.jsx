@@ -3171,72 +3171,7 @@ function WorkspaceRuntime() {
 
           {/* The desktop tab dock belongs between the page title and header
               actions. The legacy tabbar stays mounted for mobile navigation. */}
-          <nav className="itsm-header-tabs" aria-label="Open workspace tabs" />
-
-          <div className="itsm-topbar-actions">
-            <button
-              aria-expanded={globalSearchOpen}
-              className="itsm-search-button"
-              onClick={toggleGlobalSearch}
-              title="Search"
-              type="button"
-            >
-              <Search size={17} aria-hidden="true" />
-            </button>
-            <button
-              aria-expanded={notificationsOpen}
-              className="itsm-notification-button notification-trigger"
-              onClick={toggleNotifications}
-              title="Notifications"
-              type="button"
-            >
-              <Bell size={17} aria-hidden="true" />
-              {unreadNotificationCount > 0 && <b>{unreadNotificationCount}</b>}
-            </button>
-            <button
-              aria-expanded={profileMenuOpen}
-              aria-haspopup="menu"
-              className="itsm-user"
-              onClick={toggleProfileMenu}
-              title="Profile"
-              type="button"
-            >
-              <span>{shellUserInitials}</span>
-            </button>
-            {profileMenuOpen && (
-              <div className="itsm-profile-menu" role="menu">
-                <div className="itsm-profile-summary">
-                  <span>{shellUserInitials}</span>
-                  <div>
-                    <strong>{session?.name || session?.user?.name || 'Hi5Central user'}</strong>
-                    <small>{session?.username || session?.email || session?.user?.email || 'Hi5Central account'}</small>
-                  </div>
-                </div>
-                <button onClick={() => openProfileSection('profile')} role="menuitem" type="button">
-                  <UserRound size={15} aria-hidden="true" />
-                  My Profile
-                </button>
-                <button onClick={() => openProfileSection('workspace')} role="menuitem" type="button">
-                  <SlidersHorizontal size={15} aria-hidden="true" />
-                  Workspace
-                </button>
-                <button
-                  onClick={() => {
-                    setProfileMenuOpen(false)
-                    handleLogout()
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <LogOut size={15} aria-hidden="true" />
-                  Sign out
-                </button>
-              </div>
-            )}
-          </div>
-        </header>
-
-        <header className="tabbar" aria-label="Open workspace tabs">
+                    <div className="tabbar" aria-label="Open workspace tabs">
           <div className="mobile-workspace-tabs" aria-label="Open workspace tabs on mobile">
             {tabs.map((tab) => (
               <button
@@ -3342,6 +3277,69 @@ function WorkspaceRuntime() {
             </button>
           </div>
 
+          </div>
+
+          <div className="itsm-topbar-actions">
+            <button
+              aria-expanded={globalSearchOpen}
+              className="itsm-search-button"
+              onClick={toggleGlobalSearch}
+              title="Search"
+              type="button"
+            >
+              <Search size={17} aria-hidden="true" />
+            </button>
+            <button
+              aria-expanded={notificationsOpen}
+              className="itsm-notification-button notification-trigger"
+              onClick={toggleNotifications}
+              title="Notifications"
+              type="button"
+            >
+              <Bell size={17} aria-hidden="true" />
+              {unreadNotificationCount > 0 && <b>{unreadNotificationCount}</b>}
+            </button>
+            <button
+              aria-expanded={profileMenuOpen}
+              aria-haspopup="menu"
+              className="itsm-user"
+              onClick={toggleProfileMenu}
+              title="Profile"
+              type="button"
+            >
+              <span>{shellUserInitials}</span>
+            </button>
+            {profileMenuOpen && (
+              <div className="itsm-profile-menu" role="menu">
+                <div className="itsm-profile-summary">
+                  <span>{shellUserInitials}</span>
+                  <div>
+                    <strong>{session?.name || session?.user?.name || 'Hi5Central user'}</strong>
+                    <small>{session?.username || session?.email || session?.user?.email || 'Hi5Central account'}</small>
+                  </div>
+                </div>
+                <button onClick={() => openProfileSection('profile')} role="menuitem" type="button">
+                  <UserRound size={15} aria-hidden="true" />
+                  My Profile
+                </button>
+                <button onClick={() => openProfileSection('workspace')} role="menuitem" type="button">
+                  <SlidersHorizontal size={15} aria-hidden="true" />
+                  Workspace
+                </button>
+                <button
+                  onClick={() => {
+                    setProfileMenuOpen(false)
+                    handleLogout()
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <LogOut size={15} aria-hidden="true" />
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
         </header>
 
         {tabContextMenu && contextMenuTab && (

@@ -1,295 +1,348 @@
-/* Individually floating ITSM glass tabs, with NO backing rail.
-   The static row stays beneath the header; loaded last over older CSS. */
-html[data-hi5-surface='workspace'] .main-frame {
-  grid-template-rows:62px 60px minmax(0,1fr)!important;
-  background:var(--page)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .tabbar {
-  grid-row:2!important;position:relative!important;
-  display:flex!important;align-items:center!important;justify-content:center!important;
-  width:100%!important;height:60px!important;min-height:60px!important;
-  margin:0!important;padding:9px 24px 11px!important;
-  border:0!important;border-radius:0!important;
-  background:transparent!important;box-shadow:none!important;
-  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
-  overflow:visible!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .tabbar>.production-workspace-tabdock {
-  position:relative!important;isolation:isolate;display:grid!important;
-  grid-template-columns:minmax(0,1fr)!important;align-items:center!important;
-  flex:1 1 auto;width:100%!important;max-width:none!important;
-  min-width:0;height:40px!important;min-height:40px!important;
-  margin:0!important;padding:0!important;gap:0!important;
-  border:0!important;border-radius:0!important;
-  background:transparent!important;box-shadow:none!important;
-  backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
-  overflow:visible!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .tabbar::before,
-html[data-hi5-surface='workspace'] .app-shell .tabbar::after,
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabdock::before,
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabdock::after {
-  display:none!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabs-viewport {
-  width:100%;height:40px!important;min-width:0;min-height:0;
-  padding:0!important;border:0!important;border-radius:0!important;
-  background:transparent!important;box-shadow:none!important;overflow:hidden!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabs {
-  display:flex!important;align-items:center!important;gap:6px!important;
-  width:100%!important;height:40px!important;min-width:0!important;
-  padding:0!important;border:0!important;border-radius:0!important;
-  background:transparent!important;box-shadow:none!important;scrollbar-width:none;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab {
-  position:relative;display:inline-flex!important;flex:1 1 0;
-  align-items:center!important;height:38px!important;min-height:38px!important;
-  min-width:0!important;max-width:210px!important;padding:0!important;
-  border:1px solid color-mix(in srgb,var(--line) 82%,transparent)!important;
-  border-radius:14px!important;
-  background:color-mix(in srgb,var(--surface) 68%,transparent)!important;
-  color:var(--muted)!important;
-  box-shadow:0 3px 12px rgba(12,27,55,.06),inset 0 1px 0 rgba(255,255,255,.45)!important;
-  backdrop-filter:blur(18px) saturate(1.25)!important;
-  -webkit-backdrop-filter:blur(18px) saturate(1.25)!important;
-  overflow:hidden;
-  transition:background .17s ease,border-color .17s ease,
-    box-shadow .17s ease,color .17s ease,transform .17s ease;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active):hover {
-  background:rgba(var(--accent-rgb),.11)!important;
-  border-color:rgba(var(--accent-rgb),.24)!important;color:var(--ink)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active):active {
-  background:rgba(var(--accent-rgb),.19)!important;transform:scale(.986);
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab.is-active {
-  border-color:rgba(var(--accent-rgb),.9)!important;
-  border-radius:14px!important;background:rgb(var(--accent-rgb))!important;
-  color:var(--accent-ink,#fff)!important;
-  box-shadow:0 6px 19px rgba(var(--accent-rgb),.27),inset 0 1px 0 rgba(255,255,255,.22)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab.is-active::before {
-  display:none!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab .production-workspace-tab-main {
-  display:inline-flex!important;flex:1 1 auto;align-items:center;min-width:0;
-  height:100%!important;min-height:0!important;padding:0 11px!important;color:inherit!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab .production-workspace-tab-title {
-  display:block!important;width:100%;max-width:none!important;min-width:0;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit!important;
-  font-size:11px!important;font-weight:750;letter-spacing:-.008em;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab.is-active :is(
-  .production-workspace-tab-main,.production-workspace-tab-title,.production-workspace-tab-close
-) {color:var(--accent-ink,#fff)!important}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active):hover :is(
-  .production-workspace-tab-main,.production-workspace-tab-title
-) {color:var(--ink)!important}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab .production-workspace-tab-close {
-  display:inline-grid;place-items:center;flex:0 0 24px;
-  width:24px!important;height:26px!important;min-width:24px;
-  margin:0 4px 0 0!important;padding:0!important;border:0!important;
-  border-radius:8px!important;background:transparent!important;color:inherit!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab .production-workspace-tab-close:hover {
-  background:rgba(255,255,255,.20)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active) .production-workspace-tab-close:hover {
-  background:rgba(var(--accent-rgb),.13)!important;color:var(--ink)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab :is(
-  .production-workspace-tab-main,.production-workspace-tab-close
-):focus-visible,
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab-add:focus-visible {
-  outline:2px solid rgb(var(--accent-rgb));outline-offset:-2px;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab-add {
-  width:38px!important;height:38px!important;min-width:38px!important;
-  flex:0 0 38px!important;border:1px solid transparent!important;
-  border-radius:12px!important;background:transparent!important;color:var(--muted)!important;
-}
-html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab-add:hover {
-  border-color:rgba(var(--accent-rgb),.20)!important;
-  background:rgba(var(--accent-rgb),.11)!important;color:rgb(var(--accent-rgb))!important;
-}
-/* Real desktop context menu: duplicate / close / close left / close right. */
-html[data-hi5-surface='workspace'] .tab-context-menu {
-  z-index:450;width:230px;padding:7px;
-  border:1px solid color-mix(in srgb,var(--line) 65%,white 35%);
-  border-radius:15px;background:color-mix(in srgb,var(--surface) 85%,transparent);
-  box-shadow:0 22px 55px rgba(10,28,58,.21),inset 0 1px rgba(255,255,255,.65);
-  backdrop-filter:blur(24px) saturate(1.45);-webkit-backdrop-filter:blur(24px) saturate(1.45);
-}
-html[data-hi5-surface='workspace'] .tab-context-menu button {
-  min-height:35px;border-radius:9px;font-size:12px;
-}
-html[data-hi5-surface='workspace'] .tab-context-menu button:hover:not(:disabled) {
-  background:rgba(var(--accent-rgb),.12);
-}
-@media(max-width:900px) {
-  html[data-hi5-surface='workspace'] .main-frame {
-    grid-template-rows:62px 54px minmax(0,1fr)!important;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .tabbar {
-    height:54px!important;min-height:54px!important;padding:7px 12px!important;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .tabbar>.production-workspace-tabdock {
-    height:38px!important;min-height:38px!important;padding:0!important;
-    border:0!important;border-radius:0!important;
-    background:transparent!important;box-shadow:none!important;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabs,
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabs-viewport {
-    height:38px!important;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab {
-    height:36px!important;min-height:36px!important;max-width:150px!important;
-    border-radius:12px!important;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab-add {
-    width:36px!important;min-width:36px!important;height:36px!important;flex-basis:36px!important;
-  }
-}
-@media(hover:none),(pointer:coarse) {
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tabs {
-    overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain;
-    -webkit-overflow-scrolling:touch;touch-action:pan-x;
-  }
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab {
-    flex:0 0 auto!important;min-width:100px!important;max-width:150px!important;
-  }
-}
-@media(max-width:480px) {
-  html[data-hi5-surface='workspace'] .app-shell .tabbar{padding-inline:8px!important}
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab .production-workspace-tab-title {
-    font-size:10px!important;
-  }
-}
-@media(prefers-reduced-motion:reduce) {
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab {
-    transition:none!important;transform:none!important;
-  }
-}
-@supports not ((backdrop-filter:blur(1px))) {
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active) {
-    background:var(--surface)!important;
-  }
-}
+/* Hi5Central — Header-integrated liquid glass tabs
+   Uses the NATIVE workspace tab list and context menu from WorkspaceRuntime.
+   No proxy dock, no extra grid row, no rail background. */
 
-/* =====================================================================
-   HEADER-INTEGRATED TABS (DESKTOP)
-   Do not reserve a second strip. Tabs live in the free centre of the
-   existing 62px header, between title and search/notifications/profile.
-   This only changes the mount position, not the tab routing engine.
-   ===================================================================== */
 @media (min-width: 901px) {
-  html[data-hi5-surface='workspace'] .app-shell .main-frame {
-    grid-template-rows: 62px minmax(0, 1fr) !important;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar {
-    grid-row: 1 !important;
-    display: grid !important;
-    grid-template-columns: minmax(170px, 246px) minmax(0, 1fr) auto !important;
-    align-items: center !important;
-    column-gap: clamp(10px, 1.5vw, 22px) !important;
-    min-width: 0;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar-title {
-    grid-column: 1;
-    min-width: 0;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs {
-    grid-column: 2;
-    grid-row: 1;
-    display: flex !important;
-    align-items: center;
-    justify-content: flex-start;
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    height: 46px;
-    overflow: hidden;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar-actions {
-    grid-column: 3;
-    grid-row: 1;
-    min-width: max-content;
-    justify-self: end;
-  }
-
-  /* Retain old tabs in the DOM for their actions and keyboard shortcuts,
-     but remove the redundant visible tab row entirely on desktop. */
-  html[data-hi5-surface='workspace'] .app-shell > .main-frame > .tabbar {
-    display: none !important;
-    height: 0 !important;
-    min-height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .workspace {
-    grid-row: 2 !important;
-    min-height: 0;
-  }
-
-  /* Never recreate the old rounded, full-width background around the
-     header tabs. Each individual tab retains its glass surface. */
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs > .production-workspace-tabdock {
-    position: relative !important;
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame {
     display: grid !important;
     grid-template-columns: minmax(0, 1fr) !important;
-    width: 100% !important;
-    max-width: none !important;
-    min-width: 0;
-    height: 42px !important;
-    min-height: 42px !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    gap: 0 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    overflow: hidden !important;
-  }
-
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs .production-workspace-tabs-viewport,
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs .production-workspace-tabs {
-    height: 42px !important;
+    grid-template-rows: 62px minmax(0, 1fr) !important;
     min-width: 0 !important;
-    border: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
+    width: 100% !important;
   }
 
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs .production-workspace-tabs {
-    gap: 7px !important;
-    padding: 0 2px !important;
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame > .itsm-topbar {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    display: grid !important;
+    grid-template-columns: minmax(172px, 228px) minmax(0, 1fr) auto !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    column-gap: clamp(12px, 1.4vw, 22px) !important;
+    align-items: center !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 62px !important;
+    min-height: 62px !important;
+    overflow: visible !important;
   }
 
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs .production-workspace-tab {
-    height: 38px !important;
-    min-height: 38px !important;
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .itsm-topbar-title {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
   }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .itsm-topbar-actions {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    min-width: max-content !important;
+    justify-self: end !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame > .workspace {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+}
+
+/* The tabbar is a child of the header, not a sibling consuming a grid cell. */
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  align-self: center !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  height: 44px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: visible !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar::before,
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar::after {
+  display: none !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar > .tabbar-tab-zone {
+  display: flex !important;
+  flex: 1 1 0 !important;
+  align-items: center !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  width: 100% !important;
+  height: 42px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: visible !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .mobile-workspace-tabs,
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tabbar-brand {
+  display: none !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tab-list {
+  display: flex !important;
+  flex: 1 1 0 !important;
+  align-items: center !important;
+  align-content: center !important;
+  gap: 7px !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  height: 42px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 1px 2px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab {
+  position: relative !important;
+  display: inline-flex !important;
+  flex: 1 1 0 !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  box-sizing: border-box !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 196px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 11px !important;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--surface) 73%, transparent) !important;
+  color: var(--muted) !important;
+  box-shadow: 0 3px 11px rgba(14,30,55,.06),
+              inset 0 1px 0 rgba(255,255,255,.33) !important;
+  backdrop-filter: blur(16px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.3) !important;
+  overflow: hidden !important;
+  transition: background .15s ease, border-color .15s ease,
+              color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab.active {
+  z-index: 1 !important;
+  border-color: rgba(var(--accent-rgb), .92) !important;
+  background: rgb(var(--accent-rgb)) !important;
+  color: var(--accent-ink, #fff) !important;
+  box-shadow: 0 5px 16px rgba(var(--accent-rgb),.25),
+              inset 0 1px 0 rgba(255,255,255,.20) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab.active::before,
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab.active::after {
+  display: none !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab:not(.active):hover {
+  border-color: rgba(var(--accent-rgb), .26) !important;
+  background: rgba(var(--accent-rgb), .10) !important;
+  color: var(--ink) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab:not(.active):active {
+  background: rgba(var(--accent-rgb), .20) !important;
+  transform: scale(.987);
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab .workspace-tab-label {
+  flex: 1 1 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  overflow: hidden !important;
+  color: inherit !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  text-overflow: ellipsis !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab.active :is(.workspace-tab-label,.tab-close) {
+  color: var(--accent-ink,#fff) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab .tab-close {
+  display: inline-grid !important;
+  flex: 0 0 20px !important;
+  place-items: center;
+  width: 20px !important;
+  min-width: 20px !important;
+  height: 22px !important;
+  padding: 0 !important;
+  margin: 0 0 0 4px !important;
+  border-radius: 8px !important;
+  color: inherit !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab .tab-close:hover {
+  background: rgba(255,255,255,.20) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab:not(.active) .tab-close:hover {
+  background: rgba(var(--accent-rgb), .13) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tab-add {
+  display: inline-grid !important;
+  flex: 0 0 36px !important;
+  place-items: center !important;
+  box-sizing: border-box !important;
+  width: 36px !important;
+  min-width: 36px !important;
+  max-width: 36px !important;
+  height: 38px !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tab-add:hover {
+  border-color: rgba(var(--accent-rgb),.22) !important;
+  background: rgba(var(--accent-rgb),.10) !important;
+  color: rgb(var(--accent-rgb)) !important;
+}
+
+html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar :is(.workspace-tab,.tab-add):focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb)) !important;
+  outline-offset: -2px !important;
+}
+
+/* Real desktop right-click menu from WorkspaceRuntime. */
+html[data-hi5-surface='workspace'] .tab-context-menu {
+  z-index: 450 !important;
+  width: 230px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  box-shadow: 0 18px 42px rgba(7,20,43,.20);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 @media (max-width: 900px) {
-  html[data-hi5-surface='workspace'] .app-shell .itsm-header-tabs {
-    display: none !important;
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame {
+    display: grid !important;
+    grid-template-columns: minmax(0,1fr) !important;
+    grid-template-rows: 112px minmax(0,1fr) !important;
+    min-width: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame > .itsm-topbar {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0,1fr) auto !important;
+    grid-template-rows: 62px 50px !important;
+    gap: 0 8px !important;
+    height: 112px !important;
+    min-height: 112px !important;
+    padding: 0 12px !important;
+    align-items: center !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .itsm-topbar-title {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    min-width: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .itsm-topbar-actions {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    justify-self: end !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar {
+    grid-column: 1 / -1 !important;
+    grid-row: 2 !important;
+    height: 44px !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell > .main-frame > .workspace {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tab-list {
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab {
+    flex: 0 0 auto !important;
+    min-width: 106px !important;
+    max-width: 160px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    border-radius: 12px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .tab-add {
+    width: 36px !important;
+    height: 36px !important;
+    min-height: 36px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab {
+    transition: none !important;
+    transform: none !important;
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  html[data-hi5-surface='workspace'] .app-shell .production-workspace-tab:not(.is-active) {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab:not(.active) {
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
     background: var(--surface) !important;
