@@ -40,14 +40,14 @@ test('separate API session names per managed environment, retain legacy live and
 
 function runtimeCheck(environment, extraEnv = {}) {
   const script = `
-    import { tenantUrls, allowedRequestOrigin, originMatchesTenant, originMatchesPortalTenant, deployment } from ${JSON.stringify(new URL('../src/deploymentConfig.js',import.meta.url).href)};
+    import { tenantUrls, allowedRequestOrigin, originMatchesTenant, originMatchesPortalTenant, originMatchesTenantAccount, deployment } from ${JSON.stringify(new URL('../src/deploymentConfig.js',import.meta.url).href)};
     const cases = ['https://acme.hi5central.com','https://acmeuat.hi5central.com','https://acmetest.hi5central.com',
       'https://acmeuat-rmm.hi5central.com','https://acmeuat-portal.hi5central.com',
       'https://acmetest-portal.hi5central.com','https://otheruat.hi5central.com',
       'https://hi5central.com','https://admin.hi5central.com'];
     console.log(JSON.stringify({
       urls:tenantUrls('acme',{rmm:true}),cookieDomain:deployment.cookieDomain,
-      cases:cases.map(origin=>({origin,allowed:Boolean(allowedRequestOrigin(origin)),sameTenant:originMatchesTenant(origin,'acme'),
+      cases:cases.map(origin=>({origin,allowed:Boolean(allowedRequestOrigin(origin)),sameTenant:originMatchesTenant(origin,'acme'),account:originMatchesTenantAccount(origin,'acme'),
         portal:originMatchesPortalTenant(origin,origin+'/portal','acme')}))
     }));
   `
@@ -69,6 +69,7 @@ test('each managed sandbox accepts only origins from its own environment', () =>
       const own = classifyManagedCustomerOrigin(item.origin)?.environment===environment
       assert.equal(item.allowed,Boolean(own),item.origin)
       assert.equal(item.sameTenant,Boolean(own && item.origin !== 'https://otheruat.hi5central.com'),item.origin)
+      assert.equal(item.account,item.sameTenant,item.origin+' account origin')
     }
   }
 })
