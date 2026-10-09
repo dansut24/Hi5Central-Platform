@@ -5,8 +5,8 @@ import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
-const COOKIE_NAME = 'hi5central_session'
-const PORTAL_COOKIE_NAME = 'hi5central_portal_session'
+const COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_session' : 'hi5central_session'
+const PORTAL_COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_portal_session' : 'hi5central_portal_session'
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 12
 
 function hashToken(token) {
