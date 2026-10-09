@@ -65,7 +65,7 @@ export function TaskActivityFeed({ events, onSave, busy, allowCustomer = false, 
 
 export function TaskWorkbenchFrame({
   taskId,title,status,priority,parentId,parentTitle,parentType,onBack,onOpenParent,
-  onRefresh,left,activity,context,alert,notice,
+  onRefresh,left,activity,details,context,alert,notice,
 }) {
   const [tab,setTab] = useState('activity')
   return <section className="production-task-experience task-record-workbench production-motion-enter">
@@ -91,7 +91,7 @@ export function TaskWorkbenchFrame({
     <div className="task-record-three-panel">
       <aside className="task-record-info-rail" aria-label="Task information">{left}</aside>
       <main className="task-record-main" aria-label={tab==='activity'?'Task activity':'Task details'}>
-        {tab==='activity'?activity:<div className="task-record-details-content">{left}</div>}
+        {tab==='activity'?activity:<div className="task-record-details-content">{details || <p>Task information and controls are available in the left panel.</p>}</div>}
       </main>
       <aside className="task-record-context-rail" aria-label="Parent record context">
         <h2>{parentType} context</h2>
