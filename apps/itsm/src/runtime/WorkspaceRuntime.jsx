@@ -120,6 +120,7 @@ import { LiveChatView } from '../features/live-chat/LiveChatView.jsx'
 import { NotificationDrawer } from '../features/notifications/NotificationDrawer.jsx'
 import { PeopleView } from '../features/people/PeopleView.jsx'
 import { ProductionKnowledgeBase } from '../production/ProductionKnowledgeBase.jsx'
+import { ProductionTabSwitcher } from '../production/ProductionTabSwitcher.jsx'
 import {
   ChangesView,
   CmdbRecordView,
@@ -954,11 +955,18 @@ function WorkspaceRuntime() {
       // tabs proportionally. Inline important is needed because legacy
       // responsive styles already override this rail with !important.
       if (desktop) {
-        const preferredGroupWidth = buttons.length * 136 + 28
+        // Both the launcher and searchable switcher need a reserved control
+        // width. Once the preferred group hits the header boundary, give the
+        // active workspace a slightly larger share without hiding any tab.
+        const preferredGroupWidth = buttons.length * 136 + 64
+        const availableWidth = list.closest('.tabbar-tab-zone')?.clientWidth || list.parentElement?.clientWidth || list.clientWidth
+        const crowded = availableWidth > 0 && preferredGroupWidth > availableWidth
+        list.dataset.tabCrowded = crowded ? 'true' : 'false'
         list.style.setProperty('flex', `0 1 ${preferredGroupWidth}px`, 'important')
         list.style.setProperty('width', `${preferredGroupWidth}px`, 'important')
         list.style.setProperty('max-width', '100%', 'important')
       } else {
+        delete list.dataset.tabCrowded
         for (const property of ['flex', 'width', 'max-width']) {
           list.style.removeProperty(property)
         }
@@ -971,7 +979,7 @@ function WorkspaceRuntime() {
         }
         if (desktop) {
           button.style.setProperty('flex', '1 1 0%', 'important')
-          button.style.setProperty('flex-grow', '1', 'important')
+          button.style.setProperty('flex-grow', crowded && button.dataset.tabKey === activeTabKey ? '1.3' : '1', 'important')
           button.style.setProperty('flex-shrink', '1', 'important')
           button.style.setProperty('flex-basis', '0%', 'important')
           button.style.setProperty('min-width', '0px', 'important')
@@ -984,7 +992,13 @@ function WorkspaceRuntime() {
 
     applyDesktopSizing()
     window.addEventListener('resize', applyDesktopSizing)
-    return () => window.removeEventListener('resize', applyDesktopSizing)
+    const zone = list.closest('.tabbar-tab-zone')
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(applyDesktopSizing) : null
+    if (zone) resizeObserver?.observe(zone)
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', applyDesktopSizing)
+    }
   }, [activeTabKey, tabs.length])
 
   useEffect(() => {
@@ -3230,10 +3244,10 @@ function WorkspaceRuntime() {
             <div
               className="tab-list"
               data-tab-density={tabs.length >= 18 ? 'ultra' : tabs.length >= 12 ? 'dense' : tabs.length >= 8 ? 'compact' : 'normal'}
-              // The desktop header uses zero-basis flex children. This cap
-              // limits the WIDTH of the whole tab group only when tabs are few;
-              // it never fixes the width of any individual tab.
-              style={{ '--hi5-tab-group-width': `${tabs.length * 136 + 28}px` }}
+              // 136px preferred width per tab; reserve 64px for the
+              // launcher and the searchable switcher. Tabs share the
+              // available space only when that preferred width is exceeded.
+              style={{ '--hi5-tab-group-width': `${tabs.length * 136 + 64}px` }}
               ref={tabListRef}
             >
             {tabs.map((tab) => {
@@ -3292,6 +3306,15 @@ function WorkspaceRuntime() {
             >
               <Plus size={18} strokeWidth={2.4} aria-hidden="true" />
             </button>
+            <ProductionTabSwitcher
+              tabs={tabs}
+              activeTabKey={activeTabKey}
+              onActivate={activateTab}
+              onClose={closeTab}
+              onCloseGroup={closeTabGroup}
+              onCloseOthers={closeOtherTabs}
+              onCloseAll={closeAllClosableTabs}
+            />
             </div>
 
             <button

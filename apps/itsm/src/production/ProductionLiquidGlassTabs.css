@@ -550,3 +550,254 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     box-shadow: none !important;
   }
 }
+
+
+/* ========== Adaptive header tab density ========== */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .tab-switcher-trigger {
+    display: inline-grid !important;
+    flex: 0 0 29px !important;
+    place-items: center !important;
+    width: 29px !important;
+    min-width: 29px !important;
+    max-width: 29px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 1px solid transparent !important;
+    border-radius: 10px !important;
+    background: transparent !important;
+    color: var(--muted) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-switcher-trigger:is(:hover,.is-open) {
+    border-color: rgba(var(--accent-rgb), .22) !important;
+    background: rgba(var(--accent-rgb), .09) !important;
+    color: rgb(var(--accent-rgb)) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active) {
+    background: color-mix(in srgb, var(--surface) 98%, rgb(var(--accent-rgb)) 2%) !important;
+    border-color: rgba(var(--accent-rgb), .14) !important;
+    color: var(--muted) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active):hover {
+    background: rgba(var(--accent-rgb), .09) !important;
+    border-color: rgba(var(--accent-rgb), .36) !important;
+    color: var(--ink) !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab.active {
+    background: rgb(var(--accent-rgb)) !important;
+    color: var(--accent-ink, #fff) !important;
+    border-color: rgb(var(--accent-rgb)) !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.18) !important;
+  }
+
+  /* Keep tab labels stable until hovered: inactive X buttons take no width.
+     The active tab always offers a close affordance if it is not pinned. */
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active) .tab-close {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active):is(:hover,:focus-within) .tab-close,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab.active .tab-close {
+    display: inline-grid !important;
+    flex: 0 0 14px !important;
+    width: 14px !important;
+    min-width: 14px !important;
+    margin-left: 2px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] > .workspace-tab {
+    height: 34px !important;
+    min-height: 34px !important;
+    border-radius: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'] > .workspace-tab {
+    height: 32px !important;
+    min-height: 32px !important;
+    border-radius: 9px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] > .workspace-tab {
+    height: 29px !important;
+    min-height: 29px !important;
+    border-radius: 8px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) .workspace-tab-title {
+    font-size: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] > .workspace-tab:not(.active) .tab-close {
+    display: none !important;
+  }
+}
+
+/* Searchable tab-management popover renders in a portal so the clipped tab
+   strip cannot cut it off, including on touchscreen-enabled desktops. */
+.hi5-tab-switcher-popover {
+  position: fixed;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  width: min(370px, calc(100vw - 24px));
+  min-width: 0;
+  max-height: min(520px, calc(100vh - 94px));
+  border: 1px solid color-mix(in srgb, var(--line) 82%, rgb(var(--accent-rgb)) 18%);
+  border-radius: 16px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  color: var(--ink);
+  box-shadow: 0 16px 48px rgba(12, 25, 47, .16);
+  backdrop-filter: blur(22px) saturate(1.3);
+  -webkit-backdrop-filter: blur(22px) saturate(1.3);
+}
+
+.hi5-tab-switcher-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 15px 15px 10px;
+}
+
+.hi5-tab-switcher-heading > div { display: flex; flex-direction: column; gap: 3px; }
+.hi5-tab-switcher-heading strong { font-size: 14px; font-weight: 750; }
+.hi5-tab-switcher-heading small { color: var(--muted); font-size: 11px; }
+
+.hi5-tab-switcher-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  margin: 0 12px 10px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.hi5-tab-switcher-search:focus-within { border-color: rgba(var(--accent-rgb), .45); }
+.hi5-tab-switcher-search input {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.hi5-tab-switcher-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 8px 10px;
+}
+
+.hi5-tab-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 42px;
+  border-radius: 9px;
+}
+
+.hi5-tab-switcher-row.is-current { background: rgba(var(--accent-rgb), .08); }
+.hi5-tab-switcher-row:hover { background: rgba(var(--accent-rgb), .055); }
+
+.hi5-tab-switcher-open {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  min-height: 39px;
+  padding: 5px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.hi5-tab-switcher-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.hi5-tab-switcher-open small { font-size: 10px; color: var(--muted); }
+.hi5-tab-switcher-icon {
+  flex: 0 0 28px;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.hi5-tab-switcher-icon:hover { background: rgba(var(--accent-rgb), .1); color: rgb(var(--accent-rgb)); }
+.hi5-tab-switcher-select { flex: 0 0 24px; display: grid; place-items: center; cursor: pointer; }
+.hi5-tab-switcher-select input { accent-color: rgb(var(--accent-rgb)); width: 15px; height: 15px; }
+.hi5-tab-switcher-pinned { padding: 0 10px; color: var(--muted); font-size: 10px; }
+.hi5-tab-switcher-empty { padding: 24px 12px; color: var(--muted); text-align: center; font-size: 12px; }
+
+.hi5-tab-switcher-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.hi5-tab-switcher-footer button {
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.hi5-tab-switcher-footer button:hover:not(:disabled) {
+  background: rgba(var(--accent-rgb), .1);
+  border-color: rgba(var(--accent-rgb), .3);
+}
+
+.hi5-tab-switcher-footer button:disabled { opacity: .45; cursor: not-allowed; }
+
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .app-shell .tab-switcher-trigger {
+    display: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hi5-tab-switcher-popover, .hi5-tab-switcher-popover * {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
