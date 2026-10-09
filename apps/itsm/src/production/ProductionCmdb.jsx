@@ -4,6 +4,8 @@ import {
   Activity, ArrowUpRight, Check, ChevronRight, Database, GitBranch, Link2,
   Monitor, Plus, RefreshCw, Search, Server, SlidersHorizontal, X,
 } from 'lucide-react'
+import { deploymentConfig } from '../lib/deploymentConfig.js'
+import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import './ProductionCmdb.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -46,6 +48,19 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
   }).format(date)
+}
+
+function rmmDeviceHref(deviceId) {
+  const encoded = encodeURIComponent(String(deviceId || '').toUpperCase())
+  const surface = resolveTenantSurface()
+  const deployment = deploymentConfig()
+  if (deployment.tenancyMode === 'single') {
+    return deployment.rmmUrl ? `${deployment.rmmUrl}/devices/${encoded}` : `/rmm/devices/${encoded}`
+  }
+  if (surface?.canonical && surface?.tenantSlug) {
+    return `https://${surface.tenantSlug}-rmm.${deployment.rootDomain}/devices/${encoded}`
+  }
+  return `/rmm/devices/${encoded}`
 }
 
 function recordHref(reference) {
@@ -321,6 +336,9 @@ export function ProductionCmdb() {
                       ['RMM device ID', selected.linkedDeviceId],
                     ].map(([label, value]) => <div key={label}><small>{label}</small><strong>{value || '—'}</strong></div>)}
                   </div>
+                  {selected.linkedDeviceId ? <div className="pcm-device-action">
+                    <a className="pcm-button" href={rmmDeviceHref(selected.linkedDeviceId)} target="_blank" rel="noopener noreferrer"><Monitor size={15} /> Open device in RMM <ArrowUpRight size={14} /></a>
+                  </div> : null}
                   {selected.tags?.length ? <div className="pcm-tags">{selected.tags.map((tag) => <span key={tag}>{tag}</span>)}</div> : null}
                 </section>
                 <section className="pcm-panel">

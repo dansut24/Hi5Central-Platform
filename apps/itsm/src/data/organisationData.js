@@ -5,7 +5,8 @@ export const organisationDepartments = []
 export const organisationTeams = []
 export const organisationPeople = []
 
-export const availabilityOptions = []
+// Availability choices are UI values, not seeded tenant People records.
+export const availabilityOptions = ['Available', 'Busy', 'Away', 'Offline']
 
 // These are UI suggestions only; they are not organisation records and are never
 // persisted unless an administrator explicitly selects one for a real Person.
