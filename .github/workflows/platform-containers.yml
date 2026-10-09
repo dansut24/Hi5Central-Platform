@@ -6,6 +6,7 @@ on:
       - 'apps/**'
       - 'services/**'
       - 'packages/**'
+      - 'infrastructure/**'
       - '.github/workflows/platform-containers.yml'
   push:
     branches: [main]
@@ -13,6 +14,7 @@ on:
       - 'apps/**'
       - 'services/**'
       - 'packages/**'
+      - 'infrastructure/**'
       - '.github/workflows/platform-containers.yml'
   workflow_dispatch:
 
@@ -61,6 +63,11 @@ jobs:
       - name: Verify two-person activation operator syntax
         if: matrix.name == 'API'
         run: node --check services/api/scripts/tenant-environment-activate.mjs
+      - name: Check managed UAT/Test deployment isolation blueprint
+        if: matrix.name == 'API'
+        run: |
+          node --test infrastructure/managed-sandbox/validate.test.mjs
+          HI5_PHASE10_SMOKE=true node infrastructure/managed-sandbox/test-compose.mjs
       - name: Verify isolated tenant provisioning operator syntax
         if: matrix.name == 'API'
         run: node --check services/api/scripts/tenant-environment-prepare.mjs
