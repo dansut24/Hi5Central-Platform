@@ -187,6 +187,53 @@ enrolment, RMM agent/token/device isolation, outbound integration
 restrictions, DNS/TLS exact-host routing, restore/reset boundaries,
 cross-tenant access tests and a signed isolation approval.
 
+## Phase 5 — disposable end-to-end provisioning release gate
+
+New migrations:
+
+- `135_managed_control_plane_identity.sql` requires independent operator
+  attestation that the *source* database is a managed multi-tenant control
+  plane, and deliberately creates **no attestation row** during migration.
+  Internal single-tenant Dev cannot be used to provision customer identities.
+- `136_isolated_tenant_hostname_trigger.sql` prevents an attested UAT/Test
+  database from generating misleading `Live: ready` hostname reservations
+  when a suspended environment-local tenant is created. Central managed
+  control-plane reservations continue unchanged.
+
+Both the read-only preflight and privileged identity-preparation script now
+require the managed control-plane identity in addition to the UAT/Test
+target database attestation. A missing/wrong identity fails closed.
+The operator never inserts either identity automatically.
+
+The **Platform Containers** API build job now runs a disposable PostgreSQL
+integration test, in addition to the unit tests, *before* publishing images.
+The test uses a throwaway PostgreSQL 17 container bound to localhost. Within
+it the test creates three random-named, independent test databases:
+control, UAT and Test. It applies the relevant real SQL migrations and
+uses fictitious tenants only. Its scenarios include:
+
+- Read-only preflight and rejection of unconfirmed writes
+- Approved suspended UAT and Test identity preparation
+- No users, memberships, verification credentials or active RMM settings
+- Correct request transition to `claimed`/`provisioning`, never `ready`
+- Idempotent retries without duplicating tenant records
+- Rejection of tampered identity, wrong environment/database or unattested
+  control-plane source
+- A target commit with an incomplete control-plane commit requiring manual
+  reconciliation (never automatic activation)
+- Zero false Live-ready reservations inside an attested UAT/Test database
+
+The integration harness is locked to the GitHub Actions runner's
+`127.0.0.1` ephemeral PostgreSQL instance. It removes its temporary
+databases and container when finished. No Dev/VPS/Production database
+connection or real customer identity is used.
+
+**Release status:** integration coverage is committed to `develop`, but
+must be executed and pass through Platform Containers before deployment.
+Do not claim the privileged writer is end-to-end verified until that
+workflow is green. A green integration gate validates *suspended identity
+preparation*, not customer activation or RMM Agent session isolation.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
