@@ -18,7 +18,7 @@ import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliveryS
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
 import { registerMfaRoutes } from './mfa.js'
-import { registerManagedSandboxInvitationRoutes } from './managedSandboxInvitationRoutes.js'
+import { registerManagedSandboxInvitationRoutes, invitationEligibility } from './managedSandboxInvitationRoutes.js'
 import { attachRmmAgentWebSocket, initializeAgentBroker, registerRmmAgentRoutes, shutdownAgentBroker } from './rmmAgent.js'
 import { registerRmmAutomationRoutes } from './rmmAutomation.js'
 import { registerRmmActivityRoutes } from './rmmActivity.js'
@@ -192,6 +192,31 @@ app.get('/api/v1/system/deployment', (c) => c.json({
   adminUrl: deployment.adminUrl,
   backgroundWorkersEnabled,
 }))
+
+// Explicitly environment-local readiness check. Do not expose the control
+// plane identity or any customer data to unauthenticated browsers.
+app.get('/api/v1/system/customer-environment/status', async (c) => {
+  c.header('Cache-Control', 'no-store, private')
+  if (!isManagedCustomerSandbox(deployment)) return c.json({ error: 'Not found.' }, 404)
+  const slug = String(c.req.query('tenantSlug') || '').trim().toLowerCase()
+  const origin = c.req.header('origin')
+  if (!origin || !/^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(slug)
+      || !originMatchesTenant(origin, slug)
+      || origin !== `https://${slug}${deployment.runtimeEnvironment}.${deployment.rootDomain}`) {
+    return c.json({ active: false }, 403)
+  }
+  try {
+    const eligibility = await invitationEligibility(pool, slug)
+    return c.json({
+      active: Boolean(eligibility?.decision.allowed),
+      environment: deployment.runtimeEnvironment,
+      tenantSlug: slug,
+    })
+  } catch (error) {
+    console.error('Customer environment status check failed', error?.message)
+    return c.json({ active: false }, 503)
+  }
+})
 
 app.get('/api/v1/system/smtp-health', async (c) => {
   try {
