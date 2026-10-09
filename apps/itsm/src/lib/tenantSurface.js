@@ -1,5 +1,18 @@
 import { deploymentConfig } from './deploymentConfig.js'
 
+// A pending customer surface can only transition after its own sandbox API
+// explicitly confirms activation. This is a UI state, not authorization:
+// the API independently checks tenant/session/MFA on every protected route.
+let verifiedManagedWorkspace = null
+
+export function markManagedWorkspaceVerified({ hostname, tenantSlug, environment }) {
+  verifiedManagedWorkspace = {
+    hostname: String(hostname || '').toLowerCase(),
+    tenantSlug: String(tenantSlug || '').toLowerCase(),
+    environment: String(environment || '').toLowerCase(),
+  }
+}
+
 function normaliseSlug(value = '') {
   return String(value).trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
 }
@@ -159,8 +172,13 @@ export function resolveTenantSurface(location = window.location) {
       && !base.endsWith('uat')
       && !base.endsWith('test')
       && !reservedBases.has(base)) {
+      const verified = verifiedManagedWorkspace
+        && verifiedManagedWorkspace.hostname === hostname
+        && verifiedManagedWorkspace.environment === environment
+        && verifiedManagedWorkspace.tenantSlug === base
+        && hostname === `${base}${environment}.${rootHost}`
       return {
-        kind: 'environment-pending',
+        kind: verified ? 'workspace' : 'environment-pending',
         environment,
         tenantSlug: base,
         tenantName: tenantDisplayName(base),
