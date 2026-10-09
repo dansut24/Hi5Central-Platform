@@ -95,7 +95,7 @@ if (rootElement) rootElement.dataset.hi5Surface = initialSurface.kind
 
 function AppComposition({ surface }) {
 const productionWorkspace = surface.kind === 'workspace'
-const productionPortal = initialSurface.kind === 'portal'
+const productionPortal = surface.kind === 'portal'
 const productionOnboarding = productionWorkspace
   && (window.location.pathname === '/onboarding' || window.location.pathname.startsWith('/onboarding/'))
 
@@ -115,9 +115,9 @@ if (surface.kind === 'environment-pending' && window.location.pathname === '/acc
 return (
   <>
     <RootApp />
-    {initialSurface.kind === 'workspace' && !productionOnboarding && !productionWorkspace ? <KnowledgeContextEnhancer /> : null}
-    {initialSurface.kind === 'workspace' && !productionOnboarding ? <OrganisationSitesEnhancer /> : null}
-    {initialSurface.kind === 'workspace' && !productionOnboarding ? <ServiceCatalogueSettingsEnhancer /> : null}
+    {surface.kind === 'workspace' && !productionOnboarding && !productionWorkspace ? <KnowledgeContextEnhancer /> : null}
+    {surface.kind === 'workspace' && !productionOnboarding ? <OrganisationSitesEnhancer /> : null}
+    {surface.kind === 'workspace' && !productionOnboarding ? <ServiceCatalogueSettingsEnhancer /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAccessGuard /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionSessionBoundary /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAccessControl /> : null}
