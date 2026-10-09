@@ -34,7 +34,7 @@ async function requireTaskAccess(c, permission) {
   if (!hasPermission(access, permission)) {
     return { error: c.json({ error: 'You do not have permission to access Tasks.' }, 403) }
   }
-  return { session }
+  return { session: { ...session, access } }
 }
 
 async function requireTaskManager(c) {
