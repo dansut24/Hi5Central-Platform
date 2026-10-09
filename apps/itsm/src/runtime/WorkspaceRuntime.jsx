@@ -3169,6 +3169,10 @@ function WorkspaceRuntime() {
             </div>
           </div>
 
+          {/* The desktop tab dock belongs between the page title and header
+              actions. The legacy tabbar stays mounted for mobile navigation. */}
+          <nav className="itsm-header-tabs" aria-label="Open workspace tabs" />
+
           <div className="itsm-topbar-actions">
             <button
               aria-expanded={globalSearchOpen}

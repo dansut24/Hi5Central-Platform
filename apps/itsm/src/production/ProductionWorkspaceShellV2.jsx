@@ -177,7 +177,10 @@ export function ProductionWorkspaceShellV2() {
 
   useEffect(() => {
     const scan = () => {
-      const nextTabbar = document.querySelector('.tabbar')
+      // Use the real header slot on desktop. Keep the existing lower tab
+      // rail on mobile, where the full header must prioritise touch actions.
+      const desktopHeader = window.matchMedia?.('(min-width: 901px)').matches
+      const nextTabbar = document.querySelector(desktopHeader ? '.itsm-header-tabs' : '.tabbar')
       if (nextTabbar instanceof HTMLElement) {
         setTabbar((current) => current === nextTabbar ? current : nextTabbar)
       }
