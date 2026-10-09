@@ -6,7 +6,7 @@ import { sendManagedSandboxInvitationEmail } from './mailer.js'
 import { isManagedCustomerSandbox } from './managedSandboxPolicy.js'
 import {
   invitationHash, invitationToken, validInvitationToken, validInvitationEmail,
-  permittedInvitationRole, sandboxInvitationGate, validInvitationRecord,
+  permittedInvitationRole, sandboxInvitationGate, validInvitationRecord, invitationLandingUrl,
   INVITATION_TTL_HOURS,
 } from './managedSandboxInvitations.js'
 
@@ -107,7 +107,7 @@ export function registerManagedSandboxInvitationRoutes(app) {
       return { token, id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at,
         companyName:approved.row.company_name,
         // Requesters must land in their Portal, not the staff ITSM workspace.
-        tenantUrl:role==='requester' ? approved.row.portal_url : approved.row.tenant_url }
+        tenantUrl:invitationLandingUrl(role,approved.row.tenant_url,approved.row.portal_url) }
     })
     if(invited.locked) return unavailable(c)
     if(invited.rateLimited) return c.json({ error:'Invitation limit reached for this environment.' },429)
