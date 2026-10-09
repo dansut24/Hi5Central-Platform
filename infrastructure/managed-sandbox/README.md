@@ -154,11 +154,14 @@ They are **not** attached to gateways or customer workloads. Creating them
 does not authorise activation; only the narrow network preparation step was
 performed. Legacy, Dev and Production resources remain unchanged.
 
-Unpublished pilot/customer suffix hosts currently answer HTTPS with HTTP
-200 generic HTML under the existing wildcard certificate. This is a
-release-blocking **public ingress denial gap**; no customer service should
-be launched until authoritative edge routing explicitly rejects unapproved
-UAT/Test hostnames and has been reviewed independently.
+**Update, 9 October 2026:** The public gateway's unapproved hostname
+fallback was corrected. Reserved pilot and UAT/Test customer names now
+return HTTP 404; unmatched virtual hosts (including trailing-dot aliases)
+return HTTP 421. Mixed-case host headers are rejected. The original
+release-blocking ingress finding is resolved, but customer pilot access
+remains blocked on runtime attestation, routing approvals and browser/MFA
+tests. See `PUBLIC_INGRESS_FIX.md` and the source-controlled Caddy guard
+and top-level HTTPS fallback snippets.
 
 ```sh
 node infrastructure/managed-sandbox/prepare-empty-edges.mjs --check
