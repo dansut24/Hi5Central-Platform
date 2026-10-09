@@ -24,6 +24,7 @@ import { ProductionLiveChatWorkspace } from './production/ProductionLiveChatWork
 import { ProductionNavigationDockPreferences } from './production/ProductionNavigationDockPreferences.jsx'
 import { ProductionNotificationCenter } from './production/ProductionNotificationCenter.jsx'
 import { ProductionOrganisationWriteThrough } from './production/ProductionOrganisationWriteThrough.jsx'
+import { ProductionOrganisationKnowledgeLayout } from './production/ProductionOrganisationKnowledgeLayout.jsx'
 import { ProductionPortalBootstrap } from './production/ProductionPortalBootstrap.jsx'
 import { ProductionPortalKnowledgeChat } from './production/ProductionPortalKnowledgeChat.jsx'
 import { ProductionPortalThemeBridge } from './production/ProductionPortalThemeBridge.jsx'
@@ -113,6 +114,7 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionSessionBoundary /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAccessControl /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionOrganisationWriteThrough /> : null}
+    {productionWorkspace && !productionOnboarding ? <ProductionOrganisationKnowledgeLayout /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionItsmWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAssignmentExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFinalTaskCompletionPrompt /> : null}
