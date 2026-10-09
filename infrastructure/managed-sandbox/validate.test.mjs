@@ -48,6 +48,15 @@ test('isolated UAT and Test configuration passes strict read-only checks',()=>{
   assert.deepEqual(validateSandboxEnvironment(other,uat),[])
   assert.deepEqual(validateComposeGraph(rendered(uat),uat),[])
 })
+test('parallel pilot API hostnames are accepted only with matching environment and explicit channel',()=>{
+  const uat=example('uat'), peer=example('test')
+  uat.SANDBOX_ROUTE_CHANNEL='parallel'
+  uat.API_URL='https://pilot-uat-api.hi5central.com'
+  assert.deepEqual(validateSandboxEnvironment(uat,peer),[])
+  assert.ok(validateSandboxEnvironment({...uat,API_URL:'https://uat-api.hi5central.com'},peer).length)
+  assert.ok(validateSandboxEnvironment({...uat,API_URL:'https://pilot-test-api.hi5central.com'},peer).length)
+  assert.ok(validateSandboxEnvironment({...uat,SANDBOX_ROUTE_CHANNEL:'unknown'},peer).length)
+})
 test('interpolation, duplicate keys and shell directives are rejected',()=>{
   assert.throws(()=>parseEnvironment('A=1\nA=2'),/Duplicate/)
   assert.throws(()=>parseEnvironment('export A=1'),/Invalid/)
