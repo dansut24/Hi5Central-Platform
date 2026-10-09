@@ -58,6 +58,27 @@ jobs:
       - name: Validate tenant environment hostnames
         if: matrix.name == 'API'
         run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs services/api/tests/managedEnvironmentIsolation.test.mjs services/api/tests/tenantEnvironmentOperatorChecks.test.mjs services/api/tests/tenantEnvironmentBootstrap.test.mjs services/api/tests/managedRuntimeGuard.test.mjs
+      - name: Integration test sandbox identity preparation in disposable PostgreSQL
+        if: matrix.name == 'API'
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name hi5-ephemeral-provisioning-pg \
+            --publish 127.0.0.1:55437:5432 \
+            --env POSTGRES_PASSWORD=hi5-ephemeral-ci-only \
+            postgres:17-alpine
+          trap 'docker rm --force hi5-ephemeral-provisioning-pg >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..40}; do
+            if docker exec hi5-ephemeral-provisioning-pg pg_isready --username postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec hi5-ephemeral-provisioning-pg pg_isready --username postgres
+          (cd services/api && npm ci --omit=dev)
+          HI5_PROVISIONING_TEST_SCOPE=isolated-github-actions \
+          HI5_EPHEMERAL_PG_URL=postgresql://postgres:hi5-ephemeral-ci-only@127.0.0.1:55437/postgres \
+            node --test services/api/scripts/test-tenant-environment-prepare-integration.mjs
       - name: Validate customer environment frontend routing
         if: matrix.name == 'ITSM'
         run: node --test apps/itsm/tests/tenantSurfaceEnvironments.test.mjs
