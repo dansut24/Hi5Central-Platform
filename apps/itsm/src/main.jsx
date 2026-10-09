@@ -15,6 +15,7 @@ import { ProductionFinalTaskCompletionPrompt } from './production/ProductionFina
 import { ProductionSessionBoundary } from './production/ProductionSessionBoundary.jsx'
 import { ProductionFirstLoginRouteBridge } from './production/ProductionFirstLoginRouteBridge.jsx'
 import { ProductionItsmWorkspace } from './production/ProductionItsmWorkspace.jsx'
+import { ProductionCmdb } from './production/ProductionCmdb.jsx'
 import { ProductionKnowledgeBase } from './production/ProductionKnowledgeBase.jsx'
 import { ProductionLiveChatBadgeBridge } from './production/ProductionLiveChatBadgeBridge.jsx'
 import { ProductionLiveChatOperations, ProductionPortalLiveChatOperations } from './production/ProductionLiveChatOperations.jsx'
@@ -115,6 +116,7 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionItsmWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAssignmentExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFinalTaskCompletionPrompt /> : null}
+    {productionWorkspace && !productionOnboarding ? <ProductionCmdb /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionKnowledgeBase /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatBadgeBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatWorkspace /> : null}
