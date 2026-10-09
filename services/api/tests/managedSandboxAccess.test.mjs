@@ -42,11 +42,18 @@ function evaluateSecurityPolicy(runtimeEnvironment, tenancyMode = 'multi') {
     import { mfaRequiredFor, sessionNeedsMfa } from ${JSON.stringify(uri)};
     const user = { tenant_role: 'requester', onboarding_completed_at: null };
     const owner = { tenant_role: 'owner', onboarding_completed_at: null };
-    const verified = { ...user, mfa_verified_at: new Date().toISOString() };
+    const verified = { ...user, mfa_verified_at: new Date().toISOString() }
+    const legacyGraceSession = {
+      tenant_role: 'owner',
+      onboarding_completed_at: new Date(Date.now() - 60000).toISOString(),
+      session_created_at: new Date(Date.now() - 120000).toISOString(),
+      configuration: { security: { requireMfa: false } },
+    };
     console.log(JSON.stringify({
       user: mfaRequiredFor(user), owner: mfaRequiredFor(owner),
       deniedWithoutMfa: sessionNeedsMfa(user),
       grantedWithMfa: !sessionNeedsMfa(verified),
+      rejectsLegacyGrace: sessionNeedsMfa(legacyGraceSession),
     }));
   `
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -64,6 +71,7 @@ test('managed UAT/Test require MFA even before onboarding, for requesters and ow
   for (const environment of ['uat', 'test']) {
     assert.deepEqual(evaluateSecurityPolicy(environment), {
       user: true, owner: true, deniedWithoutMfa: true, grantedWithMfa: true,
+      rejectsLegacyGrace: true,
     })
   }
 })
@@ -72,6 +80,7 @@ test('Dev and legacy Production do not unexpectedly enforce pre-onboarding MFA',
   for (const [environment, tenancyMode] of [['dev', 'single'], ['live', 'multi']]) {
     assert.deepEqual(evaluateSecurityPolicy(environment, tenancyMode), {
       user: false, owner: false, deniedWithoutMfa: false, grantedWithMfa: true,
+      rejectsLegacyGrace: false,
     })
   }
 })
