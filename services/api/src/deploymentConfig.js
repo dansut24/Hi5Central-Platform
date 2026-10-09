@@ -1,3 +1,5 @@
+import { classifyManagedCustomerOrigin, managedTenantUrls } from './tenantEnvironmentHostnames.js'
+
 function enumValue(value, allowed, fallback) {
   const normalized = String(value || '').trim().toLowerCase()
   return allowed.includes(normalized) ? normalized : fallback
@@ -77,7 +79,13 @@ export const deployment = Object.freeze((() => {
     portalUrl,
     rmmUrl,
     adminUrl,
-    cookieDomain: String(process.env.COOKIE_DOMAIN ?? (tenancyMode === 'multi' ? `.${rootDomain}` : '')).trim(),
+    // UAT and Test must not inherit parent-domain browser cookies from Live.
+    // Explicit COOKIE_DOMAIN settings are honoured for legacy/self-hosted uses;
+    // managed multi-tenant sandbox deployments reject broad domains below.
+    cookieDomain: String(process.env.COOKIE_DOMAIN ?? (
+      tenancyMode === 'multi' && !(deploymentMode === 'managed' && ['uat','test'].includes(runtimeEnvironment))
+        ? `.${rootDomain}` : ''
+    )).trim(),
   }
 })())
 
@@ -89,6 +97,10 @@ export function tenantUrls(slug, { rmm = false } = {}) {
       portalUrl: deployment.portalUrl || `${deployment.appUrl}/portal`,
       rmmUrl: rmm ? (deployment.rmmUrl || `${deployment.appUrl}/rmm`) : null,
     }
+  }
+
+  if (deployment.deploymentMode === 'managed') {
+    return managedTenantUrls(tenantSlug, deployment.rootDomain, deployment.runtimeEnvironment === 'dev' ? 'live' : deployment.runtimeEnvironment, { rmm })
   }
 
   return {
@@ -113,6 +125,10 @@ export function allowedRequestOrigin(origin) {
   if (explicit.has(normalized)) return origin
 
   if (deployment.tenancyMode === 'multi') {
+    if (deployment.deploymentMode === 'managed' && ['uat','test'].includes(deployment.runtimeEnvironment)) {
+      const match = classifyManagedCustomerOrigin(origin, deployment.rootDomain)
+      return match?.environment === deployment.runtimeEnvironment ? origin : ''
+    }
     const root = escapeRegex(deployment.rootDomain)
     const matcher = new RegExp(`^https:\\/\\/[a-z0-9-]+(?:-portal|-rmm)?\\.${root}$`, 'i')
     if (matcher.test(origin)) return origin
@@ -124,6 +140,13 @@ export function allowedRequestOrigin(origin) {
 
 export function originMatchesTenant(origin, slug) {
   if (!origin) return true
+  // An environment-qualified origin may only authenticate against the
+  // matching runtime database. Never accept customer Test/UAT on Live.
+  if (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
+    && ['uat','test'].includes(deployment.runtimeEnvironment)) {
+    const match = classifyManagedCustomerOrigin(origin, deployment.rootDomain)
+    if (!match || match.environment !== deployment.runtimeEnvironment || match.tenantSlug !== slug) return false
+  }
   const normalized = String(origin).toLowerCase()
   const urls = tenantUrls(slug, { rmm: true })
   const expected = new Set([
@@ -154,6 +177,11 @@ export function portalRequestFromHeaders(origin = '', referer = '') {
     }
   }
 
+  if (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
+    && ['uat','test'].includes(deployment.runtimeEnvironment)) {
+    const match = classifyManagedCustomerOrigin(origin || referer, deployment.rootDomain)
+    return match?.environment === deployment.runtimeEnvironment && match.product === 'portal'
+  }
   const root = escapeRegex(deployment.rootDomain)
   const originMatcher = new RegExp(`^https:\\/\\/[a-z0-9-]+-portal\\.${root}(?::\\d+)?$`, 'i')
   if (originMatcher.test(origin)) return true
