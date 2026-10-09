@@ -52,6 +52,9 @@ jobs:
             image: ghcr.io/dansut24/hi5central-platform-admin
     steps:
       - uses: actions/checkout@v4
+      - name: Verify isolated tenant provisioning operator syntax
+        if: matrix.name == 'API'
+        run: node --check services/api/scripts/tenant-environment-prepare.mjs
       - name: Validate tenant environment hostnames
         if: matrix.name == 'API'
         run: node --test services/api/tests/tenantEnvironmentHostnames.test.mjs services/api/tests/tenantEnvironmentProvisioning.test.mjs services/api/tests/managedEnvironmentIsolation.test.mjs services/api/tests/tenantEnvironmentOperatorChecks.test.mjs services/api/tests/tenantEnvironmentBootstrap.test.mjs services/api/tests/managedRuntimeGuard.test.mjs
