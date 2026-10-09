@@ -470,3 +470,23 @@ pilot was created, no Production or legacy applications were changed,
 and the public gateway 404/421 fix remains in force. See
 `infrastructure/managed-sandbox/PHASE14_SYNTHETIC_RUNTIME.md`.
 
+
+
+## Phase 15 — synthetic customer activation/authentication lifecycle
+
+Both isolated temporary UAT and Test runtimes passed the synthetic owner
+lifecycle test: suspension/approval gating, one-time invitation, secure
+password and TOTP MFA, host-only sessions, wrong-Origin and cross-environment
+denial, immediate approval-revocation denial and tenant suspension.
+All ephemeral containers and internal bridges were cleaned up.
+
+An extension verified real invitation email delivery into a temporary,
+network-isolated SMTP sink, but exposed a requester MFA bug: the published
+API tried to issue a staff workspace session for a Portal requester and
+correctly rejected that role with HTTP 403. The `develop` source now selects
+Portal sessions for Portal login origins, sends requester invitations to
+the Portal, and tests these pure policies. **The full requester Portal
+end-to-end test remains pending the next green rebuilt API image.**
+No real customer or live public gateway was activated. Evidence and
+operator test commands are in
+`infrastructure/managed-sandbox/PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE.md`.
