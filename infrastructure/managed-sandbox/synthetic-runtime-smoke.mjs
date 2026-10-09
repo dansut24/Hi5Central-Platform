@@ -223,8 +223,7 @@ async function main(){
       env+' created a tenant unexpectedly')
     safeLog(env,'API healthy; multi-tenant runtime attested; RMM/Connect 423; unauthenticated sessions 401; tenants 0')
     const webName=`hi5-p14-web-${env}-${suffix}`
-    startContainer(['--network',e.network,
-      ...(frontendEntrypoint?['--mount',`type=bind,src=${frontendEntrypoint},dst=/usr/bin/hi5-runtime-entrypoint,readonly`]:[]),
+    const webArgs=['--network',e.network,
       ...envPairs({
         DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
         RUNTIME_ENVIRONMENT:env,FEATURE_MODE:'controlled',
@@ -232,7 +231,17 @@ async function main(){
         API_URL:`https://pilot-${env}-api.hi5central.com`,
         MARKETING_URL:'https://hi5central.com',PRIMARY_TENANT_SLUG:'',
         APP_URL:'',PORTAL_URL:'',RMM_URL:'',ADMIN_URL:'',TURN_URL:'',
-      }),itsmImage],webName)
+      }),itsmImage]
+    if(frontendEntrypoint){
+      // Remote Docker daemons cannot access the client's /tmp bind paths.
+      // Copy the test-only source into an unstarted throwaway container.
+      docker(['create','--pull','never','--name',webName,'--restart','no',...webArgs])
+      created.containers.push(webName)
+      docker(['cp',frontendEntrypoint,webName+':/usr/bin/hi5-runtime-entrypoint'])
+      docker(['start',webName])
+    }else{
+      startContainer(webArgs,webName)
+    }
     await waitUntil(()=>safelyRun(['exec',webName,'wget','-q','-O','-',
       'http://127.0.0.1/healthz']).text.trim()==='ok',env+' ITSM frontend',20)
     const runtime=docker(['exec',webName,'wget','-q','-O','-',
