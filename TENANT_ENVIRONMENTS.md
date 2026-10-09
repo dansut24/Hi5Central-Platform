@@ -433,3 +433,19 @@ customer sandbox.
 Build the unified platform from `develop` using the manual **Platform Containers**
 workflow and stage to Dev only. The older global `hi5central-test` and
 `hi5central-uat` VPS stacks are not per-customer sandboxes.
+
+## Public ingress hostname-denial remediation (9 October 2026)
+
+The Production *gateway configuration only* was updated to reject unapproved
+customer `*uat`/`*test` and `pilot-*` hostnames with 404, and to return
+421 for unmatched HTTPS virtual hosts, including trailing-dot Host variants.
+This removes the wildcard HTML fallback into Production ITSM for those names.
+Mixed-case Host variants are also denied. The corrected configuration passed
+49 public HTTP checks; the follow-up DNS/TLS audit has no route findings.
+Production application images and databases were not modified.
+The previous gateway configuration was backed up; the active Caddyfile is
+persistent on the VPS under `/opt/hi5central/deployment/Caddyfile`.
+The patterns and regression tests live under
+`infrastructure/managed-sandbox/public-ingress-*.caddy` and
+`public-ingress-deny.test.mjs`. Customer pilot activation remains blocked
+pending separate runtime attestation and browser/MFA approval.
