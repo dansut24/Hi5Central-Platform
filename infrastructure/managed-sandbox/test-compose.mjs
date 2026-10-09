@@ -17,7 +17,8 @@ function values(environment) {
   const p={
     COMPOSE_PROJECT_NAME:`hi5-sandbox-${environment}`,EDGE_NETWORK:`hi5central-sandbox-${environment}-edge`,
     DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',RUNTIME_ENVIRONMENT:environment,
-    ROOT_DOMAIN:'hi5central.com',API_URL:`https://${environment}-api.hi5central.com`,
+    ROOT_DOMAIN:'hi5central.com',SANDBOX_ROUTE_CHANNEL:'parallel',
+    API_URL:`https://pilot-${environment}-api.hi5central.com`,
     MARKETING_URL:'https://hi5central.com',BACKGROUND_WORKERS_ENABLED:'false',
     POSTGRES_USER:`sandbox_${environment}`,POSTGRES_DB:`sandbox_${environment}`,
     POSTGRES_PASSWORD:token+'-'+'p'.repeat(64),REDIS_PASSWORD:token+'-'+'r'.repeat(64),
