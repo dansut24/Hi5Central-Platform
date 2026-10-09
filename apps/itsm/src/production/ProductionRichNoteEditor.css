@@ -209,3 +209,25 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
   html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-rich-input { font-size: 16px; }
   html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-rich-note-content { font-size: 14px; }
 }
+
+/* Requester portal renders the same sanitized customer-visible rich notes.
+   Keep formatting scoped to notes rather than changing the portal shell. */
+.prp-timeline .record-lab-rich-note-content {
+  min-width: 0;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.prp-timeline .record-lab-rich-note-content :is(p,div,ul,ol,blockquote,pre) { margin: 5px 0 8px; }
+.prp-timeline .record-lab-rich-note-content :is(ul,ol) { padding-left: 23px; }
+.prp-timeline .record-lab-rich-note-content :is(h2,h3) { font-size: 16px; margin: 6px 0; }
+.prp-timeline .record-lab-rich-note-content blockquote { padding: 5px 10px; border-left: 3px solid var(--line); }
+.prp-timeline .record-lab-rich-note-content :is(pre,code) { font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+.prp-timeline .record-lab-rich-note-content table { display: block; overflow-x: auto; max-width: 100%; border-collapse: collapse; }
+.prp-timeline .record-lab-rich-note-content :is(td,th) { padding: 5px 9px; border: 1px solid var(--line); }
+.prp-timeline .record-lab-rich-note-content img { display: block; max-width: 100%; height: auto; border-radius: 7px; }
+.prp-timeline .record-lab-rich-note-content a { color: rgb(var(--accent-rgb)); text-decoration: underline; }
+.prp-timeline .record-lab-rich-note-content .rt-align-center { text-align: center; }
+.prp-timeline .record-lab-rich-note-content .rt-align-right { text-align: right; }
+.prp-timeline .record-lab-rich-note-content .rt-align-justify { text-align: justify; }
