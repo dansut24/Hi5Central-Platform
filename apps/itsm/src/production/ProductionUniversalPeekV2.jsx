@@ -193,18 +193,21 @@ function PeekSurface({ preview, onClose }) {
         <header>
           <div className="hi5-universal-peek-icon">{iconFor(preview)}</div>
           <div><span>{workingRecord ? 'Working Peek' : preview.kind || 'Quick preview'}</span><strong>{preview.title || 'Quick preview'}</strong>{preview.subtitle ? <small>{preview.subtitle}</small> : null}</div>
-          <button type="button" aria-label="Close preview" onClick={onClose}><X size={17} /></button>
+          {workingRecord ? <div className="hi5-working-peek-header-actions">
+            {preview.openPath ? <button type="button" className="hi5-working-peek-open-full" onClick={() => { onClose(); navigate(preview.openPath) }}>Open full record <ArrowUpRight size={15} /></button> : null}
+            <button type="button" aria-label="Close preview" onClick={onClose}><X size={17}/></button>
+          </div> : <button type="button" aria-label="Close preview" onClick={onClose}><X size={17} /></button>}
         </header>
         {workingRecord ? <div className="hi5-universal-peek-working-body"><ProductionRecordWorkingPeek preview={preview} /></div> : <div className="hi5-universal-peek-body">
           {fields.length ? <div className="hi5-universal-peek-fields">{fields.map((field) => <div key={`${field.label}-${field.value}`}><span>{field.label}</span><strong>{String(field.value)}</strong></div>)}</div> : null}
           {items.length ? <div className="hi5-universal-peek-items">{items.map((item, index) => <article key={`${item.id || item.title || 'item'}-${index}`}><div><strong>{item.title || item.name || 'Item'}</strong>{item.meta ? <span>{item.meta}</span> : null}</div>{item.badge ? <em>{item.badge}</em> : null}{item.openPath ? <button type="button" aria-label={`Open ${item.title || 'item'}`} onClick={() => { onClose(); navigate(item.openPath) }}><ArrowUpRight size={14} /></button> : null}</article>)}</div> : null}
           {!fields.length && !items.length && preview.description ? <p className="hi5-universal-peek-copy">{preview.description}</p> : null}
         </div>}
-        <footer>
+        {!workingRecord ? <footer>
           <button type="button" onClick={onClose}>Close</button>
           {typeof preview.manage === 'function' && !workingRecord ? <button type="button" onClick={() => { onClose(); preview.manage() }}>{preview.manageLabel || 'Open full details'}<ArrowUpRight size={14} /></button> : null}
           {preview.openPath ? <button type="button" className="is-primary" onClick={() => { onClose(); navigate(preview.openPath) }}>{preview.openLabel || 'Open in tab'}<ArrowUpRight size={14} /></button> : null}
-        </footer>
+        </footer> : null}
       </section>
     </div>,
     document.body,
@@ -287,7 +290,12 @@ export function ProductionUniversalPeekV2() {
 
   useEffect(() => {
     if (!preview) return undefined
-    const onKey = (event) => { if (event.key === 'Escape') setPreview(null) }
+    const onKey = (event) => {
+      if (event.key !== 'Escape') return
+      // The rich composer owns Escape while its native modal is open.
+      if (document.querySelector('.record-lab-rich-fullscreen-dialog[open]')) return
+      setPreview(null)
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [preview])
