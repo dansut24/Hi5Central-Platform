@@ -5,14 +5,15 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { isValidCustomerSlug, managedTenantUrls } from '../../services/api/src/tenantEnvironmentHostnames.js'
 
-export function planRoutes(environment, tenantSlug, rootDomain='hi5central.com') {
+export function planRoutes(environment, tenantSlug, rootDomain='hi5central.com', channel='canonical') {
   if(!['uat','test'].includes(environment)) throw new Error('Only UAT/Test can use the pilot route plan.')
   if(!isValidCustomerSlug(tenantSlug)) throw new Error('Invalid or reserved customer slug.')
   if(rootDomain!=='hi5central.com') throw new Error('Root domain must be independently reviewed before use.')
+  if(!['canonical','parallel'].includes(channel)) throw new Error('Unsupported pilot route channel.')
   const urls=managedTenantUrls(tenantSlug,rootDomain,environment,{rmm:false})
-  const apiHost=`${environment}-api.${rootDomain}`
+  const apiHost=channel==='parallel' ? `pilot-${environment}-api.${rootDomain}` : `${environment}-api.${rootDomain}`
   return {
-    status:'route_plan_only',environment,tenantSlug,
+    status:'route_plan_only',environment,tenantSlug,routeChannel:channel,
     customerWorkspace:urls.tenantUrl,customerPortal:urls.portalUrl,
     apiOrigin:`https://${apiHost}`,
     expectedProxyTargets:{
@@ -34,10 +35,11 @@ export function planRoutes(environment, tenantSlug, rootDomain='hi5central.com')
 const script=fileURLToPath(import.meta.url)
 if(process.argv[1] && script===resolve(process.argv[1])) {
   const args=process.argv.slice(2)
-  if(args.length!==4 || args[0]!=='--environment' || args[2]!=='--tenant'){
-    console.error('Usage: node plan-routes.mjs --environment uat|test --tenant validated-slug')
+  if(![4,6].includes(args.length) || args[0]!=='--environment' || args[2]!=='--tenant'
+     || (args.length===6 && args[4]!=='--channel')){
+    console.error('Usage: node plan-routes.mjs --environment uat|test --tenant validated-slug [--channel parallel|canonical]')
     process.exit(2)
   }
-  try{console.log(JSON.stringify(planRoutes(args[1],args[3]),null,2))}
+  try{console.log(JSON.stringify(planRoutes(args[1],args[3],'hi5central.com',args[5]||'canonical'),null,2))}
   catch(error){console.error('Route plan rejected:',error.message);process.exitCode=1}
 }
