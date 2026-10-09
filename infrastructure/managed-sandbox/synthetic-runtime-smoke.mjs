@@ -40,6 +40,7 @@ const environments=['uat','test']
 // Backward compatibility is opt-in for testing an already-published image.
 // The next rebuilt release must pass with this setting OFF.
 const legacyImage=process.env.HI5_PHASE14_ALLOW_OLD_IMAGE === '1'
+const phase15=process.env.HI5_PHASE15_SMOKE === '1'
 const entries=[]
 const created={containers:[],networks:[]}
 const wait = ms=>new Promise(resolve=>setTimeout(resolve,ms))
@@ -97,6 +98,7 @@ function apiEnv(e){
     // The previously published API image still loads the disabled Connect module.
     // Supply a synthetic ephemeral key until the dedicated sandbox build lands.
     ...(legacyImage?{CONNECT_CODE_HMAC_KEY:e.connectKey}:{}),
+    ...(phase15?{SMTP_HOST:e.smtp,SMTP_PORT:'2525',SMTP_USER:'phase15@example.invalid',SMTP_FROM:'phase15@example.invalid',SMTP_PASSWORD:e.smtpPassword}:{}),
     DB_POOL_MAX:'2',
   }
 }
@@ -117,7 +119,7 @@ async function apiProbe(e,mode){
   if(!out.includes('Managed customer runtime startup blocked:')) {
     const cleaned=out.replaceAll(e.dbPassword,'[REDACTED]')
       .replaceAll(e.redisPassword,'[REDACTED]')
-      .replaceAll(e.mfaKey,'[REDACTED]').replaceAll(e.connectKey,'[REDACTED]')
+      .replaceAll(e.mfaKey,'[REDACTED]').replaceAll(e.connectKey,'[REDACTED]').replaceAll(e.smtpPassword,'[REDACTED]')
     throw new Error(e.env+' failed for wrong reason in '+mode+': '+('len='+cleaned.length+' tail='+JSON.stringify(cleaned.slice(-950))))
   }
   check(!out.includes('Hi5Central API listening on port 3001'),e.env+' unapproved API listener started')
@@ -173,6 +175,8 @@ async function main(){
       redisPassword:randomBytes(24).toString('hex'),
       mfaKey:randomBytes(32).toString('hex'),
       connectKey:randomBytes(32).toString('hex'),
+      smtpPassword:randomBytes(24).toString('hex'),
+      smtp:`hi5-p15-mail-${env}-${suffix}`,
     }
     entries.push(e)
     publiclessNetwork(e)
@@ -207,6 +211,13 @@ async function main(){
       verifiedAt:new Date().toISOString(),
     }
     redisSet(e,'hi5central:managed:runtime:identity',JSON.stringify(binding))
+    if(phase15){
+      const {localSmtpDriver}=await import('./synthetic-customer-lifecycle.mjs')
+      startContainer(['--network',e.network,
+        '--entrypoint','node',apiImage,'-e',localSmtpDriver],e.smtp)
+      await waitUntil(()=>logs(e.smtp).includes('PH15_SMTP_READY'),
+        env+' disposable internal SMTP inbox',16)
+    }
     e.api=await apiProbe(e,'verified')
     check(logs(e.api).includes('Managed sandbox RMM broker disabled'),
       env+' must not launch a broker')
@@ -296,7 +307,7 @@ main().catch(error=>{
   // password before surfacing failures, even after containers are removed.
   let message=String(error.message||'Unexpected smoke-test failure')
   for(const entry of entries){
-    for(const secret of [entry.dbPassword,entry.redisPassword,entry.mfaKey,entry.connectKey]){
+    for(const secret of [entry.dbPassword,entry.redisPassword,entry.mfaKey,entry.connectKey,entry.smtpPassword]){
       if(secret) message=message.replaceAll(secret,'[REDACTED]')
     }
   }
