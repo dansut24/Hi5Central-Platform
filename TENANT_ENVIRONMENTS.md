@@ -234,6 +234,63 @@ Do not claim the privileged writer is end-to-end verified until that
 workflow is green. A green integration gate validates *suspended identity
 preparation*, not customer activation or RMM Agent session isolation.
 
+## Phase 6 — sandbox access and Redis/RMM isolation (source-only)
+
+For **managed, multi-tenant** UAT and Test only:
+
+1. Public customer sign-up, verification resends and the legacy email
+   verification activation route are disabled until scoped customer
+   invitations are implemented and approved. The legacy password-only
+   login endpoint is also denied.
+2. The challenge-based `/api/v1/auth/login-secure` sign-in requires MFA
+   for **all roles**, even before tenant onboarding is complete. Legacy MFA
+   grace-period sessions cannot be used. Bearer personal access tokens
+   cannot substitute for MFA during this phase.
+3. RMM HTTP endpoints under `/api/v1/rmm/*`,
+   `/api/v1/agent/*` and `/api/v1/connect/*` return a sandbox-locked
+   response. Agent/Viewer/Connect/Device-tool WebSocket upgrades, the Agent
+   Redis broker and background RMM workers are **not started**. This
+   restriction is not lifted by the mere presence of a prepared tenant.
+4. Managed sandbox API startup now requires the previously attested
+   PostgreSQL database **and** the corresponding independently attested
+   Redis scope. Redis verification occurs **before** Agent broker
+   initialisation, workers and the HTTP listener.
+
+The operator must validate that the Redis connection is a dedicated
+environment-isolated instance or equally isolated scope with independent
+credentials, inaccessible from Production. Once checked, an authorised
+infrastructure operator must write the single Redis key
+`hi5central:managed:runtime:identity` with an attestation shaped as:
+
+```json
+{
+  "environment": "uat",
+  "rootDomain": "hi5central.com",
+  "databaseInstanceId": "<UUID from independently attested UAT PostgreSQL>",
+  "redisInstanceId": "<UUID independently assigned to this isolated Redis scope>",
+  "verifiedBy": "<operator identifier>",
+  "verifiedAt": "<ISO-8601 UTC timestamp>"
+}
+```
+
+For Test use `environment: "test"` and that environment's distinct
+database and Redis identifiers. The API never inserts or repairs this
+key; absent, malformed or mismatched values block startup. The Redis
+attestation key is a **consistency/startup check, not cryptographic proof
+of physical Redis separation**. The operator must independently verify
+host, networking, credential ACLs and queue isolation; prevent application
+credentials from modifying the attestation key if supported by the
+infrastructure.
+
+Existing single-tenant Dev, managed Production and self-hosted modes
+retain their existing policies and do not require this new key.
+
+**Activation is still blocked.** No invitation delivery, new user,
+session, RMM enrolment, DNS/TLS activation or customer configuration
+promotion is performed by this phase. The next increment must implement
+scoped one-time invitations and an audited approval process, along with
+Agent/Connect channel isolation testing before RMM is unlocked.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
