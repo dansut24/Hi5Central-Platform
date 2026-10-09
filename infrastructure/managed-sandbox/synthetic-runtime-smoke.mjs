@@ -280,7 +280,14 @@ async function main(){
 }
 }
 main().catch(error=>{
-  // Do not dump Docker stderr here: application configuration can contain secrets.
-  console.error('PHASE14_SYNTHETIC_RUNTIME_SMOKE: FAILED: '+String(error.message).slice(0,1800))
+  // Docker execution errors may echo argument vectors. Strip every ephemeral
+  // password before surfacing failures, even after containers are removed.
+  let message=String(error.message||'Unexpected smoke-test failure')
+  for(const entry of entries){
+    for(const secret of [entry.dbPassword,entry.redisPassword,entry.mfaKey,entry.connectKey]){
+      if(secret) message=message.replaceAll(secret,'[REDACTED]')
+    }
+  }
+  console.error('PHASE14_SYNTHETIC_RUNTIME_SMOKE: FAILED: '+message.slice(0,1800))
   process.exitCode=1
 })
