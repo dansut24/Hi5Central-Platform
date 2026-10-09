@@ -23,3 +23,20 @@ export function checkProvisioningPreflight({ request, databaseIdentity, targetTe
   if (targetTenantExists) failures.push('Tenant already exists in target database; never overwrite or clone it.')
   return { approvedForIsolationSetup: failures.length === 0, failures }
 }
+
+/** A request queue is not proof that its database is the managed control plane. */
+export function validateControlPlaneAttestation(identity, rootDomain) {
+  const errors = []
+  if (!identity) return { allowed: false, errors: ['Managed control-plane attestation is missing.'] }
+  if (identity.deployment_mode !== 'managed' || identity.tenancy_mode !== 'multi') {
+    errors.push('Control database is not an attested managed multi-tenant control plane.')
+  }
+  if (identity.root_domain !== rootDomain) errors.push('Control-plane root domain mismatch.')
+  if (!/^[0-9a-f-]{36}$/i.test(String(identity.instance_id || ''))) {
+    errors.push('Control-plane instance identity missing.')
+  }
+  if (!String(identity.verified_by || '').trim() || !identity.verified_at) {
+    errors.push('Control-plane operator attestation incomplete.')
+  }
+  return { allowed: errors.length === 0, errors }
+}
