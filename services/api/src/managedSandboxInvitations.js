@@ -62,6 +62,11 @@ export function sandboxInvitationGate(config, tenant, bootstrap, approval, modul
   return { allowed:true, reason:'approved' }
 }
 
+// Send the invitation to the surface that can actually authorize this role.
+export function invitationLandingUrl(role, tenantUrl, portalUrl) {
+  return role === 'requester' ? portalUrl : tenantUrl
+}
+
 export function validInvitationRecord(invitation, tenantId, email, now = new Date()) {
   return Boolean(invitation
     && invitation.tenant_id === tenantId
