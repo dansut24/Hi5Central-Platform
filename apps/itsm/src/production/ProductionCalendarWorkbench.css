@@ -1,0 +1,237 @@
+/* Calendar workbench: the schedule gets the space, not stacked summary cards.
+   Only calendar appearance is touched; creating/editing events and source data stay intact. */
+html[data-hi5-surface='workspace'] .calendar-view {
+  position:relative;
+  display:grid !important;
+  grid-template-rows:auto auto minmax(0,1fr) !important;
+  gap:8px !important;
+  align-content:stretch;
+  min-height:0;
+  height:100%;
+  overflow:hidden !important;
+  background:var(--page) !important;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-page-header {
+  min-height:43px !important;
+  margin:0 !important;
+  padding:2px 4px 2px 0 !important;
+  align-items:center !important;
+}
+html[data-hi5-surface='workspace'] .calendar-page-header h2 {
+  margin:0 !important;
+  font-size:clamp(20px,1.7vw,24px) !important;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar {
+  min-height:44px !important;
+  margin:0 !important;
+  padding:5px 8px !important;
+  background:color-mix(in srgb,var(--surface) 86%,transparent) !important;
+  border:1px solid var(--line) !important;
+  border-radius:10px !important;
+  box-shadow:none !important;
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  overflow:visible !important;
+  display:flex !important;
+  align-items:center;
+  gap:8px;
+}
+html[data-hi5-surface='workspace'] .calendar-period-nav {
+  flex:1 1 auto;
+  min-width:0;
+  overflow:hidden;
+}
+html[data-hi5-surface='workspace'] .calendar-period-nav > strong {
+  font-size:15px !important;
+  font-weight:800;
+}
+html[data-hi5-surface='workspace'] .calendar-view-switch {
+  flex:0 0 auto;
+  min-width:0;
+}
+html[data-hi5-surface='workspace'] .calendar-view-switch button {
+  font-size:12px !important;
+  min-height:31px;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar .calendar-filter-toggle {
+  display:inline-flex !important;
+  flex:0 0 auto;
+  min-height:32px;
+  padding:0 10px;
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar .calendar-filter-toggle[aria-expanded='true'] {
+  border-color:rgba(var(--accent-rgb),.36);
+  background:rgba(var(--accent-rgb),.10);
+  color:var(--ink);
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-filter-bar {
+  display:none !important;
+  position:absolute !important;
+  z-index:90 !important;
+  top:97px !important;
+  right:0 !important;
+  left:auto !important;
+  bottom:auto !important;
+  width:min(700px,calc(100% - 8px)) !important;
+  max-height:min(72dvh,610px);
+  overflow-y:auto !important;
+  overflow-x:hidden !important;
+  grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+  align-items:end;
+  gap:10px !important;
+  padding:13px !important;
+  border:1px solid var(--line) !important;
+  border-radius:13px !important;
+  background:color-mix(in srgb,var(--surface) 97%,transparent) !important;
+  box-shadow:0 18px 46px rgba(9,20,38,.17) !important;
+  backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);
+}
+html[data-hi5-surface='workspace'] .calendar-view > .calendar-filter-bar.mobile-open {
+  display:grid !important;
+}
+html[data-hi5-surface='workspace'] .calendar-filters-heading {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  grid-column:1 / -1;
+  gap:8px;
+  min-height:29px;
+}
+html[data-hi5-surface='workspace'] .calendar-filters-heading strong { font-size:14px; }
+html[data-hi5-surface='workspace'] .calendar-filters-heading button {
+  width:30px;
+  height:30px;
+  display:grid;
+  place-items:center;
+  padding:0;
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:var(--surface-soft);
+  color:var(--ink);
+  cursor:pointer;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-search,
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-source-legend,
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip {
+  grid-column:1 / -1 !important;
+  min-width:0;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar > label:not(.calendar-search) { min-width:0; }
+html[data-hi5-surface='workspace'] .calendar-filter-bar > label > span {
+  font-size:11px !important;
+  text-transform:none;
+  letter-spacing:0;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar select,
+html[data-hi5-surface='workspace'] .calendar-filter-bar input {
+  width:100%;
+  font-size:13px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-clear-filters {
+  grid-column:1 / -1;
+  justify-self:start;
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-source-legend {
+  display:flex;
+  gap:5px;
+  margin:0;
+  padding-top:10px;
+  border-top:1px solid var(--line);
+  flex-wrap:wrap;
+  overflow:visible;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-source-legend button {
+  font-size:11px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+  overflow:visible;
+  gap:6px;
+  margin:0;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip article {
+  min-width:0;
+  min-height:54px !important;
+  padding:7px 8px !important;
+  box-shadow:none;
+  background:var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip article > span,
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip article > small {
+  font-size:10px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip strong { font-size:18px !important; }
+/* Every view is the last grid row and owns its own scrolling. */
+html[data-hi5-surface='workspace'] .calendar-view > :is(.calendar-month-shell,.calendar-week-shell,.calendar-day-shell,.calendar-agenda-shell) {
+  min-height:0 !important;
+  height:100%;
+  max-height:100%;
+  overflow:auto !important;
+  margin:0 !important;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:11px;
+  box-shadow:none !important;
+}
+html[data-hi5-surface='workspace'] .calendar-month-shell {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+}
+html[data-hi5-surface='workspace'] .calendar-month-shell .calendar-month-grid {
+  min-height:0;
+  grid-auto-rows:minmax(83px,1fr);
+}
+html[data-hi5-surface='workspace'] .calendar-month-day {
+  min-height:83px !important;
+  padding:7px !important;
+}
+html[data-hi5-surface='workspace'] .calendar-weekday-row span {
+  font-size:12px !important;
+  padding:9px 6px;
+}
+html[data-hi5-surface='workspace'] .calendar-day-number { font-size:13px !important; }
+html[data-hi5-surface='workspace'] .calendar-event-chip {
+  min-height:25px;
+  padding:4px 6px;
+  border-radius:7px;
+}
+html[data-hi5-surface='workspace'] .calendar-event-chip > strong { font-size:12px !important; }
+html[data-hi5-surface='workspace'] .calendar-event-chip > span { font-size:11px !important; }
+html[data-hi5-surface='workspace'] .calendar-more-events { font-size:11px !important; }
+html[data-hi5-surface='workspace'] :is(.calendar-week-grid,.calendar-day-agenda,.calendar-agenda-day,.calendar-mobile-days,.calendar-mobile-month-list) {
+  font-size:13px;
+}
+html[data-hi5-surface='workspace'] .calendar-view button:focus-visible,
+html[data-hi5-surface='workspace'] .calendar-view select:focus-visible,
+html[data-hi5-surface='workspace'] .calendar-view input:focus-visible {
+  outline:2px solid rgb(var(--accent-rgb));
+  outline-offset:2px;
+}
+@media (max-width:900px) {
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar { overflow-x:auto !important; scrollbar-width:none; }
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar::-webkit-scrollbar { display:none; }
+  html[data-hi5-surface='workspace'] .calendar-period-nav { flex:1 0 auto; }
+  html[data-hi5-surface='workspace'] .calendar-view-switch { flex:0 0 auto; }
+}
+@media (max-width:720px) {
+  html[data-hi5-surface='workspace'] .calendar-view { grid-template-rows:auto auto minmax(0,1fr) !important; }
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-toolbar { flex-wrap:wrap !important; height:auto; gap:6px; }
+  html[data-hi5-surface='workspace'] .calendar-period-nav { flex:1 1 100%; }
+  html[data-hi5-surface='workspace'] .calendar-view-switch { flex:1 1 auto; overflow-x:auto; }
+  html[data-hi5-surface='workspace'] .calendar-view > .calendar-filter-bar { top:140px !important; grid-template-columns:1fr !important; width:calc(100% - 2px) !important; }
+  html[data-hi5-surface='workspace'] .calendar-filter-bar > label:not(.calendar-search) { grid-column:1; }
+  html[data-hi5-surface='workspace'] .calendar-filter-bar .calendar-kpi-strip { grid-template-columns:repeat(2,minmax(0,1fr)) !important; }
+  html[data-hi5-surface='workspace'] .calendar-month-shell { display:block; }
+  html[data-hi5-surface='workspace'] .calendar-view > :is(.calendar-month-shell,.calendar-week-shell,.calendar-day-shell,.calendar-agenda-shell) { height:100%; min-height:0; overflow-y:auto !important; }
+  html[data-hi5-surface='workspace'] .calendar-event-chip > strong { font-size:13px !important; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  html[data-hi5-surface='workspace'] .calendar-view > :is(.calendar-toolbar,.calendar-filter-bar) {
+    background:var(--surface) !important;
+    backdrop-filter:none; -webkit-backdrop-filter:none;
+  }
+}
