@@ -139,6 +139,7 @@ function testNetwork(e,foreign){
   check(out.ok,e.env+' can reach the other sandbox PostgreSQL network')
 }
 async function main(){
+  try {
   for(const env of environments){
     const e={
       env,
