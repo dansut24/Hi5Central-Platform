@@ -198,6 +198,7 @@ async function main(){
       (environment,root_domain,verified_by) VALUES ('${env}','hi5central.com',
        'phase14-synthetic-check') RETURNING instance_id;`).split('\n')[0].trim()
     check(/^[0-9a-f-]{36}$/.test(identity),'Malformed scratch DB UUID')
+    e.instanceId=identity
     await apiProbe(e,'without-redis')
     safeLog(env,'API correctly rejected missing Redis attestation')
     const binding={
@@ -262,6 +263,12 @@ async function main(){
     ]) check(runtime.includes(item),env+' unsafe frontend runtime configuration: '+item)
     safeLog(env,'ITSM/Portal healthy; environment API set; no RMM/Admin; no default demo customer')
 
+  }
+  if(process.env.HI5_PHASE15_SMOKE==='1'){
+    const {runSyntheticCustomerLifecycle}=await import('./synthetic-customer-lifecycle.mjs')
+    const result=await runSyntheticCustomerLifecycle(entries,sql,safeLog)
+    check(result.syntheticCustomers===2,'Synthetic customer lifecycle did not cover both environments')
+    console.log('PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE: PASS')
   }
   testNetwork(entries[0],entries[1])
   testNetwork(entries[1],entries[0])
