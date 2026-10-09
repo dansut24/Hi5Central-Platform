@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Archive, BookOpen, Check, ChevronRight, FileClock, Link2, Plus, Search, Send, X } from 'lucide-react'
 import { RichNoteEditor, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
 import { KnowledgeArticleBody, isFormattedKnowledge } from './KnowledgeArticleBody.jsx'
@@ -37,8 +36,6 @@ function articleDraft(article) {
 }
 
 export function ProductionKnowledgeBase() {
-  const [target, setTarget] = useState(null)
-  const [active, setActive] = useState(() => window.location.pathname === '/knowledge' || window.location.pathname.startsWith('/knowledge/'))
   const [items, setItems] = useState([])
   const [selected, setSelected] = useState(null)
   const [query, setQuery] = useState('')
@@ -52,29 +49,7 @@ export function ProductionKnowledgeBase() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const sync = () => setActive(window.location.pathname === '/knowledge' || window.location.pathname.startsWith('/knowledge/'))
-    window.addEventListener('popstate', sync)
-    window.addEventListener('hi5-routechange', sync)
-    return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hi5-routechange', sync) }
-  }, [])
-
-  useEffect(() => {
-    if (!active) { setTarget(null); return undefined }
-    let mounted = null
-    const attach = () => {
-      const next = document.querySelector('.content-frame')
-      if (!(next instanceof HTMLElement)) return false
-      mounted = next; mounted.classList.add('production-knowledge-mounted'); setTarget(next); return true
-    }
-    if (attach()) return () => mounted?.classList.remove('production-knowledge-mounted')
-    const observer = new MutationObserver(() => { if (attach()) observer.disconnect() })
-    observer.observe(document.body, { childList: true, subtree: true })
-    return () => { observer.disconnect(); mounted?.classList.remove('production-knowledge-mounted') }
-  }, [active])
-
   async function load(preferred = selected?.reference) {
-    if (!active) return
     setLoading(true)
     try {
       setError('')
@@ -90,7 +65,7 @@ export function ProductionKnowledgeBase() {
     }
   }
 
-  useEffect(() => { if (active) load() }, [active])
+  useEffect(() => { void load() }, [])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -164,9 +139,7 @@ export function ProductionKnowledgeBase() {
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
 
-  if (!active || !target) return null
-
-  return createPortal(
+  return (
     <div className="production-knowledge-root">
       <header className="pkb-page-heading">
         <div className="pkb-page-title">
@@ -224,7 +197,6 @@ export function ProductionKnowledgeBase() {
         {showVersions && selected ? <div className="pkb-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowVersions(false)}><aside className="pkb-versions"><header><div><small>{selected.reference}</small><h2>Version history</h2></div><button className="pkb-icon" onClick={() => setShowVersions(false)}><X size={18} /></button></header><div>{versions.map((version) => <article key={version.version}><span>v{version.version}</span><div><strong>{version.title}</strong><small>{version.status} · {version.visibility} · {formatDate(version.createdAt)}</small><p>{version.changeNote || 'Article updated'}</p></div></article>)}</div></aside></div> : null}
       </main>
       </div>
-    </div>,
-    target,
+    </div>
   )
 }
