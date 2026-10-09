@@ -894,6 +894,8 @@ function RecordWorkspace({ route }) {
       <div className="record-lab-compact-facts">
         <div><span>Service</span><strong>{detail.service || 'Not recorded'}</strong></div>
         <div><span>Category</span><strong>{detail.category || detail.catalogueItemTitle || 'Not recorded'}</strong></div>
+        {detail.source ? <div><span>Source</span><strong>{detail.source}</strong></div> : null}
+        {route.type === 'Incident' && (detail.impact || detail.urgency) ? <div><span>Impact / urgency</span><strong>{detail.impact || '—'} / {detail.urgency || '—'}</strong></div> : null}
         <button type="button" className="record-lab-compact-assignment" onClick={() => beginAction('reassign')} title="Change assignment">
           <span>Assigned to <UserRoundCog size={13} /></span>
           <strong>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.assignee : detail.team || 'Unassigned'}</strong>
