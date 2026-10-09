@@ -18,6 +18,17 @@ test('Test pilot cannot reuse UAT hostname or proxy alias',()=>{
   assert.equal(r.expectedEdgeNetwork,'hi5central-sandbox-test-edge')
   assert.notEqual(r.expectedProxyTargets.api,planRoutes('uat','acme').expectedProxyTargets.api)
 })
+test('parallel pilot uses distinct unpublished API origin while keeping tenant host rules strict',()=>{
+  for(const env of ['uat','test']){
+    const r=planRoutes(env,'acme','hi5central.com','parallel')
+    assert.equal(r.routeChannel,'parallel')
+    assert.equal(r.apiOrigin,`https://pilot-${env}-api.hi5central.com`)
+    assert.equal(r.DNSChanges,false)
+    assert.equal(r.TLSChanges,false)
+    assert.equal(r.rmmHost,null)
+  }
+  assert.throws(()=>planRoutes('uat','acme','hi5central.com','unexpected'))
+})
 test('reserved names, production and arbitrary root domains are rejected',()=>{
   for(const env of ['dev','live','production','']) assert.throws(()=>planRoutes(env,'acme'))
   for(const slug of ['dev','admin','api','acmeuat','acmetest','acme-portal','abc--def','']) {
