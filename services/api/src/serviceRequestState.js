@@ -444,6 +444,17 @@ export function registerServiceRequestStateRoutes(app) {
           error.status = 409
           throw error
         }
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          const approvals=await client.query(
+            "SELECT count(*)::int AS pending FROM service_request_approvals WHERE request_id=$1 AND status IN ('Pending','Rejected')",
+            [task.request_id],
+          )
+          if (Number(approvals.rows[0]?.pending||0)>0) {
+            const error=new Error('Required approvals must be resolved before fulfilment can progress.')
+            error.status=409
+            throw error
+          }
+        }
         if (task.status === 'Completed' && changeStatus && body.status !== 'Completed') {
           const error = new Error('Completed tasks cannot be reopened from the Tasks queue.')
           error.status = 409
