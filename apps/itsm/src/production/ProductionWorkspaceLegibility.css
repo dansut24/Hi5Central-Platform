@@ -54,3 +54,8 @@ html[data-hi5-surface='portal'] .prp-shell :is(button,input,select,textarea) { f
 @media (max-width: 760px) {
   html[data-hi5-surface='portal'] .prp-shell :is(input,select,textarea) { font-size: 16px !important; }
 }
+
+/* Sidebar contrast: labels are informational, not decorative. */
+html[data-hi5-surface='workspace'] .sidebar .nav-group-label { color: rgba(255,255,255,.74) !important; }
+html[data-hi5-surface='workspace'] .sidebar .nav-item:not(.active) { color: rgba(255,255,255,.90) !important; }
+html[data-hi5-surface='workspace'] :is(.sidebar-product-switches a, .sidebar-identity strong, .sidebar-identity small) { font-size: 11px !important; }
