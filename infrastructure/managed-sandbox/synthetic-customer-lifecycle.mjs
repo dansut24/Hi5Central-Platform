@@ -7,13 +7,13 @@ const fs=require('node:fs')
 let mailCount=0
 net.createServer(socket=>{
   socket.setEncoding('utf8')
-  socket.write('220 synthetic-phase15 ESMTP\\r\\n')
+  socket.write('220 synthetic-phase15 ESMTP\r\n')
   let buffer='',data='',inData=false,loginStage=0
   socket.on('data',chunk=>{
     buffer+=chunk
     let index
-    while((index=buffer.indexOf('\\n'))>=0){
-      const line=buffer.slice(0,index).replace(/\\r$/,'')
+    while((index=buffer.indexOf('\n'))>=0){
+      const line=buffer.slice(0,index).replace(/\r$/,'')
       buffer=buffer.slice(index+1)
       if(inData){
         if(line==='.'){
@@ -21,27 +21,27 @@ net.createServer(socket=>{
           fs.writeFileSync('/tmp/phase15-mail-'+mailCount+'.eml',data,{mode:0o600})
           console.log('PH15_MAIL_RECEIVED '+mailCount)
           data='';inData=false
-          socket.write('250 accepted for isolated delivery\\r\\n')
-        }else data+=(line.startsWith('..')?line.slice(1):line)+'\\n'
+          socket.write('250 accepted for isolated delivery\r\n')
+        }else data+=(line.startsWith('..')?line.slice(1):line)+'\n'
       }else if(/^EHLO|^HELO/i.test(line)){
-        socket.write('250-synthetic-phase15\\r\\n250-AUTH PLAIN LOGIN\\r\\n250 8BITMIME\\r\\n')
+        socket.write('250-synthetic-phase15\r\n250-AUTH PLAIN LOGIN\r\n250 8BITMIME\r\n')
       }else if(/^AUTH PLAIN/i.test(line)){
-        socket.write('235 Synthetic local authentication accepted\\r\\n')
+        socket.write('235 Synthetic local authentication accepted\r\n')
       }else if(/^AUTH LOGIN/i.test(line)){
-        loginStage=1;socket.write('334 VXNlcm5hbWU6\\r\\n')
+        loginStage=1;socket.write('334 VXNlcm5hbWU6\r\n')
       }else if(loginStage===1){
-        loginStage=2;socket.write('334 UGFzc3dvcmQ6\\r\\n')
+        loginStage=2;socket.write('334 UGFzc3dvcmQ6\r\n')
       }else if(loginStage===2){
-        loginStage=0;socket.write('235 Synthetic local authentication accepted\\r\\n')
+        loginStage=0;socket.write('235 Synthetic local authentication accepted\r\n')
       }else if(/^MAIL FROM|^RCPT TO|^RSET/i.test(line)){
-        socket.write('250 OK\\r\\n')
+        socket.write('250 OK\r\n')
       }else if(/^DATA/i.test(line)){
-        inData=true;socket.write('354 End with dot\\r\\n')
+        inData=true;socket.write('354 End with dot\r\n')
       }else if(/^QUIT/i.test(line)){
-        socket.write('221 Closing\\r\\n');socket.end()
+        socket.write('221 Closing\r\n');socket.end()
       }else if(/^NOOP/i.test(line)){
-        socket.write('250 OK\\r\\n')
-      }else socket.write('250 OK\\r\\n')
+        socket.write('250 OK\r\n')
+      }else socket.write('250 OK\r\n')
     }
   })
 }).listen(2525,'0.0.0.0',()=>console.log('PH15_SMTP_READY'))
