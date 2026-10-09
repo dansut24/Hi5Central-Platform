@@ -132,6 +132,61 @@ routing until their account/session/agent safety checks and operator flow
 have been validated in a dedicated pilot.** Existing customer Production
 routing and cookies remain unchanged.
 
+## Phase 4 — suspended customer tenant preparation (source-only)
+
+Migration `134_managed_environment_tenant_bootstrap.sql` introduces a unique
+environment-local provenance record. A guarded operator command is available
+at `services/api/scripts/tenant-environment-prepare.mjs`.
+
+**Prerequisites:** a central managed *multi-tenant* control-plane database;
+separately provisioned UAT and Test databases; their migration history
+(including 133/134); operator-attested runtime identities; a real pending
+tenant/environment provisioning request; and tightly scoped database
+credentials from a secret store. **Do not run this against Hi5Central Dev
+(single-tenant), legacy Production, or a customer database with existing
+records.** The scripts are deliberately not bundled into the public API
+container and must be run from a controlled operator workspace with the API
+package dependencies installed.
+
+The command defaults to read-only `--check`. The explicit `--apply` mode
+also requires `CONFIRM_TENANT_BOOTSTRAP` exactly equal to
+`<customer-slug>:<uat|test>:<request UUID>`. Never write connection strings
+or confirmation values to source control.
+
+The worker locks the control-plane request, verifies the target database
+attestation and hostname, creates a **suspended** environment-local tenant,
+writes minimal `tenant_settings` (RMM disabled), and saves a unique
+provenance record. It then records the control-plane request as `claimed`
+and environment status as `provisioning`. Retries with matching provenance
+are idempotent; conflicts fail closed. Because two PostgreSQL databases
+cannot be committed atomically, a control-plane commit failure can leave
+a suspended, unexposed target tenant requiring manual reconciliation.
+
+**It intentionally does not:** copy users, passwords, MFA, memberships,
+sessions, incidents, devices, policy definitions, automation data, jobs,
+tokens or agent enrolment; activate a user account; issue RMM credentials;
+change a hostname; mark a request completed; or mark UAT/Test Ready.
+
+The managed UAT/Test API startup additionally verifies
+`managed_runtime_database_identity` *before* initialising Redis, the RMM
+broker, workers or the HTTP listener. A missing or incorrect attestation
+blocks startup, without affecting single-tenant Dev or legacy Production.
+
+Validation completed: 27 isolated runtime, authorisation and bootstrap
+unit tests; SQL migration/bootstrap checked in a rolled-back Dev
+PostgreSQL transaction. A disposable end-to-end pair of PostgreSQL
+databases was prepared but privileged script execution was blocked by
+remote-command safety checks, so the script's actual write/retry flow
+**has not been integration-tested**. Temporary integration containers and
+network were removed. Do not treat the operator as production-ready until
+that path is tested in an authorised isolated environment.
+
+**Remaining before activation:** multi-tenant central control plane,
+environment-specific Redis credentials and queues, tenant user/MFA
+enrolment, RMM agent/token/device isolation, outbound integration
+restrictions, DNS/TLS exact-host routing, restore/reset boundaries,
+cross-tenant access tests and a signed isolation approval.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
