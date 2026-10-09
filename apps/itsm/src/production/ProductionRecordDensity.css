@@ -353,3 +353,103 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
     font-size: 12px !important;
   }
 }
+
+/* The app workspace already has tabs. Keep record navigation in the same
+   horizontal toolbar; no separate breadcrumb row above the record header. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+  grid-template-rows: auto auto minmax(0,1fr) !important;
+  gap: 6px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs .record-lab-inline-breadcrumb {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: 230px;
+  gap: 5px;
+  padding: 0 12px 0 5px;
+  margin-right: 5px;
+  border-right: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inline-breadcrumb > button {
+  color: var(--muted);
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 0;
+  font: inherit;
+  font-weight: 750;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inline-breadcrumb > button:hover {
+  color: rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inline-breadcrumb > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 800;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inline-breadcrumb button:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 1px;
+}
+/* On desktop, align SLA and actions beside the title rather than stacking an
+   additional row below the identity block. The title can wrap when necessary. */
+@media (min-width: 1101px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead {
+    grid-template-columns: 40px minmax(0,1fr) auto auto !important;
+    grid-template-rows: auto !important;
+    column-gap: 10px !important;
+    padding: 9px 12px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-leading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-signals {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-actions {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead {
+    grid-template-columns: 40px minmax(0,1fr) auto !important;
+    grid-template-rows: auto !important;
+    padding: 9px 12px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-leading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs .record-lab-inline-breadcrumb {
+    max-width: 145px;
+    font-size: 11px;
+    padding-right: 7px;
+    margin-right: 3px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    /* Mobile remains a single scrollable document, not a fixed grid. */
+    display: block !important;
+  }
+}
