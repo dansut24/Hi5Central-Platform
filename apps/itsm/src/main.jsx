@@ -78,6 +78,7 @@ import './production/ProductionWorkingPeekModal.css'
 import './production/ProductionCalendarWorkbench.css'
 import './production/ProductionPlanningWorkbenchPolish.css'
 import './production/ProductionCalendarTeams.css'
+import './production/ProductionProjectWorkbench.css'
 
 installWorkspaceTabSessionIsolation()
 
