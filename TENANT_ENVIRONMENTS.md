@@ -57,7 +57,14 @@ are not given Production database access as a workaround.
 
 - Hostname classification, validation and reserved naming rules for managed tenants.
 - Additive environment-inventory migration (Production ready, sandboxes pending).
-- Read-only per-tenant environment cards in Platform Admin.
+- Per-tenant environment cards in Platform Admin, with the internal Dev account
+  distinguished from customer environments.
+- Audited, role-restricted UAT/Test provisioning request queue. The request
+  creates an operator task only; it **does not** create a tenant database,
+  activate an environment, alter DNS or mark isolation as verified. Claimed
+  requests cannot be cancelled through the customer Admin interface.
+- Requests can only be queued from a managed multi-tenant control plane for
+  active tenants with reserved pending/failed environment identities.
 - Customer UAT/Test frontend fail-closed landing page.
 - API and ITSM hostname tests in the container workflow.
 - Dev database migration syntax/backfill validated in a transaction and rolled back.
