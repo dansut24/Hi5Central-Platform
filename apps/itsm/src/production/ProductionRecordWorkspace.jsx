@@ -21,6 +21,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
+  Pin,
   RefreshCw,
   Search,
   Send,
@@ -501,7 +502,8 @@ function RecordWorkspace({ route }) {
   const [recordDevices, setRecordDevices] = useState([])
   const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
   const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userId: '', tenantRole: '' })
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-lab-inspector-collapsed') === '1')
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-context-layout') !== 'split')
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false)
   const scrollRef = useRef(null)
   const timelineRef = useRef(null)
 
@@ -604,8 +606,14 @@ function RecordWorkspace({ route }) {
   }, [detail, rmmAccess.canView])
 
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [tab])
-  useEffect(() => { setContextView('home'); setActivityQuery(''); setSummaryExpanded(false) }, [route.reference])
-  useEffect(() => { window.localStorage.setItem('hi5central-record-lab-inspector-collapsed', inspectorCollapsed ? '1' : '0') }, [inspectorCollapsed])
+  useEffect(() => { setContextView('home'); setActivityQuery(''); setSummaryExpanded(false); setInspectorDrawerOpen(false) }, [route.reference])
+  useEffect(() => { window.localStorage.setItem('hi5central-record-context-layout', inspectorCollapsed ? 'focus' : 'split') }, [inspectorCollapsed])
+  useEffect(() => {
+    if (!inspectorDrawerOpen) return undefined
+    const dismiss = (event) => { if (event.key === 'Escape') setInspectorDrawerOpen(false) }
+    document.addEventListener('keydown', dismiss)
+    return () => document.removeEventListener('keydown', dismiss)
+  }, [inspectorDrawerOpen])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-activity-mode', showSystemEvents ? 'all' : 'human') }, [showSystemEvents])
 
   const run = async (handler, success) => {
@@ -871,7 +879,7 @@ function RecordWorkspace({ route }) {
 
 
   const renderInspector = (mobile = false) => {
-    if (!mobile && inspectorCollapsed) return null
+    if (!mobile && inspectorCollapsed && !inspectorDrawerOpen) return null
 
     const peekTitle = { user: 'Requester', assets: 'Assets & CIs', related: 'Related work', insights: 'Insights' }[contextView]
     const openRecord = (item) => navigateLab(`/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
@@ -950,9 +958,12 @@ function RecordWorkspace({ route }) {
       peekContent = <div className="record-lab-context-peek"><div className="record-lab-insight-intro"><Sparkles size={16} /><span><strong>Evidence-based context</strong><small>Signals below are derived from the record and linked data. AI-generated recommendations can use this same panel when the AI service is enabled.</small></span></div><div className="record-lab-insight-list">{contextualInsights.length ? contextualInsights.map((insight, index) => <div className={`record-lab-insight is-${insight.tone}`} key={`${insight.title}-${index}`}><span /><div><strong>{insight.title}</strong><small>{insight.text}</small></div></div>) : <div className="record-lab-context-empty">No high-confidence operational exceptions are visible from the current record data.</div>}</div></div>
     }
 
-    return <aside className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}`}>
+    return <aside id={mobile ? undefined : 'record-lab-context-panel'} aria-label="Record context" className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}${!mobile && inspectorCollapsed ? ' is-overlay' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
-        <header>{contextView === 'home' ? <div><span>At a glance</span><h2>Record context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
+        <header>{contextView === 'home' ? <div><span>At a glance</span><h2>Record context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <div className="record-lab-context-header-actions">
+          {inspectorCollapsed ? <button type="button" className="record-lab-context-pin" onClick={() => { setInspectorCollapsed(false); setInspectorDrawerOpen(false) }} title="Pin context beside activity"><Pin size={16} /><span>Pin</span></button> : null}
+          <button type="button" className="record-lab-inspector-collapse" onClick={() => { setInspectorDrawerOpen(false); setInspectorCollapsed(true) }} title={inspectorCollapsed ? 'Close record context' : 'Return to activity focus'} aria-label={inspectorCollapsed ? 'Close record context' : 'Unpin context and focus activity'}>{inspectorCollapsed ? <X size={17} /> : <PanelLeftClose size={17} />}</button>
+        </div> : null}</header>
         {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
       </section>
     </aside>
@@ -1025,7 +1036,7 @@ function RecordWorkspace({ route }) {
       <small>{composerMode === 'customer' ? 'This update will be visible to the requester.' : 'Internal notes are visible only to technicians.'}</small>
     </div>
     {composerMode ? <div className="record-lab-activity-composer"><ActionComposer key={composerMode} mode={composerMode} detail={detail} saving={saving} onClose={() => setComposerMode('')} onPost={postNote} onReassign={reassign} onResolve={resolve} onPending={pending} noteDraft={noteDrafts[composerMode]} onNoteDraftChange={(patch) => updateNoteDraft(composerMode, patch)} /></div> : null}
-    <header className="record-lab-activity-heading"><div><span>Timeline</span><h2>Activity</h2><small>{meaningfulActivities.length ? `Latest update ${relativeTime(meaningfulActivities[0]?.createdAt)}` : 'No human updates yet'}</small></div><div className="record-lab-activity-heading-tools">{longActivity ? <><label className="record-lab-activity-search"><Search size={13} /><input type="search" value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search activity…" /></label>{activityDays.length > 1 ? <select aria-label="Jump to activity date" defaultValue="" onChange={(event) => { jumpToDay(event.target.value); event.target.value = '' }}><option value="">Jump to date…</option>{activityDays.map((day) => <option key={day.key} value={day.key}>{day.label}</option>)}</select> : null}<button type="button" className="record-lab-jump-latest" onClick={jumpToLatest}><ArrowUp size={13} />Latest</button></> : null}<div className="record-lab-activity-filter"><button type="button" className={!showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(false)}>Human updates</button><button type="button" className={showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(true)}>All events{auditActivities.length ? ` ${auditActivities.length}` : ''}</button></div></div></header>
+    <header className="record-lab-activity-heading" aria-label="Activity filters"><small className="record-lab-activity-meta">{meaningfulActivities.length ? `${meaningfulActivities.length} update${meaningfulActivities.length === 1 ? '' : 's'} · Latest ${relativeTime(meaningfulActivities[0]?.createdAt)}` : 'No updates yet'}</small><div className="record-lab-activity-heading-tools">{longActivity ? <><label className="record-lab-activity-search"><Search size={13} /><input type="search" value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search activity…" /></label>{activityDays.length > 1 ? <select aria-label="Jump to activity date" defaultValue="" onChange={(event) => { jumpToDay(event.target.value); event.target.value = '' }}><option value="">Jump to date…</option>{activityDays.map((day) => <option key={day.key} value={day.key}>{day.label}</option>)}</select> : null}<button type="button" className="record-lab-jump-latest" onClick={jumpToLatest}><ArrowUp size={13} />Latest</button></> : null}<div className="record-lab-activity-filter"><button type="button" className={!showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(false)}>Human updates</button><button type="button" className={showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(true)}>All events{auditActivities.length ? ` ${auditActivities.length}` : ''}</button></div></div></header>
     <div className="record-lab-timeline record-lab-timeline-scroll" ref={timelineRef}>{visibleActivities.length ? activityRows : <div className="record-lab-empty">{normalizedActivityQuery ? 'No activity matches this search.' : 'No notes or customer updates have been recorded yet.'}</div>}</div>
   </section>
 
@@ -1077,10 +1088,10 @@ function RecordWorkspace({ route }) {
         <span className={`record-lab-hero-icon is-${slug(route.type)}`}>
           {route.type === 'Incident' ? <AlertTriangle size={27} /> : route.type === 'Change' ? <ShieldCheck size={27} /> : route.type === 'Problem' ? <CircleDot size={27} /> : <FileText size={27} />}
         </span>
-        {inspectorCollapsed ? <button type="button" className="record-lab-details-restore" onClick={() => setInspectorCollapsed(false)} title="Show record details"><PanelLeftOpen size={18} /><span>Details</span></button> : null}
+        
       </div>
       <div className="record-lab-heading"><div><strong>{detail.id || detail.reference}</strong><LabPill tone="accent">{detail.type || route.type}</LabPill><LabPill tone={['Resolved','Closed','Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status}</LabPill><LabPill tone={detail.priority === 'Critical' || detail.priority === 'High' ? 'danger' : detail.priority === 'Medium' ? 'warning' : 'good'}>{detail.priority}</LabPill></div><h1>{detail.title}</h1><p>{detail.requester || 'Requester not recorded'} · {detail.team || 'Unassigned'} / {detail.assignee || 'Unassigned'} · Updated {relativeTime(detail.updatedAt)}</p></div>
-      <div className="record-lab-masthead-signals">{contextualSignal ? <button type="button" className={`record-lab-context-signal is-${contextualSignal.tone}`} onClick={() => { setInspectorCollapsed(false); setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights') }}><Sparkles size={16} /><span><small>{contextualSignal.label}</small><strong>{contextualSignal.detail}</strong></span></button> : null}<button type="button" className={`record-lab-sla-badge is-${primarySlaTone}`} onClick={() => setTab('sla')}><Clock3 size={18} /><span><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></span></button></div>
+      <div className="record-lab-masthead-signals">{contextualSignal ? <button type="button" className={`record-lab-context-signal is-${contextualSignal.tone}`} onClick={() => { if (inspectorCollapsed) setInspectorDrawerOpen(true); setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights') }}><Sparkles size={16} /><span><small>{contextualSignal.label}</small><strong>{contextualSignal.detail}</strong></span></button> : null}<button type="button" className={`record-lab-sla-badge is-${primarySlaTone}`} onClick={() => setTab('sla')}><Clock3 size={18} /><span><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></span></button></div>
       <div className="record-lab-hero-actions">
         <details className="record-lab-action-menu">
           <summary><MessageSquareText size={16} /><span>Note</span><ChevronDown size={14} /></summary>
@@ -1108,7 +1119,9 @@ function RecordWorkspace({ route }) {
         <ChevronRight size={12} aria-hidden="true" />
         <span title={detail.id || detail.reference}>{detail.id || detail.reference}</span>
       </span>
-      {tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value) }}>{label}</button>)}
+      {tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value); setInspectorDrawerOpen(false) }}>{label}</button>)}
+      {rmmAccess.canView && managedDevices.length ? <button type="button" className="record-lab-device-peek" title="View linked RMM devices" onClick={() => { setContextView('assets'); if (inspectorCollapsed) setInspectorDrawerOpen(true) }}><Laptop size={15} />Devices {managedDevices.length}</button> : null}
+      <button type="button" className="record-lab-context-toggle" aria-expanded={!inspectorCollapsed || inspectorDrawerOpen} aria-controls="record-lab-context-panel" onClick={() => { if (!inspectorCollapsed) { setInspectorCollapsed(true); setInspectorDrawerOpen(false) } else { setInspectorDrawerOpen((open) => !open) } }} title={inspectorCollapsed ? 'Open record context' : 'Unpin record context'}>{inspectorCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}<span>{inspectorCollapsed ? 'Context' : 'Unpin'}</span></button>
       <button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button>
     </nav>
 
@@ -1120,6 +1133,7 @@ function RecordWorkspace({ route }) {
         </div> : null}
         <main className="record-lab-content">{tabContent}</main>
       </section>
+      {inspectorCollapsed && inspectorDrawerOpen ? <button className="record-lab-context-scrim" type="button" aria-label="Close record context" onClick={() => setInspectorDrawerOpen(false)} /> : null}
       {renderInspector()}
     </div>
   </div>
