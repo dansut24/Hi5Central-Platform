@@ -6,10 +6,14 @@ import {
 } from '../src/managedSandboxInvitations.js'
 
 const config={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:'uat',rootDomain:'hi5central.com'}
-const tenant={id:'11111111-1111-4111-8111-111111111111',slug:'acme',status:'active'}
+const tenant={id:'11111111-1111-4111-8111-111111111111',slug:'acme',status:'active',
+  tenant_url:'https://acmeuat.hi5central.com',portal_url:'https://acmeuat-portal.hi5central.com',
+  rmm_url:null,runtime_database_instance_id:'33333333-3333-4333-8333-333333333333'}
 const bootstrap={
   local_tenant_id:tenant.id,control_request_id:'22222222-2222-4222-8222-222222222222',
   stage:'identity_prepared',environment:'uat',
+  database_instance_id:tenant.runtime_database_instance_id,
+  expected_hostname:'acmeuat.hi5central.com',
 }
 const approval={
   tenant_id:tenant.id,bootstrap_request_id:bootstrap.control_request_id,
@@ -51,6 +55,10 @@ test('tenant must be active, attested and independently approved before invitati
     [config,tenant,null,approval,modules],
     [config,tenant,{...bootstrap,local_tenant_id:'wrong'},approval,modules],
     [config,tenant,{...bootstrap,stage:'ready'},approval,modules],
+    [config,{...tenant,tenant_url:'https://acme.hi5central.com'},bootstrap,approval,modules],
+    [config,{...tenant,rmm_url:'https://acmeuat-rmm.hi5central.com'},bootstrap,approval,modules],
+    [config,tenant,{...bootstrap,expected_hostname:'acmetest.hi5central.com'},approval,modules],
+    [config,tenant,{...bootstrap,database_instance_id:'99999999-9999-4999-8999-999999999999'},approval,modules],
     [config,tenant,bootstrap,null,modules],
     [config,tenant,bootstrap,{...approval,state:'revoked'},modules],
     [config,tenant,bootstrap,{...approval,approved_at:null},modules],
