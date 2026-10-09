@@ -6,7 +6,7 @@
 name: ${COMPOSE_PROJECT_NAME:?Require a unique UAT or Test project name}
 services:
   postgres:
-    image: public.ecr.aws/docker/library/postgres:17-alpine
+    image: ${POSTGRES_IMAGE:?Pin PostgreSQL image by digest}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?}
@@ -22,7 +22,7 @@ services:
       retries: 12
 
   redis:
-    image: public.ecr.aws/docker/library/redis:8-alpine
+    image: ${REDIS_IMAGE:?Pin Redis image by digest}
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?}
