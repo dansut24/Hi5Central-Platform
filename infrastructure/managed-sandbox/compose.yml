@@ -1,0 +1,109 @@
+# Phase 10: infrastructure template ONLY; no customer/DNS activation.
+# Run separate Compose projects per environment: hi5-sandbox-uat / hi5-sandbox-test.
+# Requires an operator-verified runtime.env (0600), private storage and digest-pinned artifacts.
+# Docker's edge network is shared with the trusted reverse proxy only;
+# PostgreSQL and Redis are never attached to it or mapped to host ports.
+name: ${COMPOSE_PROJECT_NAME:?Require a unique UAT or Test project name}
+services:
+  postgres:
+    image: public.ecr.aws/docker/library/postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes:
+      - sandbox_postgres:/var/lib/postgresql/data
+    networks: [private_data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: public.ecr.aws/docker/library/redis:8-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    command: ["sh","-ec","exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - sandbox_redis:/data
+    networks: [private_data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping 2>/dev/null | grep -qx PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    image: ${API_IMAGE:?Pin a digest from the approved API build}
+    env_file:
+      - path: ./runtime.env
+        required: true
+    depends_on:
+      postgres: { condition: service_healthy }
+    command: ["npm","run","migrate:dist"]
+    restart: "no"
+    networks: [private_data]
+
+  api:
+    image: ${API_IMAGE:?Pin a digest from the approved API build}
+    env_file:
+      - path: ./runtime.env
+        required: true
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    restart: unless-stopped
+    networks:
+      private_data: {}
+      managed_edge:
+        aliases: ["hi5-sandbox-${RUNTIME_ENVIRONMENT:?}-api"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  itsm:
+    image: ${ITSM_IMAGE:?Pin a digest from the approved ITSM build}
+    environment:
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      RUNTIME_ENVIRONMENT: ${RUNTIME_ENVIRONMENT:?}
+      FEATURE_MODE: ${FEATURE_MODE:-controlled}
+      ROOT_DOMAIN: ${ROOT_DOMAIN:?}
+      API_URL: ${API_URL:?}
+      APP_URL: ""
+      PORTAL_URL: ""
+      RMM_URL: ""
+      ADMIN_URL: ""
+      MARKETING_URL: ${MARKETING_URL:?}
+      PRIMARY_TENANT_SLUG: ""
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    networks:
+      managed_edge:
+        aliases: ["hi5-sandbox-${RUNTIME_ENVIRONMENT:?}-itsm"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz | grep -qx ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+networks:
+  private_data:
+    internal: true
+  managed_edge:
+    external: true
+    name: ${EDGE_NETWORK:?Operator-attested reverse-proxy edge}
+
+volumes:
+  sandbox_postgres: {}
+  sandbox_redis: {}
