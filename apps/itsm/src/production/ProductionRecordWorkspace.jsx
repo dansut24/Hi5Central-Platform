@@ -869,7 +869,6 @@ function RecordWorkspace({ route }) {
         ['details', 'Details'],
       ]
 
-  const activeTabLabel = (tabs.find(([value]) => value === tab)?.[1] || 'Activity').replace(/\s+\d+$/, '')
 
   const renderInspector = (mobile = false) => {
     if (!mobile && inspectorCollapsed) return null
@@ -1073,14 +1072,6 @@ function RecordWorkspace({ route }) {
                   : renderAudit()
 
   return <div className="record-lab-shell is-fixed-workspace" ref={scrollRef}>
-    <nav className="record-lab-breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" onClick={() => navigateLab(`/${route.section}`)}>{route.section.charAt(0).toUpperCase() + route.section.slice(1)}</button>
-      <ChevronRight size={13} aria-hidden="true" />
-      <button type="button" onClick={() => setTab('activity')}>{detail.id || detail.reference}</button>
-      <ChevronRight size={13} aria-hidden="true" />
-      <span>{activeTabLabel}</span>
-    </nav>
-
     <section className="record-lab-masthead">
       <div className="record-lab-masthead-leading">
         <span className={`record-lab-hero-icon is-${slug(route.type)}`}>
@@ -1112,6 +1103,11 @@ function RecordWorkspace({ route }) {
 
 
     <nav className="record-lab-tabs record-lab-fixed-tabs" aria-label="Record workspace sections">
+      <span className="record-lab-inline-breadcrumb">
+        <button type="button" onClick={() => navigateLab(`/${route.section}`)} aria-label={`Back to ${route.section}`}>{route.section === 'requests' ? 'Requests' : route.section.charAt(0).toUpperCase() + route.section.slice(1)}</button>
+        <ChevronRight size={12} aria-hidden="true" />
+        <span title={detail.id || detail.reference}>{detail.id || detail.reference}</span>
+      </span>
       {tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value) }}>{label}</button>)}
       <button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button>
     </nav>
