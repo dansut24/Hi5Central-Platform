@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { pool, withTransaction } from './db.js'
 import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
+import { provisionRequestEligibility } from './tenantEnvironmentProvisioning.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword } from './password.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
@@ -1257,7 +1258,10 @@ export function registerPlatformAdminRoutes(app) {
                 'environment',e.environment,
                 'hostnameLabel',e.hostname_label,
                 'status',e.provisioning_status,
-                'isolationVerified',e.isolation_verified_at IS NOT NULL
+                'isolationVerified',e.isolation_verified_at IS NOT NULL,
+                'requestState',(SELECT q.state FROM tenant_environment_provision_requests q
+                  WHERE q.tenant_id=e.tenant_id AND q.environment=e.environment
+                  ORDER BY q.requested_at DESC LIMIT 1)
               ) ORDER BY CASE e.environment WHEN 'live' THEN 1 WHEN 'uat' THEN 2 ELSE 3 END),'[]'::jsonb)
                  FROM tenant_environment_instances e WHERE e.tenant_id=t.id) AS environments
          FROM tenants t
@@ -1283,6 +1287,92 @@ export function registerPlatformAdminRoutes(app) {
         ORDER BY lower(t.company_name)`,
     )
     return c.json({ items: result.rows })
+  })
+
+  // Tenant UAT/Test provisioning is a queue request only. This API never
+  // provisions storage, marks an environment ready or changes DNS routing.
+  app.post('/api/platform/v1/tenants/:id/environments/:environment/provision', async (c) => {
+    const auth = await requireAdmin(c, WRITE_ROLES)
+    if (auth.error) return auth.error
+    const tenantId = clean(c.req.param('id'), 80)
+    const environment = clean(c.req.param('environment'), 20).toLowerCase()
+    if (!['uat','test'].includes(environment)) {
+      return c.json({ error: 'Only UAT and Test may be requested.' }, 400)
+    }
+    try {
+      return await withTransaction(async (db) => {
+        const found = await db.query(
+          `SELECT e.tenant_id,e.environment,e.provisioning_status,t.slug,t.status AS tenant_status
+             FROM tenant_environment_instances e
+             JOIN tenants t ON t.id=e.tenant_id
+            WHERE e.tenant_id=$1 AND e.environment=$2
+            FOR UPDATE OF e`,
+          [tenantId, environment],
+        )
+        if (!found.rowCount) return c.json({ error: 'Reserved customer environment not found.' }, 404)
+        const row = found.rows[0]
+        const eligibility = provisionRequestEligibility({
+          deploymentMode: deployment.deploymentMode,
+          tenancyMode: deployment.tenancyMode,
+          tenantSlug: row.slug,
+          environment,
+          status: row.provisioning_status,
+          tenantStatus: row.tenant_status,
+        })
+        if (!eligibility.allowed) return c.json({ error: eligibility.reason, code: eligibility.code }, 409)
+
+        const existing = await db.query(
+          `SELECT id,state,requested_at FROM tenant_environment_provision_requests
+            WHERE tenant_id=$1 AND environment=$2 AND state IN ('requested','claimed')
+            ORDER BY requested_at DESC LIMIT 1`,
+          [tenantId, environment],
+        )
+        if (existing.rowCount) return c.json({ request: existing.rows[0], alreadyQueued: true }, 200)
+        const created = await db.query(
+          `INSERT INTO tenant_environment_provision_requests
+             (tenant_id,environment,requested_by)
+           VALUES ($1,$2,$3)
+           RETURNING id,environment,state,requested_at`,
+          [tenantId, environment, auth.session.user_id],
+        )
+        await audit(c, auth.session, 'tenant.environment.provision_requested',
+          'tenant_environment', tenantId, { environment, requestId: created.rows[0].id }, db)
+        return c.json({ request: created.rows[0], provisioningStarted: false }, 202)
+      })
+    } catch (error) {
+      if (error?.code === '23505') {
+        return c.json({ error: 'A provisioning request is already queued for this environment.' }, 409)
+      }
+      throw error
+    }
+  })
+
+  app.post('/api/platform/v1/tenants/:id/environments/:environment/cancel-provision', async (c) => {
+    const auth = await requireAdmin(c, WRITE_ROLES)
+    if (auth.error) return auth.error
+    const tenantId = clean(c.req.param('id'), 80)
+    const environment = clean(c.req.param('environment'), 20).toLowerCase()
+    if (!['uat','test'].includes(environment)) return c.json({ error: 'Invalid customer environment.' }, 400)
+
+    return await withTransaction(async (db) => {
+      const cancelled = await db.query(
+        `UPDATE tenant_environment_provision_requests
+           SET state='cancelled',updated_at=now(),completed_at=now()
+         WHERE id=(
+           SELECT id FROM tenant_environment_provision_requests
+           WHERE tenant_id=$1 AND environment=$2 AND state='requested'
+           ORDER BY requested_at DESC LIMIT 1 FOR UPDATE
+         )
+         RETURNING id,environment,state`,
+        [tenantId, environment],
+      )
+      if (!cancelled.rowCount) return c.json({
+        error: 'No cancellable pending request. An already claimed request requires operator review.',
+      }, 409)
+      await audit(c, auth.session, 'tenant.environment.provision_cancelled',
+        'tenant_environment', tenantId, { environment, requestId: cancelled.rows[0].id }, db)
+      return c.json({ request: cancelled.rows[0] })
+    })
   })
 
   app.post('/api/platform/v1/tenants', async (c) => {
