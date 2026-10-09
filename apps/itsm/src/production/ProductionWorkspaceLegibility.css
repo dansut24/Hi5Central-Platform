@@ -43,3 +43,14 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
   html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary > p { font-size: 13px !important; }
   html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card p { font-size: 14px !important; }
 }
+
+/* The end-user portal is the fourth Hi5Central surface: readable without
+   inheriting internal technician chrome or navigation styles. */
+html[data-hi5-surface='portal'] .prp-shell { font-size: 14px; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-header nav button,.prp-user strong,.prp-request-list strong,.prp-timeline strong) { font-size: 14px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-category,.prp-request-list small,.prp-request-list em,.prp-timeline time,.prp-status,.prp-progress-row small,.prp-muted) { font-size: 12px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-catalogue-card p,.prp-timeline p,.prp-request-form label,.prp-request-summary dt,.prp-info-list dt,.prp-request-summary dd,.prp-info-list dd) { font-size: 13px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(button,input,select,textarea) { font-size: max(13px,.82rem); }
+@media (max-width: 760px) {
+  html[data-hi5-surface='portal'] .prp-shell :is(input,select,textarea) { font-size: 16px !important; }
+}
