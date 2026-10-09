@@ -1378,6 +1378,14 @@ export function registerPlatformAdminRoutes(app) {
   app.post('/api/platform/v1/tenants', async (c) => {
     const auth = await requireAdmin(c, WRITE_ROLES)
     if (auth.error) return auth.error
+    // A single-tenant development installation must never create a customer
+    // whose generated workspace URL points back to the internal Dev tenant.
+    if (deployment.tenancyMode !== 'multi') {
+      return c.json({
+        error: 'Customer tenant creation requires the managed multi-tenant control plane. This installation is dedicated to one tenant.',
+        code: 'MULTI_TENANCY_REQUIRED',
+      }, 409)
+    }
     let body
     try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
     const companyName = clean(body?.companyName, 120)
