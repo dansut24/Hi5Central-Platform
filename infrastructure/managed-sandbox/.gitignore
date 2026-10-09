@@ -1,0 +1,8 @@
+# Real credentials, operational evidence and snapshots never belong in Git.
+runtime.env
+*.secret
+*.pem
+*.key
+*.dump
+*.backup
+*.log
