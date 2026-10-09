@@ -5,8 +5,15 @@ import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
-const COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_session' : 'hi5central_session'
-const PORTAL_COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_portal_session' : 'hi5central_portal_session'
+// Environment-qualified names prevent a native UAT/Test API session from
+// being interpreted as a Production session even with legacy browser cookies.
+const SESSION_PREFIX = deployment.runtimeEnvironment === 'dev'
+  ? 'hi5central_dev'
+  : deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
+    && ['uat','test'].includes(deployment.runtimeEnvironment)
+    ? `hi5central_${deployment.runtimeEnvironment}` : 'hi5central'
+const COOKIE_NAME = `${SESSION_PREFIX}_session`
+const PORTAL_COOKIE_NAME = `${SESSION_PREFIX}_portal_session`
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 12
 
 function hashToken(token) {
