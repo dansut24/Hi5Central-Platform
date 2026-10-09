@@ -166,11 +166,15 @@ function ManagedCustomerEnvironmentGateway({ surface }) {
       && window.location.hostname.toLowerCase() === expectedHost
       && window.location.protocol === 'https:'
     let api
-    try { api = new URL(apiBase) } catch { return undefined }
+    let configuredApi
+    try {
+      api = new URL(apiBase)
+      configuredApi = new URL(config.apiUrl)
+    } catch { return undefined }
     // Customer workspaces must never fall back to the Live API.
     if (!validScope || api.protocol !== 'https:'
         || api.hostname === `api.${config.rootDomain}`
-        || api.origin !== new URL(config.apiUrl).origin) return undefined
+        || api.origin !== configuredApi.origin) return undefined
 
     async function verify() {
       try {
