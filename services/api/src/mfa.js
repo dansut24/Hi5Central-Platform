@@ -18,6 +18,7 @@ import {
 } from './session.js'
 import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount, deployment } from './deploymentConfig.js'
 import { sandboxTenantAccess } from './managedSandboxAccess.js'
+import { secureLoginSurface } from './secureLoginSurface.js'
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
@@ -294,9 +295,9 @@ async function accountByIds(db, tenantId, userId) {
 
 // Match /auth/session: avoid returning a login response without the user's
 // saved first-login state, role grants or platform permissions.
-async function authenticatedLoginPayload(account) {
+async function authenticatedLoginPayload(account, surface = 'workspace') {
   const access = await effectiveAccessForUser(pool, account.tenant_id, account.user_id, account.tenant_role)
-  return sessionPayload(attachAccess(account, access, 'workspace'))
+  return sessionPayload(attachAccess(account, access, surface))
 }
 
 async function enabledMethod(db, tenantId, userId) {
@@ -475,9 +476,10 @@ export function registerMfaRoutes(app) {
         tenantId: account.tenant_id,
         userId: account.user_id,
         ttlSeconds: ttl,
+        surface: secureLoginSurface(c.req.header('origin'), c.req.header('referer')),
       }))
       setSessionCookie(c, token, ttl)
-      return c.json(await authenticatedLoginPayload(account))
+      return c.json(await authenticatedLoginPayload(account, secureLoginSurface(c.req.header('origin'), c.req.header('referer'))))
     }
 
     const result = await withTransaction(async (client) => {
@@ -603,6 +605,7 @@ export function registerMfaRoutes(app) {
         userId: account.user_id,
         mfaVerified: true,
         ttlSeconds: ttl,
+        surface: secureLoginSurface(c.req.header('origin'), c.req.header('referer')),
       })
       return {
         ok: true,
@@ -615,7 +618,7 @@ export function registerMfaRoutes(app) {
 
     if (!result.ok) return c.json({ error: result.error }, result.status)
     setSessionCookie(c, result.token, result.ttl)
-    return c.json({ ...await authenticatedLoginPayload(result.account), recoveryCodes: result.recoveryCodes })
+    return c.json({ ...await authenticatedLoginPayload(result.account, secureLoginSurface(c.req.header('origin'), c.req.header('referer'))), recoveryCodes: result.recoveryCodes })
   })
 
   app.get('/api/v1/mfa/status', async (c) => {
