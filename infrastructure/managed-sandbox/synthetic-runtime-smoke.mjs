@@ -37,6 +37,9 @@ if(frontendEntrypoint && (!frontendEntrypoint.startsWith('/tmp/hi5-phase14/')
   throw new Error('Only a local disposable test-only ITSM entrypoint under /tmp/hi5-phase14 is allowed.')
 }
 const environments=['uat','test']
+// Backward compatibility is opt-in for testing an already-published image.
+// The next rebuilt release must pass with this setting OFF.
+const legacyImage=process.env.HI5_PHASE14_ALLOW_OLD_IMAGE === '1'
 const entries=[]
 const created={containers:[],networks:[]}
 const wait = ms=>new Promise(resolve=>setTimeout(resolve,ms))
@@ -93,7 +96,7 @@ function apiEnv(e){
     MFA_ENCRYPTION_KEY:e.mfaKey,
     // The previously published API image still loads the disabled Connect module.
     // Supply a synthetic ephemeral key until the dedicated sandbox build lands.
-    CONNECT_CODE_HMAC_KEY:e.connectKey,
+    ...(legacyImage?{CONNECT_CODE_HMAC_KEY:e.connectKey}:{}),
     DB_POOL_MAX:'2',
   }
 }
@@ -217,6 +220,8 @@ async function main(){
     check(config.tenancyMode==='multi'&&config.runtimeEnvironment===env,
       env+' API reports incorrect runtime identity')
     check(config.backgroundWorkersEnabled===false,env+' background workers started')
+    check(config.adminUrl==='' || (legacyImage && config.adminUrl==='https://admin.hi5central.com'),
+      env+' API exposed an unapproved Admin URL')
     check(rmm.status===423 && connect.status===423,env+' RMM/Connect not locked')
     check(session.status===401,env+' unauthenticated session was accepted')
     check(Number(sql(e,'SELECT count(*) FROM tenants;').split('\n')[0])===0,
