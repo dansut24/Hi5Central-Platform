@@ -2,6 +2,11 @@ import { isValidCustomerSlug, managedTenantUrls } from './tenantEnvironmentHostn
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+// Shared UUID validator for the operator, preflight and bootstrap seeding.
+export function isValidUuid(value) {
+  return UUID.test(String(value ?? ''))
+}
+
 // Only minimal organisation identity is copied. Never copy users, password
 // hashes, sessions, API/agent tokens, device records, automations or tickets.
 export function suspendedTenantSeed({ request, environment, rootDomain, databaseInstanceId }) {
@@ -18,8 +23,8 @@ export function suspendedTenantSeed({ request, environment, rootDomain, database
     || !['pending','failed','provisioning'].includes(request.provisioning_status)) {
     throw new Error('Tenant or environment is not eligible for identity preparation.')
   }
-  if (!UUID.test(String(request.id)) || !UUID.test(String(request.tenant_id))
-    || !UUID.test(String(databaseInstanceId))) {
+  if (!isValidUuid(request.id) || !isValidUuid(request.tenant_id)
+    || !isValidUuid(databaseInstanceId)) {
     throw new Error('Provisioning identifiers are invalid.')
   }
   const companyName = String(request.company_name || '').trim()
