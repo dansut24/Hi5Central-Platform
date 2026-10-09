@@ -3,6 +3,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { attachAccess, effectiveAccessForUser, expandedPermissions } from './access.js'
 import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { environmentSessionCookieNames } from './tenantEnvironmentHostnames.js'
+import { isManagedCustomerSandbox } from './managedSandboxPolicy.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
@@ -21,6 +22,9 @@ function bearerToken(c) {
 }
 
 async function resolveApiToken(c, token) {
+  // Sandbox access must go through environment-local MFA; imported or leaked
+  // personal access tokens cannot bypass that rule during isolation rollout.
+  if (isManagedCustomerSandbox(deployment)) return null
   if (!token || !token.startsWith('hi5_pat_')) return null
   const tokenHash = hashToken(token)
   const result = await pool.query(
