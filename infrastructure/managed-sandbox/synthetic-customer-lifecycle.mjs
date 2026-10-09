@@ -1,0 +1,193 @@
+import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
+
+const nodeHttpDriver = String.raw`
+(async()=>{
+  let buffer=''
+  for await(const chunk of process.stdin) buffer+=String(chunk)
+  const {path,method,origin,cookie,body}=JSON.parse(buffer)
+  const headers={'content-type':'application/json',Origin:origin}
+  if(cookie) headers.Cookie=cookie
+  const res=await fetch('http://127.0.0.1:3001'+path,{
+    method,headers,
+    body:method==='GET'?undefined:JSON.stringify(body??{}),
+    signal:AbortSignal.timeout(6000),redirect:'manual',
+  })
+  const raw=await res.text()
+  let data
+  try{data=JSON.parse(raw)}catch{data={error:'unexpected_non_json',length:raw.length}}
+  process.stdout.write(JSON.stringify({
+    status:res.status,
+    data,
+    cookie:res.headers.get('set-cookie')||'',
+    cacheControl:res.headers.get('cache-control')||'',
+  }))
+})().catch(error=>{console.error('Synthetic API request failed:',error.message);process.exitCode=2})
+`
+
+function request(e,{path,method='GET',body=null,origin=null,cookie=''}) {
+  const payload=JSON.stringify({
+    path,method,body,cookie,
+    origin:origin===null?`https://${e.customerSlug}${e.env}.hi5central.com`:origin,
+  })
+  const result=spawnSync('docker',['exec','-i',e.api,'node','-e',nodeHttpDriver],{
+    input:payload,encoding:'utf8',timeout:10000,maxBuffer:1024*1024,
+  })
+  if(result.status!==0)throw new Error(
+    'Sandbox API request process failed: '+String(result.stderr||'').slice(0,240)
+  )
+  return JSON.parse(result.stdout)
+}
+function expect(response,status,step) {
+  if(response.status!==status)throw new Error(step+' expected '+status+' got '+
+    response.status+' code='+(response.data?.code||'none')+
+    ' error='+String(response.data?.error||'').slice(0,160))
+}
+function totp(secret) {
+  const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
+  let bits=0,acc=0
+  const bytes=[]
+  for(const char of secret.toUpperCase().replace(/=+$/,'')){
+    const n=letters.indexOf(char)
+    if(n<0)throw new Error('Malformed synthetic MFA secret')
+    acc=(acc<<5)|n;bits+=5
+    if(bits>=8){bits-=8;bytes.push((acc>>>bits)&255)}
+  }
+  const input=Buffer.alloc(8)
+  input.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)))
+  const mac=createHmac('sha1',Buffer.from(bytes)).update(input).digest()
+  return String((mac.readUInt32BE(mac[19]&15)&0x7fffffff)%1_000_000).padStart(6,'0')
+}
+function insertTenant(e,sql) {
+  const tid=randomUUID(),controlTid=randomUUID(),requestId=randomUUID()
+  e.customerSlug=e.env==='uat'?'synthacme':'synthbravo'
+  e.customerId=tid
+  e.requestId=requestId
+  e.ownerEmail=`first-owner-${e.env}@example.invalid`
+  e.ownerPassword='Phase15-Synthetic-Strong-Passphrase!'
+  e.ownerToken=randomBytes(32).toString('base64url')
+  const tokenHash=createHash('sha256').update(e.ownerToken).digest('hex')
+  const commonHost=`${e.customerSlug}${e.env}.hi5central.com`
+  sql(e,`INSERT INTO tenants (id,slug,company_name,status)
+    VALUES ('${tid}','${e.customerSlug}','Phase 15 synthetic ${e.env}','suspended');`)
+  sql(e,`INSERT INTO tenant_settings
+    (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
+    VALUES ('${tid}','{"itsm":true,"selfService":true,"rmm":false}'::jsonb,
+    'complete','https://${commonHost}',
+    'https://${e.customerSlug}${e.env}-portal.hi5central.com',NULL);`)
+  sql(e,`INSERT INTO managed_environment_tenant_bootstrap
+    (control_request_id,control_tenant_id,local_tenant_id,environment,
+     database_instance_id,expected_hostname)
+    VALUES ('${requestId}','${controlTid}','${tid}','${e.env}',
+      '${e.instanceId}','${commonHost}');`)
+  sql(e,`INSERT INTO managed_environment_invitations
+     (tenant_id,email,name,role,token_hash,expires_at)
+     VALUES ('${tid}','${e.ownerEmail}','Synthetic First Owner','owner',
+     '${tokenHash}',now()+interval '24 hours');`)
+}
+const acceptPath='/api/v1/auth/sandbox-invitations/accept'
+const loginPath='/api/v1/auth/login-secure'
+const sessionPath='/api/v1/auth/session'
+const invitationIssuePath='/api/v1/auth/sandbox-invitations/issue'
+function acceptance(e,opts={}){
+  return request(e,{path:acceptPath,method:'POST',body:{
+    tenantSlug:e.customerSlug,token:e.ownerToken,password:e.ownerPassword,
+  },...opts})
+}
+
+export async function runSyntheticCustomerLifecycle(entries,sql,report){
+  for(const e of entries){
+    insertTenant(e,sql)
+    // A tenant identity and a token are NOT an activation.
+    expect(acceptance(e),423,e.env+' suspended invitation')
+    sql(e,`INSERT INTO managed_environment_access_approvals
+      (tenant_id,bootstrap_request_id,state,approved_by,approved_at)
+      VALUES ('${e.customerId}','${e.requestId}','approved',
+       'synthetic-independent-reviewer',now());`)
+    expect(acceptance(e),423,e.env+' approved but still suspended')
+    sql(e,`UPDATE tenants SET status='active' WHERE id='${e.customerId}';`)
+    const origin=`https://${e.customerSlug}${e.env}.hi5central.com`
+    expect(acceptance(e,{origin:`https://other${e.env}.hi5central.com`}),
+      403,e.env+' wrong-origin invitation')
+    const accepted=acceptance(e)
+    expect(accepted,200,e.env+' initial owner invite acceptance')
+    if(!accepted.data?.mfaRequired || accepted.cookie)
+      throw new Error(e.env+' invitation bypassed mandatory MFA')
+    expect(acceptance(e),401,e.env+' invite token replay')
+    const login=request(e,{path:loginPath,method:'POST',body:{
+      tenantSlug:e.customerSlug,email:e.ownerEmail,password:e.ownerPassword,
+    }})
+    expect(login,200,e.env+' secure login challenge')
+    if(!login.data?.mfaRequired || !login.data?.setupRequired
+       || login.cookie || !login.data.challengeToken)
+      throw new Error(e.env+' password login bypassed MFA challenge')
+    const token=login.data.challengeToken
+    const wrongOrigin=request(e,{path:'/api/v1/auth/mfa/setup',method:'POST',
+      body:{challengeToken:token},origin:`https://other${e.env}.hi5central.com`})
+    expect(wrongOrigin,403,e.env+' MFA setup other-origin')
+    const setup=request(e,{path:'/api/v1/auth/mfa/setup',method:'POST',
+      body:{challengeToken:token}})
+    expect(setup,200,e.env+' MFA setup')
+    if(!setup.data?.secret)throw new Error(e.env+' authenticator seed missing')
+    const correctCode=totp(setup.data.secret)
+    const incorrectCode=correctCode==='000000'?'000001':'000000'
+    const bad=request(e,{path:'/api/v1/auth/mfa/verify',method:'POST',
+      body:{challengeToken:token,code:incorrectCode}})
+    expect(bad,401,e.env+' wrong TOTP rejected')
+    const verified=request(e,{path:'/api/v1/auth/mfa/verify',method:'POST',
+      body:{challengeToken:token,code:correctCode}})
+    expect(verified,200,e.env+' correct TOTP')
+    if(!verified.cookie || !verified.cookie.includes('HttpOnly') ||
+      !verified.cookie.includes('Secure') ||
+      /Domain=/i.test(verified.cookie))
+      throw new Error(e.env+' session cookie lacks security or is parent-domain scoped')
+    e.ownerCookie=verified.cookie.split(';')[0]
+    const session=request(e,{path:sessionPath,cookie:e.ownerCookie})
+    expect(session,200,e.env+' owner session')
+    // The same cookie must be rejected from a different customer Origin.
+    const crossed=request(e,{path:sessionPath,cookie:e.ownerCookie,
+      origin:`https://other${e.env}.hi5central.com`})
+    expect(crossed,401,e.env+' cross-customer origin session')
+    const noOrigin=request(e,{path:sessionPath,cookie:e.ownerCookie,origin:''})
+    expect(noOrigin,401,e.env+' origin-less session')
+    const wrongInvite=request(e,{path:invitationIssuePath,method:'POST',
+      cookie:e.ownerCookie,origin:`https://other${e.env}.hi5central.com`,
+      body:{email:'requester@example.invalid',name:'Request User',role:'requester'}})
+    expect(wrongInvite,401,e.env+' cross-customer invitation session')
+    if(Number(sql(e,'SELECT count(*) FROM tenant_memberships;').split('\n')[0])!==1)
+      throw new Error(e.env+' unexpected memberships after owner invite')
+    report(e.env,'synthetic invite one-time, MFA challenge and TOTP, host-only session, cross-customer denial PASS')
+  }
+
+  for(const e of entries){
+    const other=entries.find(x=>x!==e)
+    const cookieCross=request(other,{path:sessionPath,cookie:e.ownerCookie})
+    expect(cookieCross,401,e.env+' cross-environment cookie')
+    report(e.env,'cross-environment cookie denied')
+  }
+
+  for(const e of entries){
+    sql(e,`UPDATE managed_environment_access_approvals
+        SET state='revoked',reviewed_at=now() WHERE tenant_id='${e.customerId}';`)
+    const revoked=request(e,{path:sessionPath,cookie:e.ownerCookie})
+    expect(revoked,401,e.env+' approval revocation invalidates existing session')
+    const denied=request(e,{path:loginPath,method:'POST',body:{
+      tenantSlug:e.customerSlug,email:e.ownerEmail,password:e.ownerPassword,
+    }})
+    expect(denied,423,e.env+' revoked approval denies new login')
+    sql(e,`UPDATE tenants SET status='suspended' WHERE id='${e.customerId}';`)
+    const noSession=request(e,{path:sessionPath,cookie:e.ownerCookie})
+    expect(noSession,401,e.env+' suspended tenant revokes session')
+    const noLogin=request(e,{path:loginPath,method:'POST',body:{
+      tenantSlug:e.customerSlug,email:e.ownerEmail,password:e.ownerPassword,
+    }})
+    expect(noLogin,403,e.env+' suspended tenant denies login')
+    report(e.env,'approval revocation and tenant suspension deny sessions and login')
+  }
+  return {
+    environments:entries.map(e=>e.env),
+    syntheticCustomers:entries.length,
+    approvedExternalCustomers:0,
+    status:'synthetic_customer_lifecycle_passed',
+  }
+}
