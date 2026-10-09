@@ -90,3 +90,14 @@ export function classifyManagedCustomerOrigin(origin, rootDomain = 'hi5central.c
   const resolved = classifyManagedCustomerHostname(baseHost, domain)
   return resolved ? { ...resolved, product } : null
 }
+
+export function environmentSessionCookieNames({ runtimeEnvironment, deploymentMode, tenancyMode }) {
+  const prefix = runtimeEnvironment === 'dev' ? 'hi5central_dev'
+    : deploymentMode === 'managed' && tenancyMode === 'multi'
+      && ['uat','test'].includes(runtimeEnvironment)
+      ? `hi5central_${runtimeEnvironment}` : 'hi5central'
+  return {
+    workspace: `${prefix}_session`,
+    portal: `${prefix}_portal_session`,
+  }
+}
