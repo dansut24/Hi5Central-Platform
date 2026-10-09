@@ -3187,12 +3187,10 @@ function WorkspaceRuntime() {
             <div
               className="tab-list"
               data-tab-density={tabs.length >= 18 ? 'ultra' : tabs.length >= 12 ? 'dense' : tabs.length >= 8 ? 'compact' : 'normal'}
-              // Defining the tracks directly avoids CSS variable parsing or
-              // stale flex sizing leaving later tabs clipped in a crowded header.
-              style={{
-                gridTemplateColumns: `repeat(${Math.max(1, tabs.length)}, minmax(0, 1fr)) 28px`,
-                '--hi5-tab-max-width': `${tabs.length * 136 + 28}px`,
-              }}
+              // The desktop header uses zero-basis flex children. This cap
+              // limits the WIDTH of the whole tab group only when tabs are few;
+              // it never fixes the width of any individual tab.
+              style={{ '--hi5-tab-group-width': `${tabs.length * 136 + 28}px` }}
               ref={tabListRef}
             >
             {tabs.map((tab) => {
