@@ -105,7 +105,9 @@ export function registerManagedSandboxInvitationRoutes(app) {
         [session.tenant_id,email,name,role,invitationHash(token),session.user_id,INVITATION_TTL_HOURS],
       )
       return { token, id:issued.rows[0].id,expiresAt:issued.rows[0].expires_at,
-        companyName:approved.row.company_name,tenantUrl:approved.row.tenant_url }
+        companyName:approved.row.company_name,
+        // Requesters must land in their Portal, not the staff ITSM workspace.
+        tenantUrl:role==='requester' ? approved.row.portal_url : approved.row.tenant_url }
     })
     if(invited.locked) return unavailable(c)
     if(invited.rateLimited) return c.json({ error:'Invitation limit reached for this environment.' },429)
