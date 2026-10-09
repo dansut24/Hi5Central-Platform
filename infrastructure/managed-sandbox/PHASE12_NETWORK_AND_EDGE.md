@@ -121,3 +121,29 @@ a real isolated pilot here.
 **No tenant approvals, customer invitations, customer containers or public
 gateway connections were created in Phase 12.** The prepared networks remain
 empty and are NOT a readiness authorisation.
+
+## Follow-up: public ingress denial fixed (9 October 2026)
+
+The HTTP 200 wildcard fallback described above has now been corrected **in the
+active, persistent public Caddyfile**. The original observations are retained
+as historical audit evidence. Hostname-specific routes for unapproved UAT/Test
+and all `pilot-*` names return HTTP 404; otherwise unmatched HTTPS virtual
+hosts (including trailing-dot Host headers) return HTTP 421. Case-insensitive
+host matching prevents mixed-case bypasses. A separate default HTTPS route
+handles names that Caddy's wildcard host matcher does not select.
+
+The latest deployment included automatic rollback on any regression;
+**49 of 49 public HTTP checks passed**, and the independent Phase 12 public
+DNS/TLS audit returned **zero findings** (pilot approval stays false).
+Production applications, Dev, and legacy UAT/Test routes remained healthy;
+no customer containers, users, DNS records or pilot gateway connections were
+created. The deployed public gateway was reloaded in place without restart.
+
+The exact production file was backed up on the VPS before changes:
+`/opt/hi5central/deployment/Caddyfile.pre-phase13-20261009T224240Z`.
+A second working-config backup exists for the hardening/catchall change:
+`/opt/hi5central/deployment/Caddyfile.pre-phase13-complete-20261009T224913Z`.
+
+See `PUBLIC_INGRESS_FIX.md` for details, rollback and source-controlled
+patterns. The original requirement for independently approved customer DNS/TLS,
+separate runtime/database/Redis attestation, MFA and browser tests remains.
