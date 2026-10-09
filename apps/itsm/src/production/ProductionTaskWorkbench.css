@@ -1,6 +1,6 @@
 /* Shared task details: compact record | activity | context, same as ITSM records. */
 html[data-hi5-surface='workspace'] .task-record-workbench {
- display:grid;grid-template-rows:auto auto auto minmax(0,1fr);gap:7px;
+ display:grid;grid-template-rows:auto auto auto auto minmax(0,1fr);gap:5px;
  width:100%;height:100%;min-height:0;padding:6px 11px 10px;
  overflow:hidden;color:var(--ink);background:var(--page);
 }
@@ -43,6 +43,8 @@ html[data-hi5-surface='workspace'] .task-record-workbench {
 .task-record-context-parent strong{font-size:12px;overflow-wrap:anywhere}
 .task-record-context-parent small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
 .task-record-context-parent:disabled{opacity:.5;cursor:not-allowed}
+.task-record-feedback:empty{height:0;min-height:0;}
+.task-record-feedback{display:grid;gap:4px;min-height:0;}
 .task-record-alert,.task-record-notice{display:flex;align-items:center;gap:7px;margin:0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:12px}
 .task-record-alert{border-color:rgba(193,54,54,.34);color:#ad3636}
 .task-record-notice{border-color:rgba(var(--accent-rgb),.24);color:var(--ink)}
