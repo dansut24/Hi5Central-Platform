@@ -103,6 +103,25 @@ that no unapproved customer `*uat`/`*test` hostname resolves to Production.
 The new project names and network aliases deliberately avoid the old stacks.
 No existing container or route is modified by this blueprint.
 
+## Read-only DNS/TLS gateway route planning
+
+From a checked-out monorepo, generate a reviewed route plan without
+modifying the gateway:
+
+```sh
+node infrastructure/managed-sandbox/plan-routes.mjs --environment uat --tenant acme
+node infrastructure/managed-sandbox/plan-routes.mjs --environment test --tenant acme
+```
+
+The planner validates customer slug reservations, calculates the exact
+workspace/Portal/API hostnames, dedicated proxy targets and expected edge
+network, and sets `deploymentChanges`, `dnsChanges`, and `tlsChanges`
+to `false`. It refuses Live/Dev and disallowed tenant names. This is a
+route **plan**, not a deployed Caddyfile. An independently reviewed change must
+install the exact routes after proving no conflict with legacy UAT/Test
+gateways, no wildcard Production fallback, working TLS, and environment-local
+API/session behaviour.
+
 ## Automated evidence
 
 `node --test infrastructure/managed-sandbox/validate.test.mjs` runs
