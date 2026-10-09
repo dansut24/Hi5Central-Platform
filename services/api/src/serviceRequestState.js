@@ -1,5 +1,6 @@
 import { effectiveAccessForUser, hasPermission } from './access.js'
 import { pool, withTransaction } from './db.js'
+import { syncServiceRequestTaskFlow } from './serviceRequestTaskFlow.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 
@@ -473,6 +474,13 @@ export function registerServiceRequestStateRoutes(app) {
         )
 
         if (changeStatus && body.status === 'Completed') await unlockReadyTasks(client, task.request_id)
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          await syncServiceRequestTaskFlow(client, {
+            tenantId:auth.session.tenant_id,requestId:task.request_id,
+            actorUserId:auth.session.user_id,actorPersonId:actor.person?.id,
+            actorSnapshot:actor.snapshot,triggeringTaskKey:task.external_key,taskStatus:body.status,
+          })
+        }
         const updated = await taskByKey(client, auth.session.tenant_id, task.external_key)
         return taskFromRow(updated)
       })
