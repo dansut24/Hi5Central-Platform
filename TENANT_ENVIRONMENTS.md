@@ -331,6 +331,37 @@ Connect networking and live UAT/Test application hosts remain untouched.
 Release remains blocked for customers until those checks and configuration
 promotion/release-channel controls are independently verified.
 
+## Phase 10 — dedicated sandbox runtime preflight, not a live pilot
+
+The source directory `infrastructure/managed-sandbox/` now includes a
+fail-closed Compose blueprint and CLI preflight. Each managed multi-tenant
+UAT/Test environment has its own project, PostgreSQL/Redis volumes, internal
+data network, and distinct gateway-facing edge network. Only the environment
+API and ITSM/Portal frontend attach to that environment's gateway network.
+No RMM, TURN or Platform Admin service is part of this blueprint. All
+PostgreSQL, Redis, API and ITSM artifacts require immutable OCI digests.
+
+A read-only command compares two `chmod 600` runtime configuration files
+and validates the actual Docker Compose render. Separate tests reject
+mutable image tags, reused credentials, shared Redis/database endpoints,
+Prod API origins, session cookie domains, host-port exposure and insecure
+container networks. A separate route planner prints the exact approved
+tenant hostnames and proxy targets **without publishing DNS or TLS**.
+
+**VPS blocker discovered:** existing `hi5central-uat` and
+`hi5central-test` stacks are legacy **single-tenant** deployments
+running RMM and TURN. They are not customer-ready multi-tenant sandboxes.
+No old stacks were changed. Their owners must reconcile data and routing,
+and review stale wildcard Live routes, before any pilot. The new sandbox
+projects intentionally have different names and never reuse legacy volumes.
+
+All Phase 10 changes are on `develop` source and CI only; neither the
+deployed single-tenant engineering Dev nor Production is modified.
+Customer activation requires independently authenticated operator approval,
+documented instance/Redis identity attestations, verified edge-network
+membership, DNS/TLS, environment-local login/MFA browser testing and
+recorded rollback evidence before a controlled pilot can open.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
