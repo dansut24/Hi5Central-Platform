@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { resolveTenantSurface } from '../src/lib/tenantSurface.js'
+import { resolveTenantSurface,markManagedWorkspaceVerified } from '../src/lib/tenantSurface.js'
 
 const locationFor = hostname => ({
   hostname, origin: `https://${hostname}`, pathname: '/', search: '',
@@ -44,4 +44,16 @@ test('self-hosted MSP does not inherit managed tenant suffix rules', () => {
   const surface = resolveTenantSurface(locationFor('acmetest.msp.example.com'))
   assert.equal(surface.kind, 'workspace')
   assert.equal(surface.tenantSlug, 'acmetest')
+})
+
+test('only the exact verified UAT workspace hostname transitions from pending to workspace',()=>{
+  globalThis.window = { __HI5_CONFIG__:{tenancyMode:'multi',deploymentMode:'managed',rootDomain:'hi5central.com',runtimeEnvironment:'uat'} }
+  markManagedWorkspaceVerified({hostname:'acmeuat.hi5central.com',tenantSlug:'acme',environment:'uat'})
+  assert.equal(resolveTenantSurface(locationFor('acmeuat.hi5central.com')).kind,'workspace')
+  assert.equal(resolveTenantSurface(locationFor('acmeuat-rmm.hi5central.com')).kind,'environment-pending')
+  assert.equal(resolveTenantSurface(locationFor('acmeuat-portal.hi5central.com')).kind,'environment-pending')
+  assert.equal(resolveTenantSurface(locationFor('acmetest.hi5central.com')).kind,'environment-pending')
+  assert.equal(resolveTenantSurface(locationFor('otheruat.hi5central.com')).kind,'environment-pending')
+  markManagedWorkspaceVerified({hostname:'',tenantSlug:'',environment:''})
+  assert.equal(resolveTenantSurface(locationFor('acmeuat.hi5central.com')).kind,'environment-pending')
 })
