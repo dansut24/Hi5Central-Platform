@@ -93,7 +93,8 @@ export function TaskWorkbenchFrame({
     <div className="task-record-three-panel">
       <aside className="task-record-info-rail" aria-label="Task information">{left}</aside>
       <main className="task-record-main" aria-label={tab==='activity'?'Task activity':'Task details'}>
-        {tab==='activity'?activity:<div className="task-record-details-content">{details || <p>Task information and controls are available in the left panel.</p>}</div>}
+        <div className="task-record-activity-slot" hidden={tab!=='activity'}>{activity}</div>
+        <div className="task-record-details-content" hidden={tab!=='details'}>{details || <p>Task information and controls are available in the left panel.</p>}</div>
       </main>
       <aside className="task-record-context-rail" aria-label="Parent record context">
         <h2>{parentType} context</h2>
