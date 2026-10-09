@@ -80,6 +80,7 @@ import './production/ProductionPlanningWorkbenchPolish.css'
 import './production/ProductionCalendarTeams.css'
 import './production/ProductionProjectWorkbench.css'
 import './production/ProductionOrganisationKnowledgeLayout.css'
+import './production/ProductionLiquidGlassTabs.css'
 
 installWorkspaceTabSessionIsolation()
 

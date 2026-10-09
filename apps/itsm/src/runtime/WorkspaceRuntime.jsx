@@ -1825,8 +1825,8 @@ function WorkspaceRuntime() {
     event.stopPropagation()
     closeHeaderOverlays()
 
-    const menuWidth = 218
-    const menuHeight = 226
+    const menuWidth = 230
+    const menuHeight = 282
     const x = Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))
     const y = Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
 
@@ -1894,6 +1894,15 @@ function WorkspaceRuntime() {
   function closeOtherTabs(tabKey) {
     closeTabGroup(
       tabs.filter((tab) => !tab.pinned && tab.key !== tabKey).map((tab) => tab.key),
+      tabKey,
+    )
+  }
+
+  function closeTabsToLeft(tabKey) {
+    const targetIndex = tabs.findIndex((tab) => tab.key === tabKey)
+    if (targetIndex < 0) return
+    closeTabGroup(
+      tabs.slice(0, targetIndex).filter((tab) => !tab.pinned).map((tab) => tab.key),
       tabKey,
     )
   }
@@ -3362,6 +3371,14 @@ function WorkspaceRuntime() {
               type="button"
             >
               Close other tabs
+            </button>
+            <button
+              disabled={!tabs.slice(0, tabs.findIndex((tab) => tab.key === contextMenuTab.key)).some((tab) => !tab.pinned)}
+              onClick={() => closeTabsToLeft(contextMenuTab.key)}
+              role="menuitem"
+              type="button"
+            >
+              Close tabs to the left
             </button>
             <button
               disabled={!tabs.slice(tabs.findIndex((tab) => tab.key === contextMenuTab.key) + 1).some((tab) => !tab.pinned)}

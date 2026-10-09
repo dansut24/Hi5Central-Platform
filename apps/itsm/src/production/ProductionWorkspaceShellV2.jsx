@@ -54,22 +54,18 @@ function semanticTabIdentity(tab) {
 
 function dedupeWorkspaceTabs(tabs) {
   const result = []
-  const indexByIdentity = new Map()
-
+  const indexByKey = new Map()
+  // A duplicated workspace keeps its own key even when title/module match.
   for (const tab of tabs) {
-    const identity = semanticTabIdentity(tab)
-    const existingIndex = indexByIdentity.get(identity)
-
-    if (existingIndex === undefined) {
-      indexByIdentity.set(identity, result.length)
+    const identity = tab.key || semanticTabIdentity(tab)
+    const index = indexByKey.get(identity)
+    if (index === undefined) {
+      indexByKey.set(identity, result.length)
       result.push(tab)
-      continue
+    } else if (tab.active && !result[index].active) {
+      result[index] = tab
     }
-
-    const existing = result[existingIndex]
-    if (tab.active && !existing.active) result[existingIndex] = tab
   }
-
   return result
 }
 
@@ -123,18 +119,21 @@ function syncReactInput(input, value) {
   return true
 }
 
-function invokeLegacyContextAction(tabKey, actionPrefix) {
+function openNativeTabContextMenu(tabKey, x, y) {
   const target = originalTabButton(tabKey)
   if (!(target instanceof HTMLElement)) return
-
-  document.body.classList.add('hi5-workspace-v2-programmatic-tab-menu')
   target.dispatchEvent(new MouseEvent('contextmenu', {
     bubbles: true,
     cancelable: true,
-    clientX: 4,
-    clientY: 4,
+    clientX: x,
+    clientY: y,
     view: window,
   }))
+}
+
+function invokeLegacyContextAction(tabKey, actionPrefix) {
+  document.body.classList.add('hi5-workspace-v2-programmatic-tab-menu')
+  openNativeTabContextMenu(tabKey, 4, 4)
 
   window.requestAnimationFrame(() => {
     const menu = document.querySelector('.tab-context-menu')
@@ -354,13 +353,14 @@ export function ProductionWorkspaceShellV2() {
                 tab.key === 'livechat' || tab.module === 'livechat' ? 'is-livechat' : '',
                 tab.dirty ? 'is-dirty' : '',
               ].filter(Boolean).join(' ')}
-              key={semanticTabIdentity(tab)}
+              key={tab.key}
               ref={tab.active ? activeTabRef : undefined}
               onContextMenu={(event) => {
+                if (!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches) return
                 event.preventDefault()
-                if (tab.key !== 'livechat' && tab.key !== 'newtab') {
-                  invokeLegacyContextAction(tab.key, 'Duplicate tab')
-                }
+                event.stopPropagation()
+                setWorkspaceMenuOpen(false)
+                openNativeTabContextMenu(tab.key, event.clientX, event.clientY)
               }}
             >
               <button
