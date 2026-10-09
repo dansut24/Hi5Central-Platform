@@ -4,6 +4,7 @@ import { attachAccess, effectiveAccessForUser, expandedPermissions } from './acc
 import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { environmentSessionCookieNames } from './tenantEnvironmentHostnames.js'
 import { isManagedCustomerSandbox } from './managedSandboxPolicy.js'
+import { sandboxTenantAccess } from './managedSandboxAccess.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
@@ -123,6 +124,11 @@ export async function createSession(client, {
 }) {
   const policy = await sessionPolicy(client, tenantId, userId)
   if (!policy) throw new Error('Could not resolve the tenant session policy.')
+  if (!await sandboxTenantAccess(client, deployment, tenantId)) {
+    const error = new Error('Customer environment access is not approved.')
+    error.status = 423
+    throw error
+  }
 
   const access = await effectiveAccessForUser(client, tenantId, userId, policy.tenant_role)
   const approvalPortalAccess = surface === 'portal' && !access.portalAccess
@@ -196,6 +202,7 @@ export async function resolveOnboardingSession(c) {
 
   const session = result.rows[0]
   if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
+  if (!await sandboxTenantAccess(pool, deployment, session.tenant_id)) return null
   if (!['owner', 'admin'].includes(session.tenant_role) && !session.onboarding_completed_at) return null
 
   pool.query(
@@ -237,6 +244,7 @@ export async function resolveSession(c) {
   if (!result.rowCount) return null
   const session = result.rows[0]
   if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
+  if (!await sandboxTenantAccess(pool, deployment, session.tenant_id)) return null
   if (sessionNeedsMfa(session)) {
     pool.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1', [session.session_id]).catch(() => {})
     return null
