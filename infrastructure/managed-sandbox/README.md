@@ -32,8 +32,12 @@ network memberships and firewall rules separately: a valid Compose model is
 3. Use the exact approved OCI manifest digests for all four images
    (Postgres, Redis, API, ITSM). The API and ITSM images must both be from the
    same reviewed release revision; a digest alone does not prove this.
-4. Use `https://uat-api.hi5central.com` or
-   `https://test-api.hi5central.com`. Do **not** set
+4. **For parallel pilot planning**, set
+   `SANDBOX_ROUTE_CHANNEL=parallel` and use
+   `https://pilot-uat-api.hi5central.com` or
+   `https://pilot-test-api.hi5central.com`. The canonical
+   `uat-api`/`test-api` routes belong to the existing legacy stacks
+   and must not be repointed without a separately approved cutover. Do **not** set
    `APP_URL`, `PORTAL_URL`, `ADMIN_URL`, `RMM_URL` or
    `COOKIE_DOMAIN`. Do **not** map sandbox API to the Live API.
    `BACKGROUND_WORKERS_ENABLED=false`; RMM remains locked.
@@ -121,6 +125,22 @@ route **plan**, not a deployed Caddyfile. An independently reviewed change must
 install the exact routes after proving no conflict with legacy UAT/Test
 gateways, no wildcard Production fallback, working TLS, and environment-local
 API/session behaviour.
+
+## Phase 11 read-only VPS reconciliation
+
+See [PHASE11_RECONCILIATION.md](./PHASE11_RECONCILIATION.md) for the inspected
+legacy UAT/Test inventory, canonical API route collisions, gateway/shared-edge
+risk, preservation requirements and proposed non-disruptive cutover checks.
+
+```sh
+node infrastructure/managed-sandbox/inventory-legacy.mjs --read-only
+node --test infrastructure/managed-sandbox/reconcile-legacy.test.mjs
+```
+
+The inventory never modifies Docker state, credentials, volumes or DNS. It
+sanitises output to resource names, statuses, project-specific routing and
+a narrow allowlist of runtime identity variables. The reconciler deliberately
+blocks activation and legacy deletion even if no current tenant records exist.
 
 ## Automated evidence
 
