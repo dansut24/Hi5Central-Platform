@@ -71,6 +71,7 @@ import './production/ProductionRecordDensity.css'
 import './production/ProductionWorkspaceLegibility.css'
 import './production/ProductionActivityFocus.css'
 import './production/ProductionRecordWorkbench.css'
+import './production/ProductionRecordLiquidGlass.css'
 
 installWorkspaceTabSessionIsolation()
 
