@@ -29,7 +29,7 @@ export function sanitizeActivityHtml(value) {
     const alt = tag === 'img' ? String($(node).attr('alt') || '').slice(0, 200) : ''
     const title = tag === 'a' ? String($(node).attr('title') || '').slice(0, 200) : ''
     const style = String($(node).attr('style') || '')
-    const align = style.match(/(?:^|;)\s*text-align\s*:\s*(center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase() || ''
+    const align = style.match(/(?:^|;)\s*text-align\s*:\s*(center|right|justify)\s*(?:;|$)/i)?.[1]?.toLowerCase() || String($(node).attr('class') || '').match(/(?:^|\s)rt-align-(center|right|justify)(?:\s|$)/)?.[1] || ''
     for (const name of Object.keys(node.attribs || {})) $(node).removeAttr(name)
     if (tag === 'a' && href) { $(node).attr('href', href).attr('rel', 'noopener noreferrer nofollow').attr('target', '_blank') }
     if (tag === 'img') {
