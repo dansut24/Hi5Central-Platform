@@ -9,8 +9,12 @@
 #
 # handle is required; a top-level "respond @unapprovedSandbox" is sorted
 # AFTER the existing handle directives by the Caddyfile adapter.
-# In CEL regexp strings use [.] instead of \. to avoid escape parsing errors.
-@unapprovedSandbox expression {http.request.host}.matches('^(?:[a-z0-9-]+(?:uat|test)(?:-(?:api|portal|rmm|admin|downloads|connect|turn))?|pilot-[a-z0-9-]+)[.]hi5central[.]com$')
+# (?i) handles mixed-case Host values. The top-level HTTPS catchall (separate\n# snippet) returns 421 for trailing-dot hosts if wildcard site selection fails.\n# In CEL regexp strings use [.] instead of \. to avoid escape parsing errors.
+@unapprovedSandbox expression {http.request.host}.matches('(?i)^(?:[a-z0-9-]+(?:uat|test)(?:-(?:api|portal|rmm|admin|downloads|connect|turn))?|pilot-[a-z0-9-]+)[.]hi5central[.]com[.]*
+handle @unapprovedSandbox {
+    respond "Not Found" 404
+}
+)
 handle @unapprovedSandbox {
     respond "Not Found" 404
 }
