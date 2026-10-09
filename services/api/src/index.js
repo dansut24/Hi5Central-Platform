@@ -60,6 +60,8 @@ import {
   setSessionCookie,
 } from './session.js'
 
+console.log('[API] Module imports loaded; registering routes...')
+
 const scryptAsync = promisify(scrypt)
 const app = new Hono()
 const port = Number(process.env.PORT || 3001)
@@ -707,9 +709,13 @@ app.onError((error, c) => {
   return c.json({ error: 'Internal server error' }, 500)
 })
 
+console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
+console.log('[API] PostgreSQL ready; connecting to Redis...')
 await ensureRedisConnected()
+console.log('[API] Redis ready; initializing RMM agent broker...')
 await initializeAgentBroker()
+console.log('[API] RMM agent broker initialized; starting schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
 if (backgroundWorkersEnabled) {
@@ -722,6 +728,7 @@ if (backgroundWorkersEnabled) {
 } else {
   console.log('Background workers disabled for this Control Server instance')
 }
+console.log('[API] Starting HTTP listener...')
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port })
 attachRmmAgentWebSocket(server)
 attachRmmViewerWebSocket(server)
