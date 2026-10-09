@@ -1,5 +1,3 @@
-import assert from 'node:assert/strict'
-
 const REQUIRED_RUNTIME = [
   'DEPLOYMENT_MODE','TENANCY_MODE','RUNTIME_ENVIRONMENT','ROOT_DOMAIN',
   'COMPOSE_PROJECT_NAME','EDGE_NETWORK','API_URL','MARKETING_URL',
@@ -8,7 +6,6 @@ const REQUIRED_RUNTIME = [
   'POSTGRES_IMAGE','REDIS_IMAGE','API_IMAGE','ITSM_IMAGE',
 ]
 const shaImage = /^[a-z0-9][a-z0-9./_-]*@sha256:[0-9a-f]{64}$/
-const uuid = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i
 
 export function parseEnvironment(text) {
   const values={}
