@@ -381,7 +381,7 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     display: flex !important;
     flex: 1 1 0% !important;
     align-items: center !important;
-    width: 100% !important;
+    width: 0 !important;
     min-width: 0 !important;
     max-width: 100% !important;
     overflow: clip !important;
@@ -392,14 +392,17 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar-tab-zone > .tab-list {
     display: flex !important;
     flex-flow: row nowrap !important;
-    flex: 0 1 auto !important;
+    /* The list must flex from ZERO inside the available header width.
+       flex-basis:auto + width:min(...) could retain an oversized content
+       basis, and the overflow:clip merely concealed the final tabs. */
+    flex: 1 1 0% !important;
     align-items: center !important;
     justify-content: flex-start !important;
     gap: 3px !important;
     box-sizing: border-box !important;
-    width: min(100%, var(--hi5-tab-group-width)) !important;
+    width: 0 !important;
     min-width: 0 !important;
-    max-width: 100% !important;
+    max-width: min(100%, var(--hi5-tab-group-width)) !important;
     height: 42px !important;
     margin: 0 !important;
     padding: 1px 0 !important;
