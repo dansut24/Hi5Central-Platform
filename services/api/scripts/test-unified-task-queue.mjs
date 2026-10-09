@@ -62,9 +62,17 @@ await check('Project Tasks view returns all active projects','project',['itsm.ta
   assert.match(page,/q\.source='project'/)
   assert.match(page,/NOT q\.is_complete/)
 })
-await check('Project source blocked without projects.view','project',['itsm.tasks.view'],(page)=>{
-  assert.match(page,/AND FALSE/,'project branch must be suppressed')
-})
+{
+  const db = mockDatabase()
+  const result = await unifiedTaskQueue(
+    {tenant_id:tenant,access:{permissions:['itsm.tasks.view']}},
+    paramsOf({scope:'project'}),viewer,db,
+  )
+  const page = db.queries.find(item=>item.sql.includes('SELECT q.* FROM queue q WHERE'))
+  assert.match(page.sql,/AND FALSE/,'project source cannot be queried without projects.view')
+  assert.deepEqual(result.filters.sources,['service-request'])
+  console.log('PASS project source suppressed without projects.view')
+}
 {
   const db = mockDatabase()
   const invalid = await unifiedTaskQueue({tenant_id:tenant,access:{permissions:['*']}},paramsOf({scope:'invalid'}),viewer,db)
