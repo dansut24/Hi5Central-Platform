@@ -61,7 +61,9 @@ export const deployment = Object.freeze((() => {
   const apiUrl = cleanUrl(process.env.API_URL, tenancyMode === 'single' ? appUrl : `https://api.${rootDomain}`)
   const portalUrl = cleanUrl(process.env.PORTAL_URL, tenancyMode === 'single' ? `${appUrl}/portal` : '')
   const rmmUrl = cleanUrl(process.env.RMM_URL, tenancyMode === 'single' ? `${appUrl}/rmm` : '')
-  const adminUrl = deploymentMode === 'self_hosted' && selfHostEdition === 'standard'
+  const managedSandbox = deploymentMode === 'managed' && tenancyMode === 'multi'
+    && ['uat','test'].includes(runtimeEnvironment)
+  const adminUrl = (deploymentMode === 'self_hosted' && selfHostEdition === 'standard') || managedSandbox
     ? ''
     : cleanUrl(process.env.ADMIN_URL, `https://admin.${rootDomain}`)
   if (deploymentMode === 'managed' && tenancyMode === 'multi'
