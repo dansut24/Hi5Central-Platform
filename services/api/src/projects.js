@@ -817,6 +817,8 @@ export function registerProjectRoutes(app) {
 
       const assigneeChanged = (assignee?.id || null) !== (current.assignee_person_id || null)
       const statusChanged = status !== current.status
+      const completionNote = statusChanged && status === 'Done' ? text(body?.completionNotes, 10000) : ''
+      if (statusChanged && status === 'Done' && Object.prototype.hasOwnProperty.call(body, 'completionNotes') && !completionNote) return { completionNoteRequired: true }
       const updated = await client.query(
         `UPDATE project_tasks SET
            title=$2,status=$3,priority=$4,assignee_person_id=$5,assignee_snapshot=$6::jsonb,
@@ -860,6 +862,12 @@ export function registerProjectRoutes(app) {
         bodyText: `updated “${updated.rows[0].title}”${changes.length ? `: ${changes.join(', ')}` : ''}`,
         metadata: { event: assigneeChanged ? 'project.task_assigned' : statusChanged ? 'project.task_status_changed' : 'project.task_updated', taskId: current.external_key, changes },
       })
+      if (completionNote) {
+        await addProjectActivity(client, {
+          session:auth.session,project,actor,kind:'task',bodyText:completionNote,
+          metadata:{event:'project.task.completed_note',taskId:current.external_key},
+        })
+      }
       const eventType = assigneeChanged ? 'project.task_assigned' : statusChanged ? 'project.task_status_changed' : 'project.task_updated'
       const eventId = await createDomainEvent(client, {
         tenantId: auth.session.tenant_id,
@@ -885,6 +893,7 @@ export function registerProjectRoutes(app) {
     if (result.notFound) return c.json({ error: 'Project not found.' }, 404)
     if (result.taskNotFound) return c.json({ error: 'Project task not found.' }, 404)
     if (result.invalidStatus) return c.json({ error: 'Unsupported task status.' }, 400)
+    if (result.completionNoteRequired) return c.json({ error: 'Add a completion note to finish this task.' }, 400)
     if (result.invalidPriority) return c.json({ error: 'Unsupported task priority.' }, 400)
     if (result.invalidAssignee) return c.json({ error: 'Choose an active technician as task assignee.' }, 400)
     if (result.invalidMilestone) return c.json({ error: 'Choose a milestone from this project.' }, 400)
