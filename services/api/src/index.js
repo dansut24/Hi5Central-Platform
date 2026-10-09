@@ -49,6 +49,7 @@ import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseF
 import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
+import { assertManagedRuntimeAttestation } from './managedRuntimeGuard.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
@@ -714,7 +715,8 @@ app.onError((error, c) => {
 
 console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
-console.log('[API] PostgreSQL ready; connecting to Redis...')
+await assertManagedRuntimeAttestation(pool, deployment)
+console.log('[API] Database environment attestation passed; connecting to Redis...')
 await ensureRedisConnected()
 console.log('[API] Redis ready; initializing RMM agent broker...')
 await initializeAgentBroker()
