@@ -362,6 +362,36 @@ documented instance/Redis identity attestations, verified edge-network
 membership, DNS/TLS, environment-local login/MFA browser testing and
 recorded rollback evidence before a controlled pilot can open.
 
+## Phase 11 — legacy UAT/Test coexistence and gateway route ownership
+
+The VPS was inspected **read-only**: legacy `hi5central-uat` and
+`hi5central-test` currently run as managed single-tenant stacks, retain
+RMM and TURN and have separate named PostgreSQL/Redis volumes. Their gateways
+use the existing shared `hi5central` edge. Aggregate legacy DB counts
+show 0 users/tenants/memberships/sessions, but roughly 175 MB of database
+storage each; other tables and volumes require retention classification.
+
+The canonical hostnames `uat-api.hi5central.com` and
+`test-api.hi5central.com` are already in those gateways' Caddyfiles.
+Existing DNS resolution for the canonical and sample customer suffix
+hostnames **is not proof** of TLS correctness or customer isolation.
+Phase 11 now adds a sanitized Docker inventory and fail-closed
+reconciler under `infrastructure/managed-sandbox/`, along with a
+`SANDBOX_ROUTE_CHANNEL=parallel` option using unpublished
+`pilot-uat-api.hi5central.com`/`pilot-test-api.hi5central.com` for a
+*future*, separately approved pilot.
+
+Thirteen local isolation/routing regression checks and the synthetic
+UAT/Test Compose preflights passed. The reconciler always reports
+`pilotActivationAllowed=false`, `routeChangesAllowed=false`, and
+`legacyRemovalAllowed=false`; a green CI build does not change this.
+See `infrastructure/managed-sandbox/PHASE11_RECONCILIATION.md` for
+preservation, backup/restore, DNS/TLS and operator decision gates.
+
+No existing UAT/Test services, gateways, Production routes, databases or
+DNS records were altered as part of Phase 11. New sandbox runtime instances
+have not been started.
+
 ## Next increments
 
 1. Choose and implement verified data isolation for a pilot tenant.
