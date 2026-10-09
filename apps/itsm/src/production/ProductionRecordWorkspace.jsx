@@ -1031,7 +1031,7 @@ function RecordWorkspace({ route }) {
   }
 
   const originalSummary = detail.description?.trim() || ''
-  const summaryLong = originalSummary.length > 280 || originalSummary.split('\n').length > 5
+  const summaryLong = originalSummary.length > 145 || originalSummary.split('\n').length > 4
   const renderRecordPanel = () => <aside className="record-lab-summary-rail" aria-label="Record summary">
     <section className="record-lab-panel record-lab-record-card">
       <div className="record-lab-record-identity">
@@ -1047,7 +1047,7 @@ function RecordWorkspace({ route }) {
       </div>
       <div className="record-lab-record-section">
         <div className="record-lab-record-section-label">{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</div>
-        <p className={`record-lab-record-description${summaryExpanded ? ' is-expanded' : ''}`}>{originalSummary || 'No description has been recorded.'}</p>
+        <p className={`record-lab-record-description${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>{originalSummary || 'No description has been recorded.'}</p>
         {summaryLong ? <button type="button" className="record-lab-record-expand" aria-expanded={summaryExpanded} onClick={() => setSummaryExpanded((open) => !open)}>{summaryExpanded ? 'Show less' : 'Read full description'}<ChevronDown size={13}/></button> : null}
       </div>
       <div className="record-lab-record-section">
@@ -1157,6 +1157,11 @@ function RecordWorkspace({ route }) {
         {error || notice ? <div className="record-lab-notices" role="status">
           {error ? <div className="record-lab-notice is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
           {notice ? <div className="record-lab-notice is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
+        </div> : null}
+        {workbenchMode === 'focus' ? <div className="record-lab-focus-identity">
+          <strong title={detail.title}>{detail.id || detail.reference} · {detail.title}</strong>
+          <LabPill tone={['Resolved', 'Closed', 'Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status}</LabPill>
+          <button type="button" onClick={() => setTab('sla')} title="Open SLA details"><Clock3 size={14}/>{primarySlaLabel}</button>
         </div> : null}
         <main className="record-lab-content">{tabContent}</main>
       </section>
