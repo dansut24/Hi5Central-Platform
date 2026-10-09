@@ -84,6 +84,7 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     if (!ref.current || initial.current) return
     ref.current.innerHTML = sanitizeNoteHtml(html || (text ? escapeRichText(text).replace(/\n/g,'<br>') : ''))
     initial.current = true
+    ref.current.focus()
   }, [html,text])
   const sync = () => {
     if (!ref.current) return
