@@ -219,31 +219,37 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
     const decoded=mail.stdout.replace(/=\r?\n/g,'').replace(/=3D/gi,'=')
     const link=decoded.match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
     if(!link)throw new Error(e.env+' email did not contain the one-time acceptance link')
+    const requesterPortalOrigin=`https://${e.customerSlug}${e.env}-portal.hi5central.com`
     const requesterPassword='Phase15-Requester-Strong-Passphrase!'
     const acceptedRequester=request(e,{path:acceptPath,method:'POST',body:{
       tenantSlug:e.customerSlug,token:link[1],password:requesterPassword,
-    }})
+    },origin:requesterPortalOrigin})
     expect(acceptedRequester,200,e.env+' requester redeems emailed link')
     if(acceptedRequester.cookie)throw new Error('Requester invitation bypassed MFA')
     const requesterLogin=request(e,{path:loginPath,method:'POST',body:{
       tenantSlug:e.customerSlug,email:requesterEmail,password:requesterPassword,
-    }})
+    },origin:requesterPortalOrigin})
     expect(requesterLogin,200,e.env+' requester login challenge')
     if(!requesterLogin.data?.mfaRequired || !requesterLogin.data.challengeToken
         || requesterLogin.cookie) throw new Error(e.env+' requester MFA skipped')
     const requesterChallenge=requesterLogin.data.challengeToken
     const requesterSetup=request(e,{path:'/api/v1/auth/mfa/setup',method:'POST',
-      body:{challengeToken:requesterChallenge}})
+      body:{challengeToken:requesterChallenge},origin:requesterPortalOrigin})
     expect(requesterSetup,200,e.env+' requester MFA enrolment')
     const requesterVerified=request(e,{path:'/api/v1/auth/mfa/verify',method:'POST',
-      body:{challengeToken:requesterChallenge,code:totp(requesterSetup.data.secret)}})
+      body:{challengeToken:requesterChallenge,code:totp(requesterSetup.data.secret)},
+      origin:requesterPortalOrigin})
     expect(requesterVerified,200,e.env+' requester MFA completed')
     e.requesterCookie=requesterVerified.cookie.split(';')[0]
     if(!e.requesterCookie)throw new Error(e.env+' requester session missing')
-    expect(request(e,{path:sessionPath,cookie:e.requesterCookie}),200,
+    expect(request(e,{path:sessionPath,cookie:e.requesterCookie,origin:requesterPortalOrigin}),200,
       e.env+' requester authenticated session')
+    // A customer Portal session must not authorize ITSM staff workspace.
+    expect(request(e,{path:sessionPath,cookie:e.requesterCookie}),401,
+      e.env+' requester Portal session cannot become staff workspace session')
     const forbidden=request(e,{
       path:invitationIssuePath,method:'POST',cookie:e.requesterCookie,
+      origin:requesterPortalOrigin,
       body:{email:'another-requester@example.invalid',name:'Another User',role:'requester'},
     })
     expect(forbidden,403,e.env+' requester RBAC denies invite')
@@ -273,7 +279,7 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
     sql(e,`UPDATE tenants SET status='suspended' WHERE id='${e.customerId}';`)
     const noSession=request(e,{path:sessionPath,cookie:e.ownerCookie})
     expect(noSession,401,e.env+' suspended tenant revokes session')
-    expect(request(e,{path:sessionPath,cookie:e.requesterCookie}),401,
+    expect(request(e,{path:sessionPath,cookie:e.requesterCookie,origin:`https://${e.customerSlug}${e.env}-portal.hi5central.com`}),401,
       e.env+' suspended tenant revokes requester session')
     const noLogin=request(e,{path:loginPath,method:'POST',body:{
       tenantSlug:e.customerSlug,email:e.ownerEmail,password:e.ownerPassword,
