@@ -15,7 +15,7 @@ function sandboxOriginAllowed(c, slug) {
   return Boolean(origin && originMatchesTenant(origin, slug))
 }
 
-async function invitationEligibility(db, slug) {
+export async function invitationEligibility(db, slug) {
   const { rows } = await db.query(
     `SELECT t.id,t.slug,t.company_name,t.status,ts.tenant_url,ts.portal_url,ts.rmm_url,ts.modules,
             ri.instance_id AS runtime_database_instance_id,
