@@ -164,6 +164,8 @@ app.get('/health', async (c) => {
 app.get('/api/v1/system/deployment', (c) => c.json({
   deploymentMode: deployment.deploymentMode,
   tenancyMode: deployment.tenancyMode,
+  runtimeEnvironment: deployment.runtimeEnvironment,
+  featureMode: deployment.featureMode,
   rootDomain: deployment.rootDomain,
   primaryTenantSlug: deployment.primaryTenantSlug,
   appUrl: deployment.appUrl,
