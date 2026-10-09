@@ -1,0 +1,14 @@
+# Public Hi5Central Production ingress ONLY.
+# Append this as a separate top-level site block OUTSIDE
+# *.hi5central.com { ... } and other explicitly routed virtual hosts.
+# Do not apply to self-hosted customer gateways.
+#
+# If a request has a Host header that does not match any registered HTTPS
+# site (e.g. a trailing-dot hostname), Caddy otherwise returns an empty 200.
+# This explicit HTTPS-only, hostless route returns 421 instead, without
+# issuing new internal-CA certificates or modifying exact/wildcard routes.
+#
+# The production Caddy v2.11.4 adapter and runtime were verified 2026-10-09.
+https://:443 {
+    respond "Misdirected Request" 421
+}
