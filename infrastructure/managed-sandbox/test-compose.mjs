@@ -15,7 +15,7 @@ const digest = name => name+'@sha256:'+'b'.repeat(64)
 function values(environment) {
   const token=environment.toUpperCase()
   const p={
-    COMPOSE_PROJECT_NAME:`hi5-sandbox-${environment}`,EDGE_NETWORK:'hi5central',
+    COMPOSE_PROJECT_NAME:`hi5-sandbox-${environment}`,EDGE_NETWORK:`hi5central-sandbox-${environment}-edge`,
     DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',RUNTIME_ENVIRONMENT:environment,
     ROOT_DOMAIN:'hi5central.com',API_URL:`https://${environment}-api.hi5central.com`,
     MARKETING_URL:'https://hi5central.com',BACKGROUND_WORKERS_ENABLED:'false',
