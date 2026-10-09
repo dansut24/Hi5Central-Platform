@@ -341,21 +341,29 @@ function TenantEditor({ tenant, onSaved }) {
       {tenant.modules?.itsm && tenant.portal_url?<a href={tenant.portal_url} target="_blank" rel="noreferrer">Self Service Portal</a>:null}
       {tenant.rmm_url?<a href={tenant.rmm_url} target="_blank" rel="noreferrer">RMM</a>:null}
     </div>
-    <div className="h5a-tenant-environments">
-      {['live','uat','test'].map(environment=>{
-        const details=(tenant.environments||[]).find(item=>item.environment===environment)
-        const label=environment==='live'?'Production':environment.toUpperCase()
-        const hostname=details?.hostnameLabel?`${details.hostnameLabel}.${config.rootDomain}`:'Hostname conflict — review required'
-        const status=details?.status||'unavailable'
-        return <div className="h5a-tenant-environment" key={environment}>
-          <div><strong>{label}</strong><small>{hostname}</small></div>
-          <StatusPill value={status}/>
-          {environment==='live' && details?.status==='ready' && tenant.tenant_url
-            ? <a href={tenant.tenant_url} target="_blank" rel="noreferrer">Open</a>
-            : <span className="h5a-tenant-environment-note">{status==='pending'?'Awaiting isolated provisioning':'Not available'}</span>}
+    {tenant.slug===config.primaryTenantSlug && config.runtimeEnvironment==='dev'
+      ? <div className="h5a-tenant-environments h5a-internal-environment">
+          <div className="h5a-tenant-environment">
+            <div><strong>Internal development</strong><small>{tenant.tenant_url||'dev.hi5central.com'}</small></div>
+            <StatusPill value="ready"/>
+            <span className="h5a-tenant-environment-note">Customer UAT/Test sandboxes are provisioned separately, not from this internal Dev account.</span>
+          </div>
         </div>
-      })}
-    </div>
+      : <div className="h5a-tenant-environments">
+          {['live','uat','test'].map(environment=>{
+            const details=(tenant.environments||[]).find(item=>item.environment===environment)
+            const label=environment==='live'?'Production':environment.toUpperCase()
+            const hostname=details?.hostnameLabel?`${details.hostnameLabel}.${config.rootDomain}`:'Hostname not reserved'
+            const status=details?.status||'unavailable'
+            return <div className="h5a-tenant-environment" key={environment}>
+              <div><strong>{label}</strong><small>{hostname}</small></div>
+              <StatusPill value={status}/>
+              {environment==='live' && details?.status==='ready' && tenant.tenant_url
+                ? <a href={tenant.tenant_url} target="_blank" rel="noreferrer">Open</a>
+                : <span className="h5a-tenant-environment-note">{status==='pending'?'Awaiting isolated provisioning':status==='unavailable'?'No environment reservation':'Not available'}</span>}
+            </div>
+          })}
+        </div>}
     <div className="h5a-tenant-edit-grid">
       <label>Company name<input value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})}/></label>
       <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value})}><option value="active">Active</option><option value="pending_verification">Pending</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></label>
