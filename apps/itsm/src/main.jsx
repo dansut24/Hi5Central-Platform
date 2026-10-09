@@ -76,6 +76,7 @@ import './production/ProductionRecordInlineComposer.css'
 import './production/ProductionRichNoteEditor.css'
 import './production/ProductionWorkingPeekModal.css'
 import './production/ProductionCalendarWorkbench.css'
+import './production/ProductionPlanningWorkbenchPolish.css'
 
 installWorkspaceTabSessionIsolation()
 
