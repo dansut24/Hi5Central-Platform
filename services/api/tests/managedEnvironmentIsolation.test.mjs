@@ -43,7 +43,8 @@ function runtimeCheck(environment, extraEnv = {}) {
     import { tenantUrls, allowedRequestOrigin, originMatchesTenant, originMatchesPortalTenant, deployment } from ${JSON.stringify(new URL('../src/deploymentConfig.js',import.meta.url).href)};
     const cases = ['https://acme.hi5central.com','https://acmeuat.hi5central.com','https://acmetest.hi5central.com',
       'https://acmeuat-rmm.hi5central.com','https://acmeuat-portal.hi5central.com',
-      'https://acmetest-portal.hi5central.com','https://otheruat.hi5central.com'];
+      'https://acmetest-portal.hi5central.com','https://otheruat.hi5central.com',
+      'https://hi5central.com','https://admin.hi5central.com'];
     console.log(JSON.stringify({
       urls:tenantUrls('acme',{rmm:true}),cookieDomain:deployment.cookieDomain,
       cases:cases.map(origin=>({origin,allowed:Boolean(allowedRequestOrigin(origin)),sameTenant:originMatchesTenant(origin,'acme'),
@@ -76,6 +77,14 @@ test('managed sandbox rejects explicit cross-subdomain cookie settings', () => {
   const result=runtimeCheck('uat',{COOKIE_DOMAIN:'.hi5central.com'})
   assert.notEqual(result.status,0)
   assert.match(result.stderr,/host-only API session cookies/)
+})
+
+test('managed Production preserves legacy tenant URLs and session rules', () => {
+  const result=runtimeCheck('live')
+  assert.equal(result.status,0,result.stderr)
+  const output=JSON.parse(result.stdout.trim())
+  assert.equal(output.urls.tenantUrl,'https://acme.hi5central.com')
+  assert.equal(output.cookieDomain,'.hi5central.com')
 })
 
 test('single-tenant Dev origin and existing URLs remain intact', () => {
