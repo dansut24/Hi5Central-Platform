@@ -50,6 +50,7 @@ const fixtures = [
   '../migrations/platform-admin/134_managed_environment_tenant_bootstrap.sql',
   '../migrations/platform-admin/135_managed_control_plane_identity.sql',
   '../migrations/platform-admin/136_isolated_tenant_hostname_trigger.sql',
+  '../migrations/platform-admin/137_managed_environment_invitations.sql',
 ]
 
 function dbUrl(name) {
