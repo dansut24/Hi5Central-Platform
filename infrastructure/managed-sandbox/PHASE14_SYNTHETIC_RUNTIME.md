@@ -90,8 +90,15 @@ against an older published image**: set
 `HI5_PHASE14_ITSM_ENTRYPOINT=/tmp/hi5-phase14/.../runtime-config-entrypoint.sh`
 to an actual executable test copy of the corrected script. It is copied
 into the unstarted disposable frontend container before launching.
-This override is strictly for smoke test diagnostics and should be removed
-once the new image is green.
+For the published pre-fix API image **only**, also set
+`HI5_PHASE14_ALLOW_OLD_IMAGE=1` to supply a disposable Connect HMAC
+compatibility key and recognise its legacy Admin URL. The default is
+`HI5_PHASE14_ALLOW_OLD_IMAGE=0`; this is intentional, so all new images
+must pass **without** unnecessary Connect credentials or a Production
+Admin URL.
+
+These overrides are strictly for smoke test diagnostics and must both be
+removed once the new API and ITSM images are green.
 
 The smoke cleanup runs under a `finally` block and verifies scratch networks
 were deleted. Independently inspect resource names after any host interruption
