@@ -26,3 +26,7 @@ body[data-hi5-surface='rmm'] .rmm-card :is(input,select,textarea,button) { font-
   body[data-hi5-surface='rmm'] .rmm-nav-section button { font-size: 13px !important; }
   body[data-hi5-surface='rmm'] .rmm-table-row strong { font-size: 13px !important; }
 }
+
+body[data-hi5-surface='rmm'] .rmm-nav-section > span { color: rgba(255,255,255,.75) !important; }
+body[data-hi5-surface='rmm'] .rmm-nav-section button:not(.active) { color: rgba(255,255,255,.9) !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-product-switches a,.rmm-estate-chip strong,.rmm-sidebar-footer small) { font-size: 11px !important; }
