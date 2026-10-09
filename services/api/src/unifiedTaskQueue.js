@@ -10,7 +10,8 @@ const validSources = new Set(['All','service-request','project'])
 const clean = (value, max=160) => String(value ?? '').trim().slice(0,max)
 
 const baseSql = (allowProjects) => `
-WITH queue AS (
+WITH queue_params AS (SELECT $2::uuid AS person_id, $3::uuid[] AS team_ids),
+queue AS (
   SELECT
     'service-request'::text AS source,
     t.external_key AS id, t.title, t.status, r.priority,
@@ -102,9 +103,7 @@ export async function unifiedTaskQueue(session, query, viewer) {
 
   const sql = baseSql(allowProjects)
   const selection = where.join(' AND ')
-  // PostgreSQL binds exactly the number of parameters referenced by each
-  // statement. Counts without viewer predicates must not bind unused $2/$3.
-  const countParams = values.length > 3 ? values : scope === 'team' ? values : scope === 'mine' ? values.slice(0,2) : values.slice(0,1)
+  // Typed viewer parameters in queue_params keep placeholder numbering stable.
   const limit = Math.max(1,Math.min(200,Number(query('limit')||50)||50))
   const offset = Math.max(0,Math.floor(Number(query('offset')||0)||0))
   // Do not paginate each source independently: this is one sorted queue.
@@ -116,7 +115,7 @@ export async function unifiedTaskQueue(session, query, viewer) {
         CASE q.status WHEN 'In Progress' THEN 0 WHEN 'Ready' THEN 1 WHEN 'To Do' THEN 2 WHEN 'Backlog' THEN 3 WHEN 'Blocked' THEN 4 ELSE 5 END,
         q.due_at NULLS LAST, q.updated_at DESC, q.id
       LIMIT $${values.length+1} OFFSET $${values.length+2}`, [...values,limit,offset]),
-    pool.query(`${sql} SELECT count(*)::int total FROM queue q WHERE ${selection}`,countParams),
+    pool.query(`${sql} SELECT count(*)::int total FROM queue q WHERE ${selection}`,values),
     pool.query(`${sql}
       SELECT
         count(*) FILTER (WHERE NOT is_complete)::int AS all,
