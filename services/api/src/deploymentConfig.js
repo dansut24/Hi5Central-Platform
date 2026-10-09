@@ -168,6 +168,9 @@ export function originMatchesTenant(origin, slug) {
 export function originMatchesTenantAccount(origin, slug) {
   if (originMatchesTenant(origin, slug)) return true
   if (!origin) return true
+  // Central Admin is a different trust boundary from the sandbox API.
+  if (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
+    && ['uat','test'].includes(deployment.runtimeEnvironment)) return false
   const adminOrigin = originOf(deployment.adminUrl)
   return Boolean(adminOrigin && String(origin).toLowerCase() === adminOrigin)
 }
