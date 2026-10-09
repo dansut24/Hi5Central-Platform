@@ -24,6 +24,7 @@ export function ProductionTabSwitcher({
   const [selectedKeys, setSelectedKeys] = useState([])
   const [recentKeys, setRecentKeys] = useState(() => [activeTabKey])
   const [position, setPosition] = useState({ left: 12, top: 68 })
+  const [palette, setPalette] = useState({})
 
   useEffect(() => {
     setRecentKeys((previous) => [activeTabKey, ...previous.filter((key) => key !== activeTabKey)].slice(0, 100))
@@ -83,8 +84,19 @@ export function ProductionTabSwitcher({
     const width = Math.min(370, window.innerWidth - 24)
     setPosition({
       left: Math.max(12, Math.min((bounds?.right || width) - width, window.innerWidth - width - 12)),
-      top: Math.min((bounds?.bottom || 54) + 9, window.innerHeight - 170),
+      top: Math.max(8, Math.min((bounds?.bottom || 54) + 9, window.innerHeight - 170)),
     })
+    // The workspace's colour tokens are defined on .app-shell. This popup
+    // portals to document.body to avoid being clipped by the tab list, so it
+    // must copy the current theme and accent values explicitly.
+    if (triggerRef.current) {
+      const computed = getComputedStyle(triggerRef.current)
+      const nextPalette = {}
+      for (const name of ['--surface', '--surface-soft', '--ink', '--muted', '--line', '--accent-rgb', '--accent-ink']) {
+        nextPalette[name] = computed.getPropertyValue(name).trim()
+      }
+      setPalette(nextPalette)
+    }
     setQuery('')
     setSelectedKeys([])
     setOpen(true)
@@ -127,7 +139,7 @@ export function ProductionTabSwitcher({
           className="hi5-tab-switcher-popover"
           ref={panelRef}
           role="dialog"
-          style={{ left: position.left, top: position.top }}
+          style={{ left: position.left, top: position.top, ...palette }}
         >
           <div className="hi5-tab-switcher-heading">
             <div>
