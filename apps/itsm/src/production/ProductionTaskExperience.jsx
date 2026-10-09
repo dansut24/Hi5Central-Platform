@@ -33,6 +33,7 @@ import './ProductionItsmWorkspaceEnhancements.css'
 import './ProductionActivityCanvasRecord.css'
 import './ProductionActivityActionRecord.css'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
+import { ProjectTaskDetail } from './ProductionProjectTaskDetail.jsx'
 import './ProductionTaskExperience.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -110,7 +111,7 @@ function priorityClass(value = '') {
 }
 
 function dueMeta(value, status = '') {
-  if (status === 'Completed') return { className: 'is-complete', label: 'Completed', overdue: false }
+  if (status === 'Completed' || status === 'Done') return { className: 'is-complete', label: 'Completed', overdue: false }
   if (!value) return { className: 'is-none', label: 'No due date', overdue: false }
   const due = new Date(value)
   if (Number.isNaN(due.getTime())) return { className: 'is-none', label: 'No due date', overdue: false }
@@ -619,6 +620,6 @@ export function ProductionTaskExperience() {
   return <>
     <TaskNavButton target={targets.nav} />
     <AwaitingApprovalButton target={targets.approvalTarget} statusSelect={targets.approvalSelect} />
-    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} /> : <TaskQueue />, targets.content) : null}
+    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? (/^PRJ-\\d+-T\\d+$/i.test(taskRoute.taskKey) ? <ProjectTaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} onNavigate={navigate} /> : <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} />) : <TaskQueue />, targets.content) : null}
   </>
 }
