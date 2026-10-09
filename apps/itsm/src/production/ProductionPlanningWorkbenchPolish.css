@@ -1,0 +1,190 @@
+/* Planning pages parity: compact, readable and softly integrated with the
+   Hi5Central workbench. Behaviour and page-specific scroll ownership stay intact. */
+html[data-hi5-surface='workspace'] :is(.project-list-view,.project-detail-view,.rota-view) {
+  --planning-soft-divider:color-mix(in srgb,var(--line) 77%,transparent);
+  color:var(--ink);
+  background:var(--page);
+}
+html[data-hi5-surface='workspace'] :is(.project-list-header,.project-detail-header,.rota-page-header) {
+  min-height:48px;
+  gap:10px !important;
+  margin-bottom:7px !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-list-header,.project-detail-header,.rota-page-header) h2 {
+  font-size:clamp(20px,1.8vw,24px) !important;
+  line-height:1.2;
+}
+html[data-hi5-surface='workspace'] :is(.project-list-header,.project-detail-title,.rota-page-header) p {
+  font-size:12px !important;
+  line-height:1.4 !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-list-header,.project-detail-header,.rota-page-header) .eyebrow {
+  font-size:11px !important;
+  letter-spacing:.045em;
+}
+html[data-hi5-surface='workspace'] :is(.project-kpi-strip,.project-detail-summary,.rota-kpi-strip) {
+  gap:7px !important;
+  margin-bottom:8px !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-kpi-strip,.project-detail-summary,.rota-kpi-strip) > :is(article,div) {
+  min-height:58px;
+  padding:8px 10px !important;
+  border:1px solid var(--planning-soft-divider) !important;
+  border-radius:10px !important;
+  background:color-mix(in srgb,var(--surface) 90%,transparent) !important;
+  box-shadow:none !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-kpi-strip,.project-detail-summary,.rota-kpi-strip) strong {
+  font-size:19px;
+}
+html[data-hi5-surface='workspace'] :is(.project-kpi-strip,.project-detail-summary,.rota-kpi-strip) :is(span,small) {
+  font-size:11px !important;
+  line-height:1.35;
+}
+/* Projects: let the list and section-specific work take the available space. */
+html[data-hi5-surface='workspace'] .project-list-view {
+  gap:8px !important;
+  min-width:0;
+  min-height:0;
+}
+html[data-hi5-surface='workspace'] .project-list-shell {
+  min-height:0;
+  background:var(--surface);
+  border-color:var(--planning-soft-divider);
+  border-radius:11px;
+  box-shadow:none !important;
+}
+html[data-hi5-surface='workspace'] .project-list-toolbar {
+  min-height:48px;
+  padding:7px 10px !important;
+  background:color-mix(in srgb,var(--surface) 80%,transparent);
+  border-bottom:1px solid var(--planning-soft-divider);
+}
+html[data-hi5-surface='workspace'] .project-list-toolbar :is(input,select) {
+  font-size:13px !important;
+}
+html[data-hi5-surface='workspace'] .project-result-line {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .project-table-wrap,
+html[data-hi5-surface='workspace'] .project-task-table-wrap {
+  min-height:0;
+  overflow:auto;
+}
+html[data-hi5-surface='workspace'] :is(.project-table,.project-task-table) th {
+  font-size:11px !important;
+  font-weight:820;
+}
+html[data-hi5-surface='workspace'] :is(.project-table,.project-task-table) td {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-table,.project-task-table) td strong {
+  font-size:13px !important;
+}
+html[data-hi5-surface='workspace'] :is(.project-table,.project-task-table) td small {
+  font-size:11px !important;
+}
+html[data-hi5-surface='workspace'] .project-detail-tabs {
+  background:color-mix(in srgb,var(--surface) 87%,transparent);
+  border:1px solid var(--planning-soft-divider);
+  border-radius:9px;
+}
+html[data-hi5-surface='workspace'] .project-detail-tabs button {
+  font-size:12px !important;
+  min-height:34px;
+}
+html[data-hi5-surface='workspace'] .project-detail-panel {
+  min-height:0;
+  overflow:auto;
+}
+html[data-hi5-surface='workspace'] :is(.project-detail-card,.project-task-list-shell,.project-timeline-shell,.project-workload-card) {
+  border-color:var(--planning-soft-divider);
+  border-radius:10px;
+  box-shadow:none !important;
+}
+html[data-hi5-surface='workspace'] .project-detail-controls :is(input,select),
+html[data-hi5-surface='workspace'] .project-task-toolbar :is(input,select,button) {
+  font-size:12px !important;
+}
+/* Rota: keep the schedule as the dominant surface, without hiding alerts or
+   the supporting on-call/capacity widgets underneath. */
+html[data-hi5-surface='workspace'] .rota-view {
+  min-width:0;
+  min-height:0;
+  padding:var(--hi5-workspace-edge,2px) !important;
+  overflow:auto;
+}
+html[data-hi5-surface='workspace'] .rota-page-header {
+  align-items:center;
+  min-height:48px;
+  padding:5px 4px;
+}
+html[data-hi5-surface='workspace'] .rota-header-actions {
+  gap:6px !important;
+  align-items:center;
+}
+html[data-hi5-surface='workspace'] .rota-header-actions :is(button,select),
+html[data-hi5-surface='workspace'] .rota-week-picker strong {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .rota-header-actions select {
+  min-height:36px;
+}
+html[data-hi5-surface='workspace'] .rota-coverage-alert {
+  margin-bottom:8px;
+  padding:9px 11px;
+  border-radius:9px;
+}
+html[data-hi5-surface='workspace'] :is(.rota-schedule-shell,.rota-support-grid > article) {
+  border:1px solid var(--planning-soft-divider) !important;
+  border-radius:10px !important;
+  box-shadow:none !important;
+  background:var(--surface);
+}
+html[data-hi5-surface='workspace'] .rota-schedule-shell > header {
+  padding:9px 11px;
+}
+html[data-hi5-surface='workspace'] .rota-table-wrap {
+  max-width:100%;
+  overflow-x:auto;
+}
+html[data-hi5-surface='workspace'] .rota-table thead th > strong {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .rota-table thead th > span,
+html[data-hi5-surface='workspace'] .rota-table thead th > small {
+  font-size:11px !important;
+}
+html[data-hi5-surface='workspace'] .rota-person strong {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .rota-person small,
+html[data-hi5-surface='workspace'] .rota-entry-chip :is(small,em) {
+  font-size:11px !important;
+}
+html[data-hi5-surface='workspace'] .rota-entry-chip > span {
+  font-size:12px !important;
+}
+html[data-hi5-surface='workspace'] .rota-support-grid {
+  gap:8px;
+  margin-top:8px;
+}
+html[data-hi5-surface='workspace'] .rota-support-grid :is(strong,small) {
+  font-size:12px;
+}
+html[data-hi5-surface='workspace'] :is(.project-list-view,.project-detail-view,.rota-view) :is(button,a,input,select,textarea):focus-visible {
+  outline:2px solid rgb(var(--accent-rgb));
+  outline-offset:2px;
+}
+@media (max-width:820px) {
+  html[data-hi5-surface='workspace'] :is(.project-list-header,.project-detail-header,.rota-page-header) {
+    flex-wrap:wrap;
+  }
+  html[data-hi5-surface='workspace'] .rota-view {
+    overflow-y:auto;
+  }
+  html[data-hi5-surface='workspace'] .rota-header-actions {
+    justify-content:flex-start;
+    width:100%;
+  }
+}
