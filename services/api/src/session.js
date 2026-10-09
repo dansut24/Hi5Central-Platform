@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { attachAccess, effectiveAccessForUser, expandedPermissions } from './access.js'
-import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
+import { deployment, originMatchesTenant, portalRequestFromHeaders } from './deploymentConfig.js'
 import { environmentSessionCookieNames } from './tenantEnvironmentHostnames.js'
 import { isManagedCustomerSandbox } from './managedSandboxPolicy.js'
 import { sandboxTenantAccess } from './managedSandboxAccess.js'
@@ -203,6 +203,13 @@ export async function resolveOnboardingSession(c) {
   const session = result.rows[0]
   if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
   if (!await sandboxTenantAccess(pool, deployment, session.tenant_id)) return null
+  // Environment-scoped API cookies are shared across customers using the
+  // same API hostname. Reject requests originating from a different customer
+  // before returning any session, including during onboarding.
+  if (isManagedCustomerSandbox(deployment)) {
+    const origin = String(c.req.header('origin') || '')
+    if (!origin || !originMatchesTenant(origin, session.slug)) return null
+  }
   if (!['owner', 'admin'].includes(session.tenant_role) && !session.onboarding_completed_at) return null
 
   pool.query(
@@ -245,6 +252,13 @@ export async function resolveSession(c) {
   const session = result.rows[0]
   if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
   if (!await sandboxTenantAccess(pool, deployment, session.tenant_id)) return null
+  // Environment-scoped API cookies are shared across customers using the
+  // same API hostname. Reject requests originating from a different customer
+  // before returning any session, including during onboarding.
+  if (isManagedCustomerSandbox(deployment)) {
+    const origin = String(c.req.header('origin') || '')
+    if (!origin || !originMatchesTenant(origin, session.slug)) return null
+  }
   if (sessionNeedsMfa(session)) {
     pool.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE id=$1', [session.session_id]).catch(() => {})
     return null
