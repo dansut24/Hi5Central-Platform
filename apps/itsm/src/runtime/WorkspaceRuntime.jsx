@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
   Bell,
@@ -935,6 +935,14 @@ function WorkspaceRuntime() {
       window.removeEventListener('scroll', closeMenu, true)
     }
   }, [tabContextMenu])
+
+  // overflow:hidden used to allow the browser to retain scrollLeft after
+  // switching an active tab. Reset it synchronously when desktop tabs change.
+  // The CSS uses overflow:clip so focus can no longer move the list sideways.
+  useLayoutEffect(() => {
+    if (!window.matchMedia?.('(min-width: 901px)').matches) return
+    if (tabListRef.current) tabListRef.current.scrollLeft = 0
+  }, [activeTabKey, tabs.length])
 
   useEffect(() => {
     // Desktop tabs all fit in one row; don't trigger old horizontal scrolling.

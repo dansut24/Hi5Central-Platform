@@ -151,9 +151,9 @@ html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-ta
   min-height: 38px !important;
   margin: 0 !important;
   padding: 0 11px !important;
-  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent) !important;
+  border: 1px solid rgba(var(--accent-rgb), .22) !important;
   border-radius: 14px !important;
-  background: color-mix(in srgb, var(--surface) 73%, transparent) !important;
+  background: color-mix(in srgb, var(--surface) 96%, rgb(var(--accent-rgb)) 4%) !important;
   color: var(--muted) !important;
   box-shadow: none !important;
   backdrop-filter: blur(16px) saturate(1.3) !important;
@@ -177,7 +177,7 @@ html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-ta
 }
 
 html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab:not(.active):hover {
-  border-color: rgba(var(--accent-rgb), .26) !important;
+  border-color: rgba(var(--accent-rgb), .43) !important;
   background: rgba(var(--accent-rgb), .10) !important;
   color: var(--ink) !important;
 }
@@ -380,13 +380,22 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     min-width: 0 !important;
     width: 100% !important;
     max-width: none !important;
-    overflow: hidden !important;
+    overflow: clip !important;
+    overflow-x: clip !important;
+    overflow-y: clip !important;
+  }
+
+  /* Align the pills with the centres of the right-hand action icons.
+     The previous tab strip sat approximately 5px lower. */
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar > .tabbar {
+    transform: translateY(-5px) !important;
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list {
     display: grid !important;
-    /* The actual number of columns comes from the tab list's inline style,
-       so every open tab always has a grid track, even at high counts. */
+    /* Explicit tracks from the live tab count; not a horizontally scrollable
+       strip. overflow:clip is essential: overflow:hidden STILL permits
+       programmatic/focus scrolling, hiding tabs off the left edge. */
     grid-template-columns: minmax(0, 1fr) 28px;
     grid-template-rows: 38px !important;
     flex: 0 1 auto !important;
@@ -400,9 +409,9 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     height: 42px !important;
     padding: 1px 0 !important;
     margin: 0 !important;
-    overflow: hidden !important;
-    overflow-x: hidden !important;
-    overflow-y: hidden !important;
+    overflow: clip !important;
+    overflow-x: clip !important;
+    overflow-y: clip !important;
     scrollbar-width: none !important;
     scroll-snap-type: none !important;
     scroll-behavior: auto !important;
@@ -523,3 +532,26 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
 
 /* Touch/mobile retains the existing scrollable second header row and the
    title/navigation control because there isn't desktop space to shrink into. */
+
+/* Keep every native tab visually distinct when compressed, without shadows.
+   Do not let the old first-active-tab Chrome shoulder consume horizontal
+   space: its legacy left inset caused unequal track widths. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:has(> .workspace-tab:first-child.active) {
+    padding-inline-start: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active) {
+    border-color: rgba(var(--accent-rgb), .22) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab:not(.active):hover {
+    border-color: rgba(var(--accent-rgb), .43) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab.active {
+    box-shadow: none !important;
+  }
+}
