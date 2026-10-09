@@ -419,6 +419,9 @@ app.post('/api/v1/auth/signup', async (c) => {
 })
 
 app.post('/api/v1/auth/resend-verification', async (c) => {
+  if (managedSandboxBlocksPublicSignup(deployment)) {
+    return c.json({ error: 'Sandbox account verification requires an approved invitation.', code: 'SANDBOX_INVITATION_REQUIRED' }, 403)
+  }
   const redisClient = await ensureRedisConnected()
   const allowed = await rateLimit(redisClient, `verify-resend:${requestIp(c)}`, 3, 900)
   if (!allowed) return c.json({ error: 'Too many verification requests. Please try again later.' }, 429)
@@ -450,6 +453,9 @@ app.post('/api/v1/auth/resend-verification', async (c) => {
 })
 
 app.get('/api/v1/auth/verify-email', async (c) => {
+  if (managedSandboxBlocksPublicSignup(deployment)) {
+    return c.json({ error: 'Sandbox account verification requires an approved invitation.', code: 'SANDBOX_INVITATION_REQUIRED' }, 403)
+  }
   const token = String(c.req.query('token') || '')
   if (token.length < 32 || token.length > 256) return c.redirect(`${marketingUrl}/signup?verification=invalid`, 302)
   const tokenHash = hashToken(token)
