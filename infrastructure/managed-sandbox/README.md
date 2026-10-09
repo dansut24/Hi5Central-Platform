@@ -142,6 +142,32 @@ sanitises output to resource names, statuses, project-specific routing and
 a narrow allowlist of runtime identity variables. The reconciler deliberately
 blocks activation and legacy deletion even if no current tenant records exist.
 
+## Phase 12 — prepared empty pilot bridges and public ingress blocker
+
+See [PHASE12_NETWORK_AND_EDGE.md](./PHASE12_NETWORK_AND_EDGE.md) for VPS
+network preparation evidence, transient cross-network TCP testing, public
+DNS/TLS probes and the required next security gates.
+
+The two empty, independently labelled, internal bridges are present:
+`hi5central-sandbox-uat-edge` and `hi5central-sandbox-test-edge`.
+They are **not** attached to gateways or customer workloads. Creating them
+does not authorise activation; only the narrow network preparation step was
+performed. Legacy, Dev and Production resources remain unchanged.
+
+Unpublished pilot/customer suffix hosts currently answer HTTPS with HTTP
+200 generic HTML under the existing wildcard certificate. This is a
+release-blocking **public ingress denial gap**; no customer service should
+be launched until authoritative edge routing explicitly rejects unapproved
+UAT/Test hostnames and has been reviewed independently.
+
+```sh
+node infrastructure/managed-sandbox/prepare-empty-edges.mjs --check
+node infrastructure/managed-sandbox/public-route-audit.mjs --read-only
+```
+
+The read-only public route tool never approves a pilot. The short-lived
+network probe and its required confirmation flags are documented separately.
+
 ## Automated evidence
 
 `node --test infrastructure/managed-sandbox/validate.test.mjs` runs
