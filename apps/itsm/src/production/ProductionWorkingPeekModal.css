@@ -1,7 +1,7 @@
 /* Working Peek modal shell only. Other universal previews stay unchanged. */
 .hi5-universal-peek-layer.is-working-record { padding:20px; place-items:center; }
 .hi5-universal-peek-layer.is-working-record > .hi5-universal-peek.is-working-record {
-  width:min(1250px,calc(100vw - 40px)) !important;
+  width:min(1160px,calc(100vw - 48px)) !important;
   height:min(85dvh,860px) !important;
   max-height:calc(100dvh - 40px) !important;
   grid-template-rows:auto minmax(0,1fr) !important;
