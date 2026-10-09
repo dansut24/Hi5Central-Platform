@@ -35,6 +35,7 @@ import { ProductionUniversalPeekV2 } from './production/ProductionUniversalPeekV
 import { ProductionWorkflowExperience } from './production/ProductionWorkflowExperience.jsx'
 import { ProductionWorkspaceBootstrap } from './production/ProductionWorkspaceBootstrap.jsx'
 import { CustomerEnvironmentPending } from './production/CustomerEnvironmentPending.jsx'
+import { ManagedSandboxInvitationPage } from './production/ManagedSandboxInvitationPage.jsx'
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
 import { ProductionWorkspaceTabPersistence, installWorkspaceTabSessionIsolation } from './production/ProductionWorkspaceTabPersistence.jsx'
@@ -105,6 +106,9 @@ if (initialSurface.kind === 'marketing') {
 if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
 if (initialSurface.kind === 'environment-pending') RootApp = CustomerEnvironmentPending
+if (initialSurface.kind === 'environment-pending' && window.location.pathname === '/accept-invitation') {
+  RootApp = ManagedSandboxInvitationPage
+}
 
 createRoot(rootElement).render(
   <StrictMode>
