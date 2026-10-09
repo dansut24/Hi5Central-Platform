@@ -155,8 +155,7 @@ html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-ta
   border-radius: 14px !important;
   background: color-mix(in srgb, var(--surface) 73%, transparent) !important;
   color: var(--muted) !important;
-  box-shadow: 0 3px 11px rgba(14,30,55,.06),
-              inset 0 1px 0 rgba(255,255,255,.33) !important;
+  box-shadow: none !important;
   backdrop-filter: blur(16px) saturate(1.3) !important;
   -webkit-backdrop-filter: blur(16px) saturate(1.3) !important;
   overflow: hidden !important;
@@ -169,8 +168,7 @@ html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-ta
   border-color: rgba(var(--accent-rgb), .92) !important;
   background: rgb(var(--accent-rgb)) !important;
   color: var(--accent-ink, #fff) !important;
-  box-shadow: 0 5px 16px rgba(var(--accent-rgb),.25),
-              inset 0 1px 0 rgba(255,255,255,.20) !important;
+  box-shadow: none !important;
 }
 
 html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar .workspace-tab.active::before,
@@ -387,13 +385,15 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list {
     display: grid !important;
-    grid-template-columns: repeat(var(--hi5-tab-count), minmax(0, 1fr)) 28px !important;
+    /* The actual number of columns comes from the tab list's inline style,
+       so every open tab always has a grid track, even at high counts. */
+    grid-template-columns: minmax(0, 1fr) 28px;
     grid-template-rows: 38px !important;
     flex: 0 1 auto !important;
     justify-items: stretch !important;
     align-items: center !important;
     align-content: center !important;
-    column-gap: 4px !important;
+    column-gap: 3px !important;
     width: min(100%, var(--hi5-tab-max-width)) !important;
     max-width: 100% !important;
     min-width: 0 !important;
@@ -416,6 +416,8 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab {
+    box-shadow: none !important;
+    filter: none !important;
     display: inline-flex !important;
     grid-row: 1 !important;
     flex: none !important;
@@ -481,7 +483,7 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
   }
 
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] {
-    column-gap: 3px !important;
+    column-gap: 2px !important;
   }
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] > .workspace-tab {
     padding-inline: 4px !important;
@@ -495,6 +497,11 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
   html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'], [data-tab-density='ultra']) > .workspace-tab {
     padding-inline: 2px !important;
     border-radius: 9px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'], [data-tab-density='ultra']) > .workspace-tab {
+    min-width: 0 !important;
+    max-width: none !important;
   }
 
   /* In a crowded header, text takes priority. Close any tab using its
