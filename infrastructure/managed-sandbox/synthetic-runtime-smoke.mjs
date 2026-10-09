@@ -66,7 +66,7 @@ function state(name){
 }
 function logs(name) {
   const result=spawnSync('docker',['logs','--tail','180',name],{
-    encoding:'utf8',timeout:9000,maxBuffer:1024*1024,
+    encoding:'utf8',timeout:9000,maxBuffer:24*1024*1024,
   })
   return String(result.stdout||'')+'\n'+String(result.stderr||'')
 }
