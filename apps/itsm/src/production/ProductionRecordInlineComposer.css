@@ -95,7 +95,7 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
 }
 
 /* Grow the note body with content instead of showing a second scrollbar. */
-html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer textarea {
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer.is-note textarea {
   display: block;
   width: 100%;
   min-height: 96px;
@@ -114,7 +114,7 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
   line-height: 1.52;
 }
 
-html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer textarea:focus-visible {
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer.is-note textarea:focus-visible {
   outline: 2px solid rgba(var(--accent-rgb), .4);
   outline-offset: -2px;
   box-shadow: none !important;
@@ -159,7 +159,7 @@ html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-
     min-height: 38px;
     font-size: 12px;
   }
-  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer textarea {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer.is-note textarea {
     font-size: 16px !important;
   }
   html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-composer.is-timeline-draft > .record-lab-composer > footer > button {
