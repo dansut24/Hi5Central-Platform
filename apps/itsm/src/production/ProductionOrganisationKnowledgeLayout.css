@@ -127,3 +127,88 @@ html[data-hi5-surface='workspace'] .app-shell .content-frame[data-hi5-active-vie
   min-height: 0 !important;
   overflow: hidden !important;
 }
+
+
+/* A later shell layer uses a pale active-tab surface, but its nested button
+   retained white text from the old solid-accent tab. Keep labels readable. */
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+  color: var(--ink) !important;
+}
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-main,
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-title,
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-close {
+  color: var(--ink) !important;
+}
+
+/* Match the record composer: article editing needs a comfortable writing area,
+   not a single-line unstyled contentEditable field. */
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-editor {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: visible;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-toolbar {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px 10px 0 0;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input {
+  min-height: 248px;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: text;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input:empty::before {
+  color: var(--muted);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-fullscreen-dialog {
+  border-radius: 14px;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  align-items: stretch;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-main,
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-side {
+  min-width: 0;
+}
+
+/* Bring the directory's row typography up to the rest of ITSM's records. */
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table td {
+  font-size: 12px;
+  line-height: 1.45;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table th {
+  font-size: 10px;
+  letter-spacing: .025em;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-person-cell strong {
+  font-size: 12px;
+  font-weight: 750;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-person-cell small,
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table td > small {
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-row-action {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+@media(max-width:900px) {
+  html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-grid {
+    grid-template-columns: minmax(0,1fr);
+  }
+  html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input {
+    min-height: 210px;
+  }
+}
