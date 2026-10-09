@@ -5,6 +5,7 @@ import { originMatchesTenant } from './deploymentConfig.js'
 import { hasPermission } from './access.js'
 import { hasRecordPermission } from './itsmPermissions.js'
 import { attachmentPolicyFor } from './itsmConfig.js'
+import { sanitizeActivityHtml } from './itsmRichText.js'
 
 const priorities = new Set(['Low', 'Medium', 'High', 'Critical'])
 const impacts = new Set(['Low', 'Medium', 'High'])
@@ -580,12 +581,15 @@ export function registerItsmLifecycleRoutes(app) {
     const visibility = body?.visibility === 'customer' ? 'customer' : 'internal'
     if (visibility === 'internal' && !hasPermission(auth.session.access, 'itsm.comments.internal')) return c.json({ error: 'You do not have permission to add internal work notes.' }, 403)
     const kind = visibility === 'customer' ? 'customer' : 'work'
+    const noteMetadata = object(body?.metadata)
+    // Only permitted editorial tags and safe URLs may persist in activity metadata.
+    if (noteMetadata.richHtml) noteMetadata.richHtml = sanitizeActivityHtml(noteMetadata.richHtml)
     await withTransaction(async (client) => {
       await client.query(
         `INSERT INTO itsm_record_activities (
            tenant_id, record_id, actor_user_id, actor_snapshot, kind, visibility, body_text, metadata
          ) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8::jsonb)`,
-        [auth.session.tenant_id, row.id, auth.session.user_id, JSON.stringify({ name: auth.session.name, email: auth.session.email }), kind, visibility, bodyText, JSON.stringify(object(body?.metadata))],
+        [auth.session.tenant_id, row.id, auth.session.user_id, JSON.stringify({ name: auth.session.name, email: auth.session.email }), kind, visibility, bodyText, JSON.stringify(noteMetadata)],
       )
       await client.query(
         `UPDATE itsm_records
