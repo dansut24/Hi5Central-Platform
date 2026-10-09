@@ -156,6 +156,21 @@ async function main() {
         || row.approved_by!==reviewer || actor===row.approved_by) {
         throw new Error('Activation requires a suspended tenant and independent existing approval.')
       }
+      const approvalAudit=(await target.query(
+        `SELECT operator_id,independent_reviewer_id
+           FROM managed_environment_activation_audit
+          WHERE tenant_id=$1 AND bootstrap_request_id=$2 AND environment=$3
+            AND action='approve'
+          ORDER BY created_at DESC,id DESC LIMIT 1`,
+        [row.id,request.id,environment],
+      )).rows[0]
+      // A different name in another ENV variable is not two-person control.
+      // The activating operator must be distinct from BOTH people who signed
+      // the approval and must reference that durable approval audit event.
+      if(!approvalAudit || approvalAudit.independent_reviewer_id!==reviewer
+        || actor===approvalAudit.operator_id || actor===approvalAudit.independent_reviewer_id) {
+        throw new Error('Activation requires a different operator from both approval participants.')
+      }
       await target.query("UPDATE tenants SET status='active',updated_at=now() WHERE id=$1 AND status='suspended'",[row.id])
     } else {
       if(row.status!=='active' || row.approval_state!=='approved') {
