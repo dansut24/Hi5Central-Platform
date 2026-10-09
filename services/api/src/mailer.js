@@ -181,3 +181,34 @@ export async function verifySmtpConnection() {
   await transporter.verify()
   return true
 }
+
+export async function sendManagedSandboxInvitationEmail({ to, name, companyName, role, token, tenantUrl, environment }) {
+  if (!['uat','test'].includes(environment)) throw new Error('Sandbox invitation environment is invalid.')
+  const url = new URL('/accept-invitation', tenantUrl)
+  url.searchParams.set('token', token)
+  const actionUrl = url.toString()
+  const transporter = nodemailer.createTransport(smtpConfig())
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER
+  return transporter.sendMail({
+    from, to,
+    subject: `Invitation to ${companyName} Hi5Central ${environment.toUpperCase()}`,
+    text: [
+      `Hi ${name},`,
+      '',
+      `You have been invited as ${role} to the ${companyName} Hi5Central ${environment.toUpperCase()} environment.`,
+      `Accept the one-time invitation: ${actionUrl}`,
+      '',
+      'This link expires in 24 hours and can be used once.',
+      'After accepting, sign in and complete multi-factor authentication.',
+      'This invitation does not grant access to Production.',
+    ].join('\n'),
+    html: emailShell({
+      kicker: `${environment.toUpperCase()} environment invitation`,
+      title: `Welcome to Hi5Central, ${name}.`,
+      body: `You have been invited to the <strong>${escapeHtml(companyName)}</strong> ${environment.toUpperCase()} workspace as <strong>${escapeHtml(role)}</strong>. This is not your Production account. After accepting, secure sign-in with multi-factor authentication is required.`,
+      actionLabel: 'Accept invitation',
+      actionUrl,
+      footer: 'This invitation expires in 24 hours and can be used once. Do not forward this link.',
+    }),
+  })
+}
