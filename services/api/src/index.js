@@ -13,6 +13,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
+import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
@@ -203,7 +204,7 @@ app.get('/api/v1/system/capabilities', (c) => c.json({
 
 app.get('/api/v1/auth/tenant-slug/:slug', async (c) => {
   const slug = normaliseSlug(c.req.param('slug'))
-  if (!validSlug(slug)) return c.json({ slug, available: false, reason: 'invalid' }, 200)
+  if (!validSlug(slug) || (deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) return c.json({ slug, available: false, reason: 'invalid' }, 200)
   if (deployment.tenancyMode === 'single' && slug !== deployment.primaryTenantSlug) return c.json({ slug, available: false, reason: 'single_tenant' }, 200)
   const result = await pool.query('SELECT 1 FROM tenants WHERE slug=$1 LIMIT 1', [slug])
   return c.json({ slug, available: result.rowCount === 0 })
@@ -280,7 +281,7 @@ app.post('/api/v1/auth/signup', async (c) => {
   const requestedModules = Array.isArray(body?.modules) ? body.modules.map(String) : ['itsm']
   const modules = [...new Set(requestedModules.filter((item) => ['itsm','rmm'].includes(item)))]
   if (companyName.length < 2 || companyName.length > 120) return c.json({ error: 'Company name must be between 2 and 120 characters.' }, 400)
-  if (!validSlug(tenantSlug)) return c.json({ error: 'Choose a valid tenant URL using 3-48 lowercase letters, numbers or hyphens.' }, 400)
+  if (!validSlug(tenantSlug) || (deployment.tenancyMode === 'multi' && !isValidCustomerSlug(tenantSlug))) return c.json({ error: 'Choose a unique tenant URL that does not end in uat or test or use a reserved platform name.' }, 400)
   if (deployment.tenancyMode === 'single' && tenantSlug !== deployment.primaryTenantSlug) return c.json({ error: `This installation is assigned to tenant ${deployment.primaryTenantSlug}.`, field: 'tenantSlug' }, 400)
   if (name.length < 2 || name.length > 120) return c.json({ error: 'Your name must be between 2 and 120 characters.' }, 400)
   if (!validEmail(email)) return c.json({ error: 'Enter a valid email address.' }, 400)
