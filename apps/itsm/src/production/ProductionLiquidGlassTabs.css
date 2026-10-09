@@ -348,3 +348,135 @@ html[data-hi5-surface='workspace'] .tab-context-menu {
     background: var(--surface) !important;
   }
 }
+
+
+/* Auto-fit ALL desktop tabs. Each open tab shares remaining header width;
+   the add button is the only fixed-width item. Never scroll the desktop
+   rail or silently evict a tab to meet an arbitrary count. */
+@media (min-width: 901px) {
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar {
+    grid-template-columns: minmax(116px, 172px) minmax(0, 1fr) auto !important;
+    column-gap: clamp(8px, 1vw, 15px) !important;
+  }
+
+  /* Sidebar is permanently visible on desktop, so the redundant hamburger
+     doesn't need to consume scarce tab width. Keep it on touch/mobile. */
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .itsm-menu-button {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tabbar-tab-zone,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    gap: clamp(2px, .3vw, 6px) !important;
+    padding: 1px 0 !important;
+    scroll-snap-type: none !important;
+    scroll-behavior: auto !important;
+    overscroll-behavior-x: none !important;
+    touch-action: manipulation !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list::-webkit-scrollbar {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab {
+    flex: 1 1 0% !important;
+    flex-basis: 0% !important;
+    min-width: 0 !important;
+    width: 0 !important;
+    max-width: 172px !important;
+    padding: 0 7px !important;
+    overflow: hidden !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .workspace-tab-label {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .workspace-tab-title {
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+    font-size: inherit !important;
+    color: inherit !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .tab-add {
+    flex: 0 0 27px !important;
+    width: 27px !important;
+    min-width: 27px !important;
+    max-width: 27px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    border-radius: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list > .workspace-tab .tab-close {
+    flex: 0 0 16px !important;
+    width: 16px !important;
+    min-width: 16px !important;
+    height: 18px !important;
+    margin-left: 2px !important;
+  }
+
+  /* Less decoration when the number of tabs grows. Short titles are fine;
+     the native title tooltip and right-click menu retain full identification. */
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='compact'] > .workspace-tab {
+    padding: 0 5px !important;
+    border-radius: 11px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'] > .workspace-tab,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] > .workspace-tab {
+    padding: 0 3px !important;
+    border-radius: 9px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='dense'] .tab-close,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] .tab-close {
+    display: none !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) .workspace-tab.active .tab-close,
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list:is([data-tab-density='dense'],[data-tab-density='ultra']) .workspace-tab:hover .tab-close {
+    display: inline-grid !important;
+    flex: 0 0 14px !important;
+    width: 14px !important;
+    min-width: 14px !important;
+    margin: 0 !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] .workspace-tab-label {
+    font-size: 10px !important;
+  }
+
+  html[data-hi5-surface='workspace'] .app-shell .itsm-topbar .tab-list[data-tab-density='ultra'] > .workspace-tab {
+    height: 34px !important;
+    min-height: 34px !important;
+  }
+}
+
+/* Mobile retains touch-friendly tabs and horizontal swipe by design. */

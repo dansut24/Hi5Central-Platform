@@ -200,7 +200,6 @@ function tabFromRoute(route) {
   })
 }
 
-const MAX_WORKSPACE_TABS = 12
 const NEW_TAB_KEY = 'newtab'
 const LIVE_CHAT_TAB_KEY = 'livechat'
 
@@ -222,11 +221,8 @@ function syncLiveChatFixedTab(currentTabs, enabled) {
   const nextTabs = [...withoutLiveChat]
   nextTabs.splice(insertAt, 0, fixedTab)
 
-  if (nextTabs.length <= MAX_WORKSPACE_TABS) return nextTabs
-
-  const removableIndex = nextTabs.findLastIndex?.((tab) => !tab.pinned) ?? -1
-  if (removableIndex >= 0) nextTabs.splice(removableIndex, 1)
-  return nextTabs.slice(0, MAX_WORKSPACE_TABS)
+  // Opening Live Chat must not silently evict an unrelated workspace.
+  return nextTabs
 }
 
 function emptyTicketDraft(type = 'Incident') {
@@ -330,23 +326,8 @@ function restoreWorkspaceTabs(workspace, routeTab) {
     deduped.push(normalizedRouteTab)
   }
 
-  if (deduped.length <= MAX_WORKSPACE_TABS) return deduped
-
-  const essentials = deduped.filter((tab) => tab.pinned || tab.key === normalizedRouteTab.key)
-  const recent = deduped
-    .filter((tab) => !essentials.some((essential) => essential.key === tab.key))
-    .slice(-(MAX_WORKSPACE_TABS - essentials.length))
-
-  const trimmed = [...essentials, ...recent]
-    .filter((tab, index, list) => list.findIndex((candidate) => candidate.key === tab.key) === index)
-    .slice(0, MAX_WORKSPACE_TABS)
-
-  const homeIndex = trimmed.findIndex((tab) => tab.key === 'home')
-  if (homeIndex > 0) {
-    const [home] = trimmed.splice(homeIndex, 1)
-    trimmed.unshift(home)
-  }
-  return trimmed
+  // Do not discard previously opened tabs just because the header is crowded.
+  return deduped
 }
 
 function addWorkspaceTab(currentTabs, tab) {
@@ -365,15 +346,7 @@ function addWorkspaceTab(currentTabs, tab) {
     return currentTabs
   }
 
-  const nextTabs = [...currentTabs, normalizedTab]
-  if (nextTabs.length <= MAX_WORKSPACE_TABS) return nextTabs
-
-  const removableIndex = nextTabs.findIndex(
-    (currentTab) => !currentTab.pinned && currentTab.key !== normalizedTab.key,
-  )
-  if (removableIndex >= 0) nextTabs.splice(removableIndex, 1)
-
-  return nextTabs.slice(-MAX_WORKSPACE_TABS)
+  return [...currentTabs, normalizedTab]
 }
 
 function WorkspaceRuntime() {
@@ -832,7 +805,7 @@ function WorkspaceRuntime() {
 
   useEffect(() => {
     if (session?.role !== 'analyst') return
-    saveWorkspace({ tabs: tabs.slice(-MAX_WORKSPACE_TABS), activeTabKey })
+    saveWorkspace({ tabs, activeTabKey })
   }, [activeTabKey, session?.role, tabs])
 
   useEffect(() => {
@@ -1845,18 +1818,11 @@ function WorkspaceRuntime() {
     }
 
     setTabs((currentTabs) => {
-      let workingTabs = [...currentTabs]
-      if (workingTabs.length >= MAX_WORKSPACE_TABS) {
-        const removableIndex = workingTabs.findIndex(
-          (tab) => !tab.pinned && tab.key !== sourceTab.key && tab.viewId !== 'newtab',
-        )
-        if (removableIndex >= 0) workingTabs.splice(removableIndex, 1)
-      }
-
-      const sourceIndex = workingTabs.findIndex((tab) => tab.key === sourceTab.key)
-      const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : workingTabs.length
-      workingTabs.splice(insertIndex, 0, duplicate)
-      return workingTabs.slice(0, MAX_WORKSPACE_TABS)
+      const sourceIndex = currentTabs.findIndex((tab) => tab.key === sourceTab.key)
+      if (sourceIndex < 0) return currentTabs
+      const nextTabs = [...currentTabs]
+      nextTabs.splice(sourceIndex + 1, 0, duplicate)
+      return nextTabs
     })
 
     selectWorkspaceTab(duplicate)
@@ -3208,7 +3174,11 @@ function WorkspaceRuntime() {
           </div>
 
           <div className="tabbar-tab-zone">
-            <div className="tab-list" ref={tabListRef}>
+            <div
+              className="tab-list"
+              data-tab-density={tabs.length >= 18 ? 'ultra' : tabs.length >= 12 ? 'dense' : tabs.length >= 8 ? 'compact' : 'normal'}
+              ref={tabListRef}
+            >
             {tabs.map((tab) => {
               const tabModule = workspaceTabModule(tab)
 
@@ -3223,12 +3193,13 @@ function WorkspaceRuntime() {
                   data-tab-key={tab.key}
                   data-tab-module={tabModule}
                   key={tab.key}
+                  title={tab.title}
                   onClick={() => activateTab(tab)}
                   onContextMenu={(event) => openTabContextMenu(event, tab)}
                   type="button"
                 >
                   <span className="workspace-tab-label">
-                    {tab.title}
+                    <span className="workspace-tab-title">{tab.title}</span>
                     {tab.viewId === 'livechat' && liveChatUnreadCount > 0 && (
                       <span className="live-chat-tab-notification" aria-label={`${liveChatUnreadCount} unread Live Chat messages`}>
                         <Bell size={10} aria-hidden="true" />
