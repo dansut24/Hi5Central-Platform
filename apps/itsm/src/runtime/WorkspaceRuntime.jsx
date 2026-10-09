@@ -954,13 +954,14 @@ function WorkspaceRuntime() {
       // the tab group reaches the available width, flex-shrink compresses all
       // tabs proportionally. Inline important is needed because legacy
       // responsive styles already override this rail with !important.
+      let crowded = false
       if (desktop) {
         // Both the launcher and searchable switcher need a reserved control
         // width. Once the preferred group hits the header boundary, give the
         // active workspace a slightly larger share without hiding any tab.
         const preferredGroupWidth = buttons.length * 136 + 64
         const availableWidth = list.closest('.tabbar-tab-zone')?.clientWidth || list.parentElement?.clientWidth || list.clientWidth
-        const crowded = availableWidth > 0 && preferredGroupWidth > availableWidth
+        crowded = availableWidth > 0 && preferredGroupWidth > availableWidth
         list.dataset.tabCrowded = crowded ? 'true' : 'false'
         list.style.setProperty('flex', `0 1 ${preferredGroupWidth}px`, 'important')
         list.style.setProperty('width', `${preferredGroupWidth}px`, 'important')
