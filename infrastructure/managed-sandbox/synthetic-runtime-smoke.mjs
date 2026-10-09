@@ -2,7 +2,7 @@
 // Phase 14: disposable runtime proving attestation and API security using
 // real built images. Never route this through Caddy, use real customer data,
 // persist volumes, publish host ports, or create operator approvals.
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { randomBytes, randomUUID } from 'node:crypto'
 
 const IS_EXPLICIT = process.argv.length === 5
@@ -65,8 +65,10 @@ function state(name){
   return text
 }
 function logs(name) {
-  const out=safelyRun(['logs','--tail','180',name])
-  return out.text
+  const result=spawnSync('docker',['logs','--tail','180',name],{
+    encoding:'utf8',timeout:9000,maxBuffer:1024*1024,
+  })
+  return String(result.stdout||'')+'\n'+String(result.stderr||'')
 }
 function envPairs(input){
   return Object.entries(input).flatMap(([key,value])=>['--env',key+'='+value])
