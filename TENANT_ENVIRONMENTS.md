@@ -449,3 +449,24 @@ The patterns and regression tests live under
 `infrastructure/managed-sandbox/public-ingress-*.caddy` and
 `public-ingress-deny.test.mjs`. Customer pilot activation remains blocked
 pending separate runtime attestation and browser/MFA approval.
+
+## Phase 14 — isolated API and ITSM/Portal runtime validation (10 October 2026)
+
+The source-controlled `synthetic-runtime-smoke.mjs` successfully exercised
+matching published API and ITSM images against separate, temporary UAT/Test
+PostgreSQL and Redis services. Missing database and Redis attestations both
+prevented API startup. After **synthetic test-only** attestations, isolated
+APIs reported healthy, RMM/Connect returned 423, unauthenticated sessions 401,
+and each database still contained zero customers. Both frontend runtimes
+served their entrypoint and environment-specific settings. Cross-environment
+database connections failed. All scratch resources were removed.
+
+The run identified and drove fixes for: an unnecessary Connect HMAC secret
+on disabled sandbox runtimes; an incorrect default demo tenant in the
+frontend runtime-config generator; and Production Admin URL fallback in API
+and frontend deployment readers. All changes are on `develop` and require
+a new release plus repeat smoke without compatibility settings. No live
+pilot was created, no Production or legacy applications were changed,
+and the public gateway 404/421 fix remains in force. See
+`infrastructure/managed-sandbox/PHASE14_SYNTHETIC_RUNTIME.md`.
+
