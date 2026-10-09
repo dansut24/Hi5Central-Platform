@@ -34,6 +34,7 @@ import { ProductionRecordListInteractionEnhancer } from './production/Production
 import { ProductionUniversalPeekV2 } from './production/ProductionUniversalPeekV2.jsx'
 import { ProductionWorkflowExperience } from './production/ProductionWorkflowExperience.jsx'
 import { ProductionWorkspaceBootstrap } from './production/ProductionWorkspaceBootstrap.jsx'
+import { CustomerEnvironmentPending } from './production/CustomerEnvironmentPending.jsx'
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
 import { ProductionWorkspaceTabPersistence, installWorkspaceTabSessionIsolation } from './production/ProductionWorkspaceTabPersistence.jsx'
@@ -103,6 +104,7 @@ if (initialSurface.kind === 'marketing') {
 }
 if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
+if (initialSurface.kind === 'environment-pending') RootApp = CustomerEnvironmentPending
 
 createRoot(rootElement).render(
   <StrictMode>
