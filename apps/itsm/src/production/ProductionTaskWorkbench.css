@@ -25,6 +25,8 @@ html[data-hi5-surface='workspace'] .task-record-workbench {
 .task-record-info-rail{padding:8px 11px 10px 2px;border-right:1px solid var(--line)}
 .task-record-context-rail{padding:8px 2px 10px 13px;border-left:1px solid var(--line)}
 .task-record-main{min-width:0;min-height:0;overflow:hidden;padding:2px 8px}
+.task-record-main>.task-record-activity-slot{height:100%;min-height:0;overflow:hidden}
+.task-record-main>[hidden]{display:none!important}
 .task-record-info-rail h2,.task-record-context-rail h2{margin:0 0 10px;font-size:13px;font-weight:850}
 .task-record-rail-field,.task-record-context-field{display:grid;gap:5px;margin:0 0 11px;min-width:0}
 .task-record-rail-field>span,.task-record-context-field>span{font-size:11px;color:var(--muted);font-weight:700}
@@ -108,3 +110,5 @@ html[data-hi5-surface='workspace'] .task-record-workbench {
 @media(max-width:1160px){html[data-hi5-surface='workspace'] .task-record-three-panel{grid-template-columns:minmax(196px,225px) minmax(0,1fr)}.task-record-context-rail{display:none}}
 @media(max-width:760px){html[data-hi5-surface='workspace'] .task-record-workbench{display:block;overflow:visible;height:auto;min-height:100%;padding:6px 8px 14px}.task-record-header{flex-wrap:wrap}.task-record-header-actions{width:100%;justify-content:flex-end}.task-record-three-panel{display:block!important;overflow:visible}.task-record-info-rail{overflow:visible;border:1px solid var(--line);border-radius:9px;padding:10px;margin-bottom:9px}.task-record-main{overflow:visible;padding:0}.task-record-feed{display:block;height:auto}.task-record-feed-scroll{overflow:visible;padding:8px 0}.task-record-context-rail{display:block;border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:9px}.task-record-event-body :is(p,.record-lab-rich-note-content){font-size:14px}.task-record-composer .record-lab-rich-input{font-size:16px}.task-record-composer .record-lab-rich-fullscreen-dialog{inset:0;width:100vw;height:100dvh;max-height:100dvh;border-radius:0}}
 @media(prefers-reduced-motion:reduce){.task-record-workbench *{transition:none!important}}
+
+@media(max-width:760px){.task-record-main>.task-record-activity-slot{height:auto;overflow:visible}}
