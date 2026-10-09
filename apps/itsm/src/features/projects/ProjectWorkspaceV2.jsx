@@ -113,14 +113,17 @@ function ProjectState({ children, kind = 'status' }) {
 }
 
 function ProjectCreatePanel({ onClose, onCreate, people, teams }) {
-  const [draft, setDraft] = useState({
-    name: '',
-    description: '',
-    ownerId: people[0]?.id || '',
-    team: teams[0]?.name || '',
-    priority: 'Medium',
-    startDate: '2026-09-07',
-    targetDate: '2026-10-30',
+  const [draft, setDraft] = useState(() => {
+    const startDate = isoDate(new Date())
+    return {
+      name: '',
+      description: '',
+      ownerId: people[0]?.id || '',
+      team: teams[0]?.name || '',
+      priority: 'Medium',
+      startDate,
+      targetDate: addDays(startDate, 56),
+    }
   })
 
   const close = () => {
