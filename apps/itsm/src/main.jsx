@@ -16,7 +16,6 @@ import { ProductionSessionBoundary } from './production/ProductionSessionBoundar
 import { ProductionFirstLoginRouteBridge } from './production/ProductionFirstLoginRouteBridge.jsx'
 import { ProductionItsmWorkspace } from './production/ProductionItsmWorkspace.jsx'
 import { ProductionCmdb } from './production/ProductionCmdb.jsx'
-import { ProductionKnowledgeBase } from './production/ProductionKnowledgeBase.jsx'
 import { ProductionLiveChatBadgeBridge } from './production/ProductionLiveChatBadgeBridge.jsx'
 import { ProductionLiveChatOperations, ProductionPortalLiveChatOperations } from './production/ProductionLiveChatOperations.jsx'
 import { ProductionLiveChatCompactTools } from './production/ProductionLiveChatCompactTools.jsx'
@@ -24,7 +23,6 @@ import { ProductionLiveChatWorkspace } from './production/ProductionLiveChatWork
 import { ProductionNavigationDockPreferences } from './production/ProductionNavigationDockPreferences.jsx'
 import { ProductionNotificationCenter } from './production/ProductionNotificationCenter.jsx'
 import { ProductionOrganisationWriteThrough } from './production/ProductionOrganisationWriteThrough.jsx'
-import { ProductionOrganisationKnowledgeLayout } from './production/ProductionOrganisationKnowledgeLayout.jsx'
 import { ProductionPortalBootstrap } from './production/ProductionPortalBootstrap.jsx'
 import { ProductionPortalKnowledgeChat } from './production/ProductionPortalKnowledgeChat.jsx'
 import { ProductionPortalThemeBridge } from './production/ProductionPortalThemeBridge.jsx'
@@ -81,6 +79,7 @@ import './production/ProductionCalendarWorkbench.css'
 import './production/ProductionPlanningWorkbenchPolish.css'
 import './production/ProductionCalendarTeams.css'
 import './production/ProductionProjectWorkbench.css'
+import './production/ProductionOrganisationKnowledgeLayout.css'
 
 installWorkspaceTabSessionIsolation()
 
@@ -114,12 +113,10 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionSessionBoundary /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAccessControl /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionOrganisationWriteThrough /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionOrganisationKnowledgeLayout /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionItsmWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAssignmentExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFinalTaskCompletionPrompt /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionCmdb /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionKnowledgeBase /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatBadgeBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatOperations /> : null}
