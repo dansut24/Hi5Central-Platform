@@ -1037,6 +1037,7 @@ function RecordWorkspace({ route }) {
     if (node instanceof HTMLElement) scrollActivityTarget(node)
   }
 
+  const currentPhases = recordWorkflowPhases(route.type, detail.status)
   const originalSummary = detail.description?.trim() || ''
   const summaryLong = originalSummary.length > 145 || originalSummary.split('\n').length > 4
   const renderRecordPanel = () => <aside className="record-lab-summary-rail" aria-label="Record summary">
@@ -1052,6 +1053,9 @@ function RecordWorkspace({ route }) {
         <LabPill tone={['Resolved', 'Closed', 'Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status || 'New'}</LabPill>
         <LabPill tone={detail.priority === 'Critical' || detail.priority === 'High' ? 'danger' : detail.priority === 'Medium' ? 'warning' : 'good'}>{detail.priority || 'Not set'}</LabPill>
       </div>
+      {!['cancelled', 'rejected'].includes(String(detail.status || '').toLowerCase()) ? <div className="record-lab-record-progress" aria-label={`Current stage: ${currentPhases.labels[currentPhases.active]}`}>
+        {currentPhases.labels.map((label, index) => <span key={label} title={label} className={`record-lab-compact-stage${index < currentPhases.active ? ' is-past' : ''}${index === currentPhases.active ? ' is-current' : ''}`}>{label}</span>)}
+      </div> : null}
       <div className="record-lab-record-section">
         <div className="record-lab-record-section-label">{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</div>
         <p className={`record-lab-record-description${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>{originalSummary || 'No description has been recorded.'}</p>
@@ -1065,6 +1069,8 @@ function RecordWorkspace({ route }) {
         <div className="record-lab-record-fields">
           {detail.service ? <div><span>Service</span><strong>{detail.service}</strong></div> : null}
           {detail.category ? <div><span>Category</span><strong>{detail.category}</strong></div> : null}
+          {detail.source ? <div><span>Source</span><strong>{detail.source}</strong></div> : null}
+          <div><span>Created</span><strong>{formatDate(detail.createdAt, true)}</strong></div>
           <div><span>Updated</span><strong>{relativeTime(detail.updatedAt)}</strong></div>
           {route.type === 'Incident' && (detail.impact || detail.urgency) ? <div><span>Impact / urgency</span><strong>{detail.impact || '—'} / {detail.urgency || '—'}</strong></div> : null}
         </div>
@@ -1072,7 +1078,11 @@ function RecordWorkspace({ route }) {
       <button type="button" className={`record-lab-record-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}>
         <Clock3 size={17} aria-hidden="true" /><span><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></span><ChevronRight size={14}/>
       </button>
-      {contextualSignal ? <button type="button" className={`record-lab-record-signal is-${contextualSignal.tone}`} onClick={() => { setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights'); setInspectorDrawerOpen(!contextPinned) }}>
+      {contextualSignal ? <button type="button" className={`record-lab-record-signal is-${contextualSignal.tone}`} onClick={() => {
+        setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights')
+        if (window.matchMedia('(max-width: 820px)').matches) { setTab('details'); setInspectorDrawerOpen(false) }
+        else setInspectorDrawerOpen(!contextPinned)
+      }}>
         <Sparkles size={15} aria-hidden="true" /><span>{contextualSignal.label}</span><ChevronRight size={13}/>
       </button> : null}
       <div className="record-lab-record-actions">
