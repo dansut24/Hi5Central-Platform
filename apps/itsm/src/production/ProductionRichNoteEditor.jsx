@@ -95,6 +95,7 @@ export function RichNoteEditor({ html, text, onChange, placeholder='Write a note
     const dialog = dialogRef.current
     if (!dialog) return undefined
     if (!dialog.open) dialog.showModal()
+    ref.current?.focus()
     return () => { if (dialog.open) dialog.close() }
   }, [expanded])
   useEffect(() => {
