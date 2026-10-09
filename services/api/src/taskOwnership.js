@@ -2,6 +2,7 @@ import { effectiveAccessForUser, hasPermission } from './access.js'
 import { pool, withTransaction } from './db.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
+import { unifiedTaskQueue } from './unifiedTaskQueue.js'
 
 const queueScopes = new Set(['mine', 'team', 'unassigned', 'blocked', 'all', 'completed'])
 const queueStatuses = new Set(['Ready', 'In Progress', 'Blocked', 'Completed'])
@@ -260,164 +261,10 @@ export function registerTaskOwnershipRoutes(app) {
   app.get('/api/v1/task-work-queue', async (c) => {
     const auth = await requireTaskAccess(c, 'itsm.tasks.view')
     if (auth.error) return auth.error
-
-    const scope = text(c.req.query('scope') || 'team', 30).toLowerCase()
-    if (!queueScopes.has(scope)) return c.json({ error: 'Unsupported task queue view.' }, 400)
-
-    const status = text(c.req.query('status'), 40)
-    if (status && status !== 'All' && !queueStatuses.has(status)) return c.json({ error: 'Unsupported task status.' }, 400)
-
-    const due = text(c.req.query('due'), 40)
-    if (due && due !== 'All' && !queueDueFilters.has(due)) return c.json({ error: 'Unsupported due-date filter.' }, 400)
-
     const viewer = await taskViewer(pool, auth.session)
-    const viewerTeamIds = Array.isArray(viewer?.team_ids) ? viewer.team_ids : []
-    const limit = Math.max(1, Math.min(200, Number(c.req.query('limit') || 50)))
-    const offset = Math.max(0, Number(c.req.query('offset') || 0))
-    const values = [auth.session.tenant_id]
-    const clauses = ['t.tenant_id = $1', "t.status <> 'Waiting'"]
-    const add = (sql, value) => {
-      values.push(value)
-      const parameter = `$${values.length}`
-      clauses.push(sql.replace(/\?/g, parameter))
-    }
-
-    if (scope === 'completed') {
-      clauses.push("t.status = 'Completed'")
-    } else {
-      clauses.push("t.status IN ('Ready','In Progress','Blocked')")
-      clauses.push("r.status NOT IN ('Pending Approval','Rejected','Closed')")
-      clauses.push(queueDependenciesSatisfiedSql)
-      if (scope === 'mine') {
-        if (viewer?.id) add('t.assignee_person_id = ?::uuid', viewer.id)
-        else clauses.push('FALSE')
-      }
-      if (scope === 'team') {
-        if (viewerTeamIds.length) add('t.team_id = ANY(?::uuid[])', viewerTeamIds)
-        else clauses.push('FALSE')
-      }
-      if (scope === 'unassigned') clauses.push('t.assignee_person_id IS NULL')
-      if (scope === 'blocked') clauses.push("t.status = 'Blocked'")
-    }
-
-    if (status && status !== 'All') add('t.status = ?', status)
-
-    const search = text(c.req.query('search'), 200)
-    if (search) add("(t.external_key ILIKE '%' || ? || '%' OR t.title ILIKE '%' || ? || '%' OR r.reference ILIKE '%' || ? || '%' OR r.title ILIKE '%' || ? || '%')", search)
-
-    const priority = text(c.req.query('priority'), 40)
-    if (priority && priority !== 'All') add('r.priority = ?', priority)
-
-    const team = text(c.req.query('team'), 160)
-    if (team && team !== 'All') {
-      if (team === 'Unassigned') clauses.push("COALESCE(team.name, t.team_snapshot->>'name', '') = ''")
-      else add("COALESCE(team.name, t.team_snapshot->>'name', '') = ?", team)
-    }
-
-    const assignee = text(c.req.query('assignee'), 254)
-    if (assignee && assignee !== 'All') {
-      if (assignee === 'Unassigned') clauses.push('t.assignee_person_id IS NULL')
-      else add("COALESCE(assignee.name, t.assignee_snapshot->>'name', '') = ?", assignee)
-    }
-
-    const service = text(c.req.query('service'), 160)
-    if (service && service !== 'All') add('r.service = ?', service)
-
-    if (due === 'Overdue') clauses.push('t.due_at IS NOT NULL AND t.due_at < now()')
-    if (due === 'Next 24 hours') clauses.push("t.due_at >= now() AND t.due_at < now() + interval '24 hours'")
-    if (due === 'Next 7 days') clauses.push("t.due_at >= now() AND t.due_at < now() + interval '7 days'")
-    if (due === 'No due date') clauses.push('t.due_at IS NULL')
-
-    values.push(limit, offset)
-    const result = await pool.query(
-      `${queueTaskSelect}
-       WHERE ${clauses.join(' AND ')}
-       ORDER BY
-         CASE WHEN t.status <> 'Completed' AND t.due_at IS NOT NULL AND t.due_at < now() THEN 0 ELSE 1 END,
-         CASE t.status WHEN 'In Progress' THEN 0 WHEN 'Ready' THEN 1 WHEN 'Blocked' THEN 2 ELSE 3 END,
-         t.due_at NULLS LAST,
-         t.updated_at DESC
-       LIMIT $${values.length - 1} OFFSET $${values.length}`,
-      values,
-    )
-
-    const countValues = values.slice(0, -2)
-    const count = await pool.query(
-      `SELECT count(*)::int AS total
-       FROM service_request_tasks t
-       JOIN service_requests r ON r.id = t.request_id AND r.tenant_id = t.tenant_id
-       LEFT JOIN organisation_teams team ON team.id = t.team_id
-       LEFT JOIN organisation_people assignee ON assignee.id = t.assignee_person_id
-       WHERE ${clauses.join(' AND ')}`,
-      countValues,
-    )
-
-    const activeCounts = await pool.query(
-      `SELECT
-         count(*)::int AS all,
-         count(*) FILTER (WHERE t.assignee_person_id = $2::uuid)::int AS mine,
-         count(*) FILTER (WHERE t.team_id = ANY($3::uuid[]))::int AS team,
-         count(*) FILTER (WHERE t.assignee_person_id IS NULL)::int AS unassigned,
-         count(*) FILTER (WHERE t.status = 'Blocked')::int AS blocked,
-         count(*) FILTER (WHERE t.due_at IS NOT NULL AND t.due_at < now())::int AS overdue
-       FROM service_request_tasks t
-       JOIN service_requests r ON r.id = t.request_id AND r.tenant_id = t.tenant_id
-       WHERE t.tenant_id = $1
-         AND t.status IN ('Ready','In Progress','Blocked')
-         AND r.status NOT IN ('Pending Approval','Rejected','Closed')
-         AND ${queueDependenciesSatisfiedSql}`,
-      [auth.session.tenant_id, viewer?.id || null, viewerTeamIds],
-    )
-
-    const completedCount = await pool.query(
-      `SELECT count(*)::int AS completed
-       FROM service_request_tasks t
-       WHERE t.tenant_id = $1 AND t.status = 'Completed'`,
-      [auth.session.tenant_id],
-    )
-
-    const filters = await pool.query(
-      `SELECT
-         array_remove(array_agg(DISTINCT COALESCE(team.name, t.team_snapshot->>'name')), NULL) AS teams,
-         array_remove(array_agg(DISTINCT COALESCE(assignee.name, t.assignee_snapshot->>'name')), NULL) AS assignees,
-         array_remove(array_agg(DISTINCT r.service), NULL) AS services,
-         array_remove(array_agg(DISTINCT r.priority), NULL) AS priorities
-       FROM service_request_tasks t
-       JOIN service_requests r ON r.id = t.request_id AND r.tenant_id = t.tenant_id
-       LEFT JOIN organisation_teams team ON team.id = t.team_id
-       LEFT JOIN organisation_people assignee ON assignee.id = t.assignee_person_id
-       WHERE t.tenant_id = $1 AND t.status <> 'Waiting'`,
-      [auth.session.tenant_id],
-    )
-
-    const counts = activeCounts.rows[0] || {}
-    return c.json({
-      items: result.rows.map(queueTaskFromRow),
-      total: Number(count.rows[0]?.total || 0),
-      viewer: {
-        personId: viewer?.external_key || '',
-        name: viewer?.name || auth.session.name || '',
-        email: viewer?.email || auth.session.email || '',
-        teams: Array.isArray(viewer?.team_names) ? viewer.team_names : [],
-      },
-      views: {
-        mine: Number(counts.mine || 0),
-        team: Number(counts.team || 0),
-        unassigned: Number(counts.unassigned || 0),
-        blocked: Number(counts.blocked || 0),
-        all: Number(counts.all || 0),
-        completed: Number(completedCount.rows[0]?.completed || 0),
-        overdue: Number(counts.overdue || 0),
-      },
-      filters: {
-        statuses: ['Ready', 'In Progress', 'Blocked', 'Completed'],
-        priorities: filters.rows[0]?.priorities || [],
-        teams: filters.rows[0]?.teams || [],
-        assignees: filters.rows[0]?.assignees || [],
-        services: filters.rows[0]?.services || [],
-        due: ['Overdue', 'Next 24 hours', 'Next 7 days', 'No due date'],
-      },
-    })
+    const result = await unifiedTaskQueue(auth.session, (key) => c.req.query(key), viewer)
+    if (result.error) return c.json({ error: result.error }, 400)
+    return c.json(result)
   })
 
   app.post('/api/v1/tasks/:taskKey/take', async (c) => {
