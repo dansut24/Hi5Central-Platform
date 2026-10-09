@@ -10,7 +10,7 @@ function example(environment) {
   const p={
     DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',RUNTIME_ENVIRONMENT:environment,
     ROOT_DOMAIN:'hi5central.com',COMPOSE_PROJECT_NAME:`hi5-sandbox-${environment}`,
-    EDGE_NETWORK:'hi5central',API_URL:`https://${environment}-api.hi5central.com`,
+    EDGE_NETWORK:`hi5central-sandbox-${environment}-edge`,API_URL:`https://${environment}-api.hi5central.com`,
     MARKETING_URL:'https://hi5central.com',APP_URL:'',PORTAL_URL:'',RMM_URL:'',
     ADMIN_URL:'',COOKIE_DOMAIN:'',PRIMARY_TENANT_SLUG:'',
     FEATURE_MODE:environment==='uat'?'controlled':'all_enabled',
