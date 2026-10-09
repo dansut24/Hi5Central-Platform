@@ -29,6 +29,26 @@ Legacy RMM/Portal hostnames remain supported for the live environment.
 - Agent and Viewer channels are independently versioned and updated to the
   latest *compatible stable* release, without waiting for a web release.
 
+## Cost-conscious managed architecture
+
+For the hosted service, provision **three shared runtime environments**
+(Production, UAT and Test) rather than three container stacks per customer.
+
+- Production, UAT and Test must use **separate PostgreSQL databases, Redis
+  scopes, session secrets, API tokens and agent command streams**.
+- Within each environment, all tenants share application/API infrastructure
+  but retain tenant_id isolation, with security tests for every route,
+  background job, WebSocket and RMM control path.
+- Platform Admin is an independent **central control plane**, not a customer
+  tenant or environment.
+- A provisioning operator must create/sync the customer's environment-local
+  organisation, memberships and configuration defaults. Configuration
+  promotion is an explicit, audited, allowlisted export/import operation.
+- Internal Dev stays a single-tenant engineering stack. It is **not** a
+  substitute for the shared customer Test/UAT infrastructure.
+- Until the shared managed control plane and separate environment stores
+  are deployed, the request queue cannot safely be processed.
+
 ## Provisioning and isolation — required before activation
 
 The `tenant_environment_instances` table reserves hostnames and records
