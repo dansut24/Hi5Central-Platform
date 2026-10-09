@@ -48,7 +48,7 @@ export function validateSandboxEnvironment(v, peer=null) {
   if(v.DEPLOYMENT_MODE!=='managed' || v.TENANCY_MODE!=='multi') errors.push('Managed multi-tenant mode is mandatory')
   if(v.COMPOSE_PROJECT_NAME!==`hi5-sandbox-${env}`) errors.push('Unexpected Compose project for the specified environment')
   if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(String(v.ROOT_DOMAIN||''))) errors.push('ROOT_DOMAIN must be a DNS domain')
-  if(!/^[a-z][a-z0-9_-]{2,60}$/.test(String(v.EDGE_NETWORK||''))) errors.push('EDGE_NETWORK must be an explicitly selected external network')
+  if(v.EDGE_NETWORK!==`hi5central-sandbox-${env}-edge`) errors.push('EDGE_NETWORK must be dedicated to the selected UAT/Test runtime')
   if(v.BACKGROUND_WORKERS_ENABLED!=='false') errors.push('Background workers must remain disabled for this pilot')
   if(v.COOKIE_DOMAIN) errors.push('COOKIE_DOMAIN must be empty (host-only cookies)')
   if(v.APP_URL || v.PORTAL_URL || v.RMM_URL || v.ADMIN_URL) errors.push('Global APP/Portal/RMM/Admin URLs must not be set for shared sandboxes')
@@ -88,7 +88,7 @@ export function validateSandboxEnvironment(v, peer=null) {
   }
   if(peer){
     if(peer.RUNTIME_ENVIRONMENT===env || !['uat','test'].includes(peer.RUNTIME_ENVIRONMENT)) errors.push('Peer must describe the other sandbox environment')
-    for(const key of ['COMPOSE_PROJECT_NAME','POSTGRES_DB','POSTGRES_USER','POSTGRES_PASSWORD',
+    for(const key of ['COMPOSE_PROJECT_NAME','EDGE_NETWORK','POSTGRES_DB','POSTGRES_USER','POSTGRES_PASSWORD',
       'REDIS_PASSWORD','MFA_ENCRYPTION_KEY','DATABASE_URL','REDIS_URL','API_URL']) {
       if(v[key]===peer[key]) errors.push('UAT and Test must not reuse '+key)
     }
