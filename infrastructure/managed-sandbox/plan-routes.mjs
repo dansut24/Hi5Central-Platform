@@ -2,6 +2,7 @@
 // Read-only gateway planning: NEVER writes DNS, Caddyfile or Docker state.
 // The operator must independently verify DNS/TLS and explicitly approve routes.
 import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import { isValidCustomerSlug, managedTenantUrls } from '../../services/api/src/tenantEnvironmentHostnames.js'
 
 export function planRoutes(environment, tenantSlug, rootDomain='hi5central.com') {
@@ -31,7 +32,7 @@ export function planRoutes(environment, tenantSlug, rootDomain='hi5central.com')
   }
 }
 const script=fileURLToPath(import.meta.url)
-if(process.argv[1] && script===fileURLToPath(new URL('file://'+process.argv[1]))) {
+if(process.argv[1] && script===resolve(process.argv[1])) {
   const args=process.argv.slice(2)
   if(args.length!==4 || args[0]!=='--environment' || args[2]!=='--tenant'){
     console.error('Usage: node plan-routes.mjs --environment uat|test --tenant validated-slug')
