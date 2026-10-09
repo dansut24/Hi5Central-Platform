@@ -44,6 +44,7 @@ import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
 import { RecordLinkedDevices } from './RecordLinkedDevices.jsx'
 import { RecordTasksPanel, RecordApprovalsPanel } from './RecordWorkflowPanels.jsx'
+import { RichNoteEditor, RichActivityBody, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
 import './ProductionRecordWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -318,7 +319,7 @@ function TimelineItem({ item }) {
     <div className={`record-lab-avatar${origin ? ' is-origin' : ''}`}>{origin ? <FileText size={16} /> : initials(item.actor || 'Hi5Central')}</div>
     <div>
       <header><span><strong>{item.actor || 'Hi5Central'}</strong><small>{formatDate(item.createdAt)}</small></span><LabPill tone={origin ? 'warning' : customer ? 'accent' : 'neutral'}>{label}</LabPill></header>
-      <p>{activityText(item)}</p>
+      <RichActivityBody html={item.html || item.metadata?.richHtml} text={activityText(item)} />
       {inlineAttachments.length ? <div className="record-lab-inline-attachments">{inlineAttachments.map((attachment, index) => <span key={attachment.id || attachment.fileName || attachment.name || index}><Paperclip size={13} />{attachment.fileName || attachment.name || 'Attachment'}</span>)}</div> : null}
     </div>
   </article>
@@ -368,6 +369,7 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
   const noteMode = mode === 'internal' || mode === 'customer'
   const attachmentsSupported = noteMode
   const text = noteMode ? (noteDraft?.text || '') : actionText
+  const html = noteMode ? (noteDraft?.html || '') : ''
   const files = noteMode ? (noteDraft?.files || []) : actionFiles
   useEffect(() => {
     if (!noteMode || !textareaRef.current) return
@@ -440,7 +442,7 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
   const removeFile = (index) => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
 
   const submit = async () => {
-    if (mode === 'internal' || mode === 'customer') return onPost({ visibility: customer ? 'customer' : 'internal', text, files })
+    if (mode === 'internal' || mode === 'customer') return onPost({ visibility: customer ? 'customer' : 'internal', text, html: sanitizeNoteHtml(html), files })
     if (mode === 'reassign') return onReassign({ team, assignee, note: text })
     if (mode === 'resolve') return onResolve({ resolutionCode, note: text })
     if (mode === 'pending') return onPending({ status: pendingStatus, note: text })
@@ -484,7 +486,7 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
     </div> : null}
     {mode === 'resolve' && detail.type === 'Incident' ? <div className="record-lab-composer-fields is-single"><label><span>Resolution code</span><select value={resolutionCode} onChange={(event) => setResolutionCode(event.target.value)}>{['Fixed','Workaround','User education','Configuration change','Known error','Duplicate','No fault found','Other'].map((value) => <option key={value}>{value}</option>)}</select></label></div> : null}
     {mode === 'pending' ? <div className="record-lab-composer-fields is-single"><label><span>Pending status</span><select value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value)}><option>Pending Customer</option><option>Pending Vendor</option></select></label></div> : null}
-    <textarea ref={textareaRef} aria-label={noteMode ? (customer ? 'Customer-visible update' : 'Internal work note') : label} rows={noteMode ? 3 : undefined} autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={customer ? 'Write a customer-visible update…' : mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an internal work note…'} />
+    {noteMode ? <RichNoteEditor key={mode} html={html} text={text} onChange={(patch) => onNoteDraftChange?.(patch)} placeholder={customer ? 'Write a customer-visible update…' : 'Write an internal work note…'} /> : <textarea ref={textareaRef} aria-label={label} autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an update…'} />}
     {attachmentsSupported ? <div className="record-lab-composer-attachments"><label><Paperclip size={14} />Attach files<input type="file" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = '' }} /></label>{files.length ? <div className="record-lab-composer-file-list">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={12} /><b>{file.name}</b><small>{formatBytes(file.size)}</small><button type="button" onClick={() => removeFile(index)} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}{fileError ? <small className="record-lab-composer-file-error">{fileError}</small> : null}</div> : null}
     <footer><span>{customer ? 'Visible to requester' : mode === 'reassign' ? `Selected: ${assignee || 'Unassigned'}` : files.length ? `${files.length} attachment${files.length === 1 ? '' : 's'} will be added with this note` : 'Technician workspace'}</span><button type="button" disabled={saving || ((mode === 'internal' || mode === 'customer') && !text.trim() && !files.length)} onClick={submit}><Send size={16} />{saving ? 'Saving…' : noteMode ? (customer ? 'Send update' : 'Save note') : label}</button></footer>
   </div>
@@ -499,7 +501,7 @@ function RecordWorkspace({ route }) {
   const [tab, setTab] = useState('activity')
   const [composerMode, setComposerMode] = useState('')
   const [newNotePosted, setNewNotePosted] = useState(false)
-  const [noteDrafts, setNoteDrafts] = useState({ internal: { text: '', files: [] }, customer: { text: '', files: [] } })
+  const [noteDrafts, setNoteDrafts] = useState({ internal: { text: '', html: '', files: [] }, customer: { text: '', html: '', files: [] } })
   const updateNoteDraft = (visibility, patch) => setNoteDrafts((current) => ({
     ...current,
     [visibility]: { ...current[visibility], ...patch },
@@ -680,7 +682,7 @@ function RecordWorkspace({ route }) {
     }
   }
 
-  const postNote = ({ visibility, text, files = [] }) => run(async () => {
+  const postNote = ({ visibility, text, html = '', files = [] }) => run(async () => {
     if (route.type === 'Service Request') {
       const uploaded = []
       for (const file of files) {
@@ -700,7 +702,7 @@ function RecordWorkspace({ route }) {
       await addProductionServiceRequestActivity(route.reference, {
         kind: visibility === 'customer' ? 'customer' : 'work',
         text,
-        html: '',
+        html,
         attachments: uploaded,
       })
     } else {
@@ -719,13 +721,13 @@ function RecordWorkspace({ route }) {
         body: JSON.stringify({
           text,
           visibility,
-          metadata: uploaded.length ? { attachments: uploaded.map((item) => ({ id: item.id, fileName: item.fileName, mimeType: item.mimeType, byteSize: item.byteSize })) } : {},
+          metadata: { ...(uploaded.length ? { attachments: uploaded.map((item) => ({ id: item.id, fileName: item.fileName, mimeType: item.mimeType, byteSize: item.byteSize })) } : {}), ...(html ? { richHtml: html } : {}) },
         }),
       })
     }
   }, visibility === 'customer' ? 'Customer update sent' : 'Internal note added').then((saved) => {
     if (saved) {
-      updateNoteDraft(visibility, { text: '', files: [] })
+      updateNoteDraft(visibility, { text: '', html: '', files: [] })
       setActivityQuery('')
       setNewNotePosted(true)
     }
