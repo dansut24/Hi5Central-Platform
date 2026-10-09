@@ -198,3 +198,21 @@ demo tenant slug, and isolated managed environments never inherit the
 Production Admin URL. They require a new green build and repeated smoke
 without compatibility overrides before any customer pilot.
 
+
+
+## Phase 15 — actual sandbox invitation, MFA and access-revocation testing
+
+The `synthetic-customer-lifecycle.mjs` test extends the disposable
+`synthetic-runtime-smoke.mjs` to exercise real API endpoints in UAT and Test.
+The synthetic owner journey (one-time invitation, MFA, host-only session,
+cross-customer isolation, approval revocation, and suspension) passed for
+both environments. The temporary PostgreSQL, Redis, API, ITSM and network
+resources were cleaned up.
+
+The separate invitation-email test delivered through a private local SMTP
+sink and discovered a requester Portal MFA/session-surface bug in the
+previously published image. That bug and requester-specific invitation
+links have been corrected on `develop`, with five pure regression tests
+passing. The full requester Portal integration run remains pending a
+green new API release. See
+[PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE.md](./PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE.md).
