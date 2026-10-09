@@ -19,6 +19,9 @@ import {
   X,
 } from 'lucide-react'
 import {
+  accentHex,
+  accentInk,
+  accentRgb,
   loadAccent,
   loadDensity,
   loadSidebarMode,
@@ -36,14 +39,16 @@ const MOBILE_SIDE_KEY = 'hi5central-mobile-nav-side-v1'
 const NAV_STYLE_KEY = 'hi5central-primary-nav-style-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const PREFERENCE_SYNC_KEY = 'hi5central-user-preference-sync-v1'
+const FIRST_LOGIN_HANDOFF_KEY = 'hi5central-first-login-required-v1'
+const FIRST_LOGIN_HANDOFF_MAX_AGE_MS = 30 * 60 * 1000
 
 const ACCENTS = [
-  ['amber', '#f59e0b'],
-  ['blue', '#3b82f6'],
-  ['cyan', '#06b6d4'],
-  ['emerald', '#10b981'],
-  ['violet', '#8b5cf6'],
-  ['rose', '#f43f5e'],
+  ['Hi5Central blue', '#3b82f6'],
+  ['Cyan', '#06b6d4'],
+  ['Amber', '#f59e0b'],
+  ['Emerald', '#10b981'],
+  ['Violet', '#8b5cf6'],
+  ['Rose', '#f43f5e'],
 ]
 
 const COACH_STEPS = [
@@ -83,7 +88,28 @@ function readJson(key, fallback) {
 }
 
 function tenantAccent() {
-  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || 'amber'
+  return readJson(TENANT_RUNTIME_CONFIG_KEY, {})?.theme?.accent || '#3b82f6'
+}
+
+function readFirstLoginHandoff() {
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_LOGIN_HANDOFF_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    const age = Date.now() - Number(parsed?.createdAt || 0)
+    if (!parsed?.tenantSlug || age < 0 || age > FIRST_LOGIN_HANDOFF_MAX_AGE_MS) {
+      window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY)
+      return null
+    }
+    return parsed
+  } catch {
+    try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
+    return null
+  }
+}
+
+function clearFirstLoginHandoff() {
+  try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
 }
 
 function initials(name = '') {
@@ -93,6 +119,24 @@ function initials(name = '') {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join('') || 'HC'
+}
+
+function freshPreferences() {
+  return {
+    appearance: {
+      theme: 'light',
+      accentMode: 'tenant',
+      accent: '#3b82f6',
+      density: 'comfortable',
+    },
+    navigation: {
+      desktopSide: 'left',
+      mobileSide: 'left',
+      sidebarStyle: 'floating',
+      sidebarMode: 'expanded',
+    },
+    guidance: { coachMarks: true },
+  }
 }
 
 function defaultPreferences() {
@@ -144,16 +188,29 @@ function applyPreferences(preferences) {
     // Server preferences remain authoritative if local storage is unavailable.
   }
 
+  const [accentR, accentG, accentB] = accentRgb(accent)
   const shell = document.querySelector('.app-shell')
   if (shell instanceof HTMLElement) {
     shell.dataset.theme = effectiveTheme(next.appearance.theme)
     shell.dataset.accent = accent
+    shell.style.setProperty('--accent-rgb', `${accentR}, ${accentG}, ${accentB}`)
+    shell.style.setProperty('--accent-ink', accentInk(accent))
+    shell.style.setProperty('--accent', accentHex(accent))
     shell.dataset.navSide = next.navigation.desktopSide
     shell.dataset.mobileNavSide = next.navigation.mobileSide
     shell.dataset.navStyle = next.navigation.sidebarStyle
     shell.classList.remove('sidebar-expanded', 'sidebar-collapsed', 'sidebar-hidden', 'density-comfortable', 'density-compact')
     shell.classList.add(`sidebar-${next.navigation.sidebarMode}`, `density-${next.appearance.density}`)
   }
+
+  window.dispatchEvent(new CustomEvent('hi5-user-preferences-applied', {
+    detail: {
+      theme: next.appearance.theme,
+      accent,
+      density: next.appearance.density,
+      sidebarMode: next.navigation.sidebarMode,
+    },
+  }))
 
   document.documentElement.dataset.hi5NavSide = next.navigation.desktopSide
   document.documentElement.dataset.hi5MobileNavSide = next.navigation.mobileSide
@@ -165,7 +222,7 @@ function applyPreferences(preferences) {
 }
 
 async function getPreferences() {
-  const response = await fetch(`${API_BASE}/api/v1/user-preferences`, {
+  const response = await fetch(`${API_BASE}/api/v1/user-preferences?surface=itsm`, {
     credentials: 'include',
     cache: 'no-store',
   })
@@ -179,7 +236,7 @@ async function patchPreferences(preferences, markers = {}) {
     method: 'PATCH',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ preferences, ...markers }),
+    body: JSON.stringify({ preferences, platform: 'itsm', ...markers }),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.error || 'Could not save your workspace preferences.')
@@ -225,7 +282,22 @@ function AppearanceStep({ preferences, onChange }) {
           <Choice active={appearance.accentMode === 'tenant'} title="Use organisation accent" copy="Follows your Hi5Central brand." onClick={() => setAppearance({ accentMode: 'tenant' })} />
           <Choice active={appearance.accentMode === 'personal'} title="Personal accent" copy="Only changes your own workspace." onClick={() => setAppearance({ accentMode: 'personal' })} />
         </div>
-        {appearance.accentMode === 'personal' ? <div className="hi5-first-login-accents" aria-label="Personal accent colour">{ACCENTS.map(([id, colour]) => <button aria-label={id} className={appearance.accent === id ? 'is-active' : ''} key={id} onClick={() => setAppearance({ accent: id })} style={{ '--swatch': colour }} type="button"><span /></button>)}</div> : null}
+        {appearance.accentMode === 'personal' ? (
+          <div className="hi5-first-login-colour">
+            <div className="hi5-first-login-colour-picker">
+              <input aria-label="Choose personal accent colour" type="color" value={accentHex(appearance.accent)} onChange={(event) => setAppearance({ accent: event.target.value.toLowerCase() })} />
+              <input aria-label="Personal accent hex colour" maxLength="7" value={String(appearance.accent || "").startsWith("#") ? String(appearance.accent) : accentHex(appearance.accent)} onChange={(event) => {
+                const next = event.target.value.trim()
+                if (/^#[0-9a-fA-F]{0,6}$/.test(next)) setAppearance({ accent: next })
+              }} onBlur={(event) => {
+                if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) setAppearance({ accent: '#3b82f6' })
+              }} />
+            </div>
+            <div className="hi5-first-login-accents" aria-label="Personal accent colour shortcuts">
+              {ACCENTS.map(([label, colour]) => <button aria-label={label} className={accentHex(appearance.accent) === colour ? 'is-active' : ''} key={colour} onClick={() => setAppearance({ accent: colour })} style={{ '--swatch': colour }} type="button"><span /></button>)}
+            </div>
+          </div>
+        ) : null}
         <div className="hi5-first-login-two">
           <Choice active={appearance.density === 'comfortable'} title="Comfortable" copy="More breathing room." onClick={() => setAppearance({ density: 'comfortable' })} />
           <Choice active={appearance.density === 'compact'} title="Compact" copy="More information at once." onClick={() => setAppearance({ density: 'compact' })} />
@@ -260,9 +332,17 @@ function FirstLoginDialog({ payload, preferences, setPreferences, onComplete, sa
   const user = payload.user || {}
   const company = payload.tenant?.companyName || payload.tenant?.slug || 'your organisation'
   const admin = ['owner', 'admin'].includes(user.tenantRole)
+  const previewAccent = preferences.appearance?.accentMode === 'personal'
+    ? accentHex(preferences.appearance?.accent)
+    : accentHex(tenantAccent())
+  const [previewR, previewG, previewB] = accentRgb(previewAccent)
+  const previewStyle = {
+    '--accent-rgb': `${previewR}, ${previewG}, ${previewB}`,
+    '--accent-ink': accentInk(previewAccent),
+  }
 
   return createPortal(
-    <div className="hi5-first-login-layer">
+    <div className="hi5-first-login-layer" style={previewStyle}>
       <div className="hi5-first-login-backdrop" />
       <section className="hi5-first-login-card" role="dialog" aria-modal="true" aria-label="Welcome to Hi5Central">
         <header className="hi5-first-login-header">
@@ -300,7 +380,7 @@ function FirstLoginDialog({ payload, preferences, setPreferences, onComplete, sa
         {error ? <div className="hi5-first-login-error">{error}</div> : null}
 
         <footer className="hi5-first-login-footer">
-          {step === 0 ? <button className="is-quiet" disabled={saving} onClick={() => onComplete(defaultPreferences())} type="button">Use defaults</button> : <button className="is-quiet" disabled={saving} onClick={() => setStep((value) => Math.max(0, value - 1))} type="button">Back</button>}
+          {step === 0 ? <button className="is-quiet" disabled={saving} onClick={() => onComplete(freshPreferences())} type="button">Use defaults</button> : <button className="is-quiet" disabled={saving} onClick={() => setStep((value) => Math.max(0, value - 1))} type="button">Back</button>}
           <span />
           {step < 2 ? <button className="is-primary" onClick={() => setStep((value) => value + 1)} type="button">{step === 0 ? 'Personalise workspace' : 'Continue'}<ArrowRight size={16} /></button> : <button className="is-primary" disabled={saving} onClick={() => onComplete(preferences)} type="button">{saving ? 'Saving…' : 'Open my workspace'}<ArrowRight size={16} /></button>}
         </footer>
@@ -381,15 +461,36 @@ function GettingStarted({ payload, onDismiss }) {
   )
 }
 
-export function ProductionFirstLoginExperience() {
-  const [payload, setPayload] = useState(null)
-  const [preferences, setPreferences] = useState(defaultPreferences)
-  const [loading, setLoading] = useState(true)
+function experienceFromSession(session) {
+  if (!session) return null
+  const experience = session.userExperience || {}
+  return {
+    user: session.user || null,
+    tenant: session.tenant || null,
+    preferences: session.preferences || null,
+    firstLoginCompletedAt: experience.firstLoginCompletedAt || null,
+    tenantOnboardingCompletedAt: session.onboarding?.completedAt || null,
+    platform: 'itsm',
+    platformGuidance: experience.platformGuidance || {},
+    platformCoachmarksCompletedAt: experience.platformCoachmarksCompletedAt || null,
+    platformGettingStartedDismissedAt: experience.platformGettingStartedDismissedAt || null,
+  }
+}
+
+export function ProductionFirstLoginExperience({ bootstrapSession = null, onExperienceChange = null, blocking = false } = {}) {
+  const bootstrapPayload = experienceFromSession(bootstrapSession)
+  const [payload, setPayload] = useState(() => bootstrapPayload)
+  const [preferences, setPreferences] = useState(() => {
+    if (!bootstrapPayload?.firstLoginCompletedAt) return freshPreferences()
+    return bootstrapPayload?.preferences ? mergePreferences(bootstrapPayload.preferences) : defaultPreferences()
+  })
+  const [loading, setLoading] = useState(() => !bootstrapPayload)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [path, setPath] = useState(() => window.location.pathname)
   const [coachIndex, setCoachIndex] = useState(-1)
   const [tenantHandoffVisible, setTenantHandoffVisible] = useState(false)
+  const [firstLoginHandoff, setFirstLoginHandoff] = useState(readFirstLoginHandoff)
   const coachTimer = useRef(null)
 
   useEffect(() => {
@@ -403,25 +504,58 @@ export function ProductionFirstLoginExperience() {
   }, [])
 
   useEffect(() => {
-    const scan = () => setTenantHandoffVisible(Boolean(document.querySelector('.hi5-first-run-layer')))
+    const scan = () => {
+      const layer = document.querySelector('.hi5-first-run-layer')
+      const visible = layer instanceof HTMLElement
+        && layer.getClientRects().length > 0
+        && window.getComputedStyle(layer).display !== 'none'
+        && window.getComputedStyle(layer).visibility !== 'hidden'
+      setTenantHandoffVisible(Boolean(visible))
+    }
     scan()
     const observer = new MutationObserver(scan)
-    observer.observe(document.body, { childList: true, subtree: true })
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
     return () => observer.disconnect()
   }, [])
 
   useEffect(() => {
     let active = true
+
+    if (bootstrapSession) {
+      const seeded = experienceFromSession(bootstrapSession)
+      if (seeded) {
+        const handoffMatches = Boolean(
+          firstLoginHandoff
+            && firstLoginHandoff.tenantSlug === seeded.tenant?.slug
+            && (!firstLoginHandoff.userId || firstLoginHandoff.userId === seeded.user?.id),
+        )
+        const merged = (!seeded.firstLoginCompletedAt || handoffMatches)
+          ? freshPreferences()
+          : (seeded.preferences ? mergePreferences(seeded.preferences) : defaultPreferences())
+        setPayload(seeded)
+        setPreferences(merged)
+        applyPreferences(merged)
+        setLoading(false)
+      }
+    }
+
     getPreferences()
       .then((next) => {
         if (!active) return
-        const merged = next.preferences ? mergePreferences(next.preferences) : defaultPreferences()
+        const handoffMatches = Boolean(
+          firstLoginHandoff
+            && firstLoginHandoff.tenantSlug === next.tenant?.slug
+            && (!firstLoginHandoff.userId || firstLoginHandoff.userId === next.user?.id),
+        )
+        const merged = (!next.firstLoginCompletedAt || handoffMatches)
+          ? freshPreferences()
+          : (next.preferences ? mergePreferences(next.preferences) : defaultPreferences())
         setPayload(next)
         setPreferences(merged)
 
         const localSync = readJson(PREFERENCE_SYNC_KEY, {})
         const needsCrossDeviceSync = Boolean(next.firstLoginCompletedAt && next.preferences && localSync.userId !== next.user?.id)
-        if (!next.firstLoginCompletedAt || needsCrossDeviceSync) applyPreferences(merged)
+        if (!next.firstLoginCompletedAt || handoffMatches || needsCrossDeviceSync) applyPreferences(merged)
         if (next.firstLoginCompletedAt && next.user?.id) {
           try { window.localStorage.setItem(PREFERENCE_SYNC_KEY, JSON.stringify({ userId: next.user.id, syncedAt: Date.now() })) } catch { /* optional cache */ }
         }
@@ -432,28 +566,42 @@ export function ProductionFirstLoginExperience() {
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [])
+  }, [bootstrapSession?.user?.id, bootstrapSession?.onboarding?.completedAt, bootstrapSession?.userExperience?.firstLoginCompletedAt, firstLoginHandoff])
 
   useEffect(() => {
-    if (!payload?.firstLoginCompletedAt || payload.coachmarksCompletedAt || payload.preferences?.guidance?.coachMarks === false) return undefined
+    if (!payload?.firstLoginCompletedAt || payload.platformCoachmarksCompletedAt || payload.preferences?.guidance?.coachMarks === false) return undefined
     if (path !== '/dashboard' || tenantHandoffVisible) return undefined
     coachTimer.current = window.setTimeout(() => setCoachIndex(0), 900)
     return () => window.clearTimeout(coachTimer.current)
-  }, [path, payload?.firstLoginCompletedAt, payload?.coachmarksCompletedAt, payload?.preferences?.guidance?.coachMarks, tenantHandoffVisible])
+  }, [path, payload?.firstLoginCompletedAt, payload?.platformCoachmarksCompletedAt, payload?.preferences?.guidance?.coachMarks, tenantHandoffVisible])
 
   async function complete(nextPreferences) {
     setSaving(true)
     setError('')
     try {
-      applyPreferences(nextPreferences)
-      const next = await patchPreferences(nextPreferences, { firstLoginComplete: true })
+      const preferencesToSave = nextPreferences?.appearance?.accentMode === 'tenant'
+        ? {
+            ...nextPreferences,
+            appearance: {
+              ...nextPreferences.appearance,
+              accent: accentHex(tenantAccent()),
+            },
+          }
+        : nextPreferences
+      applyPreferences(preferencesToSave)
+      const next = await patchPreferences(preferencesToSave, { firstLoginComplete: true })
       setPayload(next)
       setPreferences(mergePreferences(next.preferences))
       if (next.user?.id) {
         try { window.localStorage.setItem(PREFERENCE_SYNC_KEY, JSON.stringify({ userId: next.user.id, syncedAt: Date.now() })) } catch { /* optional cache */ }
       }
-      if (window.location.pathname !== '/dashboard') navigate('/dashboard')
-      window.setTimeout(() => window.location.reload(), 180)
+      clearFirstLoginHandoff()
+      setFirstLoginHandoff(null)
+      onExperienceChange?.(next)
+      if (!blocking) {
+        if (window.location.pathname !== '/dashboard') navigate('/dashboard')
+        window.setTimeout(() => window.location.reload(), 180)
+      }
     } catch (saveError) {
       setError(saveError.message)
     } finally {
@@ -476,22 +624,37 @@ export function ProductionFirstLoginExperience() {
       const next = await patchPreferences(preferences, { gettingStartedDismissed: true })
       setPayload(next)
     } catch {
-      setPayload((current) => current ? { ...current, gettingStartedDismissedAt: new Date().toISOString() } : current)
+      setPayload((current) => current ? { ...current, platformGettingStartedDismissedAt: new Date().toISOString() } : current)
     }
   }
 
   const showFirstLogin = useMemo(() => (
     !loading
       && payload
-      && !payload.firstLoginCompletedAt
-      && !tenantHandoffVisible
-      && path !== '/login'
-      && !path.startsWith('/onboarding')
-  ), [loading, path, payload, tenantHandoffVisible])
+      && payload.tenantOnboardingCompletedAt
+      && (
+        !payload.firstLoginCompletedAt
+        || (
+          firstLoginHandoff
+          && firstLoginHandoff.tenantSlug === payload.tenant?.slug
+          && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
+        )
+      )
+      && (
+        !tenantHandoffVisible
+        || (
+          firstLoginHandoff
+          && firstLoginHandoff.tenantSlug === payload.tenant?.slug
+          && (!firstLoginHandoff.userId || firstLoginHandoff.userId === payload.user?.id)
+        )
+      )
+      && (blocking || path !== '/login')
+      && (blocking || !path.startsWith('/onboarding'))
+  ), [blocking, firstLoginHandoff, loading, path, payload, tenantHandoffVisible])
 
   const showGettingStarted = Boolean(
     payload?.firstLoginCompletedAt
-      && !payload?.gettingStartedDismissedAt
+      && !payload?.platformGettingStartedDismissedAt
       && path === '/dashboard'
       && coachIndex < 0
       && !tenantHandoffVisible,

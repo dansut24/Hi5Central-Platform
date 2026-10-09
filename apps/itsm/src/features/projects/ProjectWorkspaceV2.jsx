@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { RichActivityBody } from '../../production/ProductionRichNoteEditor.jsx'
 import {
   AlertTriangle,
   CalendarDays,
@@ -9,6 +10,8 @@ import {
   FolderKanban,
   Link2,
   MessageSquareText,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   Search,
   Target,
@@ -113,14 +116,17 @@ function ProjectState({ children, kind = 'status' }) {
 }
 
 function ProjectCreatePanel({ onClose, onCreate, people, teams }) {
-  const [draft, setDraft] = useState({
-    name: '',
-    description: '',
-    ownerId: people[0]?.id || '',
-    team: teams[0]?.name || '',
-    priority: 'Medium',
-    startDate: '2026-09-07',
-    targetDate: '2026-10-30',
+  const [draft, setDraft] = useState(() => {
+    const startDate = isoDate(new Date())
+    return {
+      name: '',
+      description: '',
+      ownerId: people[0]?.id || '',
+      team: teams[0]?.name || '',
+      priority: 'Medium',
+      startDate,
+      targetDate: addDays(startDate, 56),
+    }
   })
 
   const close = () => {
@@ -367,7 +373,7 @@ function ProjectTaskList({ onAddTask, onOpenRecord, onUpdateTask, people, projec
 }
 
 function ProjectTimeline({ project }) {
-  const projectStart = project.startDate || project.tasks?.[0]?.dueDate || '2026-09-01'
+  const projectStart = project.startDate || project.tasks?.[0]?.dueDate || isoDate(new Date())
   const projectEnd = project.targetDate || project.tasks?.at(-1)?.dueDate || addDays(projectStart, 60)
   const spanDays = Math.max(1, daysBetween(projectStart, projectEnd))
   const scale = Array.from({ length: 8 }, (_, index) => {
@@ -437,7 +443,14 @@ function ProjectWorkload({ people, project }) {
 }
 
 function ProjectDetailView({ onAddActivity, onAddTask, onCreateMilestone, onCreateRisk, onOpenRecord, onUpdateMilestone, onUpdateProject, onUpdateRisk, onUpdateTask, people, project, teams, tickets }) {
-  const [activeSection, setActiveSection] = useState('overview')
+  const [activeSection, setActiveSection] = useState('board')
+  const [contextOpen, setContextOpen] = useState(() => window.localStorage.getItem('hi5-project-context-open') !== '0')
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
+  const [mobileRecordExpanded, setMobileRecordExpanded] = useState(false)
+  const toggleContext = () => setContextOpen((open) => {
+    window.localStorage.setItem('hi5-project-context-open', open ? '0' : '1')
+    return !open
+  })
   const [taskComposerOpen, setTaskComposerOpen] = useState(false)
   const [activityNote, setActivityNote] = useState('')
   const [milestoneDraft, setMilestoneDraft] = useState({ title: '', dueDate: project.targetDate || '' })
@@ -617,21 +630,88 @@ function ProjectDetailView({ onAddActivity, onAddTask, onCreateMilestone, onCrea
   const activity = (
     <div className="project-activity-view">
       <section className="project-activity-composer"><div><span className="eyebrow">Project journal</span><strong>Add update</strong></div><textarea onChange={(event) => setActivityNote(event.target.value)} placeholder="Record a decision, status update, handover or delivery note" value={activityNote} /><footer><span>Visible to the project team</span><button className="primary-action compact" disabled={!activityNote.trim()} onClick={postActivity} type="button">Add update</button></footer></section>
-      <section className="project-activity-list">{activityItems.map((item) => <article key={item.id}><span className="project-activity-dot" /><div><header><strong>{item.actor}</strong><span>{item.meta}</span></header><p>{item.action}</p></div></article>)}</section>
+      <section className="project-activity-list">{activityItems.map((item) => <article key={item.id}><span className="project-activity-dot" /><div><header><strong>{item.actor}</strong><span>{item.meta}</span></header><RichActivityBody html={item.metadata?.richHtml} text={item.action} /></div></article>)}</section>
     </div>
   )
 
   const panels = { overview, list, board, timeline, milestones, workload, risks, team, activity }
 
   return (
-    <div className="project-detail-view">
-      <header className="project-detail-header">
-        <div className="project-detail-title"><span className="eyebrow">{project.id}</span><h2>{project.name}</h2><p>{project.description}</p><div><ProjectState>{project.status}</ProjectState><ProjectState kind="health">{project.health}</ProjectState><span>{project.priority} priority</span><span>{project.team}</span></div></div>
-        <div className="project-detail-controls"><label>Owner<select onChange={(event) => onUpdateProject(project.id, { ownerId: event.target.value })} value={project.ownerId || ''}><option value="">Unassigned</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label><label>Team<select onChange={(event) => onUpdateProject(project.id, { team: event.target.value })} value={project.team || ''}><option value="">Unassigned</option>{teams.map((team) => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}</select></label><label>Target<input onChange={(event) => onUpdateProject(project.id, { targetDate: event.target.value })} type="date" value={project.targetDate || ''} /></label><label>Status<select onChange={(event) => onUpdateProject(project.id, { status: event.target.value })} value={project.status}>{projectStatuses.map((item) => <option key={item}>{item}</option>)}</select></label><label>Health<select onChange={(event) => onUpdateProject(project.id, { health: event.target.value })} value={project.health}>{projectHealthOptions.map((item) => <option key={item}>{item}</option>)}</select></label></div>
-      </header>
-      <section className="project-detail-summary"><div><span>Progress</span><strong>{progress}%</strong></div><div><span>Open tasks</span><strong>{openTasks.length}</strong></div><div><span>Open risks/issues</span><strong>{openRisks.length}</strong></div><div><span>Target date</span><strong>{formatDate(project.targetDate)}</strong></div><div><span>Delivery SLA</span><strong>{project.sla?.state ? project.sla.state.replace('_', ' ') : 'Not set'}</strong></div><div className="project-detail-members"><span>Project team</span><strong>{(project.memberIds || []).slice(0, 4).map((id) => <ProjectAvatar key={id} person={personById(people, id)} small />)}{(project.memberIds || []).length > 4 && <em>+{project.memberIds.length - 4}</em>}</strong></div></section>
-      <nav aria-label="Project sections" className="project-detail-tabs">{projectSections.map(({ id, label, icon: Icon }) => <button aria-current={activeSection === id ? 'page' : undefined} className={activeSection === id ? 'active' : ''} key={id} onClick={() => setActiveSection(id)} type="button"><Icon size={15} />{label}</button>)}</nav>
-      <main className="project-detail-panel">{panels[activeSection]}</main>
+    <div className="project-detail-view is-project-workbench">
+      <nav aria-label="Project sections" className="project-detail-tabs project-workbench-tabs">
+        <div className="project-workbench-tab-list">
+          {projectSections.map(({ id, label, icon: Icon }) => <button aria-current={activeSection === id ? 'page' : undefined} className={activeSection === id ? 'active' : ''} key={id} onClick={() => setActiveSection(id)} type="button"><Icon size={15} />{label}</button>)}
+        </div>
+        <div className="project-workbench-tab-actions">
+          <span className="project-workbench-progress-chip" title="Overall task completion"><CircleGauge size={14}/>{progress}%</span>
+          <button type="button" className="project-workbench-context-toggle" onClick={toggleContext} aria-pressed={contextOpen} title={contextOpen ? 'Hide project context' : 'Show project context'}>{contextOpen ? <PanelRightClose size={16}/> : <PanelRightOpen size={16}/>}<span>Context</span></button>
+        </div>
+      </nav>
+      <div className={`project-workbench-grid${contextOpen ? ' has-context' : ' without-context'}`}>
+        <aside className="project-workbench-record-rail" aria-label="Project record">
+          <header className="project-workbench-identity">
+            <span className="project-workbench-identity-icon"><FolderKanban size={19}/></span>
+            <div><small>{project.id}</small><strong>Project</strong></div>
+          </header>
+          <h2>{project.name}</h2>
+          <div className="project-workbench-badges"><ProjectState>{project.status}</ProjectState><ProjectState kind="health">{project.health}</ProjectState></div>
+          <button type="button" className="project-workbench-mobile-expand" aria-expanded={mobileRecordExpanded} onClick={() => setMobileRecordExpanded(value => !value)}>{mobileRecordExpanded ? 'Hide project fields' : 'Show project fields'}<ChevronRight size={14}/></button>
+          <div className={`project-workbench-record-body${mobileRecordExpanded ? ' is-mobile-open' : ''}`}>
+            {project.description ? <section className="project-workbench-rail-section">
+              <h3>Project summary</h3>
+              <p className={!summaryExpanded ? 'is-truncated' : ''}>{project.description}</p>
+              {project.description.length > 180 ? <button type="button" className="project-workbench-expand" onClick={() => setSummaryExpanded(value => !value)}>{summaryExpanded ? 'Show less' : 'Read more'}</button> : null}
+            </section> : null}
+            <section className="project-workbench-rail-section">
+              <h3>Progress</h3>
+              <div className="project-workbench-progress"><strong>{progress}%</strong><span>{(project.tasks || []).filter(task => task.status === 'Done').length} complete · {openTasks.length} open</span></div>
+              <div className="project-workbench-progress-track"><i style={{ width: `${progress}%` }}/></div>
+            </section>
+            <section className="project-workbench-rail-section project-workbench-edit-fields">
+              <h3>Project controls</h3>
+              <label>Owner<select onChange={(event) => onUpdateProject(project.id, { ownerId: event.target.value })} value={project.ownerId || ''}><option value="">Unassigned</option>{people.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
+              <label>Team<select onChange={(event) => onUpdateProject(project.id, { team: event.target.value })} value={project.team || ''}><option value="">Unassigned</option>{teams.map(team => <option key={team.id || team.name} value={team.name}>{team.name}</option>)}</select></label>
+              <label>Status<select onChange={(event) => onUpdateProject(project.id, { status: event.target.value })} value={project.status}>{projectStatuses.map(status => <option key={status}>{status}</option>)}</select></label>
+              <label>Health<select onChange={(event) => onUpdateProject(project.id, { health: event.target.value })} value={project.health}>{projectHealthOptions.map(health => <option key={health}>{health}</option>)}</select></label>
+              <label>Priority<span className="project-workbench-static-value">{project.priority || 'Not set'}</span></label>
+            </section>
+          </div>
+        </aside>
+        <main className="project-detail-panel project-workbench-main" aria-label={`Project ${activeSection}`}>{panels[activeSection]}</main>
+        {contextOpen ? <aside className="project-workbench-context-rail" aria-label="Project context">
+          <header><h3>Project context</h3><button type="button" title="Hide context" aria-label="Hide project context" onClick={toggleContext}><X size={16}/></button></header>
+          <section className="project-workbench-context-section">
+            <h4><CalendarDays size={15}/> Schedule</h4>
+            <div className="project-workbench-context-row"><span>Start</span><strong>{formatDate(project.startDate)}</strong></div>
+            <label>Target date<input onChange={event => onUpdateProject(project.id, { targetDate: event.target.value })} type="date" value={project.targetDate || ''}/></label>
+            <div className="project-workbench-context-row"><span>Delivery SLA</span><strong>{project.sla?.state ? project.sla.state.replace('_', ' ') : 'Not set'}</strong></div>
+            <button type="button" className="project-workbench-context-link" onClick={() => setActiveSection('timeline')}>Open timeline <ChevronRight size={15}/></button>
+          </section>
+          <section className="project-workbench-context-section">
+            <h4><Target size={15}/> Upcoming milestones</h4>
+            {(project.milestones || []).filter(item => item.status !== 'Complete').slice(0, 3).map(item => <button type="button" key={item.id} className="project-workbench-context-item" onClick={() => setActiveSection('milestones')}><strong>{item.title}</strong><small>{formatDate(item.dueDate)}</small></button>)}
+            {!(project.milestones || []).some(item => item.status !== 'Complete') ? <p>No open milestones</p> : null}
+            <button type="button" className="project-workbench-context-link" onClick={() => setActiveSection('milestones')}>All milestones <ChevronRight size={15}/></button>
+          </section>
+          <section className="project-workbench-context-section">
+            <h4><AlertTriangle size={15}/> Delivery risks</h4>
+            <div className="project-workbench-context-row"><span>Open risks & issues</span><strong>{openRisks.length}</strong></div>
+            {openRisks.slice(0, 2).map(risk => <button type="button" key={risk.id} className="project-workbench-context-item" onClick={() => setActiveSection('risks')}><strong>{risk.title}</strong><small>{risk.severity} · {risk.kind}</small></button>)}
+            <button type="button" className="project-workbench-context-link" onClick={() => setActiveSection('risks')}>Review risks <ChevronRight size={15}/></button>
+          </section>
+          <section className="project-workbench-context-section">
+            <h4><Users size={15}/> Delivery team</h4>
+            <div className="project-workbench-context-person"><ProjectAvatar person={owner}/><span><strong>{owner?.name || 'Unassigned'}</strong><small>Project owner</small></span></div>
+            <div className="project-workbench-context-row"><span>Members</span><strong>{(project.memberIds || []).length}</strong></div>
+            <button type="button" className="project-workbench-context-link" onClick={() => setActiveSection('workload')}>View workload <ChevronRight size={15}/></button>
+          </section>
+          <section className="project-workbench-context-section">
+            <h4><Link2 size={15}/> ITSM records</h4>
+            {(project.linkedRecords || []).slice(0, 3).map(renderLinkedRecord)}
+            {!(project.linkedRecords || []).length ? <p>No linked records</p> : null}
+          </section>
+        </aside> : null}
+      </div>
       {taskComposerOpen && <ProjectTaskComposer onAdd={addTask} onClose={() => setTaskComposerOpen(false)} people={people} project={project} tickets={tickets} />}
     </div>
   )

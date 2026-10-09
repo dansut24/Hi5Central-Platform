@@ -5,10 +5,12 @@ import WorkspaceRuntime from '../runtime/WorkspaceRuntime.jsx'
 import { OnboardingWizard } from '../features/onboarding/OnboardingWizard.jsx'
 import { ProductionSettingsWorkspace } from '../features/settings/ProductionSettingsWorkspace.jsx'
 import { ProductionIdentityBridge } from './ProductionIdentityBridge.jsx'
+import { ProductionFirstLoginExperience } from './ProductionFirstLoginExperience.jsx'
 import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import {
   clearProductionSession,
+  normaliseAccent,
   saveAccent,
   saveDensity,
   saveProductionSession,
@@ -23,11 +25,33 @@ const API_BASE = window.__HI5_API_BASE__
 const PRODUCTION_SESSION_KEY = 'hi5central-production-session-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
+const ONBOARDING_SNAPSHOT_KEY = 'hi5central-onboarding-snapshot-v1'
+const ONBOARDING_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000
+const FIRST_LOGIN_HANDOFF_KEY = 'hi5central-first-login-required-v1'
 const ORGANISATION_CACHE_KEYS = {
   people: 'hi5central-organisation-people-v1',
   teams: 'hi5central-organisation-teams-v1',
   departments: 'hi5central-organisation-departments-v1',
   sites: 'hi5central-organisation-sites-v1',
+}
+
+function firstLoginHandoffRequired(session) {
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_LOGIN_HANDOFF_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw)
+    const age = Date.now() - Number(parsed?.createdAt || 0)
+    const matches = age >= 0
+      && age <= 30 * 60 * 1000
+      && parsed?.tenantSlug === session?.tenant?.slug
+      && (!parsed?.userId || parsed.userId === session?.user?.id)
+
+    if (!matches) window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY)
+    return matches
+  } catch {
+    try { window.sessionStorage.removeItem(FIRST_LOGIN_HANDOFF_KEY) } catch { /* best effort */ }
+    return false
+  }
 }
 
 function initials(name = '') {
@@ -66,6 +90,7 @@ function toWorkspaceSession(apiSession) {
     tenant: apiSession.tenant,
     user: apiSession.user,
     access: apiSession.access,
+    platformAccess: apiSession.platformAccess || {},
     security: apiSession.security,
     preferences: apiSession.preferences || null,
     onboarding: apiSession.onboarding,
@@ -85,12 +110,11 @@ function applyTenantPreferences(apiSession) {
     ? appearance.theme
     : theme.mode
   const resolvedAccent = appearance.accentMode === 'personal'
-    && ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(appearance.accent)
-      ? appearance.accent
-      : theme.accent
+    ? normaliseAccent(appearance.accent)
+    : normaliseAccent(theme.accent)
 
   if (['system', 'light', 'dark'].includes(resolvedTheme)) saveTheme(resolvedTheme)
-  if (['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(resolvedAccent)) saveAccent(resolvedAccent)
+  saveAccent(resolvedAccent)
   if (['comfortable', 'compact'].includes(appearance.density)) saveDensity(appearance.density)
   if (['expanded', 'collapsed', 'hidden'].includes(navigation.sidebarMode)) saveSidebarMode(navigation.sidebarMode)
 
@@ -99,7 +123,7 @@ function applyTenantPreferences(apiSession) {
       tenantSlug: apiSession?.tenant?.slug || '',
       theme: {
         mode: theme.mode || 'system',
-        accent: theme.accent || 'amber',
+        accent: normaliseAccent(theme.accent),
         brandName: theme.brandName || apiSession?.tenant?.companyName || '',
         portalTitle: theme.portalTitle || 'IT Help Centre',
       },
@@ -169,30 +193,138 @@ async function hydrateWorkspaceData() {
 }
 
 async function fetchJsonWithTimeout(url, options = {}, timeoutMs = SESSION_BOOTSTRAP_TIMEOUT_MS) {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    })
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error('REQUEST_TIMEOUT')), timeoutMs)
+  })
+  const request = (async () => {
+    const response = await fetch(url, options)
     const payload = await response.json().catch(() => ({}))
     return { response, payload }
+  })()
+
+  try {
+    return await Promise.race([request, timeout])
   } finally {
     window.clearTimeout(timer)
   }
 }
 
-function LoadingScreen({ tenantName }) {
+function onboardingSnapshotFromSession(apiSession) {
+  if (!apiSession?.tenant?.slug || apiSession?.onboarding?.completedAt) return null
+  return {
+    savedAt: Date.now(),
+    authenticated: true,
+    user: {
+      id: apiSession.user?.id || '',
+      name: apiSession.user?.name || '',
+      email: apiSession.user?.email || '',
+      tenantRole: apiSession.user?.tenantRole || 'owner',
+    },
+    tenant: {
+      id: apiSession.tenant?.id || '',
+      slug: apiSession.tenant.slug,
+      companyName: apiSession.tenant?.companyName || apiSession.tenant.slug,
+      tenantUrl: apiSession.tenant?.tenantUrl || '',
+      portalUrl: apiSession.tenant?.portalUrl || '',
+      rmmUrl: apiSession.tenant?.rmmUrl || '',
+      modules: apiSession.tenant?.modules || {},
+    },
+    onboarding: {
+      step: apiSession.onboarding?.step || 'company',
+      completedAt: null,
+      data: apiSession.onboarding?.data || {},
+    },
+    settings: apiSession.settings || apiSession.onboarding?.data || {},
+    security: apiSession.security || { mfaVerified: false },
+  }
+}
+
+function saveOnboardingSnapshot(apiSession) {
+  try {
+    const snapshot = onboardingSnapshotFromSession(apiSession)
+    if (!snapshot) {
+      window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY)
+      return
+    }
+    window.sessionStorage.setItem(ONBOARDING_SNAPSHOT_KEY, JSON.stringify(snapshot))
+  } catch {
+    // Server state remains authoritative when browser storage is unavailable.
+  }
+}
+
+function clearOnboardingSnapshot() {
+  try { window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY) } catch { /* best effort */ }
+}
+
+function readOnboardingSnapshot(expectedSlug) {
+  try {
+    const raw = window.sessionStorage.getItem(ONBOARDING_SNAPSHOT_KEY)
+    if (!raw) return null
+    const snapshot = JSON.parse(raw)
+    const age = Date.now() - Number(snapshot?.savedAt || 0)
+    const valid = snapshot?.authenticated === true
+      && snapshot?.tenant?.slug === expectedSlug
+      && !snapshot?.onboarding?.completedAt
+      && age >= 0
+      && age <= ONBOARDING_SNAPSHOT_MAX_AGE_MS
+
+    if (!valid) {
+      window.sessionStorage.removeItem(ONBOARDING_SNAPSHOT_KEY)
+      return null
+    }
+    return snapshot
+  } catch {
+    clearOnboardingSnapshot()
+    return null
+  }
+}
+
+function resolvedLoadingTheme() {
+  let preferred = null
+  try {
+    const saved = JSON.parse(window.localStorage.getItem('hi5central-theme-mode') || 'null')
+    if (['system', 'light', 'dark'].includes(saved)) preferred = saved
+  } catch { /* best effort */ }
+
+  if (!preferred) {
+    try {
+      const tenantRuntime = JSON.parse(window.localStorage.getItem(TENANT_RUNTIME_CONFIG_KEY) || '{}')
+      const tenantMode = tenantRuntime?.theme?.mode
+      if (['system', 'light', 'dark'].includes(tenantMode)) preferred = tenantMode
+    } catch { /* best effort */ }
+  }
+
+  preferred ||= 'system'
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : (preferred === 'dark' ? 'dark' : 'light')
+}
+
+function LoadingScreen({ delayed, onRetry }) {
+  if (!delayed) {
+    return (
+      <main className="hi5-loading-shell" data-theme={resolvedLoadingTheme()} aria-label="Loading Hi5Central">
+        <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
+      </main>
+    )
+  }
+
   return (
-    <div className="production-auth-shell">
-      <div className="production-auth-card production-auth-loading">
-        <img src="/hi5central-logo.png" alt="" />
-        <strong>Opening {tenantName}</strong>
-        <span>Checking your secure Hi5Central session…</span>
+    <main className="hi5-loading-shell" data-theme={resolvedLoadingTheme()} aria-label="Hi5Central session restore delayed">
+      <div className="hi5-loading-recovery">
+        <img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" />
+        <span>Session restore is taking longer than expected.</span>
+        <div className="production-auth-loading-actions">
+          <button type="button" onClick={onRetry}>Retry session</button>
+          <button type="button" onClick={() => {
+            clearOnboardingSnapshot()
+            clearProductionSession()
+            window.location.replace('/login?fresh=1')
+          }}>Sign in again</button>
+        </div>
       </div>
-    </div>
+    </main>
   )
 }
 
@@ -203,6 +335,11 @@ function ProductionLogin({ tenant, onAuthenticated }) {
   const [error, setError] = useState('')
   const [authMethod, setAuthMethod] = useState('')
   const [microsoftAvailable, setMicrosoftAvailable] = useState(false)
+  const [mfaFlow, setMfaFlow] = useState(null)
+  const [mfaSetup, setMfaSetup] = useState(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState([])
+  const [authenticatedPayload, setAuthenticatedPayload] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -218,6 +355,57 @@ function ProductionLogin({ tenant, onAuthenticated }) {
     if (reason === 'not_assigned') setError('That Microsoft account is not linked to a Hi5Central user with workspace access.')
     else if (reason && reason !== 'connected') setError('Microsoft sign-in could not be completed. Try again or use your Hi5Central password.')
   }, [])
+
+  async function beginMfa(payload) {
+    const flow = {
+      challengeToken: payload.challengeToken,
+      setupRequired: Boolean(payload.setupRequired),
+      tenant: payload.tenant,
+      user: payload.user,
+    }
+    setMfaFlow(flow)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+
+    if (!flow.setupRequired) return
+    const response = await fetch(`${API_BASE}/api/v1/auth/mfa/setup`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: flow.challengeToken }),
+    })
+    const setupPayload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(setupPayload.error || 'Could not start MFA setup.')
+    setMfaSetup(setupPayload)
+  }
+
+  function resetPasswordSignIn() {
+    setPasswordStep(false)
+    setForm((current) => ({ ...current, password: '' }))
+    setAuthMethod('')
+    setMfaFlow(null)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+    setError('')
+  }
+
+  async function confirmSecureSession() {
+    // Confirm the browser actually retained its HttpOnly login cookie before
+    // navigating to a first-login flow or any authenticated workspace.
+    const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || !payload?.authenticated || payload.tenant?.slug !== tenant.slug) {
+      throw new Error('Sign-in succeeded, but the browser did not retain the secure session. Allow cookies for the Hi5Central Dev API and sign in again.')
+    }
+    return payload
+  }
 
   async function submit(event) {
     event.preventDefault()
@@ -254,7 +442,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
 
     setSubmitting(true)
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
+      const response = await fetch(`${API_BASE}/api/v1/auth/login-secure`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -262,9 +450,56 @@ function ProductionLogin({ tenant, onAuthenticated }) {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Sign in failed.')
-      await onAuthenticated(payload)
+
+      if (payload.mfaRequired) {
+        await beginMfa(payload)
+        return
+      }
+      if (!payload.authenticated) throw new Error('Hi5Central could not complete sign in.')
+      await onAuthenticated(await confirmSecureSession())
     } catch (loginError) {
-      setError(loginError.message)
+      setError(loginError.message || 'Sign in failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function verifyMfa(event) {
+    event.preventDefault()
+    if (!mfaFlow?.challengeToken || !mfaCode.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim() }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'MFA verification failed.')
+
+      if (Array.isArray(payload.recoveryCodes) && payload.recoveryCodes.length) {
+        setAuthenticatedPayload(payload)
+        setRecoveryCodes(payload.recoveryCodes)
+        return
+      }
+      await onAuthenticated(await confirmSecureSession())
+    } catch (verifyError) {
+      setError(verifyError.message || 'MFA verification failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function continueAfterRecoveryCodes() {
+    setSubmitting(true)
+    setError('')
+    try {
+      if (!authenticatedPayload?.authenticated) throw new Error('The authenticated session is no longer available.')
+      await onAuthenticated(await confirmSecureSession())
+    } catch (continueError) {
+      setError(continueError.message || 'Could not open the Hi5Central workspace.')
     } finally {
       setSubmitting(false)
     }
@@ -285,38 +520,95 @@ function ProductionLogin({ tenant, onAuthenticated }) {
           </div>
         </section>
 
-        <form className="production-auth-card" onSubmit={submit}>
+        <form className="production-auth-card" onSubmit={mfaFlow ? verifyMfa : submit}>
           <div className="production-auth-card-heading">
-            <span className="production-auth-icon"><LockKeyhole size={19} /></span>
-            <div><span>Hi5Central ITSM</span><strong>{tenant.slug}.hi5central.com</strong></div>
+            <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
+            <div>
+              <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : 'Hi5Central ITSM'}</span>
+              <strong>{tenant.slug}.hi5central.com</strong>
+            </div>
           </div>
 
-          {tenant.status === 'pending_verification' ? (
+          {!mfaFlow && tenant.status === 'pending_verification' ? (
             <div className="production-auth-notice">This workspace is waiting for its owner email to be verified. Use the verification email sent during signup before signing in.</div>
           ) : null}
 
-          <label>
-            <span>Email address</span>
-            <input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} />
-          </label>
+          {recoveryCodes.length ? (
+            <>
+              <div className="production-auth-notice">
+                MFA is enabled. Save these recovery codes somewhere secure. Each code can be used once.
+              </div>
+              <div className="production-auth-recovery-grid">
+                {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+              </div>
+              {error ? <div className="production-auth-error">{error}</div> : null}
+              <button disabled={submitting} onClick={continueAfterRecoveryCodes} type="button">
+                {submitting ? 'Opening Hi5Central…' : 'I have saved these codes'}{!submitting ? <ArrowRight size={17} /> : null}
+              </button>
+            </>
+          ) : mfaFlow ? (
+            <>
+              <p className="production-auth-method-note">
+                {mfaFlow.setupRequired
+                  ? 'Add Hi5Central to your authenticator app, then enter the six-digit code to finish setup.'
+                  : 'Enter the six-digit code from your authenticator app, or an unused recovery code.'}
+              </p>
+              {mfaFlow.setupRequired ? (
+                mfaSetup ? (
+                  <div className="production-auth-mfa-setup">
+                    <span>Authenticator setup key</span>
+                    <code>{mfaSetup.secret}</code>
+                    <small>Issuer: Hi5Central · Account: {mfaSetup.account}</small>
+                    <a href={mfaSetup.otpauthUri}>Open in authenticator app</a>
+                  </div>
+                ) : <div className="production-auth-notice">Preparing authenticator setup…</div>
+              ) : null}
+              <label>
+                <span>{mfaFlow.setupRequired ? 'Six-digit authenticator code' : 'Authenticator or recovery code'}</span>
+                <input
+                  autoComplete="one-time-code"
+                  autoFocus
+                  inputMode={mfaFlow.setupRequired ? 'numeric' : 'text'}
+                  maxLength={mfaFlow.setupRequired ? 6 : 20}
+                  placeholder={mfaFlow.setupRequired ? '000000' : '000000 or recovery code'}
+                  required
+                  value={mfaCode}
+                  onChange={(event) => setMfaCode(event.target.value)}
+                />
+              </label>
+              {error ? <div className="production-auth-error">{error}</div> : null}
+              <button disabled={submitting || !mfaCode.trim() || (mfaFlow.setupRequired && !mfaSetup)} type="submit">
+                {submitting ? 'Verifying…' : mfaFlow.setupRequired ? 'Verify and enable MFA' : 'Verify and sign in'}
+                {!submitting ? <ArrowRight size={17} /> : null}
+              </button>
+              <button className="production-auth-secondary-action" disabled={submitting} onClick={resetPasswordSignIn} type="button">Back to sign in</button>
+            </>
+          ) : (
+            <>
+              <label>
+                <span>Email address</span>
+                <input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} />
+              </label>
 
-          {passwordStep ? <label>
-            <span>Password</span>
-            <input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
-          </label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
+              {passwordStep ? <label>
+                <span>Password</span>
+                <input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} />
+              </label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
 
-          {error ? <div className="production-auth-error">{error}</div> : null}
+              {error ? <div className="production-auth-error">{error}</div> : null}
 
-          <button type="submit" disabled={submitting || tenant.status !== 'active'}>
-            {submitting ? (authMethod === 'microsoft' ? 'Opening Microsoft…' : passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}
-            {!submitting ? <ArrowRight size={17} /> : null}
-          </button>
-          {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={() => { setPasswordStep(false); setForm((current) => ({ ...current, password: '' })); setError('') }}>Use a different email</button> : null}
-          {microsoftAvailable ? <>
-            <div className="production-auth-divider"><span>or</span></div>
-            <button className="production-auth-microsoft" type="button" onClick={() => { const params = new URLSearchParams({ tenantSlug: tenant.slug, returnTo: window.location.pathname || '/' }); window.location.href = `${API_BASE}/api/v1/auth/microsoft/start?${params.toString()}` }}><Cloud size={17} /> Sign in with Microsoft</button>
-          </> : null}
-          <a href="https://hi5central.com">Back to hi5central.com</a>
+              <button type="submit" disabled={submitting || tenant.status !== 'active'}>
+                {submitting ? (authMethod === 'microsoft' ? 'Opening Microsoft…' : passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}
+                {!submitting ? <ArrowRight size={17} /> : null}
+              </button>
+              {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={resetPasswordSignIn}>Use a different email</button> : null}
+              {microsoftAvailable ? <>
+                <div className="production-auth-divider"><span>or</span></div>
+                <button className="production-auth-microsoft" type="button" onClick={() => { const params = new URLSearchParams({ tenantSlug: tenant.slug, returnTo: window.location.pathname || '/' }); window.location.href = `${API_BASE}/api/v1/auth/microsoft/start?${params.toString()}` }}><Cloud size={17} /> Sign in with Microsoft</button>
+              </> : null}
+              <a href="https://hi5central.com">Back to hi5central.com</a>
+            </>
+          )}
         </form>
       </div>
     </div>
@@ -399,10 +691,37 @@ function ProductionProfileLayer({ session }) {
 
 export function ProductionWorkspaceBootstrap() {
   const surface = useMemo(() => resolveTenantSurface(), [])
-  const [serverSession, setServerSession] = useState(null)
-  const [tenantState, setTenantState] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const cachedOnboarding = useMemo(() => readOnboardingSnapshot(surface.tenantSlug), [surface.tenantSlug])
+  const [serverSession, setServerSession] = useState(() => cachedOnboarding)
+  const [tenantState, setTenantState] = useState(() => cachedOnboarding ? {
+    managed: true,
+    slug: cachedOnboarding.tenant.slug,
+    companyName: cachedOnboarding.tenant.companyName,
+    status: 'active',
+  } : null)
+  const [loading, setLoading] = useState(() => !cachedOnboarding)
+  const [bootstrapError, setBootstrapError] = useState('')
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
+  const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
+  const onboardingRoute = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/')
+
+  useEffect(() => {
+    if (!loading) return undefined
+    const watchdog = window.setTimeout(() => {
+      setBootstrapError('Hi5Central could not finish restoring the secure session.')
+      setBootstrapDelayed(true)
+      setTenantState((current) => current || {
+        managed: true,
+        slug: surface.tenantSlug,
+        companyName: surface.tenantName,
+        status: 'active',
+        unavailable: true,
+      })
+      setLoading(false)
+    }, 10000)
+    return () => window.clearTimeout(watchdog)
+  }, [bootstrapAttempt, loading, surface.tenantName, surface.tenantSlug]) // Workspace bootstrap watchdog
 
   useEffect(() => {
     const notify = () => setCurrentPath(window.location.pathname)
@@ -433,14 +752,20 @@ export function ProductionWorkspaceBootstrap() {
 
   useEffect(() => {
     let active = true
+    const delayedTimer = window.setTimeout(() => {
+      if (active) setBootstrapDelayed(true)
+    }, 5000)
 
     function acceptBootstrapPayload(payload) {
       if (!active || payload?.tenant?.slug !== surface.tenantSlug) return false
 
       applyTenantPreferences(payload)
       if (payload.onboarding?.completedAt) {
+        clearOnboardingSnapshot()
         saveProductionSession(toWorkspaceSession(payload))
         void hydrateWorkspaceData()
+      } else {
+        saveOnboardingSnapshot(payload)
       }
       setServerSession(payload)
       setTenantState({
@@ -453,41 +778,100 @@ export function ProductionWorkspaceBootstrap() {
     }
 
     async function bootstrap() {
-      try {
-        const handoff = takeProductionAuthHandoff()
-        if (handoff && acceptBootstrapPayload(handoff)) return
+      setLoading(!cachedOnboarding)
+      setBootstrapError('')
+      setBootstrapDelayed(false)
 
-        const { response, payload } = await fetchJsonWithTimeout(`${API_BASE}/api/v1/auth/session`, {
+      try {
+        const freshLogin = window.location.pathname === '/login'
+          && new URLSearchParams(window.location.search).get('fresh') === '1'
+
+        if (!freshLogin) {
+          const handoff = takeProductionAuthHandoff()
+          if (handoff && acceptBootstrapPayload(handoff)) return
+        }
+
+        if (freshLogin) {
+          clearOnboardingSnapshot()
+          clearProductionSession()
+          const { response: stateResponse, payload: statePayload } = await fetchJsonWithTimeout(
+            `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+            { cache: 'no-store' },
+          )
+          if (!stateResponse.ok) throw new Error(statePayload?.error || 'TENANT_STATE_FAILED')
+          if (active) setTenantState(statePayload)
+          return
+        }
+
+        const sessionEndpoint = onboardingRoute
+          ? `${API_BASE}/api/v1/onboarding/session`
+          : `${API_BASE}/api/v1/auth/session`
+        const { response, payload } = await fetchJsonWithTimeout(sessionEndpoint, {
           credentials: 'include',
+          cache: 'no-store',
         })
 
         if (response.ok && acceptBootstrapPayload(payload)) return
 
+        if (cachedOnboarding && (response.status === 401 || response.status === 403)) {
+          clearOnboardingSnapshot()
+          setServerSession(null)
+        }
+
         clearProductionSession()
-        const { payload: statePayload } = await fetchJsonWithTimeout(
+
+        const { response: stateResponse, payload: statePayload } = await fetchJsonWithTimeout(
           `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+          { cache: 'no-store' },
         )
+
+        if (!stateResponse.ok) throw new Error(statePayload?.error || 'TENANT_STATE_FAILED')
+
+        if (statePayload?.setupRequired) {
+          window.location.replace('/signup')
+          return
+        }
+
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
-        clearProductionSession()
+
+        if (!cachedOnboarding) {
+          clearProductionSession()
+        }
+
         if (active) {
-          setTenantState({
-            managed: true,
-            slug: surface.tenantSlug,
-            companyName: surface.tenantName,
-            status: 'active',
-            unavailable: true,
-          })
+          setBootstrapError(
+            error?.message === 'REQUEST_TIMEOUT'
+              ? 'Hi5Central could not restore the session within 8 seconds.'
+              : 'Hi5Central could not restore this session.',
+          )
+
+          if (!cachedOnboarding) {
+            setTenantState({
+              managed: true,
+              slug: surface.tenantSlug,
+              companyName: surface.tenantName,
+              status: 'active',
+              unavailable: true,
+            })
+          }
         }
       } finally {
-        if (active) setLoading(false)
+        window.clearTimeout(delayedTimer)
+        if (active) {
+          setLoading(false)
+          setBootstrapDelayed(false)
+        }
       }
     }
 
     bootstrap()
-    return () => { active = false }
-  }, [surface.tenantName, surface.tenantSlug])
+    return () => {
+      active = false
+      window.clearTimeout(delayedTimer)
+    }
+  }, [bootstrapAttempt, cachedOnboarding, onboardingRoute, surface.tenantName, surface.tenantSlug])
 
   useEffect(() => {
     if (!serverSession) return
@@ -497,7 +881,8 @@ export function ProductionWorkspaceBootstrap() {
     if (serverSession.onboarding?.completedAt) {
       saveProductionSession(toWorkspaceSession(serverSession))
       if (window.location.pathname === '/onboarding') {
-        window.history.replaceState({}, '', '/dashboard')
+        window.location.replace('/dashboard')
+        return
       }
       return
     }
@@ -555,10 +940,31 @@ export function ProductionWorkspaceBootstrap() {
   }, [serverSession, surface.tenantName, surface.tenantSlug])
 
   async function acceptSession(nextSession) {
+    const onboardingJustCompleted = Boolean(
+      nextSession.onboarding?.completedAt
+        && serverSession
+        && !serverSession.onboarding?.completedAt,
+    )
+
+    if (onboardingJustCompleted) {
+      try {
+        window.sessionStorage.setItem(FIRST_LOGIN_HANDOFF_KEY, JSON.stringify({
+          tenantSlug: nextSession.tenant?.slug || '',
+          userId: nextSession.user?.id || '',
+          createdAt: Date.now(),
+        }))
+      } catch {
+        // The server preference state remains authoritative if session storage is unavailable.
+      }
+    }
+
     applyTenantPreferences(nextSession)
     if (nextSession.onboarding?.completedAt) {
+      clearOnboardingSnapshot()
       saveProductionSession(toWorkspaceSession(nextSession))
       void hydrateWorkspaceData()
+    } else {
+      saveOnboardingSnapshot(nextSession)
     }
     setServerSession(nextSession)
     setTenantState({
@@ -569,10 +975,51 @@ export function ProductionWorkspaceBootstrap() {
     })
   }
 
-  if (loading) return <LoadingScreen tenantName={surface.tenantName} />
+  function acceptUserExperience(nextExperience) {
+    setServerSession((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        preferences: nextExperience?.preferences || current.preferences || null,
+        userExperience: {
+          ...(current.userExperience || {}),
+          firstLoginCompletedAt: nextExperience?.firstLoginCompletedAt || new Date().toISOString(),
+          platformGuidance: nextExperience?.platformGuidance || current.userExperience?.platformGuidance || {},
+          platformCoachmarksCompletedAt: nextExperience?.platformCoachmarksCompletedAt || null,
+          platformGettingStartedDismissedAt: nextExperience?.platformGettingStartedDismissedAt || null,
+        },
+      }
+    })
+  }
+
+  if (loading) {
+    return (
+      <LoadingScreen
+        delayed={bootstrapDelayed}
+        tenantName={surface.tenantName}
+        onRetry={() => setBootstrapAttempt((current) => current + 1)}
+      />
+    )
+  }
 
   if (serverSession && !serverSession.onboarding?.completedAt) {
     return <OnboardingWizard session={serverSession} onSessionChange={acceptSession} />
+  }
+
+  if (
+    serverSession?.onboarding?.completedAt
+      && (
+        !serverSession.userExperience?.firstLoginCompletedAt
+        || firstLoginHandoffRequired(serverSession)
+      )
+  ) {
+    return (
+      <ProductionFirstLoginExperience
+        blocking
+        bootstrapSession={serverSession}
+        onExperienceChange={acceptUserExperience}
+      />
+    )
   }
 
   if (serverSession?.onboarding?.completedAt) {
@@ -585,7 +1032,7 @@ export function ProductionWorkspaceBootstrap() {
     const navigationKey = preferenceKey.navigation || {}
     const workspaceKey = [
       appearanceKey.theme || themeKey.mode || 'system',
-      appearanceKey.accentMode === 'personal' ? (appearanceKey.accent || 'amber') : (themeKey.accent || 'amber'),
+      appearanceKey.accentMode === 'personal' ? normaliseAccent(appearanceKey.accent) : normaliseAccent(themeKey.accent),
       appearanceKey.density || 'comfortable',
       navigationKey.sidebarMode || 'expanded',
       themeKey.brandName || serverSession?.tenant?.companyName || '',
@@ -605,7 +1052,31 @@ export function ProductionWorkspaceBootstrap() {
           />
         ) : null}
         {profileOpen ? <ProductionProfileLayer session={serverSession} /> : null}
+        <ProductionFirstLoginExperience
+          bootstrapSession={serverSession}
+          onExperienceChange={acceptUserExperience}
+        />
       </>
+    )
+  }
+
+  if (tenantState?.managed && tenantState?.unavailable) {
+    return (
+      <div className="production-auth-shell">
+        <div className="production-auth-card production-auth-loading">
+          <img src="/hi5central-logo.png" alt="" />
+          <strong>We could not restore {surface.tenantName}</strong>
+          <span>{bootstrapError || 'The secure session could not be restored.'}</span>
+          <div className="production-auth-loading-actions">
+            <button type="button" onClick={() => setBootstrapAttempt((current) => current + 1)}>Retry session</button>
+            <button type="button" onClick={() => {
+              clearOnboardingSnapshot()
+              clearProductionSession()
+              window.location.replace('/login?fresh=1')
+            }}>Sign in again</button>
+          </div>
+        </div>
+      </div>
     )
   }
 

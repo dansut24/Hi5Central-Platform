@@ -134,6 +134,13 @@ export function originMatchesTenant(origin, slug) {
   return expected.has(normalized)
 }
 
+export function originMatchesTenantAccount(origin, slug) {
+  if (originMatchesTenant(origin, slug)) return true
+  if (!origin) return true
+  const adminOrigin = originOf(deployment.adminUrl)
+  return Boolean(adminOrigin && String(origin).toLowerCase() === adminOrigin)
+}
+
 export function portalRequestFromHeaders(origin = '', referer = '') {
   if (deployment.tenancyMode === 'single') {
     if (originOf(deployment.portalUrl) && originOf(deployment.portalUrl) !== originOf(deployment.appUrl)) {

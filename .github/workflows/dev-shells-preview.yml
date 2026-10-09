@@ -1,0 +1,53 @@
+name: Dev RMM and Admin preview
+
+# One-time synchronized web refresh, or manual dispatch from Actions.
+# Ordinary changes to develop do not trigger builds.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/dev-shells-preview.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hi5central-dev-shells-preview
+  cancel-in-progress: true
+
+jobs:
+  build-dev-shells:
+    name: Build Dev ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: RMM
+            context: apps/rmm
+            image: ghcr.io/dansut24/hi5central-platform-rmm
+          - name: Admin
+            context: apps/admin
+            image: ghcr.io/dansut24/hi5central-platform-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: |
+            ${{ matrix.image }}:dev
+            ${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

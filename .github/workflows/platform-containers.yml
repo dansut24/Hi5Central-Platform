@@ -8,7 +8,7 @@ on:
       - 'packages/**'
       - '.github/workflows/platform-containers.yml'
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'apps/**'
       - 'services/**'
@@ -76,7 +76,7 @@ jobs:
 
   dev:
     name: Dev release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'
     needs: containers
     runs-on: ubuntu-latest
     environment:

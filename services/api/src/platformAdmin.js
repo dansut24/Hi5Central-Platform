@@ -3,7 +3,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword } from './password.js'
-import { resolveSession } from './session.js'
+import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import {
@@ -24,6 +24,7 @@ import { sendTenantOwnerTransferApprovalEmail } from './mailer.js'
 import { issueMspLicense } from './licenseAuthority.js'
 import { wingetRepositorySearch } from './rmmWingetFallback.js'
 import { syncSoftwareVendorSource } from './rmmSoftwareVendorIntel.js'
+import { experiencePayload, normalisePlatform, patchUserExperience, readUserExperience } from './userPreferences.js'
 
 const COOKIE_NAME = 'hi5central_admin_session'
 const SESSION_SECONDS = 60 * 60 * 12
@@ -143,7 +144,11 @@ function originAllowed(c) {
   return origin === String(deployment.adminUrl || `https://admin.${deployment.rootDomain}`).toLowerCase()
 }
 function cookieOptions(extra = {}) {
-  return { secure: true, httpOnly: true, sameSite: 'Lax', path: '/api/platform', ...extra }
+  const secure = !String(deployment.adminUrl || '').toLowerCase().startsWith('http://')
+    && !String(deployment.apiUrl || '').toLowerCase().startsWith('http://')
+  const options = { secure, httpOnly: true, sameSite: 'Lax', path: '/api/platform', ...extra }
+  if (deployment.cookieDomain) options.domain = deployment.cookieDomain
+  return options
 }
 
 async function rateLimit(key, max, seconds) {
@@ -167,18 +172,127 @@ async function resolveAdminSession(c) {
   const token = getCookie(c, COOKIE_NAME)
   if (!token) return null
   const result = await pool.query(
-    `SELECT s.id AS session_id,s.user_id,s.expires_at,u.email,u.name,m.role,m.status
+    `SELECT s.id AS session_id,s.user_id,s.expires_at,u.email,u.name,
+            m.role AS platform_role,m.status AS platform_status
        FROM platform_admin_sessions s
        JOIN users u ON u.id=s.user_id
-       JOIN platform_admin_members m ON m.user_id=s.user_id
+       LEFT JOIN platform_admin_members m ON m.user_id=s.user_id
       WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
       LIMIT 1`,
     [hash(token)],
   )
   const row = result.rows[0]
-  if (!row || row.status !== 'active' || !ADMIN_ROLES.has(row.role)) return null
-  pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [row.session_id]).catch(() => {})
-  return row
+  if (!row) return null
+
+  const explicitRole = row.platform_status === 'active' && ADMIN_ROLES.has(row.platform_role)
+    ? row.platform_role
+    : null
+
+  let role = explicitRole
+  if (!role && deployment.runtimeEnvironment === 'dev' && deployment.featureMode === 'all_enabled') {
+    const tenantRole = await pool.query(
+      `SELECT role FROM tenant_memberships
+        WHERE user_id=$1 AND status='active' AND role IN ('owner','admin')
+        ORDER BY CASE role WHEN 'owner' THEN 1 ELSE 2 END
+        LIMIT 1`,
+      [row.user_id],
+    )
+    if (tenantRole.rowCount) role = 'owner'
+  }
+
+  if (!role) return null
+
+  const resolved = { ...row, role, status: 'active' }
+  pool.query('UPDATE platform_admin_sessions SET last_seen_at=now() WHERE id=$1', [resolved.session_id]).catch(() => {})
+  return resolved
+}
+
+async function seedTenantWorkspaceSession(c, userId) {
+  const memberships = await pool.query(
+    `SELECT m.tenant_id,m.role,t.slug
+       FROM tenant_memberships m
+       JOIN tenants t ON t.id=m.tenant_id
+       JOIN tenant_settings ts ON ts.tenant_id=m.tenant_id
+      WHERE m.user_id=$1
+        AND m.status='active'
+        AND t.status='active'
+        AND ts.onboarding_completed_at IS NOT NULL
+      ORDER BY CASE m.role WHEN 'owner' THEN 1 WHEN 'admin' THEN 2 ELSE 3 END,t.created_at
+      LIMIT 2`,
+    [userId],
+  )
+
+  const candidates = memberships.rows || []
+  if (!candidates.length) return false
+  if (candidates.length > 1 && deployment.tenancyMode !== 'single') return false
+
+  try {
+    const token = await createSession(pool, {
+      tenantId: candidates[0].tenant_id,
+      userId,
+      surface: 'workspace',
+    })
+    setSessionCookie(c, token)
+    return true
+  } catch {
+    // Tenant MFA/access policy remains authoritative. Admin login still succeeds,
+    // but the user must complete tenant authentication before opening ITSM/RMM.
+    return false
+  }
+}
+
+async function tenantAdminSsoSession(c, suppliedTenantSession = null) {
+  const tenantSession = suppliedTenantSession || await resolveSession(c)
+  if (!tenantSession) return null
+
+  const membership = await pool.query(
+    `SELECT role,status FROM platform_admin_members WHERE user_id=$1 LIMIT 1`,
+    [tenantSession.user_id],
+  )
+  const explicit = membership.rows[0]
+  const devFallback = deployment.runtimeEnvironment === 'dev'
+    && deployment.featureMode === 'all_enabled'
+    && ['owner','admin'].includes(tenantSession.tenant_role)
+
+  const role = explicit?.status === 'active' && ADMIN_ROLES.has(explicit.role)
+    ? explicit.role
+    : (devFallback ? 'owner' : null)
+
+  if (!role) return null
+
+  const token = randomBytes(32).toString('base64url')
+  const created = await pool.query(
+    `INSERT INTO platform_admin_sessions (user_id,token_hash,expires_at)
+     VALUES ($1,$2,now()+make_interval(secs=>$3::int))
+     RETURNING id`,
+    [tenantSession.user_id, hash(token), SESSION_SECONDS],
+  )
+
+  const session = {
+    user_id: tenantSession.user_id,
+    email: tenantSession.email,
+    name: tenantSession.name,
+    role,
+    status: 'active',
+    session_id: created.rows[0].id,
+    tenant_sso: true,
+  }
+
+  setCookie(c, COOKIE_NAME, token, cookieOptions({ maxAge: SESSION_SECONDS }))
+  await audit(c, session, 'platform.auth.sso', 'tenant', tenantSession.tenant_id, {
+    tenantSlug: tenantSession.slug,
+    tenantRole: tenantSession.tenant_role,
+    source: devFallback && !explicit ? 'dev_owner_fallback' : 'platform_admin_membership',
+  })
+  return session
+}
+
+async function resolveAdminOrTenantSso(c) {
+  const tenantSession = await resolveSession(c)
+  const existing = await resolveAdminSession(c)
+  if (existing) return { session: existing, tenantSession }
+  const promoted = tenantSession ? await tenantAdminSsoSession(c, tenantSession) : null
+  return promoted ? { session: promoted, tenantSession } : null
 }
 
 async function requireAdmin(c, roles = null) {
@@ -208,8 +322,27 @@ async function requireAdmin(c, roles = null) {
   return { session }
 }
 
-function adminPayload(session) {
-  return { authenticated: true, user: { id: session.user_id, name: session.name, email: session.email, role: session.role } }
+function adminPayload(session, tenantSession = null) {
+  const configuration = tenantSession?.configuration && Object.keys(tenantSession.configuration).length
+    ? tenantSession.configuration
+    : (tenantSession?.onboarding_data || {})
+  const modules = tenantSession?.modules || {}
+  return {
+    authenticated: true,
+    user: { id: session.user_id, name: session.name, email: session.email, role: session.role },
+    tenant: tenantSession ? {
+      id: tenantSession.tenant_id,
+      slug: tenantSession.slug,
+      companyName: tenantSession.company_name,
+      accent: configuration?.theme?.accent || '#3b82f6',
+      themeMode: ['system','light','dark'].includes(configuration?.theme?.mode) ? configuration.theme.mode : 'system',
+    } : null,
+    platformAccess: {
+      admin: true,
+      itsm: Boolean(tenantSession && modules.itsm),
+      rmm: Boolean(tenantSession && modules.rmm),
+    },
+  }
 }
 
 function mspLicensePayload(row) {
@@ -430,15 +563,36 @@ export function registerPlatformAdminRoutes(app) {
       return c.json({ error: 'Too many sign-in attempts. Try again later.' }, 429)
     }
     const result = await pool.query(
-      `SELECT u.id AS user_id,u.email,u.name,u.password_hash,m.role,m.status
-         FROM users u JOIN platform_admin_members m ON m.user_id=u.id
+      `SELECT u.id AS user_id,u.email,u.name,u.password_hash,
+              pam.role AS platform_role,pam.status AS platform_status
+         FROM users u
+         LEFT JOIN platform_admin_members pam ON pam.user_id=u.id
         WHERE u.email=$1 LIMIT 1`,
       [email],
     )
     const account = result.rows[0]
-    if (!account || account.status !== 'active' || !await verifyPassword(password, account.password_hash)) {
+    if (!account || !await verifyPassword(password, account.password_hash)) {
       return c.json({ error: 'Email address or password is incorrect.' }, 401)
     }
+
+    let role = account.platform_status === 'active' && ADMIN_ROLES.has(account.platform_role)
+      ? account.platform_role
+      : null
+
+    if (!role && deployment.runtimeEnvironment === 'dev' && deployment.featureMode === 'all_enabled') {
+      const tenantRole = await pool.query(
+        `SELECT role FROM tenant_memberships
+          WHERE user_id=$1 AND status='active' AND role IN ('owner','admin')
+          ORDER BY CASE role WHEN 'owner' THEN 1 ELSE 2 END
+          LIMIT 1`,
+        [account.user_id],
+      )
+      if (tenantRole.rowCount) role = 'owner'
+    }
+
+    if (!role) return c.json({ error: 'This account does not have Platform Admin access.' }, 403)
+    account.role = role
+    account.status = 'active'
     const token = randomBytes(32).toString('base64url')
     const created = await pool.query(
       `INSERT INTO platform_admin_sessions (user_id,token_hash,expires_at)
@@ -447,14 +601,57 @@ export function registerPlatformAdminRoutes(app) {
     )
     const session = { ...account, session_id: created.rows[0].id }
     setCookie(c, COOKIE_NAME, token, cookieOptions({ maxAge: SESSION_SECONDS }))
+    const workspaceSessionCreated = await seedTenantWorkspaceSession(c, account.user_id)
     await audit(c, session, 'platform.auth.login')
-    return c.json(adminPayload(session))
+    return c.json({ ...adminPayload(session), workspaceSessionCreated })
   })
 
   app.get('/api/platform/v1/auth/session', async (c) => {
+    if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
+    const resolved = await resolveAdminOrTenantSso(c)
+    if (!resolved) return c.json({ error: 'Platform administrator authentication required.' }, 401)
+    return c.json(adminPayload(resolved.session, resolved.tenantSession))
+  })
+
+  app.get('/api/platform/v1/user-preferences', async (c) => {
     const auth = await requireAdmin(c)
     if (auth.error) return auth.error
-    return c.json(adminPayload(auth.session))
+    const platform = normalisePlatform(c.req.query('surface'), 'admin')
+    const row = await readUserExperience(auth.session.user_id)
+    return c.json(experiencePayload({
+      user: {
+        id: auth.session.user_id,
+        name: auth.session.name,
+        email: auth.session.email,
+        tenantRole: auth.session.role,
+      },
+      row,
+      platform,
+    }))
+  })
+
+  app.patch('/api/platform/v1/user-preferences', async (c) => {
+    const auth = await requireAdmin(c)
+    if (auth.error) return auth.error
+    let body
+    try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+    try {
+      const row = await patchUserExperience(auth.session.user_id, { ...body, platform: normalisePlatform(body?.platform, 'admin') })
+      return c.json(experiencePayload({
+        user: {
+          id: auth.session.user_id,
+          name: auth.session.name,
+          email: auth.session.email,
+          tenantRole: auth.session.role,
+        },
+        row,
+        platform: normalisePlatform(body?.platform, 'admin'),
+      }))
+    } catch (error) {
+      if (error?.status) return c.json({ error: error.message }, error.status)
+      throw error
+    }
   })
 
   app.post('/api/platform/v1/auth/logout', async (c) => {

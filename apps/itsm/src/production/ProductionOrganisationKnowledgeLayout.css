@@ -1,0 +1,214 @@
+/* Full-size responsive People and Knowledge workspaces.
+   The workspace itself declares its active view; no portal class observer is needed. */
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people'],
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='knowledge']{
+ position:relative!important;display:block;width:100%!important;height:100%!important;
+ min-width:0;min-height:0;overflow:hidden!important;padding:0!important;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people']>.organisation-view{
+ display:flex!important;flex-direction:column;position:absolute;inset:0;z-index:2;
+ width:100%!important;height:100%!important;max-width:none!important;
+ min-width:0;min-height:0;overflow:hidden!important;padding:0!important;box-sizing:border-box;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people'] .organisation-scroll{
+ display:block!important;position:relative!important;inset:auto!important;
+ flex:1 1 0;min-width:0;min-height:0;width:100%;overflow-x:hidden;overflow-y:auto!important;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people'] .organisation-content{
+ width:100%!important;max-width:none!important;min-height:min-content!important;
+ box-sizing:border-box;margin:0!important;padding:20px 30px 32px!important;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people']>:is(.production-knowledge-root,.production-cmdb-root),
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='knowledge']>:is(.production-cmdb-root,.organisation-view){
+ display:none!important;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='knowledge']>.production-knowledge-root{
+ position:absolute!important;inset:0!important;z-index:3;display:flex!important;
+ flex-direction:column;width:100%!important;height:100%!important;max-width:none!important;
+ min-width:0;min-height:0;overflow:hidden;
+}
+.production-knowledge-root .pkb-page-heading{
+ display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;
+ gap:20px;padding:19px 30px 16px;border-bottom:1px solid var(--line);
+}
+.pkb-page-title{display:flex;align-items:center;gap:13px;min-width:0}
+.pkb-page-title>div{min-width:0}
+.pkb-page-title small{display:block;font-size:10px;font-weight:750;letter-spacing:.06em;color:var(--muted)}
+.pkb-page-title h1{margin:3px 0 4px;font-size:21px;line-height:1.25;letter-spacing:-.02em;color:var(--ink)}
+.pkb-page-title p{margin:0;font-size:12px;color:var(--muted);line-height:1.45}
+.pkb-page-icon{flex:0 0 44px;width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.pkb-page-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.pkb-article-total{font-size:11px;color:var(--muted);white-space:nowrap}
+.production-knowledge-root .pkb-layout{
+ display:grid;grid-template-columns:minmax(280px,320px) minmax(0,1fr);
+ flex:1 1 0;width:100%;min-width:0;min-height:0;overflow:hidden;
+}
+.production-knowledge-root .pkb-sidebar{width:100%;min-width:0;min-height:0;overflow:hidden}
+.production-knowledge-root .pkb-main{
+ display:block!important;width:100%;height:100%;min-width:0;min-height:0;
+ overflow-x:hidden;overflow-y:auto;
+}
+.production-knowledge-root .pkb-editor,.production-knowledge-root .pkb-article{
+ width:100%;max-width:1240px;box-sizing:border-box;padding:22px 28px 32px;
+}
+.production-knowledge-root .pkb-empty.large{
+ display:flex!important;min-height:min(520px,100%);height:auto;width:100%;
+ box-sizing:border-box;margin:auto;padding:44px 26px;
+}
+.pkb-loading-list{padding:14px;text-align:center;font-size:12px;color:var(--muted)}
+@media(max-width:1000px){
+ html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people'] .organisation-content{padding:16px 18px 28px!important}
+ .production-knowledge-root .pkb-layout{grid-template-columns:minmax(240px,280px) minmax(0,1fr)}
+ .production-knowledge-root .pkb-page-heading{padding:15px 18px}
+}
+@media(max-width:720px){
+ html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people'] .organisation-content{padding:12px 12px 28px!important}
+ .production-knowledge-root .pkb-page-heading{padding:12px;align-items:flex-start;flex-wrap:wrap;gap:10px}
+ .pkb-page-icon{flex-basis:38px;width:38px;height:38px}
+ .pkb-page-title h1{font-size:18px}
+ .pkb-page-title p,.pkb-article-total{display:none}
+ .production-knowledge-root .pkb-layout{display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden}
+ .production-knowledge-root .pkb-sidebar{min-height:205px;max-height:35vh;flex:0 0 auto;border-right:0;border-bottom:1px solid var(--line)}
+ .production-knowledge-root .pkb-main{flex:1 0 auto;min-height:260px;height:auto;overflow:visible}
+ .production-knowledge-root .pkb-editor,.production-knowledge-root .pkb-article{padding:14px 12px 24px}
+ .production-knowledge-root .pkb-empty.large{min-height:260px}
+}
+
+/* Override any legacy page-mount class briefly left behind by HMR/tab changes.
+   This only exposes the child owned by WorkspaceRuntime's current route. */
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='people']>.organisation-view {
+ visibility:visible!important;
+ opacity:1!important;
+}
+html[data-hi5-surface='workspace'] .content-frame[data-hi5-active-view='knowledge']>.production-knowledge-root {
+ visibility:visible!important;
+ opacity:1!important;
+}
+
+
+/*
+ * Fix the root cause of the blank People/Knowledge pages:
+ * ProductionItsmRecordTheme gives .workspace auto-sized grid rows; with
+ * absolutely positioned pages, that auto track has zero intrinsic height.
+ * These two routes use a height-constrained flex column and in-flow children.
+ * Other routed pages retain their existing grid/scroll contracts.
+ */
+html[data-hi5-surface='workspace'] .app-shell .workspace:has(> .content-frame:is([data-hi5-active-view='people'],[data-hi5-active-view='knowledge'])) {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  align-content: stretch !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .app-shell .workspace > .content-frame:is([data-hi5-active-view='people'],[data-hi5-active-view='knowledge']) {
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative !important;
+  flex: 1 1 0 !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .app-shell .content-frame[data-hi5-active-view='people'] > .organisation-view,
+html[data-hi5-surface='workspace'] .app-shell .content-frame[data-hi5-active-view='knowledge'] > .production-knowledge-root {
+  position: relative !important;
+  inset: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0 !important;
+  align-self: stretch !important;
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+
+/* A later shell layer uses a pale active-tab surface, but its nested button
+   retained white text from the old solid-accent tab. Keep labels readable. */
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active {
+  background: var(--surface) !important;
+  border-color: var(--line) !important;
+  color: var(--ink) !important;
+}
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-main,
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-title,
+html[data-hi5-surface='workspace'] .production-workspace-tab.is-active .production-workspace-tab-close {
+  color: var(--ink) !important;
+}
+
+/* Match the record composer: article editing needs a comfortable writing area,
+   not a single-line unstyled contentEditable field. */
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-editor {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: visible;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-toolbar {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px 10px 0 0;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input {
+  min-height: 248px;
+  width: 100%;
+  padding: 16px;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: text;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input:empty::before {
+  color: var(--muted);
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-fullscreen-dialog {
+  border-radius: 14px;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  align-items: stretch;
+}
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-main,
+html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-side {
+  min-width: 0;
+}
+
+/* Bring the directory's row typography up to the rest of ITSM's records. */
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table td {
+  font-size: 12px;
+  line-height: 1.45;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table th {
+  font-size: 10px;
+  letter-spacing: .025em;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-person-cell strong {
+  font-size: 12px;
+  font-weight: 750;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-person-cell small,
+html[data-hi5-surface='workspace'] .organisation-view .org-people-table td > small {
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .organisation-view .org-row-action {
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 11px;
+}
+@media(max-width:900px) {
+  html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-editor-grid {
+    grid-template-columns: minmax(0,1fr);
+  }
+  html[data-hi5-surface='workspace'] .production-knowledge-root .pkb-rich-field .record-lab-rich-input {
+    min-height: 210px;
+  }
+}

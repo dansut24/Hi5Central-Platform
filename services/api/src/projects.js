@@ -2,6 +2,7 @@ import { hasPermission } from './access.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { resolveSession } from './session.js'
+import { sanitizeActivityHtml } from './itsmRichText.js'
 
 const projectStatuses = new Set(['Planned', 'In Progress', 'On Hold', 'Complete', 'Cancelled'])
 const projectHealth = new Set(['On Track', 'At Risk', 'Blocked', 'Complete'])
@@ -816,6 +817,8 @@ export function registerProjectRoutes(app) {
 
       const assigneeChanged = (assignee?.id || null) !== (current.assignee_person_id || null)
       const statusChanged = status !== current.status
+      const completionNote = statusChanged && status === 'Done' ? text(body?.completionNotes, 10000) : ''
+      if (statusChanged && status === 'Done' && Object.prototype.hasOwnProperty.call(body, 'completionNotes') && !completionNote) return { completionNoteRequired: true }
       const updated = await client.query(
         `UPDATE project_tasks SET
            title=$2,status=$3,priority=$4,assignee_person_id=$5,assignee_snapshot=$6::jsonb,
@@ -859,6 +862,12 @@ export function registerProjectRoutes(app) {
         bodyText: `updated “${updated.rows[0].title}”${changes.length ? `: ${changes.join(', ')}` : ''}`,
         metadata: { event: assigneeChanged ? 'project.task_assigned' : statusChanged ? 'project.task_status_changed' : 'project.task_updated', taskId: current.external_key, changes },
       })
+      if (completionNote) {
+        await addProjectActivity(client, {
+          session:auth.session,project,actor,kind:'task',bodyText:completionNote,
+          metadata:{event:'project.task.completed_note',taskId:current.external_key},
+        })
+      }
       const eventType = assigneeChanged ? 'project.task_assigned' : statusChanged ? 'project.task_status_changed' : 'project.task_updated'
       const eventId = await createDomainEvent(client, {
         tenantId: auth.session.tenant_id,
@@ -884,12 +893,46 @@ export function registerProjectRoutes(app) {
     if (result.notFound) return c.json({ error: 'Project not found.' }, 404)
     if (result.taskNotFound) return c.json({ error: 'Project task not found.' }, 404)
     if (result.invalidStatus) return c.json({ error: 'Unsupported task status.' }, 400)
+    if (result.completionNoteRequired) return c.json({ error: 'Add a completion note to finish this task.' }, 400)
     if (result.invalidPriority) return c.json({ error: 'Unsupported task priority.' }, 400)
     if (result.invalidAssignee) return c.json({ error: 'Choose an active technician as task assignee.' }, 400)
     if (result.invalidMilestone) return c.json({ error: 'Choose a milestone from this project.' }, 400)
     if (result.invalidDates) return c.json({ error: 'Task due date must be on or after its start date.' }, 400)
     const project = await projectFor(pool, auth.session.tenant_id, c.req.param('reference'))
     return c.json(await payloadForProject(pool, project))
+  })
+
+  // Task notes live on the authoritative project activity timeline, tagged
+  // with the task reference so they also appear in the task workbench.
+  app.post('/api/v1/projects/:reference/tasks/:taskKey/notes', async (c) => {
+    const auth = await requireProjectPermission(c, 'projects.manage')
+    if (auth.error) return auth.error
+    let body
+    try { body = await c.req.json() }
+    catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+    const message = text(body?.text, 20_000)
+    const html = sanitizeActivityHtml(body?.html)
+    if (!message && !html) return c.json({ error: 'Write a note before saving.' }, 400)
+
+    const result = await withTransaction(async (client) => {
+      const project = await projectFor(client, auth.session.tenant_id, c.req.param('reference'), true)
+      if (!project) return { notFound:true }
+      const taskResult = await client.query(
+        'SELECT external_key FROM project_tasks WHERE tenant_id=$1 AND project_id=$2 AND upper(external_key)=upper($3) LIMIT 1',
+        [auth.session.tenant_id,project.id,text(c.req.param('taskKey'),100)],
+      )
+      if (!taskResult.rowCount) return { taskNotFound:true }
+      const actor = await actorContext(client, auth.session)
+      await addProjectActivity(client, {
+        session:auth.session,project,actor,kind:'task',bodyText:message,
+        metadata:{event:'project.task.note_added',taskId:taskResult.rows[0].external_key,richHtml:html},
+      })
+      await touchProject(client,project.id)
+      return { saved:true }
+    })
+    if (result.notFound) return c.json({ error: 'Project not found.' },404)
+    if (result.taskNotFound) return c.json({ error: 'Project task not found.' },404)
+    return c.json({saved:true},201)
   })
 
   app.post('/api/v1/projects/:reference/milestones', async (c) => {

@@ -7,12 +7,16 @@ import { secureHeaders } from 'hono/secure-headers'
 import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
+import { registerCmdbRoutes } from './cmdb.js'
+import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
+import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
+import { registerMfaRoutes } from './mfa.js'
 import { attachRmmAgentWebSocket, initializeAgentBroker, registerRmmAgentRoutes, shutdownAgentBroker } from './rmmAgent.js'
 import { registerRmmAutomationRoutes } from './rmmAutomation.js'
 import { registerRmmActivityRoutes } from './rmmActivity.js'
@@ -45,13 +49,18 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
+import { registerUserPreferenceRoutes } from './userPreferences.js'
+import { registerSecurityRoutes } from './security.js'
 import {
   createSession,
+  resolveOnboardingSession,
   resolveSession,
   revokeCurrentSession,
   sessionPayload,
   setSessionCookie,
 } from './session.js'
+
+console.log('[API] Module imports loaded; registering routes...')
 
 const scryptAsync = promisify(scrypt)
 const app = new Hono()
@@ -86,7 +95,17 @@ function requestIp(c) {
 function allowedOrigin(origin) { return allowedRequestOrigin(origin) }
 function originMatchesSession(c, session) { return originMatchesTenant(c.req.header('origin'), session.slug) }
 function onboardingSequence(modules = {}) {
-  return ['company','theme','users','groups','permissions','security',modules?.itsm ? 'itsm' : null,modules?.rmm ? 'rmm' : null,'billing','finish'].filter(Boolean)
+  return [
+    'company',
+    'theme',
+    'delivery',
+    'groups',
+    'permissions',
+    'security',
+    modules?.itsm ? 'itsm' : null,
+    modules?.rmm ? 'rmm' : null,
+    'finish',
+  ].filter(Boolean)
 }
 async function rateLimit(redisClient, key, max, seconds) {
   const attempts = await redisClient.incr(key)
@@ -194,7 +213,12 @@ app.get('/api/v1/auth/tenant-state/:slug', async (c) => {
   const slug = normaliseSlug(c.req.param('slug'))
   if (!validSlug(slug)) return c.json({ managed: false, slug }, 200)
   const result = await pool.query('SELECT t.slug,t.company_name,t.status FROM tenants t WHERE t.slug=$1 LIMIT 1', [slug])
-  if (!result.rowCount) return c.json({ managed: false, slug })
+  if (!result.rowCount) {
+    const setupRequired = deployment.deploymentMode === 'self_hosted'
+      && deployment.tenancyMode === 'single'
+      && slug === deployment.primaryTenantSlug
+    return c.json({ managed: false, slug, setupRequired })
+  }
   const tenant = result.rows[0]
   return c.json({ managed: true, slug: tenant.slug, companyName: tenant.company_name, status: tenant.status })
 })
@@ -268,19 +292,62 @@ app.post('/api/v1/auth/signup', async (c) => {
     pool.query('SELECT 1 FROM users WHERE email=$1 LIMIT 1', [email]),
     deployment.tenancyMode === 'single' ? pool.query('SELECT count(*)::int AS count FROM tenants') : Promise.resolve({ rows: [{ count: 0 }] }),
   ])
-  if (deployment.tenancyMode === 'single' && Number(tenantCount.rows[0]?.count || 0) > 0) return c.json({ error: 'This single-tenant installation has already been initialised.' }, 409)
+  const tenantCountValue = Number(tenantCount.rows[0]?.count || 0)
+  const firstSelfHostSetup = deployment.deploymentMode === 'self_hosted'
+    && deployment.tenancyMode === 'single'
+    && tenantCountValue === 0
+
+  if (deployment.tenancyMode === 'single' && tenantCountValue > 0) return c.json({ error: 'This single-tenant installation has already been initialised.' }, 409)
+
+  if (firstSelfHostSetup) {
+    const suppliedSetupToken = String(body?.setupToken || '').trim()
+    const expectedSetupToken = String(process.env.INITIAL_SETUP_TOKEN || '').trim()
+    if (!expectedSetupToken || !suppliedSetupToken || hashToken(suppliedSetupToken) !== hashToken(expectedSetupToken)) {
+      return c.json({ error: 'The initial setup code is missing or invalid.' }, 403)
+    }
+  }
+
   if (slugExists.rowCount) return c.json({ error: 'That tenant URL is already in use.', field: 'tenantSlug' }, 409)
   if (emailExists.rowCount) return c.json({ error: 'An account already exists for that email address.', field: 'email' }, 409)
 
   const passwordHash = await hashPassword(password)
-  const verificationToken = randomBytes(32).toString('base64url')
-  const verificationTokenHash = hashToken(verificationToken)
+  const verificationToken = firstSelfHostSetup ? '' : randomBytes(32).toString('base64url')
+  const verificationTokenHash = verificationToken ? hashToken(verificationToken) : ''
   const generatedUrls = tenantUrls(tenantSlug, { rmm: modules.includes('rmm') })
   const { tenantUrl, rmmUrl } = generatedUrls
   const portalUrl = modules.includes('itsm') ? generatedUrls.portalUrl : null
+  const moduleConfiguration = JSON.stringify({
+    itsm: modules.includes('itsm'),
+    selfService: modules.includes('itsm'),
+    rmm: modules.includes('rmm'),
+  })
 
   try {
     const result = await withTransaction(async (client) => {
+      if (firstSelfHostSetup) {
+        const tenantResult = await client.query(
+          "INSERT INTO tenants (slug,company_name,status) VALUES ($1,$2,'active') RETURNING id,slug,company_name,status",
+          [tenantSlug, companyName],
+        )
+        const tenant = tenantResult.rows[0]
+        const userResult = await client.query(
+          'INSERT INTO users (email,name,password_hash,email_verified_at) VALUES ($1,$2,$3,now()) RETURNING id,email,name',
+          [email, name, passwordHash],
+        )
+        const user = userResult.rows[0]
+        await client.query(
+          "INSERT INTO tenant_memberships (tenant_id,user_id,role,status) VALUES ($1,$2,'owner','active')",
+          [tenant.id, user.id],
+        )
+        await client.query(
+          `INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
+           VALUES ($1,$2::jsonb,'company',$3,$4,$5)`,
+          [tenant.id, moduleConfiguration, tenantUrl, portalUrl, rmmUrl],
+        )
+        const sessionToken = await createSession(client, { tenantId: tenant.id, userId: user.id, surface: 'workspace' })
+        return { tenant, user, sessionToken }
+      }
+
       const tenantResult = await client.query('INSERT INTO tenants (slug,company_name) VALUES ($1,$2) RETURNING id,slug,company_name,status', [tenantSlug, companyName])
       const tenant = tenantResult.rows[0]
       const userResult = await client.query('INSERT INTO users (email,name,password_hash) VALUES ($1,$2,$3) RETURNING id,email,name', [email, name, passwordHash])
@@ -289,7 +356,7 @@ app.post('/api/v1/auth/signup', async (c) => {
       await client.query(
         `INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
          VALUES ($1,$2::jsonb,'verify_email',$3,$4,$5)`,
-        [tenant.id, JSON.stringify({ itsm: modules.includes('itsm'), selfService: modules.includes('itsm'), rmm: modules.includes('rmm') }), tenantUrl, portalUrl, rmmUrl],
+        [tenant.id, moduleConfiguration, tenantUrl, portalUrl, rmmUrl],
       )
       await client.query(
         `INSERT INTO user_email_verifications (tenant_id,user_id,token_hash,redirect_url,expires_at)
@@ -298,6 +365,17 @@ app.post('/api/v1/auth/signup', async (c) => {
       )
       return { tenant, user }
     })
+
+    if (firstSelfHostSetup) {
+      setSessionCookie(c, result.sessionToken)
+      return c.json({
+        status: 'active',
+        verificationRequired: false,
+        onboardingStep: 'company',
+        tenant: { slug: result.tenant.slug, companyName: result.tenant.company_name, tenantUrl, portalUrl, rmmUrl },
+        admin: { name: result.user.name, email: result.user.email },
+      }, 201)
+    }
 
     const delivery = await deliverVerification({ token: verificationToken, email: result.user.email, name: result.user.name, companyName: result.tenant.company_name, tenantUrl })
     return c.json({
@@ -378,9 +456,134 @@ app.get('/api/v1/auth/session', async (c) => {
   return c.json(sessionPayload(session))
 })
 
+app.get('/api/v1/onboarding/session', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ authenticated: false }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+  return c.json(sessionPayload(session))
+})
+
 app.post('/api/v1/auth/logout', async (c) => {
   await revokeCurrentSession(c)
   return c.json({ status: 'signed_out' })
+})
+
+app.get('/api/v1/onboarding/delivery', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  const row = await readTenantDeliverySettings(session.tenant_id)
+  return c.json({
+    config: safeTenantDeliverySettings(row) || {
+      domainMode: 'default',
+      customWorkspaceDomain: '',
+      customPortalDomain: '',
+      domainStatus: 'default',
+      domainVerificationToken: '',
+      smtpMode: 'default',
+      smtpHost: '',
+      smtpPort: 587,
+      smtpSecurity: 'starttls',
+      smtpUsername: '',
+      smtpPasswordConfigured: false,
+      smtpFromName: session.company_name || 'Hi5Central',
+      smtpFromEmail: '',
+      smtpVerifiedAt: null,
+    },
+    defaults: {
+      deploymentMode: deployment.deploymentMode,
+      workspaceUrl: session.tenant_url,
+      portalUrl: session.portal_url,
+      outboundMail: deployment.deploymentMode === 'managed' ? 'Hi5Central managed mail' : 'Server SMTP configuration',
+    },
+  })
+})
+
+app.post('/api/v1/onboarding/delivery', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  try {
+    const config = await saveTenantDeliverySettings(session.tenant_id, body || {})
+    return c.json({ config })
+  } catch (error) {
+    return c.json({ error: error?.message || 'Could not save domain and email settings.' }, 400)
+  }
+})
+
+app.post('/api/v1/onboarding/delivery/verify-domain', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  try {
+    const config = await verifyTenantDomain(session.tenant_id)
+    return c.json({ ok: true, config })
+  } catch (error) {
+    return c.json({ ok: false, error: error?.message || 'Custom domain verification failed.' }, 400)
+  }
+})
+
+app.post('/api/v1/onboarding/delivery/test-smtp', async (c) => {
+  const session = await resolveOnboardingSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  try {
+    const config = await saveTenantDeliverySettings(session.tenant_id, { ...(body || {}), smtpMode: 'custom' })
+    await verifyTenantSmtp(session.tenant_id)
+    await markTenantSmtpVerified(session.tenant_id)
+    const refreshed = await readTenantDeliverySettings(session.tenant_id)
+    return c.json({ ok: true, config: safeTenantDeliverySettings(refreshed) || config })
+  } catch (error) {
+    return c.json({ ok: false, error: error?.message || 'SMTP connection test failed.' }, 400)
+  }
+})
+
+app.post('/api/v1/onboarding/save', async (c) => {
+  const session = await resolveSession(c)
+  if (!session) return c.json({ error: 'Authentication required.' }, 401)
+  if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
+  if (session.onboarding_completed_at) return c.json(sessionPayload(session))
+
+  let body
+  try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+
+  const step = String(body?.step || '')
+  const data = body?.data && typeof body.data === 'object' && !Array.isArray(body.data) ? body.data : {}
+  const sequence = onboardingSequence(session.modules || {})
+  const currentIndex = sequence.indexOf(session.onboarding_step)
+  const stepIndex = sequence.indexOf(step)
+
+  if (currentIndex < 0 || stepIndex < 0 || stepIndex > currentIndex) {
+    return c.json({ error: 'That onboarding step cannot be edited yet.' }, 409)
+  }
+  if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
+
+  await pool.query(
+    `UPDATE tenant_settings
+     SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
+         updated_at=now()
+     WHERE tenant_id=$1`,
+    [session.tenant_id, step, JSON.stringify(data)],
+  )
+
+  const nextSession = {
+    ...session,
+    onboarding_data: {
+      ...(session.onboarding_data || {}),
+      [step]: data,
+    },
+  }
+  return c.json(sessionPayload(nextSession))
 })
 
 app.post('/api/v1/onboarding/step', async (c) => {
@@ -401,8 +604,15 @@ app.post('/api/v1/onboarding/step', async (c) => {
     `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
     [session.tenant_id, step, JSON.stringify(data), nextStep],
   )
-  const refreshed = await resolveSession(c)
-  return c.json(sessionPayload(refreshed))
+  const nextSession = {
+    ...session,
+    onboarding_step: nextStep,
+    onboarding_data: {
+      ...(session.onboarding_data || {}),
+      [step]: data,
+    },
+  }
+  return c.json(sessionPayload(nextSession))
 })
 
 app.post('/api/v1/onboarding/complete', async (c) => {
@@ -411,10 +621,39 @@ app.post('/api/v1/onboarding/complete', async (c) => {
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   if (session.onboarding_completed_at) return c.json(sessionPayload(session))
   if (session.onboarding_step !== 'finish') return c.json({ error: 'Complete the remaining onboarding steps first.' }, 409)
-  await pool.query(
-    `UPDATE tenant_settings SET onboarding_step='complete',onboarding_completed_at=now(),configuration=CASE WHEN configuration='{}'::jsonb THEN onboarding_data ELSE configuration END,updated_at=now() WHERE tenant_id=$1`,
-    [session.tenant_id],
-  )
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(
+      `UPDATE tenant_settings
+       SET onboarding_step='complete',
+           onboarding_completed_at=now(),
+           configuration=CASE WHEN configuration='{}'::jsonb THEN onboarding_data ELSE configuration END,
+           updated_at=now()
+       WHERE tenant_id=$1`,
+      [session.tenant_id],
+    )
+    await client.query(
+      `INSERT INTO user_experience_preferences (
+         user_id,preferences,first_login_completed_at,platform_guidance,platform_getting_started,updated_at
+       ) VALUES ($1,'{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb,now())
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         preferences='{}'::jsonb,
+         first_login_completed_at=NULL,
+         platform_guidance='{}'::jsonb,
+         platform_getting_started='{}'::jsonb,
+         updated_at=now()`,
+      [session.user_id],
+    )
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+
   const refreshed = await resolveSession(c)
   return c.json(sessionPayload(refreshed))
 })
@@ -440,8 +679,13 @@ registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
+registerCmdbRoutes(app)
+registerKnowledgeRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
+registerUserPreferenceRoutes(app)
+registerSecurityRoutes(app)
+registerMfaRoutes(app)
 registerProjectRoutes(app)
 registerMicrosoftRoutes(app)
 registerRmmAgentRoutes(app)
@@ -465,9 +709,13 @@ app.onError((error, c) => {
   return c.json({ error: 'Internal server error' }, 500)
 })
 
+console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
+console.log('[API] PostgreSQL ready; connecting to Redis...')
 await ensureRedisConnected()
+console.log('[API] Redis ready; initializing RMM agent broker...')
 await initializeAgentBroker()
+console.log('[API] RMM agent broker initialized; starting schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
 if (backgroundWorkersEnabled) {
@@ -480,6 +728,7 @@ if (backgroundWorkersEnabled) {
 } else {
   console.log('Background workers disabled for this Control Server instance')
 }
+console.log('[API] Starting HTTP listener...')
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port })
 attachRmmAgentWebSocket(server)
 attachRmmViewerWebSocket(server)

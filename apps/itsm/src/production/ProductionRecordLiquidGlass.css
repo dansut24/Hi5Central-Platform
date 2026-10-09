@@ -1,0 +1,244 @@
+/* Hi5Central record workbench — seamless glass trial.
+   Visual-only: layout sizing, navigation, controls, permissions, and scrolling
+   remain owned by the existing record workbench and activity-focus styles. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+  --record-glass-divider: color-mix(in srgb, var(--line) 63%, transparent);
+  --record-glass-outline: color-mix(in srgb, var(--line) 82%, var(--surface) 18%);
+  --record-note-surface: color-mix(in srgb, var(--surface) 84%, transparent);
+  --record-floating-surface: color-mix(in srgb, var(--surface) 94%, transparent);
+  --record-glass-wash: color-mix(in srgb, var(--surface) 38%, transparent);
+  background:
+    radial-gradient(ellipse at 93% -18%, rgba(var(--accent-rgb), .045), transparent 39%),
+    var(--page) !important;
+}
+
+/* One workspace instead of three white cards within a page. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid > .record-lab-summary-rail > .record-lab-record-card,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid > .record-lab-inspector:not(.is-overlay) > .record-lab-inspector-card,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view > .record-lab-content > .record-lab-activity-panel {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid > .record-lab-primary-workspace,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace > .record-lab-content,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-timeline-scroll {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Subtle column divisions: the content, not its surrounding panel, defines
+   each of the three areas. The centre has the largest visual footprint. */
+@media (min-width: 821px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column > .record-lab-summary-rail {
+    padding-right: 10px;
+    border-right: 1px solid var(--record-glass-divider);
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-workspace-grid.is-three-column > .record-lab-inspector:not(.is-overlay):not(.is-mobile-copy) {
+    padding-left: 10px;
+    border-left: 1px solid var(--record-glass-divider);
+  }
+}
+
+/* Left record information is displayed directly on the canvas, with quiet
+   dividers rather than card headings and chunky section backgrounds. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-record-section,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-record-actions {
+  border-top-color: var(--record-glass-divider) !important;
+  background: transparent !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-record-identity,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-record-status-row,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-record-card .record-lab-record-progress {
+  background: transparent !important;
+}
+
+/* The content stays unboxed, but interactive fields retain enough boundary
+   contrast to look clickable in light and dark themes. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(
+  .record-lab-record-assignment,
+  .record-lab-record-sla,
+  .record-lab-record-actions button,
+  .record-lab-note-actions > button,
+  .record-lab-compact-shortcuts button
+) {
+  background: var(--record-glass-wash) !important;
+  border-color: var(--record-glass-outline) !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(
+  .record-lab-record-assignment,
+  .record-lab-record-sla,
+  .record-lab-record-actions button,
+  .record-lab-note-actions > button,
+  .record-lab-compact-shortcuts button
+):hover {
+  background: rgba(var(--accent-rgb), .09) !important;
+  border-color: rgba(var(--accent-rgb), .32) !important;
+}
+
+/* A restrained glass treatment for record tabs and layout controls only.
+   Transparent notes/columns themselves deliberately have no backdrop blur. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+  background: color-mix(in srgb, var(--surface) 80%, transparent) !important;
+  border-color: var(--record-glass-divider) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: blur(12px) saturate(1.08);
+  backdrop-filter: blur(12px) saturate(1.08);
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-context-header-actions button,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs > :is(.record-lab-context-toggle, .record-lab-device-peek) {
+  background: color-mix(in srgb, var(--surface) 72%, transparent) !important;
+  border-color: var(--record-glass-outline) !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-layout-switch > button.is-selected {
+  background: var(--record-floating-surface) !important;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(16, 32, 54, .07) !important;
+}
+
+/* The Activity panel and scroll area become one transparent canvas. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-heading.is-unified-toolbar {
+  background: transparent !important;
+  border-bottom: 1px solid var(--record-glass-divider) !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-composer {
+  background: transparent !important;
+  border-bottom-color: var(--record-glass-divider) !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+  background: transparent !important;
+  border-bottom-color: var(--record-glass-divider) !important;
+}
+
+/* Each human update has its own gently floating surface; remove legacy bold
+   left borders and deep drop shadows without flattening note types together. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card {
+  background: var(--record-note-surface) !important;
+  border: 1px solid var(--record-glass-outline) !important;
+  border-left: 2px solid var(--record-glass-outline) !important;
+  border-radius: 11px !important;
+  box-shadow: 0 2px 10px rgba(20, 36, 64, .025) !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card.is-customer {
+  background:
+    linear-gradient(105deg, rgba(var(--accent-rgb), .052), transparent 78%),
+    var(--record-note-surface) !important;
+  border-left-color: rgba(var(--accent-rgb), .46) !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card.is-origin {
+  background:
+    linear-gradient(105deg, rgba(var(--accent-rgb), .035), transparent 70%),
+    var(--record-note-surface) !important;
+  border-left-color: rgba(var(--accent-rgb), .3) !important;
+}
+
+/* System events are quiet lines in the timeline, not more note cards. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-system-event {
+  background: transparent !important;
+  border-bottom: 1px dashed var(--record-glass-divider) !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-day-separator::before,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-day-separator::after {
+  background: var(--record-glass-divider) !important;
+}
+
+/* Right context panel is part of the same surface, with readable section
+   labels, transparent progress, and small linked-device rows. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-overlay) .record-lab-inspector-card.is-unified > header,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-overlay) .record-lab-inspector-section-title,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-overlay) .record-lab-compact-progress {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-bottom-color: var(--record-glass-divider) !important;
+  border-top-color: var(--record-glass-divider) !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-overlay) .record-lab-device-row {
+  background: transparent !important;
+  border-color: var(--record-glass-divider) !important;
+  box-shadow: none !important;
+}
+
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-overlay) .record-lab-device-row:hover {
+  background: rgba(var(--accent-rgb), .045) !important;
+}
+
+/* Overlay context remains substantially opaque and frosted so data does not
+   become hard to read against the timeline behind it. */
+@media (min-width: 821px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector.is-overlay:not(.is-mobile-copy) {
+    background: var(--record-floating-surface) !important;
+    border-color: var(--record-glass-outline) !important;
+    -webkit-backdrop-filter: blur(16px) saturate(1.08);
+    backdrop-filter: blur(16px) saturate(1.08);
+  }
+
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector.is-overlay > .record-lab-inspector-card {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+/* Transparency fallback: avoid relying on blur for essential contrast. */
+@supports not (backdrop-filter: blur(1px)) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector.is-overlay:not(.is-mobile-copy) {
+    background: var(--surface) !important;
+  }
+}
+
+/* Keep natural phone/tablet scrolling and comfortable tap targets untouched. */
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-summary-rail {
+    border-right: 0 !important;
+    padding-right: 0 !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector.is-mobile-copy {
+    border-left: 0 !important;
+    padding-left: 0 !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card {
+    box-shadow: none !important;
+  }
+}
+
+/* Reduced transparency and motion are useful for legibility and accessibility. */
+@media (prefers-reduced-transparency: reduce) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    --record-note-surface: var(--surface);
+    --record-floating-surface: var(--surface);
+    --record-glass-wash: var(--surface-soft);
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+    background: var(--surface) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector.is-overlay:not(.is-mobile-copy) {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card {
+    transition: none !important;
+  }
+}

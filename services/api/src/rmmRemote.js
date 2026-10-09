@@ -14,7 +14,16 @@ const VIEWER_DOWNLOAD_URL_WINDOWS = process.env.VIEWER_DOWNLOAD_URL_WINDOWS || p
 const VIEWER_DOWNLOAD_URL_MACOS = process.env.VIEWER_DOWNLOAD_URL_MACOS || `${DOWNLOADS_URL}/viewer/latest/Hi5CentralViewer-macOS.dmg`
 const VIEWER_DOWNLOAD_URL_LINUX = process.env.VIEWER_DOWNLOAD_URL_LINUX || `${DOWNLOADS_URL}/viewer/latest/hi5central-viewer_amd64.deb`
 const VIEWER_RELEASE_MANIFEST_URL = process.env.VIEWER_RELEASE_MANIFEST_URL || `${DOWNLOADS_URL}/viewer/latest/manifest.json`
-const VIEWER_WS_URL = process.env.VIEWER_WS_URL || `wss://rmm.${ROOT_DOMAIN}/viewer/ws`
+function websocketUrlFromHttpBase(value = '') {
+  const base = String(value || '').trim().replace(/\/$/, '')
+  if (base.startsWith('https://')) return 'wss://' + base.slice('https://'.length) + '/viewer/ws'
+  if (base.startsWith('http://')) return 'ws://' + base.slice('http://'.length) + '/viewer/ws'
+  return ''
+}
+const VIEWER_WS_URL =
+  process.env.VIEWER_WS_URL ||
+  websocketUrlFromHttpBase(deployment.apiUrl) ||
+  `wss://api.${ROOT_DOMAIN}/viewer/ws`
 const TURN_HOST = process.env.TURN_HOST || `turn.${ROOT_DOMAIN}`
 const TURN_SHARED_SECRET_FILE = process.env.TURN_SHARED_SECRET_FILE || '/run/secrets/turn_shared_secret'
 const SESSION_TTL_SECONDS = 15 * 60

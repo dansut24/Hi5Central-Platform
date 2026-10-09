@@ -5,8 +5,8 @@ import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
-const COOKIE_NAME = 'hi5central_session'
-const PORTAL_COOKIE_NAME = 'hi5central_portal_session'
+const COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_session' : 'hi5central_session'
+const PORTAL_COOKIE_NAME = deployment.runtimeEnvironment === 'dev' ? 'hi5central_dev_portal_session' : 'hi5central_portal_session'
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 12
 
 function hashToken(token) {
@@ -26,13 +26,19 @@ async function resolveApiToken(c, token) {
     `SELECT at.id AS api_token_id,at.tenant_id,at.user_id,at.scopes AS api_token_scopes,at.expires_at,
             t.slug,t.company_name,t.status AS tenant_status,u.email,u.name,m.role AS tenant_role,m.status AS membership_status,
             ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,ts.tenant_url,ts.portal_url,ts.rmm_url,
-            up.preferences AS user_preferences
+            up.preferences AS user_preferences,
+            up.first_login_completed_at AS user_first_login_completed_at,
+            up.platform_guidance AS user_platform_guidance,
+            up.platform_getting_started AS user_platform_getting_started,
+            pam.role AS platform_admin_role,
+            pam.status AS platform_admin_status
      FROM api_tokens at
      JOIN tenants t ON t.id=at.tenant_id
      JOIN users u ON u.id=at.user_id
      JOIN tenant_memberships m ON m.tenant_id=at.tenant_id AND m.user_id=at.user_id
      JOIN tenant_settings ts ON ts.tenant_id=at.tenant_id
-     LEFT JOIN user_preferences up ON up.tenant_id=at.tenant_id AND up.user_id=at.user_id
+     LEFT JOIN user_experience_preferences up ON up.user_id=at.user_id
+     LEFT JOIN platform_admin_members pam ON pam.user_id=at.user_id
      WHERE at.token_hash=$1 AND at.revoked_at IS NULL AND (at.expires_at IS NULL OR at.expires_at>now())
      LIMIT 1`,
     [tokenHash],
@@ -70,7 +76,8 @@ function requestCookieName(c) {
 }
 
 function cookieOptions(extra = {}) {
-  const options = { secure: true, sameSite: 'Lax', path: '/', ...extra }
+  const secure = !String(deployment.appUrl || '').toLowerCase().startsWith('http://')
+  const options = { secure, sameSite: 'Lax', path: '/', ...extra }
   if (deployment.cookieDomain) options.domain = deployment.cookieDomain
   return options
 }
@@ -156,6 +163,44 @@ export function setPortalSessionCookie(c, token, maxAge = DEFAULT_SESSION_TTL_SE
 export function clearSessionCookie(c) { deleteNamedCookie(c, COOKIE_NAME) }
 export function clearPortalSessionCookie(c) { deleteNamedCookie(c, PORTAL_COOKIE_NAME) }
 
+export async function resolveOnboardingSession(c) {
+  const token = getCookie(c, COOKIE_NAME)
+  if (!token) return null
+
+  const tokenHash = hashToken(token)
+  const result = await pool.query(
+    `SELECT s.id AS session_id,s.tenant_id,s.user_id,s.expires_at,s.created_at AS session_created_at,s.mfa_verified_at,
+            t.slug,t.company_name,t.status AS tenant_status,
+            u.email,u.name,
+            m.role AS tenant_role,m.status AS membership_status,
+            ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,
+            ts.tenant_url,ts.portal_url,ts.rmm_url
+       FROM auth_sessions s
+       JOIN tenants t ON t.id=s.tenant_id
+       JOIN users u ON u.id=s.user_id
+       JOIN tenant_memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
+       JOIN tenant_settings ts ON ts.tenant_id=s.tenant_id
+      WHERE s.token_hash=$1
+        AND s.revoked_at IS NULL
+        AND s.expires_at>now()
+      LIMIT 1`,
+    [tokenHash],
+  )
+
+  if (!result.rowCount) return null
+
+  const session = result.rows[0]
+  if (session.tenant_status !== 'active' || session.membership_status !== 'active') return null
+  if (!['owner', 'admin'].includes(session.tenant_role) && !session.onboarding_completed_at) return null
+
+  pool.query(
+    'UPDATE auth_sessions SET last_seen_at=now() WHERE id=$1',
+    [session.session_id],
+  ).catch(() => {})
+
+  return session
+}
+
 export async function resolveSession(c) {
   const apiToken = bearerToken(c)
   if (apiToken) return resolveApiToken(c, apiToken)
@@ -167,13 +212,19 @@ export async function resolveSession(c) {
     `SELECT s.id AS session_id,s.tenant_id,s.user_id,s.expires_at,s.created_at AS session_created_at,s.mfa_verified_at,
             t.slug,t.company_name,t.status AS tenant_status,u.email,u.name,m.role AS tenant_role,m.status AS membership_status,
             ts.modules,ts.onboarding_step,ts.onboarding_completed_at,ts.onboarding_data,ts.configuration,ts.tenant_url,ts.portal_url,ts.rmm_url,
-            up.preferences AS user_preferences
+            up.preferences AS user_preferences,
+            up.first_login_completed_at AS user_first_login_completed_at,
+            up.platform_guidance AS user_platform_guidance,
+            up.platform_getting_started AS user_platform_getting_started,
+            pam.role AS platform_admin_role,
+            pam.status AS platform_admin_status
      FROM auth_sessions s
      JOIN tenants t ON t.id=s.tenant_id
      JOIN users u ON u.id=s.user_id
      JOIN tenant_memberships m ON m.tenant_id=s.tenant_id AND m.user_id=s.user_id
      JOIN tenant_settings ts ON ts.tenant_id=s.tenant_id
-     LEFT JOIN user_preferences up ON up.tenant_id=s.tenant_id AND up.user_id=s.user_id
+     LEFT JOIN user_experience_preferences up ON up.user_id=s.user_id
+     LEFT JOIN platform_admin_members pam ON pam.user_id=s.user_id
      WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now()
      LIMIT 1`,
     [tokenHash],
@@ -202,13 +253,31 @@ export async function revokeCurrentSession(c) {
   }
   const cookieName = requestCookieName(c)
   const token = getCookie(c, cookieName)
-  if (token) await pool.query('UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE token_hash=$1', [hashToken(token)])
+  if (token) {
+    const revoked = await pool.query(
+      'UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE token_hash=$1 RETURNING user_id',
+      [hashToken(token)],
+    )
+    const userId = revoked.rows[0]?.user_id
+    if (userId) {
+      await pool.query(
+        'UPDATE platform_admin_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND revoked_at IS NULL',
+        [userId],
+      )
+    }
+  }
   deleteNamedCookie(c, cookieName)
 }
 
 export function sessionPayload(session) {
   const configuration = session.configuration && Object.keys(session.configuration).length ? session.configuration : session.onboarding_data || {}
   const access = session.access || { roles: [], roleKeys: [], permissions: [], effectivePermissions: [], workspaceAccess: false, portalAccess: false }
+  const devAdminAccess = deployment.runtimeEnvironment === 'dev'
+    && deployment.featureMode === 'all_enabled'
+    && ['owner', 'admin'].includes(session.tenant_role)
+  const explicitAdminAccess = session.platform_admin_status === 'active'
+    && Boolean(session.platform_admin_role)
+  const adminAccess = explicitAdminAccess || devAdminAccess
   return {
     authenticated: true,
     user: {
@@ -225,6 +294,12 @@ export function sessionPayload(session) {
       effectivePermissions: access.effectivePermissions || [],
       workspaceAccess: Boolean(access.workspaceAccess),
       portalAccess: Boolean(access.portalAccess),
+    },
+    platformAccess: {
+      itsm: Boolean(session.modules?.itsm && access.workspaceAccess),
+      rmm: Boolean(session.modules?.rmm && access.workspaceAccess),
+      admin: adminAccess,
+      adminRole: explicitAdminAccess ? session.platform_admin_role : (devAdminAccess ? 'owner' : null),
     },
     tenant: {
       id: session.tenant_id,
@@ -244,6 +319,13 @@ export function sessionPayload(session) {
       ? { type: 'api_token', tokenId: session.api_token_id }
       : { type: 'session' },
     preferences: session.user_preferences || null,
+    userExperience: {
+      firstLoginCompletedAt: session.user_first_login_completed_at || null,
+      platformGuidance: session.user_platform_guidance || {},
+      platformGettingStarted: session.user_platform_getting_started || {},
+      platformCoachmarksCompletedAt: session.user_platform_guidance?.itsm?.completedAt || null,
+      platformGettingStartedDismissedAt: session.user_platform_getting_started?.itsm?.dismissedAt || null,
+    },
     settings: configuration,
   }
 }

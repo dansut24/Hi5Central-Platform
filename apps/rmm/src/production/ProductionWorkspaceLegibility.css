@@ -1,0 +1,32 @@
+/* RMM legibility: readable navigation, record rows and secondary metadata.
+   Preserve dashboard/card geometry; raise text instead of zooming the UI. */
+body[data-hi5-surface='rmm'] #root { font-size: 14px; }
+body[data-hi5-surface='rmm'] #root small { font-size: max(11px, .72rem) !important; line-height: 1.4; }
+body[data-hi5-surface='rmm'] .rmm-nav-section > span { font-size: 11px !important; letter-spacing: .045em; }
+body[data-hi5-surface='rmm'] .rmm-nav-section button { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-sidebar-brand strong,.rmm-sidebar-footer strong,.rmm-topbar-title strong) { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-sidebar-brand span,.rmm-sidebar-footer small,.rmm-topbar-title span,.rmm-user strong,.rmm-user small) { font-size: 10px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-workspace-tabs button,.rmm-workspace-tab-list button) { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-global-search input,.rmm-filter-pills button,.rmm-list-toolbar input,.rmm-list-toolbar select,.rmm-list-toolbar button) { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] .rmm-eyebrow { font-size: 11px !important; letter-spacing: .05em; }
+body[data-hi5-surface='rmm'] .rmm-page-heading h1 { font-size: 25px !important; }
+body[data-hi5-surface='rmm'] .rmm-page-heading p { font-size: 12px !important; line-height: 1.5; }
+body[data-hi5-surface='rmm'] .rmm-card-heading h2 { font-size: 16px !important; }
+body[data-hi5-surface='rmm'] .rmm-card-heading button { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] .rmm-metric-grid span:not(.rmm-metric-icon) { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] .rmm-metric-grid small { font-size: 11px !important; }
+body[data-hi5-surface='rmm'] .rmm-table-head { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] .rmm-table-row strong { font-size: 13px !important; }
+body[data-hi5-surface='rmm'] .rmm-table-row small { font-size: 11px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-health-list strong,.rmm-alert-mini-list strong,.rmm-job-mini-list strong,.rmm-activity-row strong,.rmm-property-grid strong,.rmm-device-applied-policy strong) { font-size: 12px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-health-list small,.rmm-alert-mini-list small,.rmm-job-mini-list small,.rmm-device-applied-policy small,.rmm-property-grid small) { font-size: 11px !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-status-pill,.rmm-device-subnav button,.rmm-page-heading button) { font-size: 11px !important; }
+body[data-hi5-surface='rmm'] .rmm-card :is(input,select,textarea,button) { font-size: max(12px,.78rem); }
+@media (max-width: 820px) {
+  body[data-hi5-surface='rmm'] .rmm-nav-section button { font-size: 13px !important; }
+  body[data-hi5-surface='rmm'] .rmm-table-row strong { font-size: 13px !important; }
+}
+
+body[data-hi5-surface='rmm'] .rmm-nav-section > span { color: rgba(255,255,255,.75) !important; }
+body[data-hi5-surface='rmm'] .rmm-nav-section button:not(.active) { color: rgba(255,255,255,.9) !important; }
+body[data-hi5-surface='rmm'] :is(.rmm-product-switches a,.rmm-estate-chip strong,.rmm-sidebar-footer small) { font-size: 11px !important; }

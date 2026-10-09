@@ -27,22 +27,24 @@ import {
   MapPin,
   Menu,
   Monitor,
-  Moon,
   MoreHorizontal,
   Network,
   Package,
   PackageCheck,
   PackagePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Plus,
   RefreshCw,
   Search,
   Server,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sun,
   Tag,
   TerminalSquare,
   Trash2,
+  UserRound,
   Users,
   Wifi,
   WifiOff,
@@ -72,7 +74,40 @@ import { RmmConnect } from './RmmConnect.jsx'
 import { DeviceActivityTimeline, DeviceJobsPanel, RmmAuditActivity, prefetchDeviceHistory } from './RmmActivityViews.jsx'
 import { detectRemoteViewerClient, launchRemoteViewerProtocol, remoteViewerDownloadUrl, remoteViewerPlatformLabel, viewerVersionNeedsUpdate } from './remoteViewerClient.js'
 import { RmmDeviceToolWorkspace } from './RmmDeviceTools.jsx'
+import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import './RmmPlatformApp.css'
+
+const ACCENT_PRESETS = {
+  blue: '#3b82f6',
+  cyan: '#089fc5',
+  amber: '#d98a0a',
+  emerald: '#188c61',
+  violet: '#7858df',
+  rose: '#d84e73',
+}
+
+function resolveAccentHex(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (ACCENT_PRESETS[raw]) return ACCENT_PRESETS[raw]
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return '#3b82f6'
+}
+
+function rmmAccentStyle(value) {
+  const hex = resolveAccentHex(value)
+  const clean = hex.slice(1)
+  const r = Number.parseInt(clean.slice(0, 2), 16)
+  const g = Number.parseInt(clean.slice(2, 4), 16)
+  const b = Number.parseInt(clean.slice(4, 6), 16)
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+  return {
+    '--rmm-accent': hex,
+    '--rmm-accent-soft': `rgba(${r}, ${g}, ${b}, .13)`,
+    '--rmm-accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+    '--accent-rgb': `${r}, ${g}, ${b}`,
+    '--accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+  }
+}
 
 const navigation = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Workspace' },
@@ -109,6 +144,7 @@ const pageMeta = {
   'activity-audit': ['Administration', 'Activity audit', 'Search the tenant-wide RMM operational and technician audit history.'],
   'agent-deployment': ['Administration', 'Agent deployment', 'Download the Windows agent and create secure, expiring enrollment packages.'],
   settings: ['Administration', 'RMM settings', 'Agent, sites, credentials, maintenance and integration configuration.'],
+  profile: ['Account', 'My Profile', 'Your shared Hi5Central identity, security and workspace preferences.'],
 }
 
 function deviceIsOnline(device) {
@@ -186,11 +222,11 @@ function securityTone(value = '') {
   return 'neutral'
 }
 
-function RmmSidebar({ activeView, canAudit = false, canRemote = false, mobileOpen, navigate, onClose, tenantName }) {
+function RmmSidebar({ activeView, canAdmin = false, canAudit = false, canItsm = true, canRemote = false, collapsed = false, currentUser, mobileOpen, navigate, onClose, onToggleCollapse, tenantName }) {
   const visibleNavigation = navigation.filter((item) => (!item.requiresAudit || canAudit) && (!item.requiresRemote || canRemote))
   const sections = [...new Set(visibleNavigation.map((item) => item.section))]
   const platform = deploymentConfig()
-  return <><button className={`rmm-sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} aria-label="Close navigation" onClick={onClose} type="button" /><aside className={`rmm-sidebar ${mobileOpen ? 'mobile-open' : ''}`}><div className="rmm-sidebar-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" /><div><strong>{tenantName}</strong><span>RMM</span></div><button className="rmm-mobile-close" onClick={onClose} type="button"><X size={19} /></button></div><nav className="rmm-nav">{sections.map((section) => <div className="rmm-nav-section" key={section}><span>{section}</span>{visibleNavigation.filter((item) => item.section === section).map(({ id, label, icon: Icon }) => <button className={activeView === id ? 'active' : ''} key={id} onClick={() => navigate(id)} type="button"><Icon size={17} /><span>{label}</span>{id === 'alerts' && <b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b>}</button>)}</div>)}</nav><div className="rmm-sidebar-footer"><div className="rmm-product-switches">{platform.appUrl ? <a href={platform.appUrl}>ITSM</a> : null}{platform.adminUrl ? <a href={platform.adminUrl}>Admin</a> : null}</div><div><span>HC</span><div><strong>Hi5Central</strong><small>Microsoft-connected estate</small></div></div></div></aside></>
+  return <><button className={`rmm-sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} aria-label="Close navigation" onClick={onClose} type="button" /><aside className={`rmm-sidebar ${mobileOpen ? 'mobile-open' : ''}`}><div className="rmm-sidebar-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" /><div><strong>{tenantName}</strong><span>RMM</span></div><button className="rmm-mobile-close" onClick={onClose} type="button"><X size={19} /></button></div><nav className="rmm-nav">{sections.map((section) => <div className="rmm-nav-section" key={section}><span>{section}</span>{visibleNavigation.filter((item) => item.section === section).map(({ id, label, icon: Icon }) => <button className={activeView === id ? 'active' : ''} key={id} onClick={() => navigate(id)} type="button"><Icon size={17} /><span>{label}</span>{id === 'alerts' && <b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b>}</button>)}</div>)}</nav><div className="rmm-sidebar-footer"><div className="rmm-product-switches">{platform.appUrl && canItsm ? <a href={platform.appUrl}>ITSM</a> : null}{platform.adminUrl && canAdmin ? <a href={platform.adminUrl}>Admin</a> : null}</div><div className="rmm-sidebar-identity"><span>{String(currentUser?.name || currentUser?.username || 'HC').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join('') || 'HC'}</span><div><strong>{currentUser?.name || currentUser?.username || 'Hi5Central'}</strong><small>RMM workspace</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div></aside></>
 }
 
 function RmmPageSkeleton() {
@@ -204,16 +240,76 @@ function RmmPageSkeleton() {
   </div>
 }
 
-function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, query, setQuery, setTheme, theme }) {
+function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, onOpenAccount, query, setQuery }) {
   const [, title] = pageMeta[activeView] || pageMeta.dashboard
   const platform = deploymentConfig()
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const initials = String(currentUser?.name || 'HC').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'HC'
-  return <header className="rmm-topbar"><div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19} /></button><div><span>RMM {platform.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${platform.runtimeEnvironment}`}>{platform.runtimeEnvironment.toUpperCase()}{platform.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div><label className="rmm-global-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, users, sites, groups, alerts…" /></label><div className="rmm-topbar-actions"><button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} type="button">{theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}</button><button className="rmm-notification-button" onClick={() => navigate('alerts')} type="button"><Bell size={17} /><b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b></button><button className="rmm-user" onClick={onLogout} type="button"><span>{initials}</span><div><strong>{currentUser?.name || 'Hi5Central user'}</strong><small>Sign out</small></div><LogOut size={14} /></button></div></header>
+
+  return <header className="rmm-topbar">
+    <div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19} /></button><div><span>RMM {platform.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${platform.runtimeEnvironment}`}>{platform.runtimeEnvironment.toUpperCase()}{platform.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div>
+    <label className="rmm-global-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, users, sites, groups, alerts…" /></label>
+    <div className="rmm-topbar-actions">
+      <button className="rmm-notification-button" onClick={() => navigate('alerts')} title="Alerts" type="button"><Bell size={17} /><b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b></button>
+      <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={() => setProfileMenuOpen((open) => !open)} title="Profile" type="button"><span>{initials}</span></button>
+      {profileMenuOpen ? <div className="rmm-profile-menu" role="menu">
+        <div className="rmm-profile-summary"><span>{initials}</span><div><strong>{currentUser?.name || 'Hi5Central user'}</strong><small>{currentUser?.username || 'Hi5Central account'}</small></div></div>
+        <button onClick={() => { setProfileMenuOpen(false); onOpenAccount?.('profile') }} role="menuitem" type="button"><UserRound size={15} />My Profile</button>
+        <button onClick={() => { setProfileMenuOpen(false); onOpenAccount?.('workspace') }} role="menuitem" type="button"><SlidersHorizontal size={15} />Workspace</button>
+        <button onClick={() => { setProfileMenuOpen(false); onLogout?.() }} role="menuitem" type="button"><LogOut size={15} />Sign out</button>
+      </div> : null}
+    </div>
+  </header>
 }
 
 function PageHeading({ activeView, action }) {
   const [eyebrow, title, description] = pageMeta[activeView] || pageMeta.dashboard
   return <div className="rmm-page-heading"><div><span className="rmm-eyebrow">{eyebrow}</span><h1>{title}</h1><p>{description}</p></div>{action}</div>
+}
+
+function rmmWorkspaceTabForView(viewId) {
+  const [, title] = pageMeta[viewId] || pageMeta.dashboard
+  return {
+    key: `view:${viewId}`,
+    viewId,
+    label: title,
+    pinned: viewId === 'dashboard',
+  }
+}
+
+function RmmWorkspaceTabs({ activeKey, onActivate, onClose, onNew, tabs }) {
+  return (
+    <div className="rmm-workspace-tabs" aria-label="Open RMM workspace tabs">
+      <div className="rmm-workspace-tab-list">
+        {tabs.map((tab) => (
+          <button
+            className={activeKey === tab.key ? 'rmm-workspace-tab active' : 'rmm-workspace-tab'}
+            key={tab.key}
+            onClick={() => onActivate(tab)}
+            type="button"
+          >
+            <span>{tab.label}</span>
+            {!tab.pinned ? (
+              <i
+                aria-label={`Close ${tab.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onClose(tab.key)
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <X size={12} />
+              </i>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <button className="rmm-workspace-tab-add" onClick={onNew} title="Open dashboard tab" type="button">
+        <Plus size={16} />
+      </button>
+    </div>
+  )
 }
 
 function dashboardWhen(value) {
@@ -2454,7 +2550,7 @@ function RmmSettings({ navigate }) {
   return <><PageHeading activeView="settings" /><div className="rmm-settings-grid">{settings.map(({ icon: Icon, title, detail, target }) => <button className="rmm-card" key={title} onClick={() => target && navigate(target)} type="button"><span><Icon size={19} /></span><div><strong>{title}</strong><small>{detail}</small></div><ChevronRight size={17} /></button>)}</div></>
 }
 
-export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = false, canRemote = false, currentUser, dataLoading = false, devices = rmmDevices, sites = [], handleLogout, onCreateItsmIncident, onSitesChange, setTheme, tenantName, theme, tickets = [] }) {
+export function RmmPlatformApp({ accent, accountSession = null, canAdmin = false, canAudit = false, canBackstageRemote = false, canItsm = true, canRemote = false, currentUser, dataLoading = false, density = 'comfortable', devices = rmmDevices, sites = [], handleLogout, navSide = 'left', onCreateItsmIncident, onSitesChange, setSidebarMode, sidebarMode = 'expanded', tenantName, theme, tickets = [] }) {
   const initialRoute = rmmRouteFromLocation()
   const [activeView, setActiveView] = useState(initialRoute.viewId || 'dashboard')
   const [selectedDeviceId, setSelectedDeviceId] = useState(initialRoute.deviceId || '')
@@ -2466,8 +2562,33 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   const [query, setQuery] = useState('')
   const [toast, setToast] = useState('')
   const [inventoryPreset, setInventoryPreset] = useState(null)
+  const [workspaceTabs, setWorkspaceTabs] = useState(() => {
+    const base = [rmmWorkspaceTabForView('dashboard')]
+    if (initialRoute.deviceId) {
+      base.push({
+        key: `device:${initialRoute.deviceId}`,
+        viewId: 'devices',
+        deviceId: initialRoute.deviceId,
+        label: 'Device',
+        pinned: false,
+      })
+    } else if ((initialRoute.viewId || 'dashboard') !== 'dashboard') {
+      base.push(rmmWorkspaceTabForView(initialRoute.viewId))
+    }
+    return base
+  })
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId)
   const visibleActiveView = (activeView === 'activity-audit' && !canAudit) || (activeView === 'connect' && !canRemote) ? 'dashboard' : activeView
+  const activeWorkspaceTabKey = selectedDeviceId ? `device:${selectedDeviceId}` : `view:${visibleActiveView}`
+
+  useEffect(() => {
+    if (!selectedDeviceId || !selectedDevice) return
+    setWorkspaceTabs((current) => current.map((tab) => (
+      tab.key === `device:${selectedDeviceId}`
+        ? { ...tab, label: selectedDevice.name || selectedDevice.hostname || 'Device' }
+        : tab
+    )))
+  }, [selectedDevice, selectedDeviceId])
 
   useEffect(() => {
     const handlePop = () => {
@@ -2479,6 +2600,10 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
       setSelectedActivityCategory(route.activityCategory || '')
       setSelectedActivityId(route.activityId || '')
       setMobileOpen(false)
+      const routeTab = route.deviceId
+        ? { key: `device:${route.deviceId}`, viewId: 'devices', deviceId: route.deviceId, label: 'Device', pinned: false }
+        : rmmWorkspaceTabForView(route.viewId || 'dashboard')
+      setWorkspaceTabs((current) => current.some((tab) => tab.key === routeTab.key) ? current : [...current, routeTab])
     }
     window.addEventListener('popstate', handlePop)
     return () => window.removeEventListener('popstate', handlePop)
@@ -2497,6 +2622,10 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   }
 
   function navigate(viewId, options = {}) {
+    if (!options.skipTab && viewId !== 'profile') {
+      const tab = rmmWorkspaceTabForView(viewId)
+      setWorkspaceTabs((current) => current.some((item) => item.key === tab.key) ? current : [...current, tab])
+    }
     setActiveView(viewId)
     setSelectedDeviceId('')
     setSelectedDeviceSection('overview')
@@ -2512,6 +2641,14 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
 
   function openDevice(device) {
     if (!device) return
+    const tab = {
+      key: `device:${device.id}`,
+      viewId: 'devices',
+      deviceId: device.id,
+      label: device.name || device.hostname || 'Device',
+      pinned: false,
+    }
+    setWorkspaceTabs((current) => current.some((item) => item.key === tab.key) ? current : [...current, tab])
     setActiveView('devices')
     setSelectedDeviceId(device.id)
     setSelectedDeviceSection('overview')
@@ -2526,6 +2663,46 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
   function openScopedInventory(preset) {
     setInventoryPreset({ ...preset, requestedAt: Date.now() })
     navigate('devices')
+  }
+
+  function openAccount(section = 'profile') {
+    setActiveView('profile')
+    setSelectedDeviceId('')
+    setMobileOpen(false)
+    setQuery('')
+    const url = new URL(window.location.href)
+    const path = rmmPath(undefined, 'profile')
+    url.pathname = path
+    if (section === 'workspace') url.searchParams.set('section', 'workspace')
+    else url.searchParams.delete('section')
+    window.history.pushState({}, '', `${url.pathname}${url.search}`)
+    window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+  }
+
+  function activateWorkspaceTab(tab) {
+    if (!tab) return
+    if (tab.deviceId) {
+      const device = devices.find((item) => item.id === tab.deviceId)
+      if (device) {
+        openDevice(device)
+        return
+      }
+    }
+    navigate(tab.viewId || 'dashboard', { skipTab: true })
+  }
+
+  function closeWorkspaceTab(key) {
+    const tabIndex = workspaceTabs.findIndex((tab) => tab.key === key)
+    const closing = workspaceTabs[tabIndex]
+    if (!closing || closing.pinned) return
+
+    const nextTabs = workspaceTabs.filter((tab) => tab.key !== key)
+    setWorkspaceTabs(nextTabs)
+
+    if (activeWorkspaceTabKey === key) {
+      const fallback = nextTabs[Math.max(0, tabIndex - 1)] || nextTabs[0] || rmmWorkspaceTabForView('dashboard')
+      window.setTimeout(() => activateWorkspaceTab(fallback), 0)
+    }
   }
 
   function renderPage() {
@@ -2546,15 +2723,16 @@ export function RmmPlatformApp({ accent, canAudit = false, canBackstageRemote = 
     if (activeView === 'activity-audit') return canAudit ? <RmmAuditActivity activityCategory={selectedActivityCategory} activityId={selectedActivityId} devices={devices} /> : <RmmDashboard canAudit={canAudit} devices={devices} navigate={navigate} openDevice={openDevice} />
     if (activeView === 'agent-deployment') return <RmmAgentDeployment />
     if (activeView === 'settings') return <RmmSettings navigate={navigate} />
+    if (activeView === 'profile') return <ProductionProfileWorkspace platform="rmm" session={accountSession} />
     return <RmmDashboard canAudit={canAudit} devices={devices} navigate={navigate} openDevice={openDevice} />
   }
 
   return (
-    <div className="rmm-app" data-accent={accent} data-theme={theme}>
-      <RmmSidebar activeView={visibleActiveView} canAudit={canAudit} canRemote={canRemote} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} tenantName={tenantName} />
+    <div className={`rmm-app sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={rmmAccentStyle(accent)}>
+      <RmmSidebar activeView={visibleActiveView} canAdmin={canAdmin} canAudit={canAudit} canItsm={canItsm} canRemote={canRemote} collapsed={sidebarMode === 'collapsed'} currentUser={currentUser} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} onToggleCollapse={() => setSidebarMode?.(sidebarMode === 'collapsed' ? 'expanded' : 'collapsed')} tenantName={tenantName} />
       <div className="rmm-shell-main">
-        <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} query={query} setQuery={setQuery} setTheme={setTheme} theme={theme} />
-        <main className="rmm-main-scroll"><div className="rmm-page">{renderPage()}</div></main>
+        <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} onOpenAccount={openAccount} query={query} setQuery={setQuery} />
+        <main className={`rmm-main-scroll ${activeView === 'profile' ? 'rmm-account-mounted' : ''}`}><div className={`rmm-page ${activeView === 'profile' ? 'rmm-page-profile' : ''}`}>{renderPage()}</div></main>
       </div>
       {toast && <div className="rmm-toast"><CheckCircle2 size={16} />{toast}</div>}
     </div>

@@ -34,6 +34,7 @@ import {
   Palette,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Send,
   Server,
@@ -325,6 +326,170 @@ export function NewTabView({ navItems, openNewRecord, openRecordTab, openTab, ti
 const DASHBOARD_STORAGE_KEY = 'hi5central-dashboards-v3'
 const DASHBOARD_MAX_WIDGETS = 12
 
+const DASHBOARD_V2_CARD_ORDER = ['health', 'attention', 'my-work', 'activity']
+const DASHBOARD_V2_METRIC_ORDER = ['active-records', 'high-priority', 'approvals', 'sla-watch']
+
+function defaultDashboardV2Layout() {
+  return {
+    showLiveState: true,
+    showDescription: true,
+    density: 'comfortable',
+    columns: 'auto',
+    metricOrder: [...DASHBOARD_V2_METRIC_ORDER],
+    hiddenMetrics: [],
+    singleMetricWidth: 'full',
+    cardOrder: [...DASHBOARD_V2_CARD_ORDER],
+    contentOrder: [...DASHBOARD_V2_CARD_ORDER],
+    hiddenCards: [],
+    customWidgets: [],
+  }
+}
+
+function normalizeDashboardV2Layout(value) {
+  const rawOrder = Array.isArray(value?.cardOrder) ? value.cardOrder : []
+  const cardOrder = [
+    ...rawOrder.filter((id) => DASHBOARD_V2_CARD_ORDER.includes(id)),
+    ...DASHBOARD_V2_CARD_ORDER.filter((id) => !rawOrder.includes(id)),
+  ]
+  const hiddenCards = Array.isArray(value?.hiddenCards)
+    ? value.hiddenCards.filter((id) => DASHBOARD_V2_CARD_ORDER.includes(id))
+    : []
+  const metricRawOrder = Array.isArray(value?.metricOrder) ? value.metricOrder : []
+  const metricOrder = [
+    ...metricRawOrder.filter((id) => DASHBOARD_V2_METRIC_ORDER.includes(id)),
+    ...DASHBOARD_V2_METRIC_ORDER.filter((id) => !metricRawOrder.includes(id)),
+  ]
+  const hiddenMetrics = Array.isArray(value?.hiddenMetrics)
+    ? value.hiddenMetrics.filter((id) => DASHBOARD_V2_METRIC_ORDER.includes(id))
+    : value?.showMetrics === false
+      ? [...DASHBOARD_V2_METRIC_ORDER]
+      : []
+  const customWidgets = Array.isArray(value?.customWidgets)
+    ? value.customWidgets
+        .filter((widget) => widget && widget.id && widget.type === 'custom-data')
+        .map((widget) => ({
+          id: widget.id,
+          type: 'custom-data',
+          title: widget.title || 'Dashboard data',
+          sourceMode: widget.sourceMode === 'single-record' ? 'single-record' : 'record-set',
+          dataSource: widget.dataSource || 'all',
+          presentation: ['table', 'list', 'bar', 'donut', 'metric', 'record'].includes(widget.presentation) ? widget.presentation : 'table',
+          groupBy: ['type', 'status', 'priority', 'team', 'assignee', 'service'].includes(widget.groupBy) ? widget.groupBy : 'status',
+          status: widget.status || 'All',
+          priority: widget.priority || 'All',
+          team: widget.team || 'All',
+          service: widget.service || 'All',
+          assignee: widget.assignee || 'All',
+          recordId: widget.recordId || '',
+          recordCollection: widget.recordCollection || 'records',
+          savedViewName: widget.savedViewName || '',
+          savedQuery: widget.savedQuery || '',
+          savedFilters: widget.savedFilters && typeof widget.savedFilters === 'object' ? widget.savedFilters : null,
+          secondMetric: widget.secondMetric && typeof widget.secondMetric === 'object'
+            ? {
+                enabled: widget.secondMetric.enabled === true,
+                title: widget.secondMetric.title || 'Second metric',
+                dataSource: widget.secondMetric.dataSource || 'open',
+                savedViewName: widget.secondMetric.savedViewName || '',
+                savedQuery: widget.secondMetric.savedQuery || '',
+                savedFilters: widget.secondMetric.savedFilters && typeof widget.secondMetric.savedFilters === 'object' ? widget.secondMetric.savedFilters : null,
+                status: widget.secondMetric.status || 'All',
+                priority: widget.secondMetric.priority || 'All',
+                team: widget.secondMetric.team || 'All',
+                service: widget.secondMetric.service || 'All',
+                assignee: widget.secondMetric.assignee || 'All',
+              }
+            : {
+                enabled: false,
+                title: 'Second metric',
+                dataSource: 'open',
+                savedViewName: '',
+                savedQuery: '',
+                savedFilters: null,
+                status: 'All',
+                priority: 'All',
+                team: 'All',
+                service: 'All',
+                assignee: 'All',
+              },
+          limit: Number(widget.limit) || 6,
+          width: widget.width === 'full' ? 'full' : 'half',
+        }))
+    : []
+  const customIds = customWidgets.map((widget) => widget.id)
+  const validContentIds = new Set([...DASHBOARD_V2_CARD_ORDER, ...customIds])
+  const rawContentOrder = Array.isArray(value?.contentOrder) ? value.contentOrder : [...cardOrder, ...customIds]
+  const contentOrder = [
+    ...rawContentOrder.filter((id) => validContentIds.has(id)),
+    ...DASHBOARD_V2_CARD_ORDER.filter((id) => !rawContentOrder.includes(id)),
+    ...customIds.filter((id) => !rawContentOrder.includes(id)),
+  ]
+  return {
+    showLiveState: value?.showLiveState !== false,
+    showDescription: value?.showDescription !== false,
+    density: value?.density === 'compact' ? 'compact' : 'comfortable',
+    columns: ['auto', 'single', 'double'].includes(value?.columns) ? value.columns : 'auto',
+    metricOrder,
+    hiddenMetrics,
+    singleMetricWidth: value?.singleMetricWidth === 'half' ? 'half' : 'full',
+    cardOrder,
+    contentOrder,
+    hiddenCards,
+    customWidgets,
+  }
+}
+
+function makeDashboardDataWidget(overrides = {}) {
+  return {
+    id: overrides.id || `CDW-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type: 'custom-data',
+    title: overrides.title || 'Dashboard data',
+    sourceMode: overrides.sourceMode === 'single-record' ? 'single-record' : 'record-set',
+    dataSource: overrides.dataSource || 'all',
+    presentation: overrides.presentation || 'table',
+    groupBy: overrides.groupBy || 'status',
+    status: overrides.status || 'All',
+    priority: overrides.priority || 'All',
+    team: overrides.team || 'All',
+    service: overrides.service || 'All',
+    assignee: overrides.assignee || 'All',
+    recordId: overrides.recordId || '',
+    recordCollection: overrides.recordCollection || 'records',
+    savedViewName: overrides.savedViewName || '',
+    savedQuery: overrides.savedQuery || '',
+    savedFilters: overrides.savedFilters && typeof overrides.savedFilters === 'object' ? overrides.savedFilters : null,
+    secondMetric: overrides.secondMetric && typeof overrides.secondMetric === 'object'
+      ? {
+          enabled: overrides.secondMetric.enabled === true,
+          title: overrides.secondMetric.title || 'Second metric',
+          dataSource: overrides.secondMetric.dataSource || 'open',
+          savedViewName: overrides.secondMetric.savedViewName || '',
+          savedQuery: overrides.secondMetric.savedQuery || '',
+          savedFilters: overrides.secondMetric.savedFilters && typeof overrides.secondMetric.savedFilters === 'object' ? overrides.secondMetric.savedFilters : null,
+          status: overrides.secondMetric.status || 'All',
+          priority: overrides.secondMetric.priority || 'All',
+          team: overrides.secondMetric.team || 'All',
+          service: overrides.secondMetric.service || 'All',
+          assignee: overrides.secondMetric.assignee || 'All',
+        }
+      : {
+          enabled: false,
+          title: 'Second metric',
+          dataSource: 'open',
+          savedViewName: '',
+          savedQuery: '',
+          savedFilters: null,
+          status: 'All',
+          priority: 'All',
+          team: 'All',
+          service: 'All',
+          assignee: 'All',
+        },
+    limit: Number(overrides.limit) || 6,
+    width: overrides.width === 'full' ? 'full' : 'half',
+  }
+}
+
 const DASHBOARD_WIDGET_LIBRARY = [
   { id: 'active-records', label: 'Active Records', category: 'Metrics', description: 'Open workload with trend context', defaultSpan: 4 },
   { id: 'high-priority', label: 'High Priority', category: 'Metrics', description: 'Critical and high priority workload', defaultSpan: 4 },
@@ -472,21 +637,150 @@ function cloneDashboards(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
-function loadDashboards() {
+function normaliseStoredDashboard(dashboard) {
+  return {
+    ...dashboard,
+    layoutV2: normalizeDashboardV2Layout(dashboard.layoutV2),
+    widgets: Array.isArray(dashboard.widgets)
+      ? dashboard.widgets.map((widget) => ({ ...widget, span: widget.span === 12 ? 12 : 4 }))
+      : [],
+  }
+}
+
+function dashboardAudienceMemberships(person, teamMemberships = []) {
+  const names = new Set([
+    person?.primaryTeam,
+    person?.team,
+    person?.department,
+    person?.site,
+    person?.location,
+    ...(Array.isArray(person?.teams) ? person.teams : []),
+    ...(Array.isArray(person?.groups) ? person.groups : []),
+    ...(Array.isArray(person?.departments) ? person.departments : []),
+    ...(Array.isArray(person?.sites) ? person.sites : []),
+  ].filter(Boolean).map((value) => String(value).trim().toLowerCase()))
+
+  const ids = new Set([
+    person?.teamId,
+    person?.departmentId,
+    person?.siteId,
+    ...(Array.isArray(person?.teamIds) ? person.teamIds : []),
+    ...(Array.isArray(person?.groupIds) ? person.groupIds : []),
+    ...(Array.isArray(person?.departmentIds) ? person.departmentIds : []),
+    ...(Array.isArray(person?.siteIds) ? person.siteIds : []),
+  ].filter(Boolean).map(String))
+
+  if (person?.id) {
+    teamMemberships
+      .filter((membership) => String(membership?.personId || '') === String(person.id))
+      .forEach((membership) => membership?.teamId && ids.add(String(membership.teamId)))
+  }
+
+  return { ids, names }
+}
+
+function tenantDashboardAccess(dashboard, session, people = [], teamMemberships = []) {
+  const role = String(session?.user?.tenantRole || session?.tenantRole || '').toLowerCase()
+  if (['owner', 'admin', 'administrator'].includes(role)) return { visible: true, canEdit: true }
+
+  const shares = Array.isArray(dashboard?.shares) ? dashboard.shares : []
+  if (!shares.length) return { visible: false, canEdit: false }
+  const email = String(session?.user?.email || '').toLowerCase()
+  const userId = session?.user?.id
+  const userName = String(session?.user?.name || '').toLowerCase()
+  const person = people.find((item) => (
+    (userId && (item.userId === userId || item.id === userId))
+    || (email && String(item.email || '').toLowerCase() === email)
+  ))
+  const memberships = dashboardAudienceMemberships(person, teamMemberships)
+  let visible = false
+  let canEdit = false
+
+  shares.forEach((share) => {
+    const kind = String(share.kind || '').toLowerCase()
+    const name = String(share.name || '').trim().toLowerCase()
+    const targetId = String(share.targetId || '')
+    let applies = kind === 'everyone'
+
+    if (kind === 'user') {
+      applies = applies
+        || (targetId && [person?.id, person?.userId, userId].filter(Boolean).map(String).includes(targetId))
+        || name === email
+        || name === userName
+    } else if (['team', 'group'].includes(kind)) {
+      applies = applies || (targetId ? memberships.ids.has(targetId) : memberships.names.has(name))
+    } else if (kind === 'department') {
+      applies = applies
+        || (targetId && String(person?.departmentId || '') === targetId)
+        || memberships.names.has(name)
+    } else if (kind === 'site') {
+      applies = applies
+        || (targetId && String(person?.siteId || '') === targetId)
+        || memberships.names.has(name)
+    }
+
+    if (!applies) return
+    visible = true
+    if (String(share.permission || '').toLowerCase().includes('edit')) canEdit = true
+  })
+
+  return { visible, canEdit }
+}
+
+function sessionManagedDashboards(session, people = [], teamMemberships = []) {
+  const managed = session?.settings?.itsm?.dashboard?.managedDashboards
+  if (!Array.isArray(managed)) return []
+  return managed.flatMap((dashboard) => {
+    const access = tenantDashboardAccess(dashboard, session, people, teamMemberships)
+    if (!access.visible) return []
+    return [normaliseStoredDashboard({
+      ...dashboard,
+      managed: true,
+      owner: session?.tenant?.companyName || 'Tenant',
+      scope: 'shared',
+      canEdit: access.canEdit,
+      widgets: [],
+    })]
+  })
+}
+
+function mergeSessionManagedDashboards(base, session, people = [], teamMemberships = []) {
+  const managed = sessionManagedDashboards(session, people, teamMemberships)
+  const managedIds = new Set(managed.map((dashboard) => dashboard.id))
+  const cleaned = base.filter((dashboard) => !dashboard.managed || managedIds.has(dashboard.id))
+  const byId = new Map(cleaned.map((dashboard) => [dashboard.id, dashboard]))
+
+  managed.forEach((dashboard) => {
+    const local = byId.get(dashboard.id)
+    byId.set(dashboard.id, local
+      ? {
+          ...dashboard,
+          layoutV2: dashboard.layoutV2,
+          widgets: local.widgets || [],
+          canEdit: dashboard.canEdit,
+          shares: dashboard.shares,
+          name: dashboard.name,
+          description: dashboard.description,
+          isDefault: dashboard.isDefault,
+          managed: true,
+        }
+      : dashboard)
+  })
+  return [...byId.values()]
+}
+
+function loadDashboards(session, people = [], teamMemberships = []) {
+  let base = seedDashboards()
   try {
     const stored = window.localStorage.getItem(DASHBOARD_STORAGE_KEY)
-    if (!stored) return seedDashboards()
-    const parsed = JSON.parse(stored)
-    if (!Array.isArray(parsed) || !parsed.length) return seedDashboards()
-    return parsed.map((dashboard) => ({
-      ...dashboard,
-      widgets: Array.isArray(dashboard.widgets)
-        ? dashboard.widgets.map((widget) => ({ ...widget, span: widget.span === 12 ? 12 : 4 }))
-        : [],
-    }))
+    if (stored) {
+      const parsed = JSON.parse(stored)
+      if (Array.isArray(parsed) && parsed.length) base = parsed.map(normaliseStoredDashboard)
+    }
   } catch {
-    return seedDashboards()
+    base = seedDashboards()
   }
+  return mergeSessionManagedDashboards(base, session, people, teamMemberships)
 }
 
 function dashboardWidgetIcon(type) {
@@ -505,6 +799,7 @@ function dashboardWidgetIcon(type) {
     'recent-activity': MessageSquarePlus,
     'saved-filter': SlidersHorizontal,
     heading: BookOpen,
+    'custom-data': SlidersHorizontal,
   }[type] || LayoutDashboard
 }
 
@@ -513,6 +808,7 @@ function dashboardWidgetKind(type) {
   if (['team-workload', 'priority-mix', 'service-health'].includes(type)) return 'Analytics'
   if (type === 'service-queue') return 'Table'
   if (type === 'heading') return 'Note'
+  if (type === 'custom-data') return 'Data widget'
   return 'List'
 }
 
@@ -757,12 +1053,12 @@ function Hi5DashboardTable({ mobile = false, onOpen, rows }) {
     {
       accessorKey: 'priority',
       header: 'Priority',
-      cell: (info) => <span className={`dashboard-priority-label ${priorityClass(info.getValue())}`}><i />{info.getValue()}</span>,
+      cell: (info) => info.getValue() ? <span className={`dashboard-priority-label ${priorityClass(info.getValue())}`}><i />{info.getValue()}</span> : <span className="dashboard-meta-empty">—</span>,
     },
     {
       accessorKey: 'status',
       header: 'Status',
-      cell: (info) => <span className={`status-pill ${statusClass(info.getValue())}`}>{info.getValue()}</span>,
+      cell: (info) => info.getValue() ? <span className={`status-pill ${statusClass(info.getValue())}`}>{info.getValue()}</span> : <span className="dashboard-meta-empty">—</span>,
     },
     { accessorKey: 'team', header: 'Team' },
     {
@@ -805,8 +1101,8 @@ function Hi5DashboardTable({ mobile = false, onOpen, rows }) {
                 <small>{row.original.title}</small>
               </span>
               <span className="dashboard-table-mobile-meta">
-                <span className={`dashboard-priority-label ${priorityClass(row.original.priority)}`}><i />{row.original.priority}</span>
-                <span className={`status-pill ${statusClass(row.original.status)}`}>{row.original.status}</span>
+                {row.original.priority ? <span className={`dashboard-priority-label ${priorityClass(row.original.priority)}`}><i />{row.original.priority}</span> : <span className="dashboard-meta-empty">—</span>}
+                {row.original.status ? <span className={`status-pill ${statusClass(row.original.status)}`}>{row.original.status}</span> : <span className="dashboard-meta-empty">—</span>}
                 <small>{row.original.sla}</small>
               </span>
               <ChevronRight size={14} aria-hidden="true" />
@@ -871,9 +1167,9 @@ function DashboardRecordList({ emptyText = 'Nothing matches this view.', onOpen,
     <div className="dashboard-record-list-v3">
       {rows.map((ticket) => (
         <button key={ticket.id} onClick={() => onOpen(ticket)} type="button">
-          <span className={`priority-dot ${priorityClass(ticket.priority)}`} />
+          <span className={ticket.priority ? `priority-dot ${priorityClass(ticket.priority)}` : 'priority-dot neutral'} />
           <span className="dashboard-record-copy"><strong>{ticket.id}</strong><small>{ticket.title}</small></span>
-          <span className={`status-pill ${statusClass(ticket.status)}`}>{ticket.status}</span>
+          {ticket.status ? <span className={`status-pill ${statusClass(ticket.status)}`}>{ticket.status}</span> : <span className="dashboard-meta-empty">—</span>}
           <small className="dashboard-record-sla">{ticket.sla}</small>
           <ChevronRight size={14} aria-hidden="true" />
         </button>
@@ -904,17 +1200,171 @@ function DashboardWidgetFrame({ children, editMode, index, onConfigure, onMove, 
   )
 }
 
-function DashboardWidgetContent({ dashboardMetrics, filters, mobile = false, openRecordTab, openTab, tickets, widget }) {
+
+function dashboardDataSourceLabel(value) {
+  if (value === 'all') return 'All records'
+  if (value === 'open') return 'Open records'
+  if (value === 'my-work') return 'My work'
+  if (value === 'unassigned') return 'Unassigned'
+  if (value === 'high-priority') return 'High priority'
+  if (value === 'sla-risk') return 'SLA risk'
+  if (value === 'recent') return 'Recently updated'
+  if (String(value || '').startsWith('saved:')) return 'Saved record view'
+  if (value === 'collection:projects') return 'Projects'
+  if (value === 'collection:people') return 'People'
+  if (value === 'collection:calendar') return 'Calendar events'
+  if (value === 'collection:rota') return 'Rota & availability'
+  if (value === 'collection:cmdb') return 'CMDB assets'
+  if (value === 'collection:livechat') return 'Live chat'
+  if (value === 'collection:knowledge') return 'Knowledge articles'
+  if (value === 'collection:catalogue') return 'Service catalogue'
+  if (String(value || '').startsWith('type:')) return String(value).slice(5)
+  return 'Records'
+}
+
+function dashboardWidgetSourceLabel(widget) {
+  return widget?.savedViewName || dashboardDataSourceLabel(widget?.dataSource)
+}
+
+function dashboardWidgetHeaderAction(widget) {
+  if (widget?.sourceMode === 'single-record' || widget?.presentation === 'record') {
+    return { label: 'Open record', tab: null }
+  }
+
+  const source = String(widget?.dataSource || 'all')
+  if (source.startsWith('type:')) {
+    const type = source.slice(5).trim().toLowerCase()
+    if (type === 'incident') return { label: 'All incidents', tab: 'incidents' }
+    if (type === 'service request' || type === 'request') return { label: 'All requests', tab: 'requests' }
+    if (type === 'change') return { label: 'All changes', tab: 'changes' }
+    if (type === 'problem') return { label: 'All problems', tab: 'problems' }
+    if (type === 'task') return { label: 'All tasks', tab: 'tasks' }
+  }
+
+  if (source === 'collection:projects') return { label: 'All projects', tab: 'projects' }
+  if (source === 'collection:people') return { label: 'All people', tab: 'people' }
+  if (source === 'collection:calendar') return { label: 'Open calendar', tab: 'calendar' }
+  if (source === 'collection:rota') return { label: 'Open rota', tab: 'rota' }
+  if (source === 'collection:cmdb') return { label: 'Open CMDB', tab: 'cmdb' }
+  if (source === 'collection:livechat') return { label: 'Open live chat', tab: 'livechat' }
+  if (source === 'collection:knowledge') return { label: 'All articles', tab: 'knowledge' }
+  if (source === 'collection:catalogue') return { label: 'Open catalogue', tab: 'portal' }
+  if (source === 'my-work') return { label: 'All work', tab: 'tickets' }
+
+  return { label: 'All records', tab: 'tickets' }
+}
+
+function dashboardCustomRows(tickets, widget, currentUserName) {
+  const source = String(widget.dataSource || 'all')
+  let rows = source.startsWith('collection:')
+    ? tickets.filter((ticket) => ticket._collection === source.slice(11))
+    : tickets.filter((ticket) => !ticket._collection || ticket._collection === 'records')
+
+  if (widget.dataSource === 'open') rows = rows.filter((ticket) => !['Closed', 'Resolved', 'Completed'].includes(ticket.status))
+  else if (widget.dataSource === 'my-work') rows = rows.filter((ticket) => ticket.assignee === currentUserName)
+  else if (widget.dataSource === 'unassigned') rows = rows.filter((ticket) => !ticket.assignee || ticket.assignee === 'Unassigned')
+  else if (widget.dataSource === 'high-priority') rows = rows.filter((ticket) => ['Critical', 'High'].includes(ticket.priority))
+  else if (widget.dataSource === 'sla-risk') rows = rows.filter((ticket) => Number(ticket.slaPercent || 0) >= 60 && !['Closed', 'Resolved', 'Completed'].includes(ticket.status))
+  else if (String(widget.dataSource || '').startsWith('type:')) {
+    const type = String(widget.dataSource).slice(5)
+    rows = rows.filter((ticket) => ticket.type === type)
+  } else if (String(widget.dataSource || '').startsWith('saved:')) {
+    const filters = widget.savedFilters || {}
+    if (filters.recordType && filters.recordType !== 'All') rows = rows.filter((ticket) => ticket.type === filters.recordType)
+    if (filters.status && filters.status !== 'All') rows = rows.filter((ticket) => ticket.status === filters.status)
+    if (filters.priority && filters.priority !== 'All') rows = rows.filter((ticket) => ticket.priority === filters.priority)
+    if (filters.team && filters.team !== 'All') rows = rows.filter((ticket) => ticket.team === filters.team)
+    if (filters.assignee && filters.assignee !== 'All') rows = rows.filter((ticket) => (ticket.assignee || 'Unassigned') === filters.assignee)
+    if (filters.service && filters.service !== 'All') rows = rows.filter((ticket) => ticket.service === filters.service)
+    const needle = String(widget.savedQuery || '').trim().toLowerCase()
+    if (needle) {
+      rows = rows.filter((ticket) => [ticket.id, ticket.title, ticket.requester, ticket.service, ticket.team, ticket.assignee]
+        .some((value) => String(value || '').toLowerCase().includes(needle)))
+    }
+  }
+
+  if (widget.status !== 'All') rows = rows.filter((ticket) => ticket.status === widget.status)
+  if (widget.priority !== 'All') rows = rows.filter((ticket) => ticket.priority === widget.priority)
+  if (widget.team !== 'All') rows = rows.filter((ticket) => ticket.team === widget.team)
+  if (widget.service !== 'All') rows = rows.filter((ticket) => ticket.service === widget.service)
+  if (widget.assignee !== 'All') rows = rows.filter((ticket) => (ticket.assignee || 'Unassigned') === widget.assignee)
+
+  if (widget.dataSource === 'recent') {
+    rows.sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
+  }
+  return rows
+}
+
+function dashboardGroupCounts(rows, field) {
+  return rows.reduce((result, ticket) => {
+    const key = ticket[field] || 'Unassigned'
+    result[key] = (result[key] || 0) + 1
+    return result
+  }, {})
+}
+
+function DashboardSingleRecord({ onOpen, ticket }) {
+  if (!ticket) return <div className="dashboard-widget-empty">Select a record to show here.</div>
+  return (
+    <button className="dashboard-single-record" onClick={() => onOpen(ticket)} type="button">
+      <div className="dashboard-single-record-main">
+        {ticket.priority ? <span className={`dashboard-priority-label ${priorityClass(ticket.priority)}`}><i />{ticket.priority}</span> : <span className="dashboard-meta-empty">No priority</span>}
+        <strong>{ticket.id}</strong>
+        <h3>{ticket.title}</h3>
+        <p>{ticket.requester || 'Requester not recorded'} · {ticket.service || 'Service not set'}</p>
+      </div>
+      <div className="dashboard-single-record-meta">
+        <span><small>Status</small>{ticket.status ? <b className={`status-pill ${statusClass(ticket.status)}`}>{ticket.status}</b> : <strong>Not set</strong>}</span>
+        <span><small>Team</small><strong>{ticket.team || 'Unassigned'}</strong></span>
+        <span><small>Assignee</small><strong>{ticket.assignee || 'Unassigned'}</strong></span>
+        <span><small>SLA</small><strong>{ticket.sla || `${Number(ticket.slaPercent || 0)}%`}</strong></span>
+      </div>
+      <ChevronRight size={18} aria-hidden="true" />
+    </button>
+  )
+}
+
+function DashboardWidgetContent({ currentUserName = 'Hi5Central User', dashboardMetrics, filters, mobile = false, openRecordTab, openTab, tickets, widget }) {
   const workingTickets = tickets
     .filter((ticket) => filters.team === 'All' || ticket.team === filters.team)
     .filter((ticket) => filters.service === 'All' || ticket.service === filters.service)
-    .filter((ticket) => widget.filterType === 'All' || ticket.type === widget.filterType)
+    .filter((ticket) => widget.filterType == null || widget.filterType === 'All' || ticket.type === widget.filterType)
+
+  if (widget.type === 'custom-data') {
+    const customRows = dashboardCustomRows(workingTickets, widget, currentUserName)
+    if (widget.sourceMode === 'single-record' || widget.presentation === 'record') {
+      const selected = customRows.find((ticket) => ticket.id === widget.recordId && (!ticket._collection || ticket._collection === widget.recordCollection))
+        || workingTickets.find((ticket) => ticket.id === widget.recordId && (!ticket._collection || ticket._collection === widget.recordCollection))
+      return <DashboardSingleRecord onOpen={openRecordTab} ticket={selected} />
+    }
+
+    const limitedRows = customRows.slice(0, Math.max(1, widget.limit || 6))
+    const grouped = dashboardGroupCounts(customRows, widget.groupBy || 'status')
+    if (widget.presentation === 'table') return <Hi5DashboardTable mobile={mobile} onOpen={openRecordTab} rows={customRows.slice(0, Math.max(widget.limit || 6, 6))} />
+    if (widget.presentation === 'list') return <DashboardRecordList onOpen={openRecordTab} rows={limitedRows} />
+    if (widget.presentation === 'bar') return <DashboardBarChart data={grouped} />
+    if (widget.presentation === 'donut') return <DashboardPriorityChart data={grouped} />
+    if (widget.presentation === 'metric') {
+      const secondMetric = widget.secondMetric?.enabled ? widget.secondMetric : null
+      const secondRows = secondMetric ? dashboardCustomRows(workingTickets, secondMetric, currentUserName) : []
+      if (secondMetric) {
+        return (
+          <div className="dashboard-dual-metric-v3">
+            <DashboardMetric detail={dashboardWidgetSourceLabel(widget)} onClick={() => openTab(dashboardWidgetHeaderAction(widget).tab || 'tickets')} trend={0} trendLabel="matching records" value={customRows.length} />
+            <DashboardMetric detail={secondMetric.title || dashboardWidgetSourceLabel(secondMetric)} onClick={() => openTab(dashboardWidgetHeaderAction(secondMetric).tab || 'tickets')} trend={0} trendLabel={dashboardWidgetSourceLabel(secondMetric)} value={secondRows.length} />
+          </div>
+        )
+      }
+      return <DashboardMetric detail={dashboardWidgetSourceLabel(widget)} onClick={() => openTab(dashboardWidgetHeaderAction(widget).tab || 'tickets')} trend={0} trendLabel="matching records" value={customRows.length} />
+    }
+    return <DashboardRecordList onOpen={openRecordTab} rows={limitedRows} />
+  }
 
   const activeTickets = workingTickets.filter((ticket) => !['Closed', 'Resolved'].includes(ticket.status))
   const riskTickets = [...workingTickets]
     .filter((ticket) => ticket.status !== 'Resolved')
     .sort((a, b) => b.slaPercent - a.slaPercent)
-  const myWork = activeTickets.filter((ticket) => ['Hi5Central User', 'Priya Raman', 'Noah Williams'].includes(ticket.assignee))
+  const myWork = activeTickets.filter((ticket) => ticket.assignee === currentUserName)
   const needsAttention = activeTickets.filter((ticket) =>
     ['Critical', 'High'].includes(ticket.priority) || ticket.slaPercent >= 60 || !ticket.assignee || ticket.assignee === 'Unassigned',
   )
@@ -996,9 +1446,30 @@ function dashboardRecordWhen(value) {
   })
 }
 
-export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode, tickets }) {
-  const [dashboards, setDashboards] = useState(loadDashboards)
-  const [activeDashboardId, setActiveDashboardId] = useState(() => loadDashboards().find((item) => item.isDefault)?.id || 'DB-MY-WORK')
+export function DashboardView({
+  assets = [],
+  calendarEvents = [],
+  currentUser,
+  knowledgeArticles = [],
+  liveChatConversations = [],
+  openRecordTab,
+  openTab,
+  people = [],
+  teamMemberships = [],
+  projects = [],
+  rotaEntries = [],
+  serviceCatalog = [],
+  sidebarMode,
+  tickets,
+}) {
+  const [dashboards, setDashboards] = useState(() => loadDashboards(currentUser, people, teamMemberships))
+  const [activeDashboardId, setActiveDashboardId] = useState(() => {
+    const initial = loadDashboards(currentUser, people, teamMemberships)
+    return initial.find((item) => item.managed && item.isDefault)?.id
+      || initial.find((item) => item.isDefault)?.id
+      || initial[0]?.id
+      || 'DB-MY-WORK'
+  })
   const [dashboardMenuOpen, setDashboardMenuOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [editSnapshot, setEditSnapshot] = useState(null)
@@ -1014,12 +1485,63 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
   const [shareTarget, setShareTarget] = useState('Service Desk')
   const [shareKind, setShareKind] = useState('team')
   const [sharePermission, setSharePermission] = useState('Can view')
+  const [layoutCopyStatus, setLayoutCopyStatus] = useState('')
+  const [customWidgetDraft, setCustomWidgetDraft] = useState(null)
+  const [highlightWidgetId, setHighlightWidgetId] = useState('')
+  const highlightWidgetTimerRef = useRef(null)
+  const managedDefaultAppliedRef = useRef(false)
+  const [savedDashboardViews, setSavedDashboardViews] = useState(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem('hi5central-record-saved-views-v3') || '{}')
+      return Object.entries(stored || {}).flatMap(([recordType, views]) =>
+        (Array.isArray(views) ? views : []).map((view) => ({ ...view, recordType: view.recordType || recordType })),
+      )
+    } catch {
+      return []
+    }
+  })
   const [gridHeight, setGridHeight] = useState(560)
 
   const { width: gridWidth, containerRef: gridContainerRef, mounted: gridMounted } = useContainerWidth({ initialWidth: 1200 })
   const activeDashboard = dashboards.find((item) => item.id === activeDashboardId) || dashboards[0]
   const configuredWidget = activeDashboard?.widgets.find((widget) => widget.id === configureWidgetId)
-  const currentUserName = currentUser?.name || 'Hi5Central User'
+  const dashboardLayout = normalizeDashboardV2Layout(activeDashboard?.layoutV2)
+  const currentUserName = currentUser?.user?.name || currentUser?.name || 'Hi5Central User'
+  const managedDashboardSignature = JSON.stringify(currentUser?.settings?.itsm?.dashboard?.managedDashboards || [])
+  const dashboardMembershipSignature = JSON.stringify({
+    people: people.map((person) => ({
+      id: person.id,
+      userId: person.userId,
+      email: person.email,
+      primaryTeam: person.primaryTeam,
+      team: person.team,
+      teamId: person.teamId,
+      department: person.department,
+      departmentId: person.departmentId,
+      site: person.site,
+      siteId: person.siteId,
+      groups: person.groups,
+      teams: person.teams,
+    })),
+    teamMemberships,
+  })
+
+  useEffect(() => {
+    const managed = sessionManagedDashboards(currentUser, people, teamMemberships)
+    setDashboards((current) => mergeSessionManagedDashboards(current, currentUser, people, teamMemberships))
+    if (managed.length) {
+      const managedDefault = managed.find((item) => item.isDefault)
+      setActiveDashboardId((currentId) => {
+        const visibleIds = new Set(mergeSessionManagedDashboards(dashboards, currentUser, people, teamMemberships).map((item) => item.id))
+        if (managedDefault && !managedDefaultAppliedRef.current) {
+          managedDefaultAppliedRef.current = true
+          return managedDefault.id
+        }
+        if (currentId && visibleIds.has(currentId)) return currentId
+        return managedDefault?.id || managed[0]?.id || currentId
+      })
+    }
+  }, [managedDashboardSignature, dashboardMembershipSignature])
 
   useEffect(() => {
     try {
@@ -1028,6 +1550,29 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
       // Browser persistence is best-effort only.
     }
   }, [dashboards])
+
+  useEffect(() => () => {
+    if (highlightWidgetTimerRef.current) window.clearTimeout(highlightWidgetTimerRef.current)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const recordTypes = ['All', 'Incident', 'Service Request', 'Problem', 'Change']
+    const base = window.__HI5_API_BASE__ || ''
+    Promise.allSettled(recordTypes.map(async (recordType) => {
+      const response = await fetch(`${base}/api/v1/itsm/saved-views?type=${encodeURIComponent(recordType)}`, { credentials: 'include' })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Could not load saved views.')
+      return (payload.items || []).map((view) => ({ ...view, recordType: view.recordType || recordType }))
+    })).then((results) => {
+      if (cancelled) return
+      const fetched = results.flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+      if (!fetched.length) return
+      const unique = new Map(fetched.map((view) => [String(view.id), view]))
+      setSavedDashboardViews([...unique.values()])
+    })
+    return () => { cancelled = true }
+  }, [])
 
   useEffect(() => {
     const node = gridContainerRef.current
@@ -1066,6 +1611,138 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
   }, [filteredTickets])
 
   const services = useMemo(() => ['All', ...new Set(tickets.map((ticket) => ticket.service).filter(Boolean))], [tickets])
+  const dashboardRecordTypes = useMemo(() => ['All', ...new Set([...types, 'Task', ...tickets.map((ticket) => ticket.type).filter(Boolean)])], [tickets])
+
+  const dashboardDataRows = useMemo(() => {
+    const personName = (personId) => people.find((person) => person.id === personId || person.userId === personId)?.name || ''
+    const normal = (item, collection, values) => ({
+      id: String(values.id || item.id || item.slug || item.email || values.title || item.title || item.name || collection),
+      title: values.title || item.title || item.name || item.summary || 'Untitled',
+      type: values.type || item.type || '',
+      status: values.status || item.status || '',
+      priority: values.priority || item.priority || '',
+      team: values.team || item.team || '',
+      assignee: values.assignee || item.assignee || '',
+      service: values.service || item.service || '',
+      requester: values.requester || item.requester || item.email || '',
+      sla: values.sla || item.sla || '—',
+      slaPercent: Number(values.slaPercent ?? item.slaPercent ?? 0),
+      updatedAt: values.updatedAt || item.updatedAt || item.updated || item.startAt || item.start || item.date || '',
+      _collection: collection,
+      _raw: item,
+    })
+
+    return [
+      ...tickets.map((ticket) => normal(ticket, 'records', ticket)),
+      ...projects.map((project) => normal(project, 'projects', {
+        id: project.id,
+        title: project.name,
+        type: 'Project',
+        status: project.status,
+        priority: project.priority,
+        team: project.team,
+        assignee: personName(project.ownerId) || project.owner || '',
+        service: project.health || 'Projects',
+        updatedAt: project.updatedAt || project.targetDate || project.startDate,
+      })),
+      ...people.map((person) => normal(person, 'people', {
+        id: person.id || person.userId || person.email,
+        title: person.name,
+        type: 'Person',
+        status: person.active === false ? 'Inactive' : 'Active',
+        team: person.primaryTeam || person.team || '',
+        assignee: person.name,
+        service: person.department || 'People',
+        requester: person.email,
+        updatedAt: person.updatedAt,
+      })),
+      ...calendarEvents.map((event) => normal(event, 'calendar', {
+        id: event.id,
+        title: event.title || event.summary,
+        type: 'Calendar Event',
+        status: event.status || 'Scheduled',
+        team: event.team || '',
+        assignee: event.owner || personName(event.personId) || '',
+        service: event.source || event.kind || 'Calendar',
+        updatedAt: event.startAt || event.start || event.date,
+      })),
+      ...rotaEntries.map((entry) => normal(entry, 'rota', {
+        id: entry.id,
+        title: entry.title || `${personName(entry.personId) || entry.person || 'Rota'} · ${entry.kind || entry.type || 'Entry'}`,
+        type: 'Rota Entry',
+        status: entry.status || entry.kind || 'Scheduled',
+        team: entry.team || '',
+        assignee: personName(entry.personId) || entry.person || '',
+        service: entry.kind || entry.type || 'Rota',
+        updatedAt: entry.startAt || entry.start || entry.date,
+      })),
+      ...assets.map((asset) => normal(asset, 'cmdb', {
+        id: asset.id,
+        title: asset.name,
+        type: 'CMDB Asset',
+        status: asset.status || asset.state || '',
+        team: asset.team || asset.ownerTeam || '',
+        assignee: asset.assignee || asset.owner || '',
+        service: asset.assetType || asset.type || asset.category || 'CMDB',
+        updatedAt: asset.updatedAt || asset.lastSeen,
+      })),
+      ...liveChatConversations.map((conversation) => normal(conversation, 'livechat', {
+        id: conversation.id,
+        title: conversation.subject || conversation.requesterName || conversation.name || 'Conversation',
+        type: 'Live Chat',
+        status: conversation.status || 'Open',
+        priority: conversation.priority || '',
+        team: conversation.team || '',
+        assignee: conversation.assignee || '',
+        service: 'Live Chat',
+        requester: conversation.requesterName || conversation.requester || '',
+        updatedAt: conversation.updatedAt || conversation.lastMessageAt,
+      })),
+      ...knowledgeArticles.map((article) => normal(article, 'knowledge', {
+        id: article.id || article.slug,
+        title: article.title,
+        type: 'Knowledge Article',
+        status: article.status || (article.published === false ? 'Draft' : 'Published'),
+        team: article.team || '',
+        assignee: article.author || '',
+        service: article.category || 'Knowledge',
+        updatedAt: article.updatedAt,
+      })),
+      ...serviceCatalog.map((item) => normal(item, 'catalogue', {
+        id: item.id || item.slug || item.name,
+        title: item.name || item.title,
+        type: 'Service Catalogue Item',
+        status: item.active === false ? 'Inactive' : (item.status || 'Active'),
+        team: item.team || item.fulfilmentTeam || '',
+        assignee: item.owner || '',
+        service: item.category || 'Service Catalogue',
+        updatedAt: item.updatedAt,
+      })),
+    ]
+  }, [assets, calendarEvents, knowledgeArticles, liveChatConversations, people, projects, rotaEntries, serviceCatalog, tickets])
+
+  const dashboardTeams = useMemo(() => ['All', ...new Set([...teams, ...dashboardDataRows.map((item) => item.team).filter(Boolean)])], [dashboardDataRows])
+  const dashboardAssignees = useMemo(() => ['All', 'Unassigned', ...new Set(dashboardDataRows.map((item) => item.assignee).filter((value) => value && value !== 'Unassigned'))], [dashboardDataRows])
+  const dashboardDataServices = useMemo(() => ['All', ...new Set(dashboardDataRows.map((item) => item.service).filter(Boolean))], [dashboardDataRows])
+  const dashboardSources = useMemo(() => [
+    { id: 'all', label: 'All records' },
+    { id: 'open', label: 'Open records' },
+    ...dashboardRecordTypes.filter((type) => type !== 'All').map((type) => ({ id: `type:${type}`, label: type })),
+    { id: 'my-work', label: 'My work' },
+    { id: 'unassigned', label: 'Unassigned' },
+    { id: 'high-priority', label: 'High priority' },
+    { id: 'sla-risk', label: 'SLA risk' },
+    { id: 'recent', label: 'Recently updated' },
+    ...savedDashboardViews.map((view) => ({ id: `saved:${view.id}`, label: `Saved view · ${view.name}`, savedView: view })),
+    { id: 'collection:projects', label: 'Projects' },
+    { id: 'collection:people', label: 'People' },
+    { id: 'collection:calendar', label: 'Calendar events' },
+    { id: 'collection:rota', label: 'Rota & availability' },
+    { id: 'collection:cmdb', label: 'CMDB assets' },
+    { id: 'collection:livechat', label: 'Live chat conversations' },
+    { id: 'collection:knowledge', label: 'Knowledge articles' },
+    { id: 'collection:catalogue', label: 'Service catalogue' },
+  ], [dashboardRecordTypes, savedDashboardViews])
   const pointerIsCoarse = typeof window !== 'undefined' && window.matchMedia?.('(any-pointer: coarse)').matches
   const mobileStack = Boolean(pointerIsCoarse && (gridWidth < 680 || gridHeight < 460))
   const maxWidgetsAcross = gridWidth >= 980 ? 3 : gridWidth >= 620 ? 2 : 1
@@ -1074,15 +1751,199 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
   const gridGap = 10
   const rowHeight = Math.max(36, Math.floor((gridHeight - Math.max(0, rowCount - 1) * gridGap) / Math.max(rowCount, 1)))
 
+  function openDashboardRecordPeek(record) {
+    if (!record) return
+    const type = record.type || ''
+    const section = type === 'Incident' ? 'incidents'
+      : type === 'Service Request' ? 'requests'
+        : type === 'Problem' ? 'problems'
+          : type === 'Change' ? 'changes'
+            : ''
+    if (!section) {
+      openRecordTab(record)
+      return
+    }
+    const detail = {
+      kind: type || 'Record',
+      title: record.id,
+      subtitle: record.title || 'Untitled record',
+      openPath: `/${section}/${encodeURIComponent(record.id)}`,
+      openLabel: 'Open full record',
+      openFullRecord: () => openRecordTab(record),
+    }
+    if (typeof window.__HI5_PEEK__ === 'function') window.__HI5_PEEK__(detail)
+    else window.dispatchEvent(new CustomEvent('hi5-universal-peek', { detail }))
+  }
+
+  function openDashboardDataItem(item) {
+    if (!item) return
+    const raw = item._raw || item
+    switch (item._collection) {
+      case 'projects':
+        openTab('projects', { key: `project-${raw.id}`, title: raw.id || item.title, projectId: raw.id })
+        return
+      case 'cmdb':
+        openTab('cmdb', { key: `asset-${raw.id}`, title: raw.name || item.title, assetId: raw.id })
+        return
+      case 'knowledge':
+        openTab('knowledge', { key: `knowledge-${raw.slug || raw.id}`, title: raw.title || item.title, articleSlug: raw.slug })
+        return
+      case 'calendar':
+        openTab('calendar')
+        return
+      case 'rota':
+        openTab('rota')
+        return
+      case 'people':
+        openTab('people')
+        return
+      case 'livechat':
+        openTab('livechat', { key: `livechat-${raw.id}`, title: item.title, conversationId: raw.id })
+        return
+      case 'catalogue':
+        openTab('portal')
+        return
+      default:
+        openDashboardRecordPeek(raw)
+    }
+  }
+
   function updateDashboard(id, updater) {
     setDashboards((current) => current.map((dashboard) => dashboard.id === id ? updater(dashboard) : dashboard))
+  }
+
+  function updateDashboardV2Layout(updater) {
+    updateDashboard(activeDashboard.id, (dashboard) => ({
+      ...dashboard,
+      layoutV2: updater(normalizeDashboardV2Layout(dashboard.layoutV2)),
+    }))
+  }
+
+  function setDashboardV2Option(key, value) {
+    updateDashboardV2Layout((layout) => ({ ...layout, [key]: value }))
+  }
+
+  function openNewCustomWidget() {
+    setCustomWidgetDraft(makeDashboardDataWidget({
+      title: 'All records',
+      dataSource: 'all',
+      presentation: 'table',
+      width: 'full',
+    }))
+  }
+
+  function editCustomWidget(widget) {
+    setCustomWidgetDraft(makeDashboardDataWidget(widget))
+  }
+
+  function saveCustomWidget() {
+    if (!customWidgetDraft) return
+    const widgetId = customWidgetDraft.id
+    const isNew = !dashboardLayout.customWidgets.some((widget) => widget.id === widgetId)
+    updateDashboardV2Layout((layout) => {
+      const exists = layout.customWidgets.some((widget) => widget.id === widgetId)
+      return {
+        ...layout,
+        customWidgets: exists
+          ? layout.customWidgets.map((widget) => widget.id === widgetId ? customWidgetDraft : widget)
+          : [...layout.customWidgets, customWidgetDraft],
+        contentOrder: exists || layout.contentOrder.includes(widgetId)
+          ? layout.contentOrder
+          : [...layout.contentOrder, widgetId],
+      }
+    })
+    setCustomWidgetDraft(null)
+
+    if (isNew) {
+      if (highlightWidgetTimerRef.current) window.clearTimeout(highlightWidgetTimerRef.current)
+      setHighlightWidgetId(widgetId)
+      const revealWidget = (attempt = 0) => {
+        const widgetNode = [...document.querySelectorAll('[data-dashboard-widget-id]')]
+          .find((node) => node.dataset.dashboardWidgetId === widgetId)
+        if (widgetNode) {
+          widgetNode.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' })
+          return
+        }
+        if (attempt < 5) window.setTimeout(() => revealWidget(attempt + 1), 90)
+      }
+      window.setTimeout(() => revealWidget(), 90)
+      highlightWidgetTimerRef.current = window.setTimeout(() => {
+        setHighlightWidgetId('')
+        highlightWidgetTimerRef.current = null
+      }, 2400)
+    }
+  }
+
+  function removeCustomWidget(widgetId) {
+    updateDashboardV2Layout((layout) => ({
+      ...layout,
+      customWidgets: layout.customWidgets.filter((widget) => widget.id !== widgetId),
+      contentOrder: layout.contentOrder.filter((id) => id !== widgetId),
+    }))
+  }
+
+  function moveDashboardContent(contentId, delta) {
+    updateDashboardV2Layout((layout) => {
+      const index = layout.contentOrder.indexOf(contentId)
+      const target = index + delta
+      if (index < 0 || target < 0 || target >= layout.contentOrder.length) return layout
+      const contentOrder = [...layout.contentOrder]
+      const [item] = contentOrder.splice(index, 1)
+      contentOrder.splice(target, 0, item)
+      return { ...layout, contentOrder }
+    })
+  }
+
+  function moveCustomWidget(widgetId, delta) {
+    moveDashboardContent(widgetId, delta)
+  }
+
+  function toggleDashboardV2Section(sectionId) {
+    updateDashboardV2Layout((layout) => {
+      const hidden = new Set(layout.hiddenCards)
+      if (hidden.has(sectionId)) hidden.delete(sectionId)
+      else hidden.add(sectionId)
+      return { ...layout, hiddenCards: [...hidden] }
+    })
+  }
+
+  function toggleDashboardMetric(metricId) {
+    updateDashboardV2Layout((layout) => {
+      const hidden = new Set(layout.hiddenMetrics)
+      if (hidden.has(metricId)) hidden.delete(metricId)
+      else hidden.add(metricId)
+      return { ...layout, hiddenMetrics: [...hidden] }
+    })
+  }
+
+  function moveDashboardMetric(metricId, delta) {
+    updateDashboardV2Layout((layout) => {
+      const index = layout.metricOrder.indexOf(metricId)
+      const target = index + delta
+      if (index < 0 || target < 0 || target >= layout.metricOrder.length) return layout
+      const metricOrder = [...layout.metricOrder]
+      const [item] = metricOrder.splice(index, 1)
+      metricOrder.splice(target, 0, item)
+      return { ...layout, metricOrder }
+    })
+  }
+
+  function moveDashboardV2Card(sectionId, delta) {
+    moveDashboardContent(sectionId, delta)
+  }
+
+  function resetDashboardV2Layout() {
+    updateDashboardV2Layout(() => defaultDashboardV2Layout())
   }
 
   function beginEdit() {
     if (!activeDashboard.canEdit) return
     setEditSnapshot(cloneDashboards(dashboards))
+    setWidgetCatalogOpen(false)
+    setConfigureWidgetId(null)
     setEditMode(true)
     setDashboardMenuOpen(false)
+    setFilterOpen(false)
     setMoreOpen(false)
   }
 
@@ -1091,6 +1952,8 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
     setEditMode(false)
     setWidgetCatalogOpen(false)
     setConfigureWidgetId(null)
+    setShareOpen(false)
+    setCustomWidgetDraft(null)
   }
 
   function cancelEdit() {
@@ -1099,6 +1962,8 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
     setEditMode(false)
     setWidgetCatalogOpen(false)
     setConfigureWidgetId(null)
+    setShareOpen(false)
+    setCustomWidgetDraft(null)
   }
 
   function addWidget(type) {
@@ -1246,6 +2111,23 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
     }))
   }
 
+  async function copyLayoutForSharing() {
+    const payload = JSON.stringify({
+      type: 'hi5central.dashboard-layout',
+      version: 1,
+      name: activeDashboard.name,
+      layout: normalizeDashboardV2Layout(activeDashboard.layoutV2),
+      widgets: activeDashboard.widgets.map(({ id, ...widget }) => widget),
+    }, null, 2)
+    try {
+      await navigator.clipboard.writeText(payload)
+      setLayoutCopyStatus('Copied')
+      window.setTimeout(() => setLayoutCopyStatus(''), 1800)
+    } catch {
+      setLayoutCopyStatus('Copy failed')
+    }
+  }
+
   const groupedDashboards = {
     mine: dashboards.filter((item) => item.scope === 'mine'),
     shared: dashboards.filter((item) => item.scope === 'shared'),
@@ -1259,6 +2141,8 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
   const unassignedRecords = activeRecords.filter((ticket) => !ticket.assignee || ticket.assignee === 'Unassigned')
   const healthyRecords = activeRecords.filter((ticket) => Number(ticket.slaPercent || 0) < 60 && !['Critical', 'High'].includes(ticket.priority))
   const serviceHealthPercent = activeRecords.length ? Math.max(0, Math.round((healthyRecords.length / activeRecords.length) * 100)) : 100
+  const serviceHealthTone = serviceHealthPercent >= 85 ? 'is-success' : serviceHealthPercent >= 60 ? 'is-warning' : 'is-critical'
+  const serviceHealthLabel = serviceHealthPercent >= 85 ? 'Healthy' : serviceHealthPercent >= 60 ? 'Watch' : 'At risk'
   const myWorkRecords = activeRecords
     .filter((ticket) => ticket.assignee === currentUserName)
     .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
@@ -1272,176 +2156,555 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
   const recentRecords = [...filteredTickets]
     .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
 
-  return (
-    <div className={`dashboard-builder dashboard-builder-v3 ${editMode ? 'is-editing' : 'is-viewing'}`} data-sidebar-mode={sidebarMode || 'expanded'}>
-      {!editMode && (
-        <section className="itsm-rmm-dashboard">
-          <header className="itsm-rmm-dashboard-heading">
-            <div>
-              <span className="itsm-rmm-eyebrow">ITSM overview</span>
-              <h1>Dashboard</h1>
-              <p>Workload, SLA pressure, approvals and service desk activity across your current scope.</p>
-            </div>
-            <div className="itsm-rmm-dashboard-heading-actions">
-              <span className="itsm-rmm-live-state"><i /> Live service desk</span>
-              <button className="itsm-rmm-primary" onClick={() => openTab('tickets')} type="button"><Inbox size={16} /> View records</button>
-              {activeDashboard.canEdit ? <button className="itsm-rmm-secondary" onClick={beginEdit} type="button"><Pencil size={15} /> Customize</button> : <button className="itsm-rmm-secondary" onClick={duplicateDashboard} type="button"><Copy size={15} /> Make a copy</button>}
-            </div>
-          </header>
+  const dashboardMetricMeta = {
+    'active-records': {
+      label: 'Active records',
+      description: 'Open workload across the current scope',
+      icon: Inbox,
+      tone: 'blue',
+      route: 'tickets',
+      value: activeRecords.length,
+      detail: activeRecords.length ? `${unassignedRecords.length} unassigned` : 'No active workload',
+      preview: [
+        ['Assigned', Math.max(0, activeRecords.length - unassignedRecords.length)],
+        ['Unassigned', unassignedRecords.length],
+        ['High priority', highPriorityRecords.length],
+      ],
+    },
+    'high-priority': {
+      label: 'High priority',
+      description: 'Critical and high-priority records',
+      icon: AlertCircle,
+      tone: 'red',
+      route: 'incidents',
+      value: highPriorityRecords.length,
+      detail: highPriorityRecords.length ? 'Critical and high priority work' : 'No high-priority records',
+      preview: [
+        ['Critical', activeRecords.filter((ticket) => ticket.priority === 'Critical').length],
+        ['High', activeRecords.filter((ticket) => ticket.priority === 'High').length],
+        ['SLA risk', highPriorityRecords.filter((ticket) => Number(ticket.slaPercent || 0) >= 60).length],
+      ],
+    },
+    approvals: {
+      label: 'Awaiting approval',
+      description: 'Requests and changes awaiting a decision',
+      icon: ClipboardCheck,
+      tone: 'violet',
+      route: 'requests',
+      value: approvalRecords.length,
+      detail: approvalRecords.length ? 'Requests or changes awaiting decision' : 'No approval backlog',
+      preview: [
+        ['Pending', activeRecords.filter((ticket) => ['Pending Approval', 'Awaiting Approval'].includes(ticket.status)).length],
+        ['CAB review', activeRecords.filter((ticket) => ticket.status === 'CAB Review').length],
+        ['Requests', approvalRecords.filter((ticket) => ticket.type === 'Service Request').length],
+      ],
+    },
+    'sla-watch': {
+      label: 'SLA pressure',
+      description: 'Records at 60% or more of their SLA target',
+      icon: Clock3,
+      tone: 'amber',
+      route: 'incidents',
+      value: slaRiskRecords.length,
+      detail: slaRiskRecords.length ? 'Records at 60%+ of SLA target' : 'No records currently at risk',
+      preview: [
+        ['60–79%', slaRiskRecords.filter((ticket) => Number(ticket.slaPercent || 0) < 80).length],
+        ['80%+', slaRiskRecords.filter((ticket) => Number(ticket.slaPercent || 0) >= 80).length],
+        ['Unassigned', slaRiskRecords.filter((ticket) => !ticket.assignee || ticket.assignee === 'Unassigned').length],
+      ],
+    },
+  }
+  const visibleMetricIds = dashboardLayout.metricOrder.filter((id) => !dashboardLayout.hiddenMetrics.includes(id))
+  const customWidgetById = new Map(dashboardLayout.customWidgets.map((widget) => [widget.id, widget]))
+  const visibleDashboardContent = dashboardLayout.contentOrder.filter((id) =>
+    DASHBOARD_V2_CARD_ORDER.includes(id)
+      ? !dashboardLayout.hiddenCards.includes(id)
+      : customWidgetById.has(id),
+  )
 
-          <div className="itsm-rmm-metric-grid">
-            <button onClick={() => openTab('tickets')} type="button"><span className="itsm-rmm-metric-icon blue"><Inbox size={19} /></span><div><span>Active records</span><strong>{activeRecords.length}</strong><small>{activeRecords.length ? `${unassignedRecords.length} unassigned` : 'No active workload'}</small></div><ChevronRight size={16} /></button>
-            <button onClick={() => openTab('incidents')} type="button"><span className="itsm-rmm-metric-icon red"><AlertCircle size={19} /></span><div><span>High priority</span><strong>{highPriorityRecords.length}</strong><small>{highPriorityRecords.length ? 'Critical and high priority work' : 'No high-priority records'}</small></div><ChevronRight size={16} /></button>
-            <button onClick={() => openTab('requests')} type="button"><span className="itsm-rmm-metric-icon violet"><ClipboardCheck size={19} /></span><div><span>Awaiting approval</span><strong>{approvalRecords.length}</strong><small>{approvalRecords.length ? 'Requests or changes awaiting decision' : 'No approval backlog'}</small></div><ChevronRight size={16} /></button>
-            <button onClick={() => openTab('incidents')} type="button"><span className="itsm-rmm-metric-icon amber"><Clock3 size={19} /></span><div><span>SLA pressure</span><strong>{slaRiskRecords.length}</strong><small>{slaRiskRecords.length ? 'Records at 60%+ of SLA target' : 'No records currently at risk'}</small></div><ChevronRight size={16} /></button>
+  const dashboardSectionMeta = {
+    health: { label: 'Workload health', description: 'Service health and SLA distribution', icon: CircleGauge },
+    attention: { label: 'Records requiring attention', description: 'High-priority, SLA-risk and unassigned work', icon: AlertCircle },
+    'my-work': { label: 'My work', description: 'Records assigned to the current analyst', icon: UserCheck },
+    activity: { label: 'Recent record activity', description: 'Latest changes across ITSM records', icon: ListChecks },
+  }
+
+  function renderDashboardMetric(metricId) {
+    const metric = dashboardMetricMeta[metricId]
+    if (!metric) return null
+    const Icon = metric.icon
+    const index = dashboardLayout.metricOrder.indexOf(metricId)
+    const showPreview = visibleMetricIds.length <= 2
+    return (
+      <div className={`itsm-rmm-metric-slot ${editMode ? 'is-editing' : ''}`} key={metricId}>
+        {editMode && (
+          <div className="itsm-rmm-dashboard-card-editbar itsm-rmm-metric-editbar">
+            <span><GripVertical size={14} /> {metric.label}</span>
+            <span>
+              <button disabled={index === 0} onClick={() => moveDashboardMetric(metricId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+              <button disabled={index === dashboardLayout.metricOrder.length - 1} onClick={() => moveDashboardMetric(metricId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+              <button onClick={() => toggleDashboardMetric(metricId)} title="Hide metric" type="button"><X size={14} /></button>
+            </span>
           </div>
-
-          <div className="itsm-rmm-dashboard-grid">
-            <section className="itsm-rmm-card itsm-rmm-health-card">
-              <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Service health</span><h2>Workload health</h2></div><button onClick={() => openTab('tickets')} type="button">All records <ChevronRight size={14} /></button></div>
-              <div className="itsm-rmm-health-summary">
-                <div className="itsm-rmm-health-ring" style={{ background: `conic-gradient(#239e63 0 ${serviceHealthPercent}%, var(--surface-soft) ${serviceHealthPercent}% 100%)` }}><strong>{serviceHealthPercent}%</strong><span>Healthy</span></div>
-                <div className="itsm-rmm-health-legend">
-                  <span><b className="healthy" />Healthy<strong>{healthyRecords.length}</strong></span>
-                  <span><b className="warning" />SLA risk<strong>{slaRiskRecords.length}</strong></span>
-                  <span><b className="critical" />High priority<strong>{highPriorityRecords.length}</strong></span>
-                  <span><b className="offline" />Unassigned<strong>{unassignedRecords.length}</strong></span>
-                </div>
-              </div>
-            </section>
-
-            <section className="itsm-rmm-card">
-              <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Attention</span><h2>Records requiring attention</h2></div><button onClick={() => openTab('tickets')} type="button">Open queue <ChevronRight size={14} /></button></div>
-              <div className="itsm-rmm-attention-list">
-                {attentionRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openRecordTab(ticket)} type="button"><span className={`itsm-rmm-attention-dot ${['Critical', 'High'].includes(ticket.priority) ? 'critical' : Number(ticket.slaPercent || 0) >= 60 ? 'warning' : 'neutral'}`} /><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.team || 'Unassigned'} / {ticket.assignee || 'Unassigned'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span></button>)}
-                {!attentionRecords.length && <div className="itsm-rmm-empty"><CheckCircle2 size={22} /><strong>No records need attention</strong><span>High priority, SLA risk and unassigned work will appear here.</span></div>}
-              </div>
-            </section>
+        )}
+        <button className={`itsm-rmm-metric-card ${showPreview ? 'has-preview' : ''}`} onClick={() => openTab(metric.route)} type="button">
+          <span className={`itsm-rmm-metric-icon ${metric.tone}`}><Icon size={19} /></span>
+          <div className="itsm-rmm-metric-copy">
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.detail}</small>
           </div>
+          {showPreview && (
+            <div className="itsm-rmm-metric-preview" aria-label={`${metric.label} breakdown`}>
+              {metric.preview.map(([label, value]) => (
+                <span key={label}><small>{label}</small><strong>{value}</strong></span>
+              ))}
+            </div>
+          )}
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    )
+  }
 
-          <div className="itsm-rmm-dashboard-lower">
-            <section className="itsm-rmm-card">
-              <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Ownership</span><h2>My work</h2></div><button onClick={() => openTab('tickets')} type="button">All work <ChevronRight size={14} /></button></div>
-              <div className="itsm-rmm-record-feed">
-                {myWorkRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openRecordTab(ticket)} type="button"><span className="itsm-rmm-feed-icon"><Headphones size={15} /></span><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.service || 'Unclassified service'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span><time>{dashboardRecordWhen(ticket.updatedAt)}</time></button>)}
-                {!myWorkRecords.length && <div className="itsm-rmm-empty"><UserCheck size={22} /><strong>No assigned work</strong><span>Records assigned to {currentUserName} will appear here.</span></div>}
-              </div>
-            </section>
-
-            <section className="itsm-rmm-card">
-              <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Activity</span><h2>Recent record activity</h2></div><button onClick={() => openTab('tickets')} type="button">All records <ChevronRight size={14} /></button></div>
-              <div className="itsm-rmm-record-feed">
-                {recentRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openRecordTab(ticket)} type="button"><span className="itsm-rmm-feed-icon activity"><ListChecks size={15} /></span><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.requester || 'Requester not recorded'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span><time>{dashboardRecordWhen(ticket.updatedAt)}</time></button>)}
-                {!recentRecords.length && <div className="itsm-rmm-empty"><ListChecks size={22} /><strong>No recent record activity</strong><span>New and updated ITSM records will appear here.</span></div>}
-              </div>
-            </section>
+  function renderDashboardV2Card(sectionId) {
+    if (sectionId === 'health') {
+      return (
+        <section className="itsm-rmm-card itsm-rmm-health-card">
+          <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Service health</span><h2>Workload health</h2></div><button onClick={() => openTab('tickets')} type="button">All records <ChevronRight size={14} /></button></div>
+          <div className="itsm-rmm-health-summary">
+            <div
+              className={`itsm-rmm-health-ring hi5-health-orb ${serviceHealthTone}`}
+              style={{ '--health-progress': `${serviceHealthPercent}%` }}
+            >
+              <strong>{serviceHealthPercent}%</strong>
+              <span>{serviceHealthLabel}</span>
+            </div>
+            <div className="itsm-rmm-health-legend">
+              <span><b className="healthy" />Healthy<strong>{healthyRecords.length}</strong></span>
+              <span><b className="warning" />SLA risk<strong>{slaRiskRecords.length}</strong></span>
+              <span><b className="critical" />High priority<strong>{highPriorityRecords.length}</strong></span>
+              <span><b className="offline" />Unassigned<strong>{unassignedRecords.length}</strong></span>
+            </div>
           </div>
         </section>
-      )}
-      <div className="dashboard-toolbar-row">
-        <div className="dashboard-icon-toolbar" aria-label="Dashboard controls">
-          {editMode ? (
-            <>
-              <button aria-label="Add widget" disabled={activeDashboard.widgets.length >= DASHBOARD_MAX_WIDGETS} onClick={() => setWidgetCatalogOpen(true)} title="Add widget" type="button"><Plus size={16} /></button>
-              <button aria-label="Cancel dashboard edits" onClick={cancelEdit} title="Cancel" type="button"><X size={16} /></button>
-              <button className="primary" aria-label="Save dashboard" onClick={saveEdit} title="Save dashboard" type="button"><CheckCircle2 size={16} /></button>
-            </>
-          ) : (
-            <>
-              <div className="dashboard-selector-wrap">
-                <button aria-label="Switch dashboard" onClick={() => { setDashboardMenuOpen((open) => !open); setFilterOpen(false); setMoreOpen(false) }} title="Switch dashboard" type="button"><LayoutDashboard size={16} /></button>
-                {dashboardMenuOpen && (
-                  <div className="dashboard-selector-menu">
-                    {[
-                      ['mine', 'My dashboards'],
-                      ['shared', 'Shared with me'],
-                      ['team', 'Team dashboards'],
-                    ].map(([group, label]) => groupedDashboards[group].length ? (
-                      <section key={group}>
-                        <span>{label}</span>
-                        {groupedDashboards[group].map((dashboard) => (
-                          <button className={dashboard.id === activeDashboard.id ? 'active' : ''} key={dashboard.id} onClick={() => { setActiveDashboardId(dashboard.id); setDashboardMenuOpen(false); setEditMode(false) }} type="button">
-                            <strong>{dashboard.name}</strong>
-                            <small>{dashboard.owner}{dashboard.isDefault ? ' · Default' : ''}</small>
-                          </button>
-                        ))}
-                      </section>
-                    ) : null)}
-                    <button className="dashboard-menu-create" onClick={() => { setCreateOpen(true); setDashboardMenuOpen(false) }} type="button"><Plus size={15} /> Create dashboard</button>
-                  </div>
-                )}
-              </div>
+      )
+    }
+    if (sectionId === 'attention') {
+      return (
+        <section className="itsm-rmm-card">
+          <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Attention</span><h2>Records requiring attention</h2></div><button onClick={() => openTab('tickets')} type="button">Open queue <ChevronRight size={14} /></button></div>
+          <div className="itsm-rmm-attention-list">
+            {attentionRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openDashboardRecordPeek(ticket)} type="button"><span className={`itsm-rmm-attention-dot ${['Critical', 'High'].includes(ticket.priority) ? 'critical' : Number(ticket.slaPercent || 0) >= 60 ? 'warning' : 'neutral'}`} /><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.team || 'Unassigned'} / {ticket.assignee || 'Unassigned'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span></button>)}
+            {!attentionRecords.length && <div className="itsm-rmm-empty"><CheckCircle2 size={22} /><strong>No records need attention</strong><span>High priority, SLA risk and unassigned work will appear here.</span></div>}
+          </div>
+        </section>
+      )
+    }
 
-              <div className="dashboard-filter-wrap">
-                <button className={filterOpen ? 'active' : ''} aria-label="Dashboard filters" onClick={() => { setFilterOpen((open) => !open); setDashboardMenuOpen(false); setMoreOpen(false) }} title="Dashboard filters" type="button"><SlidersHorizontal size={16} /></button>
-                {filterOpen && (
-                  <div className="dashboard-filter-popover" aria-label="Dashboard filters">
-                    <label>Service<select value={dashboardFilters.service} onChange={(event) => setDashboardFilters({ ...dashboardFilters, service: event.target.value })}>{services.map((service) => <option key={service}>{service}</option>)}</select></label>
-                    <label>Team<select value={dashboardFilters.team} onChange={(event) => setDashboardFilters({ ...dashboardFilters, team: event.target.value })}>{['All', ...teams].map((team) => <option key={team}>{team}</option>)}</select></label>
-                    <label>Period<select value={dashboardFilters.period} onChange={(event) => setDashboardFilters({ ...dashboardFilters, period: event.target.value })}>{['Today', 'Last 7 days', 'Last 30 days', 'This quarter'].map((period) => <option key={period}>{period}</option>)}</select></label>
-                  </div>
-                )}
-              </div>
+    if (sectionId === 'my-work') {
+      return (
+        <section className="itsm-rmm-card">
+          <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Ownership</span><h2>My work</h2></div><button onClick={() => openTab('tickets')} type="button">All work <ChevronRight size={14} /></button></div>
+          <div className="itsm-rmm-record-feed">
+            {myWorkRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openDashboardRecordPeek(ticket)} type="button"><span className="itsm-rmm-feed-icon"><Headphones size={15} /></span><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.service || 'Unclassified service'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span><time>{dashboardRecordWhen(ticket.updatedAt)}</time></button>)}
+            {!myWorkRecords.length && <div className="itsm-rmm-empty"><UserCheck size={22} /><strong>No assigned work</strong><span>Records assigned to {currentUserName} will appear here.</span></div>}
+          </div>
+        </section>
+      )
+    }
 
-              <button aria-label="Share dashboard" onClick={() => setShareOpen(true)} title="Share dashboard" type="button"><Share2 size={16} /></button>
-              {activeDashboard.canEdit ? (
-                <button aria-label="Edit dashboard" onClick={beginEdit} title="Edit dashboard" type="button"><Pencil size={16} /></button>
-              ) : (
-                <button aria-label="Make a copy" onClick={duplicateDashboard} title="Make a copy" type="button"><Copy size={16} /></button>
-              )}
-              <div className="dashboard-more-wrap">
-                <button aria-label="Dashboard actions" onClick={() => { setMoreOpen((open) => !open); setDashboardMenuOpen(false); setFilterOpen(false) }} title="Dashboard actions" type="button"><MoreHorizontal size={17} /></button>
-                {moreOpen && (
-                  <div className="dashboard-more-menu">
-                    <button onClick={duplicateDashboard} type="button"><Copy size={14} /> Duplicate dashboard</button>
-                    <button disabled={activeDashboard.isDefault} onClick={setAsDefault} type="button"><Star size={14} /> Set as default</button>
-                    {activeDashboard.scope === 'mine' && <button className="danger" onClick={deleteDashboard} type="button"><Trash2 size={14} /> Delete dashboard</button>}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+    return (
+      <section className="itsm-rmm-card">
+        <div className="itsm-rmm-card-heading"><div><span className="itsm-rmm-eyebrow">Activity</span><h2>Recent record activity</h2></div><button onClick={() => openTab('tickets')} type="button">All records <ChevronRight size={14} /></button></div>
+        <div className="itsm-rmm-record-feed">
+          {recentRecords.slice(0, 5).map((ticket) => <button key={ticket.id} onClick={() => openDashboardRecordPeek(ticket)} type="button"><span className="itsm-rmm-feed-icon activity"><ListChecks size={15} /></span><span><strong>{ticket.title}</strong><small>{ticket.id} · {ticket.requester || 'Requester not recorded'}</small></span><span className={`itsm-rmm-status ${statusClass(ticket.status)}`}>{ticket.status}</span><time>{dashboardRecordWhen(ticket.updatedAt)}</time></button>)}
+          {!recentRecords.length && <div className="itsm-rmm-empty"><ListChecks size={22} /><strong>No recent record activity</strong><span>New and updated ITSM records will appear here.</span></div>}
         </div>
-      </div>
+      </section>
+    )
+  }
 
-      <div className="dashboard-canvas" onClick={() => { setDashboardMenuOpen(false); setMoreOpen(false); setFilterOpen(false) }}>
-        <div className={`dashboard-grid-host ${mobileStack ? 'is-mobile-stack' : ''}`} ref={gridContainerRef}>
-          {!activeDashboard.widgets.length ? (
-            <button className="dashboard-empty-canvas" onClick={() => { if (!editMode) beginEdit(); setWidgetCatalogOpen(true) }} type="button">
-              <Plus size={22} />
-              <strong>Add your first widget</strong>
-              <span>Build this dashboard from the Hi5Central widget catalogue.</span>
-            </button>
-          ) : mobileStack ? (
-            <div className="dashboard-mobile-stack-v3">
-              {activeDashboard.widgets.map((widget, index) => (
-                <DashboardWidgetFrame editMode={editMode} index={index} key={widget.id} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
-                  <DashboardWidgetContent dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openRecordTab} openTab={openTab} tickets={tickets} widget={widget} />
-                </DashboardWidgetFrame>
-              ))}
-            </div>
-          ) : gridMounted ? (
-            <ReactGridLayout
-              className="dashboard-rgl-v3"
-              compactor={verticalCompactor}
-              dragConfig={{ enabled: editMode, handle: '.dashboard-drag-handle', bounded: true }}
-              gridConfig={{ cols: DASHBOARD_GRID_COLUMNS, rowHeight, margin: [gridGap, gridGap], containerPadding: [0, 0] }}
-              layout={packedLayout}
-              onLayoutChange={commitGridOrder}
-              resizeConfig={{ enabled: false }}
-              width={gridWidth}
-            >
-              {activeDashboard.widgets.map((widget, index) => (
-                <div className={`dashboard-grid-item-v3 ${widget.span === 12 ? 'is-full-width' : ''}`} key={widget.id}>
-                  <DashboardWidgetFrame editMode={editMode} index={index} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
-                    <DashboardWidgetContent dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openRecordTab} openTab={openTab} tickets={tickets} widget={widget} />
-                  </DashboardWidgetFrame>
+  return (
+    <div className={`dashboard-builder dashboard-builder-v3 ${editMode ? 'is-editing' : 'is-viewing'}`} data-sidebar-mode={sidebarMode || 'expanded'}>
+      <section className={`itsm-rmm-dashboard ${editMode ? 'is-editing-layout' : ''} dashboard-density-${dashboardLayout.density} dashboard-columns-${dashboardLayout.columns}`}>
+        <header className="itsm-rmm-dashboard-heading">
+          <div>
+            <span className="itsm-rmm-eyebrow">{editMode ? 'Dashboard editor' : 'ITSM overview'}</span>
+            <h1>{editMode ? 'Customize dashboard' : 'Dashboard'}</h1>
+            {(editMode || dashboardLayout.showDescription) && <p>{editMode ? 'Choose what is shown, tune the desktop density and arrange the operational cards in the order your team needs.' : 'Workload, SLA pressure, approvals and service desk activity across your current scope.'}</p>}
+          </div>
+          <div className="itsm-rmm-dashboard-heading-actions">
+            {editMode ? (
+              <>
+                <button className="itsm-rmm-secondary" onClick={resetDashboardV2Layout} type="button"><RefreshCw size={15} /> Reset layout</button>
+                <button className="itsm-rmm-secondary" onClick={() => setShareOpen(true)} type="button"><Share2 size={15} /> Share layout</button>
+                <button className="itsm-rmm-secondary" onClick={cancelEdit} type="button"><X size={15} /> Cancel</button>
+                <button className="itsm-rmm-primary" onClick={saveEdit} type="button"><CheckCircle2 size={15} /> Save layout</button>
+              </>
+            ) : (
+              <>
+                <div className="itsm-rmm-dashboard-switcher">
+                  <button
+                    aria-expanded={dashboardMenuOpen}
+                    aria-label="Switch dashboard"
+                    className="itsm-rmm-secondary itsm-rmm-dashboard-switcher-button"
+                    onClick={() => { setDashboardMenuOpen((open) => !open); setFilterOpen(false); setMoreOpen(false) }}
+                    type="button"
+                  >
+                    <LayoutDashboard size={15} />
+                    <span>{activeDashboard.name}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                  {dashboardMenuOpen && (
+                    <div className="itsm-rmm-dashboard-switcher-menu">
+                      {[
+                        ['mine', 'My dashboards'],
+                        ['shared', 'Shared with me'],
+                        ['team', 'Team dashboards'],
+                      ].map(([group, label]) => groupedDashboards[group].length ? (
+                        <section key={group}>
+                          <span>{label}</span>
+                          {groupedDashboards[group].map((dashboard) => (
+                            <button
+                              className={dashboard.id === activeDashboard.id ? 'active' : ''}
+                              key={dashboard.id}
+                              onClick={() => { setActiveDashboardId(dashboard.id); setDashboardMenuOpen(false); setEditMode(false) }}
+                              type="button"
+                            >
+                              <strong>{dashboard.name}</strong>
+                              <small>{dashboard.owner}{dashboard.isDefault ? ' · Default' : ''}</small>
+                            </button>
+                          ))}
+                        </section>
+                      ) : null)}
+                    </div>
+                  )}
                 </div>
-              ))}
-            </ReactGridLayout>
-          ) : null}
-        </div>
-      </div>
+                {dashboardLayout.showLiveState && <span className="itsm-rmm-live-state"><i /> Live service desk</span>}
+                <button className="itsm-rmm-primary" onClick={() => openTab('tickets')} type="button"><Inbox size={16} /> View records</button>
+                {activeDashboard.canEdit ? <button className="itsm-rmm-secondary" onClick={beginEdit} type="button"><Pencil size={15} /> Customize</button> : <button className="itsm-rmm-secondary" onClick={duplicateDashboard} type="button"><Copy size={15} /> Make a copy</button>}
+              </>
+            )}
+          </div>
+        </header>
+        {editMode && (
+          <section className="itsm-rmm-dashboard-editor-panel">
+            <div className="itsm-rmm-dashboard-editor-heading">
+              <div><span className="itsm-rmm-eyebrow">Dashboard layout</span><h2>Customize the workspace</h2><p>Set the display style, choose which sections are visible and arrange them before saving.</p></div>
+              <span className="itsm-rmm-dashboard-editor-count">{visibleMetricIds.length + visibleDashboardContent.length} visible</span>
+            </div>
+            <div className="itsm-rmm-dashboard-editor-body">
+              <section className="itsm-rmm-dashboard-editor-options">
+                <header><span className="itsm-rmm-eyebrow">Display</span><h3>Layout & density</h3><p>These options affect this dashboard only.</p></header>
+                <div className="itsm-rmm-dashboard-option">
+                  <span><strong>Density</strong><small>Control the vertical spacing used by cards.</small></span>
+                  <div className="itsm-rmm-dashboard-segmented">
+                    <button className={dashboardLayout.density === 'comfortable' ? 'is-active' : ''} onClick={() => setDashboardV2Option('density', 'comfortable')} type="button">Comfortable</button>
+                    <button className={dashboardLayout.density === 'compact' ? 'is-active' : ''} onClick={() => setDashboardV2Option('density', 'compact')} type="button">Compact</button>
+                  </div>
+                </div>
+                <div className="itsm-rmm-dashboard-option">
+                  <span><strong>Card layout</strong><small>Choose how operational cards fill the desktop.</small></span>
+                  <div className="itsm-rmm-dashboard-segmented">
+                    <button className={dashboardLayout.columns === 'auto' ? 'is-active' : ''} onClick={() => setDashboardV2Option('columns', 'auto')} type="button">Auto</button>
+                    <button className={dashboardLayout.columns === 'double' ? 'is-active' : ''} onClick={() => setDashboardV2Option('columns', 'double')} type="button">2 columns</button>
+                    <button className={dashboardLayout.columns === 'single' ? 'is-active' : ''} onClick={() => setDashboardV2Option('columns', 'single')} type="button">1 column</button>
+                  </div>
+                </div>
+                {visibleMetricIds.length === 1 && (
+                  <div className="itsm-rmm-dashboard-option">
+                    <span><strong>Single metric width</strong><small>Use the space for a larger KPI preview or keep the card at half width.</small></span>
+                    <div className="itsm-rmm-dashboard-segmented">
+                      <button className={dashboardLayout.singleMetricWidth === 'full' ? 'is-active' : ''} onClick={() => setDashboardV2Option('singleMetricWidth', 'full')} type="button">Full</button>
+                      <button className={dashboardLayout.singleMetricWidth === 'half' ? 'is-active' : ''} onClick={() => setDashboardV2Option('singleMetricWidth', 'half')} type="button">Half</button>
+                    </div>
+                  </div>
+                )}
+                <div className="itsm-rmm-dashboard-option">
+                  <span><strong>Page description</strong><small>Show the explanatory text under Dashboard.</small></span>
+                  <button className={dashboardLayout.showDescription ? 'is-on' : ''} onClick={() => setDashboardV2Option('showDescription', !dashboardLayout.showDescription)} type="button">{dashboardLayout.showDescription ? 'Shown' : 'Hidden'}</button>
+                </div>
+                <div className="itsm-rmm-dashboard-option">
+                  <span><strong>Live service state</strong><small>Show the live-service indicator beside dashboard actions.</small></span>
+                  <button className={dashboardLayout.showLiveState ? 'is-on' : ''} onClick={() => setDashboardV2Option('showLiveState', !dashboardLayout.showLiveState)} type="button">{dashboardLayout.showLiveState ? 'Shown' : 'Hidden'}</button>
+                </div>
+              </section>
+              <section className="itsm-rmm-dashboard-editor-sections">
+                <header className="itsm-rmm-dashboard-editor-section-heading">
+                  <div><span className="itsm-rmm-eyebrow">Dashboard content</span><h3>Cards & metrics</h3><p>Choose the KPI cards shown at the top, then arrange every dashboard card in one continuous layout.</p></div>
+                  <button className="itsm-rmm-primary" onClick={openNewCustomWidget} type="button"><Plus size={15} /> Add widget</button>
+                </header>
+
+                <div className="itsm-rmm-dashboard-editor-subheading"><span>Metric cards</span><small>{visibleMetricIds.length} shown</small></div>
+                <div className="itsm-rmm-dashboard-editor-list">
+                  {dashboardLayout.metricOrder.map((metricId, index) => {
+                    const meta = dashboardMetricMeta[metricId]
+                    const Icon = meta.icon
+                    const hidden = dashboardLayout.hiddenMetrics.includes(metricId)
+                    return (
+                      <div className={`itsm-rmm-dashboard-editor-row ${hidden ? 'is-hidden' : ''}`} key={metricId}>
+                        <span className={`itsm-rmm-editor-section-icon ${meta.tone}`}><Icon size={17} /></span>
+                        <span><strong>{meta.label}</strong><small>{meta.description}</small></span>
+                        <div className="itsm-rmm-dashboard-editor-row-actions">
+                          <button disabled={index === 0} onClick={() => moveDashboardMetric(metricId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+                          <button disabled={index === dashboardLayout.metricOrder.length - 1} onClick={() => moveDashboardMetric(metricId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+                          <button className={hidden ? '' : 'is-on'} onClick={() => toggleDashboardMetric(metricId)} type="button">{hidden ? 'Hidden' : 'Shown'}</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="itsm-rmm-dashboard-editor-subheading"><span>Dashboard cards</span><small>{visibleDashboardContent.length} shown</small></div>
+                <div className="itsm-rmm-dashboard-editor-list">
+                  {dashboardLayout.contentOrder.map((contentId, index) => {
+                    const widget = customWidgetById.get(contentId)
+                    if (widget) {
+                      return (
+                        <div className="itsm-rmm-dashboard-editor-row" key={contentId}>
+                          <span className="itsm-rmm-editor-section-icon blue"><SlidersHorizontal size={17} /></span>
+                          <span><strong>{widget.title}</strong><small>{widget.sourceMode === 'single-record' ? (widget.recordId || 'Single record') : dashboardWidgetSourceLabel(widget)} · {widget.presentation === 'donut' ? 'Donut chart' : widget.presentation === 'bar' ? 'Bar chart' : widget.presentation}</small></span>
+                          <div className="itsm-rmm-dashboard-editor-row-actions">
+                            <button disabled={index === 0} onClick={() => moveDashboardContent(contentId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+                            <button disabled={index === dashboardLayout.contentOrder.length - 1} onClick={() => moveDashboardContent(contentId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+                            <button onClick={() => editCustomWidget(widget)} title="Configure" type="button"><Settings size={14} /></button>
+                            <button onClick={() => removeCustomWidget(widget.id)} title="Remove" type="button"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      )
+                    }
+
+                    const meta = dashboardSectionMeta[contentId]
+                    if (!meta) return null
+                    const Icon = meta.icon
+                    const hidden = dashboardLayout.hiddenCards.includes(contentId)
+                    return (
+                      <div className={`itsm-rmm-dashboard-editor-row ${hidden ? 'is-hidden' : ''}`} key={contentId}>
+                        <span className={`itsm-rmm-editor-section-icon ${['violet', 'amber', 'blue', 'green'][index % 4]}`}><Icon size={17} /></span>
+                        <span><strong>{meta.label}</strong><small>{meta.description}</small></span>
+                        <div className="itsm-rmm-dashboard-editor-row-actions">
+                          <button disabled={index === 0} onClick={() => moveDashboardContent(contentId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+                          <button disabled={index === dashboardLayout.contentOrder.length - 1} onClick={() => moveDashboardContent(contentId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+                          <button className={hidden ? '' : 'is-on'} onClick={() => toggleDashboardV2Section(contentId)} type="button">{hidden ? 'Hidden' : 'Shown'}</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {!dashboardLayout.customWidgets.length && (
+                    <button className="itsm-rmm-dashboard-inline-add" onClick={openNewCustomWidget} type="button">
+                      <Plus size={16} /><span><strong>Add another dashboard card</strong><small>Choose any record set, individual record, table, chart, list or metric.</small></span>
+                    </button>
+                  )}
+                </div>
+              </section>
+            </div>
+          </section>
+        )}
+        {visibleMetricIds.length > 0 && (
+          <div className={`itsm-rmm-metric-grid metric-count-${visibleMetricIds.length} metric-single-${dashboardLayout.singleMetricWidth}`}>
+            {visibleMetricIds.map(renderDashboardMetric)}
+          </div>
+        )}
+
+        {visibleDashboardContent.length > 0 && (
+          <div className="itsm-rmm-dashboard-card-grid">
+            {visibleDashboardContent.map((contentId) => {
+              const index = dashboardLayout.contentOrder.indexOf(contentId)
+              const widget = customWidgetById.get(contentId)
+              if (widget) {
+                const widgetKind = widget.sourceMode === 'single-record'
+                  ? 'Record'
+                  : widget.presentation === 'donut'
+                    ? 'Donut chart'
+                    : widget.presentation === 'bar'
+                      ? 'Bar chart'
+                      : widget.presentation === 'metric'
+                        ? 'Metric'
+                        : widget.presentation === 'list'
+                          ? 'Record list'
+                          : 'Record table'
+                const widgetAction = dashboardWidgetHeaderAction(widget)
+                const widgetSelectedItem = widget.sourceMode === 'single-record'
+                  ? dashboardDataRows.find((item) => item.id === widget.recordId && (!item._collection || item._collection === widget.recordCollection))
+                  : null
+                return (
+                  <div
+                    className={`itsm-rmm-dashboard-card-slot is-data-widget is-${widget.width} ${editMode ? 'is-editing' : ''} ${highlightWidgetId === contentId ? 'is-new-highlight' : ''}`}
+                    data-dashboard-widget-id={contentId}
+                    key={contentId}
+                  >
+                    {editMode && (
+                      <div className="itsm-rmm-dashboard-card-editbar">
+                        <span><GripVertical size={14} /> {widget.title}</span>
+                        <span>
+                          <button disabled={index === 0} onClick={() => moveDashboardContent(contentId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+                          <button disabled={index === dashboardLayout.contentOrder.length - 1} onClick={() => moveDashboardContent(contentId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+                          <button onClick={() => editCustomWidget(widget)} title="Configure widget" type="button"><Settings size={14} /></button>
+                          <button onClick={() => removeCustomWidget(widget.id)} title="Remove widget" type="button"><Trash2 size={14} /></button>
+                        </span>
+                      </div>
+                    )}
+                    <section className="itsm-rmm-card itsm-rmm-data-card">
+                      <div className="itsm-rmm-card-heading">
+                        <div>
+                          <span className="itsm-rmm-eyebrow">{widgetKind}</span>
+                          <h2>{widget.title}</h2>
+                        </div>
+                        <button
+                          className="itsm-rmm-data-source-action"
+                          onClick={() => widgetSelectedItem ? openDashboardDataItem(widgetSelectedItem) : openTab(widgetAction.tab || 'tickets')}
+                          type="button"
+                        >
+                          {widgetAction.label} <ChevronRight size={14} />
+                        </button>
+                      </div>
+                      <div className="itsm-rmm-data-card-body">
+                        <DashboardWidgetContent
+                          currentUserName={currentUserName}
+                          dashboardMetrics={dashboardMetrics}
+                          filters={dashboardFilters}
+                          mobile={mobileStack}
+                          openRecordTab={openDashboardDataItem}
+                          openTab={openTab}
+                          tickets={dashboardDataRows}
+                          widget={widget}
+                        />
+                      </div>
+                    </section>
+                  </div>
+                )
+              }
+
+              const meta = dashboardSectionMeta[contentId]
+              if (!meta) return null
+              return (
+                <div className={`itsm-rmm-dashboard-card-slot ${editMode ? 'is-editing' : ''}`} key={contentId}>
+                  {editMode && (
+                    <div className="itsm-rmm-dashboard-card-editbar">
+                      <span><GripVertical size={14} /> {meta.label}</span>
+                      <span>
+                        <button disabled={index === 0} onClick={() => moveDashboardContent(contentId, -1)} title="Move earlier" type="button"><ArrowUp size={14} /></button>
+                        <button disabled={index === dashboardLayout.contentOrder.length - 1} onClick={() => moveDashboardContent(contentId, 1)} title="Move later" type="button"><ArrowDown size={14} /></button>
+                        <button onClick={() => toggleDashboardV2Section(contentId)} title="Hide section" type="button"><X size={14} /></button>
+                      </span>
+                    </div>
+                  )}
+                  {renderDashboardV2Card(contentId)}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+      {!editMode && (
+        <>
+          <div className="dashboard-toolbar-row">
+            <div className="dashboard-icon-toolbar" aria-label="Dashboard controls">
+              {editMode ? (
+                <>
+                  <button aria-label="Add widget" disabled={activeDashboard.widgets.length >= DASHBOARD_MAX_WIDGETS} onClick={() => setWidgetCatalogOpen(true)} title="Add widget" type="button"><Plus size={16} /></button>
+                  <button aria-label="Cancel dashboard edits" onClick={cancelEdit} title="Cancel" type="button"><X size={16} /></button>
+                  <button className="primary" aria-label="Save dashboard" onClick={saveEdit} title="Save dashboard" type="button"><CheckCircle2 size={16} /></button>
+                </>
+              ) : (
+                <>
+                  <div className="dashboard-selector-wrap">
+                    <button aria-label="Switch dashboard" onClick={() => { setDashboardMenuOpen((open) => !open); setFilterOpen(false); setMoreOpen(false) }} title="Switch dashboard" type="button"><LayoutDashboard size={16} /></button>
+                    {dashboardMenuOpen && (
+                      <div className="dashboard-selector-menu">
+                        {[
+                          ['mine', 'My dashboards'],
+                          ['shared', 'Shared with me'],
+                          ['team', 'Team dashboards'],
+                        ].map(([group, label]) => groupedDashboards[group].length ? (
+                          <section key={group}>
+                            <span>{label}</span>
+                            {groupedDashboards[group].map((dashboard) => (
+                              <button className={dashboard.id === activeDashboard.id ? 'active' : ''} key={dashboard.id} onClick={() => { setActiveDashboardId(dashboard.id); setDashboardMenuOpen(false); setEditMode(false) }} type="button">
+                                <strong>{dashboard.name}</strong>
+                                <small>{dashboard.owner}{dashboard.isDefault ? ' · Default' : ''}</small>
+                              </button>
+                            ))}
+                          </section>
+                        ) : null)}
+                        <button className="dashboard-menu-create" onClick={() => { setCreateOpen(true); setDashboardMenuOpen(false) }} type="button"><Plus size={15} /> Create dashboard</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="dashboard-filter-wrap">
+                    <button className={filterOpen ? 'active' : ''} aria-label="Dashboard filters" onClick={() => { setFilterOpen((open) => !open); setDashboardMenuOpen(false); setMoreOpen(false) }} title="Dashboard filters" type="button"><SlidersHorizontal size={16} /></button>
+                    {filterOpen && (
+                      <div className="dashboard-filter-popover" aria-label="Dashboard filters">
+                        <label>Service<select value={dashboardFilters.service} onChange={(event) => setDashboardFilters({ ...dashboardFilters, service: event.target.value })}>{services.map((service) => <option key={service}>{service}</option>)}</select></label>
+                        <label>Team<select value={dashboardFilters.team} onChange={(event) => setDashboardFilters({ ...dashboardFilters, team: event.target.value })}>{['All', ...teams].map((team) => <option key={team}>{team}</option>)}</select></label>
+                        <label>Period<select value={dashboardFilters.period} onChange={(event) => setDashboardFilters({ ...dashboardFilters, period: event.target.value })}>{['Today', 'Last 7 days', 'Last 30 days', 'This quarter'].map((period) => <option key={period}>{period}</option>)}</select></label>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeDashboard.canEdit ? (
+                    <button aria-label="Edit dashboard" onClick={beginEdit} title="Edit dashboard" type="button"><Pencil size={16} /></button>
+                  ) : (
+                    <button aria-label="Make a copy" onClick={duplicateDashboard} title="Make a copy" type="button"><Copy size={16} /></button>
+                  )}
+                  <div className="dashboard-more-wrap">
+                    <button aria-label="Dashboard actions" onClick={() => { setMoreOpen((open) => !open); setDashboardMenuOpen(false); setFilterOpen(false) }} title="Dashboard actions" type="button"><MoreHorizontal size={17} /></button>
+                    {moreOpen && (
+                      <div className="dashboard-more-menu">
+                        <button onClick={duplicateDashboard} type="button"><Copy size={14} /> Duplicate dashboard</button>
+                        <button disabled={activeDashboard.isDefault} onClick={setAsDefault} type="button"><Star size={14} /> Set as default</button>
+                        {activeDashboard.scope === 'mine' && <button className="danger" onClick={deleteDashboard} type="button"><Trash2 size={14} /> Delete dashboard</button>}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="dashboard-canvas" onClick={() => { setDashboardMenuOpen(false); setMoreOpen(false); setFilterOpen(false) }}>
+            <div className={`dashboard-grid-host ${mobileStack ? 'is-mobile-stack' : ''}`} ref={gridContainerRef}>
+              {!activeDashboard.widgets.length ? (
+                <button className="dashboard-empty-canvas" onClick={() => { if (!editMode) beginEdit(); setWidgetCatalogOpen(true) }} type="button">
+                  <Plus size={22} />
+                  <strong>Add your first widget</strong>
+                  <span>Build this dashboard from the Hi5Central widget catalogue.</span>
+                </button>
+              ) : mobileStack ? (
+                <div className="dashboard-mobile-stack-v3">
+                  {activeDashboard.widgets.map((widget, index) => (
+                    <DashboardWidgetFrame editMode={editMode} index={index} key={widget.id} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
+                      <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
+                    </DashboardWidgetFrame>
+                  ))}
+                </div>
+              ) : gridMounted ? (
+                <ReactGridLayout
+                  className="dashboard-rgl-v3"
+                  compactor={verticalCompactor}
+                  dragConfig={{ enabled: editMode, handle: '.dashboard-drag-handle', bounded: true }}
+                  gridConfig={{ cols: DASHBOARD_GRID_COLUMNS, rowHeight, margin: [gridGap, gridGap], containerPadding: [0, 0] }}
+                  layout={packedLayout}
+                  onLayoutChange={commitGridOrder}
+                  resizeConfig={{ enabled: false }}
+                  width={gridWidth}
+                >
+                  {activeDashboard.widgets.map((widget, index) => (
+                    <div className={`dashboard-grid-item-v3 ${widget.span === 12 ? 'is-full-width' : ''}`} key={widget.id}>
+                      <DashboardWidgetFrame editMode={editMode} index={index} onConfigure={(item) => setConfigureWidgetId(item.id)} onMove={moveWidget} onRemove={removeWidget} widget={widget}>
+                        <DashboardWidgetContent currentUserName={currentUserName} dashboardMetrics={dashboardMetrics} filters={dashboardFilters} mobile={mobileStack} openRecordTab={openDashboardRecordPeek} openTab={openTab} tickets={tickets} widget={widget} />
+                      </DashboardWidgetFrame>
+                    </div>
+                  ))}
+                </ReactGridLayout>
+              ) : null}
+            </div>
+          </div>
+
+        </>
+      )}
 
       {widgetCatalogOpen && (
         <>
@@ -1486,12 +2749,303 @@ export function DashboardView({ currentUser, openRecordTab, openTab, sidebarMode
         </>
       )}
 
+      {customWidgetDraft && typeof document !== 'undefined' && createPortal(
+        <>
+          <button className="dashboard-panel-backdrop dashboard-data-builder-backdrop" aria-label="Close data widget builder" onClick={() => setCustomWidgetDraft(null)} type="button" />
+          <aside className="dashboard-side-panel dashboard-data-builder-panel" aria-label="Data widget builder">
+            <header>
+              <div><span className="eyebrow">Dashboard widget</span><h2>Data widget</h2></div>
+              <button onClick={() => setCustomWidgetDraft(null)} type="button"><X size={17} /></button>
+            </header>
+            <div className="dashboard-config-form dashboard-data-builder-form">
+              <label>Title<input value={customWidgetDraft.title} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, title: event.target.value })} /></label>
+
+              <label>Content
+                <select
+                  value={customWidgetDraft.sourceMode}
+                  onChange={(event) => {
+                    const sourceMode = event.target.value
+                    setCustomWidgetDraft({
+                      ...customWidgetDraft,
+                      sourceMode,
+                      presentation: sourceMode === 'single-record' ? 'record' : (customWidgetDraft.presentation === 'record' ? 'table' : customWidgetDraft.presentation),
+                      recordId: sourceMode === 'single-record' ? (customWidgetDraft.recordId || dashboardDataRows[0]?.id || '') : customWidgetDraft.recordId,
+                      recordCollection: sourceMode === 'single-record' ? (customWidgetDraft.recordId ? customWidgetDraft.recordCollection : (dashboardDataRows[0]?._collection || 'records')) : customWidgetDraft.recordCollection,
+                    })
+                  }}
+                >
+                  <option value="record-set">Record set / list</option>
+                  <option value="single-record">Individual record</option>
+                </select>
+              </label>
+
+              {customWidgetDraft.sourceMode === 'single-record' ? (
+                <label>Record
+                  <select
+                    value={customWidgetDraft.recordId ? `${customWidgetDraft.recordCollection}::${customWidgetDraft.recordId}` : ''}
+                    onChange={(event) => {
+                      const [recordCollection, ...idParts] = event.target.value.split('::')
+                      setCustomWidgetDraft({ ...customWidgetDraft, recordCollection, recordId: idParts.join('::'), presentation: 'record' })
+                    }}
+                  >
+                    {!dashboardDataRows.length && <option value="">No records available</option>}
+                    {dashboardDataRows.map((ticket) => <option key={`${ticket._collection}-${ticket.id}`} value={`${ticket._collection}::${ticket.id}`}>{ticket._collection === 'records' ? ticket.type || 'Record' : dashboardDataSourceLabel(`collection:${ticket._collection}`)} · {ticket.id} — {ticket.title}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <>
+                  <label>Data source
+                    <select
+                      value={customWidgetDraft.dataSource}
+                      onChange={(event) => {
+                        const dataSource = event.target.value
+                        const source = dashboardSources.find((item) => item.id === dataSource)
+                        const savedView = source?.savedView
+                        setCustomWidgetDraft({
+                          ...customWidgetDraft,
+                          dataSource,
+                          savedViewName: savedView?.name || '',
+                          savedQuery: savedView?.query || '',
+                          savedFilters: savedView ? {
+                            ...(savedView.filters || {}),
+                            recordType: savedView.recordType && savedView.recordType !== 'All'
+                              ? savedView.recordType
+                              : (savedView.filters?.recordType || 'All'),
+                          } : null,
+                        })
+                      }}
+                    >
+                      {dashboardSources.map((source) => <option key={source.id} value={source.id}>{source.label}</option>)}
+                    </select>
+                  </label>
+
+                  <label>Presentation
+                    <select value={customWidgetDraft.presentation} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, presentation: event.target.value })}>
+                      <option value="table">Table</option>
+                      <option value="list">List</option>
+                      <option value="bar">Bar chart</option>
+                      <option value="donut">Donut chart</option>
+                      <option value="metric">Metric</option>
+                    </select>
+                  </label>
+
+                  {['bar', 'donut'].includes(customWidgetDraft.presentation) && (
+                    <label>Group chart by
+                      <select value={customWidgetDraft.groupBy} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, groupBy: event.target.value })}>
+                        <option value="type">Record type</option>
+                        <option value="status">Status</option>
+                        <option value="priority">Priority</option>
+                        <option value="team">Team</option>
+                        <option value="assignee">Assignee</option>
+                        <option value="service">Service</option>
+                      </select>
+                    </label>
+                  )}
+
+                  <div className="dashboard-data-builder-filter-grid">
+                    <label>Status
+                      <select value={customWidgetDraft.status} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, status: event.target.value })}>
+                        {['All', ...statusOptions].map((value) => <option key={value}>{value}</option>)}
+                      </select>
+                    </label>
+                    <label>Priority
+                      <select value={customWidgetDraft.priority} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, priority: event.target.value })}>
+                        {['All', ...priorities].map((value) => <option key={value}>{value}</option>)}
+                      </select>
+                    </label>
+                    <label>Team
+                      <select value={customWidgetDraft.team} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, team: event.target.value })}>
+                        {dashboardTeams.map((value) => <option key={value}>{value}</option>)}
+                      </select>
+                    </label>
+                    <label>Service
+                      <select value={customWidgetDraft.service} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, service: event.target.value })}>
+                        {dashboardDataServices.map((value) => <option key={value}>{value}</option>)}
+                      </select>
+                    </label>
+                    <label>Assignee
+                      <select value={customWidgetDraft.assignee} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, assignee: event.target.value })}>
+                        {dashboardAssignees.map((value) => <option key={value}>{value}</option>)}
+                      </select>
+                    </label>
+                    {!['bar', 'donut', 'metric'].includes(customWidgetDraft.presentation) && (
+                      <label>Records shown
+                        <select value={customWidgetDraft.limit} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, limit: Number(event.target.value) })}>
+                          {[4, 6, 8, 10, 12, 20].map((value) => <option key={value} value={value}>{value}</option>)}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+
+                  {customWidgetDraft.presentation === 'metric' && (
+                    <section className="dashboard-second-metric-builder">
+                      <div className="dashboard-second-metric-heading">
+                        <span>
+                          <strong>Second metric on this row</strong>
+                          <small>Pair two KPIs inside the same dashboard card.</small>
+                        </span>
+                        <button
+                          className={customWidgetDraft.secondMetric?.enabled ? 'is-on' : ''}
+                          onClick={() => setCustomWidgetDraft({
+                            ...customWidgetDraft,
+                            width: customWidgetDraft.secondMetric?.enabled ? customWidgetDraft.width : 'full',
+                            secondMetric: {
+                              ...(customWidgetDraft.secondMetric || {}),
+                              enabled: !customWidgetDraft.secondMetric?.enabled,
+                              title: customWidgetDraft.secondMetric?.title || 'Second metric',
+                              dataSource: customWidgetDraft.secondMetric?.dataSource || 'open',
+                              status: customWidgetDraft.secondMetric?.status || 'All',
+                              priority: customWidgetDraft.secondMetric?.priority || 'All',
+                              team: customWidgetDraft.secondMetric?.team || 'All',
+                              service: customWidgetDraft.secondMetric?.service || 'All',
+                              assignee: customWidgetDraft.secondMetric?.assignee || 'All',
+                            },
+                          })}
+                          type="button"
+                        >
+                          {customWidgetDraft.secondMetric?.enabled ? 'Added' : 'Add second metric'}
+                        </button>
+                      </div>
+
+                      {customWidgetDraft.secondMetric?.enabled && (
+                        <div className="dashboard-second-metric-fields">
+                          <label>Metric label
+                            <input
+                              value={customWidgetDraft.secondMetric.title}
+                              onChange={(event) => setCustomWidgetDraft({
+                                ...customWidgetDraft,
+                                secondMetric: { ...customWidgetDraft.secondMetric, title: event.target.value },
+                              })}
+                            />
+                          </label>
+                          <label>Data source
+                            <select
+                              value={customWidgetDraft.secondMetric.dataSource}
+                              onChange={(event) => {
+                                const dataSource = event.target.value
+                                const source = dashboardSources.find((item) => item.id === dataSource)
+                                const savedView = source?.savedView
+                                setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: {
+                                    ...customWidgetDraft.secondMetric,
+                                    dataSource,
+                                    savedViewName: savedView?.name || '',
+                                    savedQuery: savedView?.query || '',
+                                    savedFilters: savedView ? {
+                                      ...(savedView.filters || {}),
+                                      recordType: savedView.recordType && savedView.recordType !== 'All'
+                                        ? savedView.recordType
+                                        : (savedView.filters?.recordType || 'All'),
+                                    } : null,
+                                  },
+                                })
+                              }}
+                            >
+                              {dashboardSources.map((source) => <option key={source.id} value={source.id}>{source.label}</option>)}
+                            </select>
+                          </label>
+                          <div className="dashboard-data-builder-filter-grid">
+                            <label>Status
+                              <select
+                                value={customWidgetDraft.secondMetric.status}
+                                onChange={(event) => setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: { ...customWidgetDraft.secondMetric, status: event.target.value },
+                                })}
+                              >
+                                {['All', ...statusOptions].map((value) => <option key={value}>{value}</option>)}
+                              </select>
+                            </label>
+                            <label>Priority
+                              <select
+                                value={customWidgetDraft.secondMetric.priority}
+                                onChange={(event) => setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: { ...customWidgetDraft.secondMetric, priority: event.target.value },
+                                })}
+                              >
+                                {['All', ...priorities].map((value) => <option key={value}>{value}</option>)}
+                              </select>
+                            </label>
+                            <label>Team
+                              <select
+                                value={customWidgetDraft.secondMetric.team}
+                                onChange={(event) => setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: { ...customWidgetDraft.secondMetric, team: event.target.value },
+                                })}
+                              >
+                                {dashboardTeams.map((value) => <option key={value}>{value}</option>)}
+                              </select>
+                            </label>
+                            <label>Service
+                              <select
+                                value={customWidgetDraft.secondMetric.service}
+                                onChange={(event) => setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: { ...customWidgetDraft.secondMetric, service: event.target.value },
+                                })}
+                              >
+                                {dashboardDataServices.map((value) => <option key={value}>{value}</option>)}
+                              </select>
+                            </label>
+                            <label>Assignee
+                              <select
+                                value={customWidgetDraft.secondMetric.assignee}
+                                onChange={(event) => setCustomWidgetDraft({
+                                  ...customWidgetDraft,
+                                  secondMetric: { ...customWidgetDraft.secondMetric, assignee: event.target.value },
+                                })}
+                              >
+                                {dashboardAssignees.map((value) => <option key={value}>{value}</option>)}
+                              </select>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </section>
+                  )}
+                </>
+              )}
+
+              <label>Width
+                <select value={customWidgetDraft.width} onChange={(event) => setCustomWidgetDraft({ ...customWidgetDraft, width: event.target.value })}>
+                  <option value="half">Half width</option>
+                  <option value="full">Full width</option>
+                </select>
+              </label>
+
+              <div className="dashboard-config-preview dashboard-data-builder-summary">
+                <span>Live preview</span>
+                <strong>{customWidgetDraft.sourceMode === 'single-record' ? (customWidgetDraft.recordId || 'Select a record') : dashboardWidgetSourceLabel(customWidgetDraft)}</strong>
+                <small>
+                  {customWidgetDraft.sourceMode === 'single-record'
+                    ? 'The selected record will open directly from the dashboard card.'
+                    : `${dashboardCustomRows(dashboardDataRows, customWidgetDraft, currentUserName).length} matching items · ${customWidgetDraft.presentation === 'donut' ? 'Donut chart' : customWidgetDraft.presentation === 'bar' ? 'Bar chart' : customWidgetDraft.presentation}`}
+                </small>
+              </div>
+
+              <div className="dashboard-data-builder-actions">
+                <button onClick={() => setCustomWidgetDraft(null)} type="button">Cancel</button>
+                <button className="primary" disabled={!customWidgetDraft.title.trim() || (customWidgetDraft.sourceMode === 'single-record' && !customWidgetDraft.recordId)} onClick={saveCustomWidget} type="button"><CheckCircle2 size={15} /> {dashboardLayout.customWidgets.some((widget) => widget.id === customWidgetDraft.id) ? 'Save widget' : 'Add to dashboard'}</button>
+              </div>
+            </div>
+          </aside>
+        </>,
+        document.body,
+      )}
+
       {shareOpen && (
         <div className="dashboard-modal-layer" role="presentation">
           <button className="dashboard-modal-backdrop" aria-label="Close sharing" onClick={() => setShareOpen(false)} type="button" />
-          <section className="dashboard-modal" role="dialog" aria-modal="true" aria-label="Share dashboard">
-            <header><div><span className="eyebrow">Sharing</span><h2>{activeDashboard.name}</h2></div><button onClick={() => setShareOpen(false)} type="button"><X size={17} /></button></header>
-            <p>Dashboard sharing requires the server-side sharing service. Local-only sharing changes are disabled.</p>
+          <section className="dashboard-modal" role="dialog" aria-modal="true" aria-label="Share dashboard layout">
+            <header><div><span className="eyebrow">Share layout</span><h2>{activeDashboard.name}</h2></div><button onClick={() => setShareOpen(false)} type="button"><X size={17} /></button></header>
+            <p>Copy the current layout configuration now, or manage team/user access once server-side dashboard sharing is enabled.</p>
+            <div className="dashboard-share-layout-action">
+              <span><strong>Portable layout</strong><small>Copies the layout, section visibility, density and widget configuration.</small></span>
+              <button className="primary" onClick={copyLayoutForSharing} type="button"><Copy size={14} /> {layoutCopyStatus || 'Copy layout'}</button>
+            </div>
             {activeDashboard.canEdit ? (
               <div className="dashboard-share-add">
                 <label>Share with<select value={shareKind} onChange={(event) => setShareKind(event.target.value)}><option value="team">Team</option><option value="user">User</option></select></label>

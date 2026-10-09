@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowDown,
   Bell,
@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   X,
 } from 'lucide-react'
@@ -51,6 +52,9 @@ import {
 } from '../lib/routes.js'
 import { authenticateWorkspaceUser } from './runtimeAuthBoundary.js'
 import {
+  accentHex,
+  accentInk,
+  accentRgb,
   loadAccent,
   loadCalendarEvents,
   loadDensity,
@@ -115,6 +119,8 @@ import { RotaView } from '../features/rota/RotaView.jsx'
 import { LiveChatView } from '../features/live-chat/LiveChatView.jsx'
 import { NotificationDrawer } from '../features/notifications/NotificationDrawer.jsx'
 import { PeopleView } from '../features/people/PeopleView.jsx'
+import { ProductionKnowledgeBase } from '../production/ProductionKnowledgeBase.jsx'
+import { ProductionTabSwitcher } from '../production/ProductionTabSwitcher.jsx'
 import {
   ChangesView,
   CmdbRecordView,
@@ -195,7 +201,6 @@ function tabFromRoute(route) {
   })
 }
 
-const MAX_WORKSPACE_TABS = 12
 const NEW_TAB_KEY = 'newtab'
 const LIVE_CHAT_TAB_KEY = 'livechat'
 
@@ -217,11 +222,8 @@ function syncLiveChatFixedTab(currentTabs, enabled) {
   const nextTabs = [...withoutLiveChat]
   nextTabs.splice(insertAt, 0, fixedTab)
 
-  if (nextTabs.length <= MAX_WORKSPACE_TABS) return nextTabs
-
-  const removableIndex = nextTabs.findLastIndex?.((tab) => !tab.pinned) ?? -1
-  if (removableIndex >= 0) nextTabs.splice(removableIndex, 1)
-  return nextTabs.slice(0, MAX_WORKSPACE_TABS)
+  // Opening Live Chat must not silently evict an unrelated workspace.
+  return nextTabs
 }
 
 function emptyTicketDraft(type = 'Incident') {
@@ -284,11 +286,17 @@ function isTicketDraftDirty(draft, type = draft?.type || 'Incident') {
 }
 
 function restoreWorkspaceTabs(workspace, routeTab) {
-  const normalizeWorkspaceTab = (tab) =>
-    tab?.viewId === 'newtab'
-      ? makeTab('newtab', { ...tab, key: NEW_TAB_KEY, title: 'New Tab' })
-      : tab
+  const normalizeWorkspaceTab = (tab) => {
+    if (tab?.viewId === 'newtab') {
+      return makeTab('newtab', { ...tab, key: NEW_TAB_KEY, title: 'New Tab' })
+    }
+    if (tab?.viewId === 'home' || tab?.key === 'home') {
+      return makeTab('home', { ...tab, key: 'home', title: 'Dashboard', pinned: true })
+    }
+    return tab
+  }
 
+  const dashboardTab = makeTab('home', { key: 'home', title: 'Dashboard', pinned: true })
   const normalizedRouteTab = normalizeWorkspaceTab(routeTab)
   const savedTabs = Array.isArray(workspace?.tabs)
     ? workspace.tabs
@@ -296,24 +304,31 @@ function restoreWorkspaceTabs(workspace, routeTab) {
         .map((tab) => normalizeWorkspaceTab(makeTab(tab.viewId, tab)))
     : []
 
+  // Dashboard is the permanent first tab. Older saved workspaces may not
+  // contain it when the browser entered through a deep link such as /new-tab.
+  const withDashboard = savedTabs.some((tab) => tab.key === 'home')
+    ? savedTabs
+    : [dashboardTab, ...savedTabs]
+
   // This also cleans up duplicate launcher tabs persisted by older builds.
-  const deduped = savedTabs.filter(
+  const deduped = withDashboard.filter(
     (tab, index, list) => list.findIndex((candidate) => candidate.key === tab.key) === index,
   )
+
+  const dashboardIndex = deduped.findIndex((tab) => tab.key === 'home')
+  if (dashboardIndex > 0) {
+    const [dashboard] = deduped.splice(dashboardIndex, 1)
+    deduped.unshift({ ...dashboard, pinned: true, title: 'Dashboard', viewId: 'home' })
+  } else if (dashboardIndex === 0) {
+    deduped[0] = { ...deduped[0], pinned: true, title: 'Dashboard', viewId: 'home' }
+  }
 
   if (!deduped.some((tab) => tab.key === normalizedRouteTab.key)) {
     deduped.push(normalizedRouteTab)
   }
 
-  if (!deduped.length) return [normalizedRouteTab]
-  if (deduped.length <= MAX_WORKSPACE_TABS) return deduped
-
-  const essentials = deduped.filter((tab) => tab.pinned || tab.key === normalizedRouteTab.key)
-  const recent = deduped
-    .filter((tab) => !essentials.some((essential) => essential.key === tab.key))
-    .slice(-(MAX_WORKSPACE_TABS - essentials.length))
-
-  return [...essentials, ...recent].slice(-MAX_WORKSPACE_TABS)
+  // Do not discard previously opened tabs just because the header is crowded.
+  return deduped
 }
 
 function addWorkspaceTab(currentTabs, tab) {
@@ -332,15 +347,7 @@ function addWorkspaceTab(currentTabs, tab) {
     return currentTabs
   }
 
-  const nextTabs = [...currentTabs, normalizedTab]
-  if (nextTabs.length <= MAX_WORKSPACE_TABS) return nextTabs
-
-  const removableIndex = nextTabs.findIndex(
-    (currentTab) => !currentTab.pinned && currentTab.key !== normalizedTab.key,
-  )
-  if (removableIndex >= 0) nextTabs.splice(removableIndex, 1)
-
-  return nextTabs.slice(-MAX_WORKSPACE_TABS)
+  return [...currentTabs, normalizedTab]
 }
 
 function WorkspaceRuntime() {
@@ -535,6 +542,18 @@ function WorkspaceRuntime() {
   useEffect(() => {
     saveOrganisationDepartments(departments)
   }, [departments])
+
+  useEffect(() => {
+    const applyUserPreferences = (event) => {
+      const next = event?.detail || {}
+      if (next.theme) setTheme(next.theme)
+      if (next.accent) setAccent(next.accent)
+      if (next.density) setDensity(next.density)
+      if (next.sidebarMode) setSidebarMode(next.sidebarMode)
+    }
+    window.addEventListener('hi5-user-preferences-applied', applyUserPreferences)
+    return () => window.removeEventListener('hi5-user-preferences-applied', applyUserPreferences)
+  }, [])
 
   useEffect(() => {
     saveTheme(theme)
@@ -787,7 +806,7 @@ function WorkspaceRuntime() {
 
   useEffect(() => {
     if (session?.role !== 'analyst') return
-    saveWorkspace({ tabs: tabs.slice(-MAX_WORKSPACE_TABS), activeTabKey })
+    saveWorkspace({ tabs, activeTabKey })
   }, [activeTabKey, session?.role, tabs])
 
   useEffect(() => {
@@ -918,7 +937,74 @@ function WorkspaceRuntime() {
     }
   }, [tabContextMenu])
 
+  // Desktop tab sizing is enforced directly on the native buttons because
+  // legacy touch-capable/responsive styles can still set min-width: 116px and
+  // flex: 0 0 auto on a desktop with a touchscreen. Those computed values
+  // prevent every later tab from fitting, even though the rail is wide enough.
+  // Inline important declarations outrank the older competing styles.
+  useLayoutEffect(() => {
+    const list = tabListRef.current
+    if (!list) return undefined
+
+    const applyDesktopSizing = () => {
+      const desktop = window.matchMedia('(min-width: 901px)').matches
+      const buttons = list.querySelectorAll(':scope > .workspace-tab')
+
+      // Use an ordinary tab width while there is spare header space. Once
+      // the tab group reaches the available width, flex-shrink compresses all
+      // tabs proportionally. Inline important is needed because legacy
+      // responsive styles already override this rail with !important.
+      let crowded = false
+      if (desktop) {
+        // Both the launcher and searchable switcher need a reserved control
+        // width. Once the preferred group hits the header boundary, give the
+        // active workspace a slightly larger share without hiding any tab.
+        const preferredGroupWidth = buttons.length * 136 + 64
+        const availableWidth = list.closest('.tabbar-tab-zone')?.clientWidth || list.parentElement?.clientWidth || list.clientWidth
+        crowded = availableWidth > 0 && preferredGroupWidth > availableWidth
+        list.dataset.tabCrowded = crowded ? 'true' : 'false'
+        list.style.setProperty('flex', `0 1 ${preferredGroupWidth}px`, 'important')
+        list.style.setProperty('width', `${preferredGroupWidth}px`, 'important')
+        list.style.setProperty('max-width', '100%', 'important')
+      } else {
+        delete list.dataset.tabCrowded
+        for (const property of ['flex', 'width', 'max-width']) {
+          list.style.removeProperty(property)
+        }
+      }
+
+      for (const button of buttons) {
+        if (!(button instanceof HTMLElement)) continue
+        for (const property of ['flex', 'flex-grow', 'flex-shrink', 'flex-basis', 'min-width', 'width', 'max-width']) {
+          if (!desktop) button.style.removeProperty(property)
+        }
+        if (desktop) {
+          button.style.setProperty('flex', '1 1 0%', 'important')
+          button.style.setProperty('flex-grow', crowded && button.dataset.tabKey === activeTabKey ? '1.3' : '1', 'important')
+          button.style.setProperty('flex-shrink', '1', 'important')
+          button.style.setProperty('flex-basis', '0%', 'important')
+          button.style.setProperty('min-width', '0px', 'important')
+          button.style.setProperty('width', '0px', 'important')
+          button.style.setProperty('max-width', 'none', 'important')
+        }
+      }
+      if (desktop) list.scrollLeft = 0
+    }
+
+    applyDesktopSizing()
+    window.addEventListener('resize', applyDesktopSizing)
+    const zone = list.closest('.tabbar-tab-zone')
+    const resizeObserver = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(applyDesktopSizing) : null
+    if (zone) resizeObserver?.observe(zone)
+    return () => {
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', applyDesktopSizing)
+    }
+  }, [activeTabKey, tabs.length])
+
   useEffect(() => {
+    // Desktop tabs all fit in one row; don't trigger old horizontal scrolling.
+    if (window.matchMedia?.('(min-width: 901px)').matches) return
     const list = tabListRef.current
     const activeTabElement = list
       ? Array.from(list.children).find((element) => element.dataset?.tabKey === activeTabKey)
@@ -1701,6 +1787,18 @@ function WorkspaceRuntime() {
     setMobileNavOpen(false)
   }
 
+  function openProfileSection(section = 'profile') {
+    openTab('profile')
+    setProfileMenuOpen(false)
+    window.setTimeout(() => {
+      const url = new URL(window.location.href)
+      if (section === 'workspace') url.searchParams.set('section', 'workspace')
+      else url.searchParams.delete('section')
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }))
+    }, 0)
+  }
+
   function openNewTab() {
     if (!confirmLeavingDraft()) return
 
@@ -1768,8 +1866,8 @@ function WorkspaceRuntime() {
     event.stopPropagation()
     closeHeaderOverlays()
 
-    const menuWidth = 218
-    const menuHeight = 226
+    const menuWidth = 230
+    const menuHeight = 282
     const x = Math.max(8, Math.min(event.clientX, window.innerWidth - menuWidth - 8))
     const y = Math.max(8, Math.min(event.clientY, window.innerHeight - menuHeight - 8))
 
@@ -1788,18 +1886,11 @@ function WorkspaceRuntime() {
     }
 
     setTabs((currentTabs) => {
-      let workingTabs = [...currentTabs]
-      if (workingTabs.length >= MAX_WORKSPACE_TABS) {
-        const removableIndex = workingTabs.findIndex(
-          (tab) => !tab.pinned && tab.key !== sourceTab.key && tab.viewId !== 'newtab',
-        )
-        if (removableIndex >= 0) workingTabs.splice(removableIndex, 1)
-      }
-
-      const sourceIndex = workingTabs.findIndex((tab) => tab.key === sourceTab.key)
-      const insertIndex = sourceIndex >= 0 ? sourceIndex + 1 : workingTabs.length
-      workingTabs.splice(insertIndex, 0, duplicate)
-      return workingTabs.slice(0, MAX_WORKSPACE_TABS)
+      const sourceIndex = currentTabs.findIndex((tab) => tab.key === sourceTab.key)
+      if (sourceIndex < 0) return currentTabs
+      const nextTabs = [...currentTabs]
+      nextTabs.splice(sourceIndex + 1, 0, duplicate)
+      return nextTabs
     })
 
     selectWorkspaceTab(duplicate)
@@ -1837,6 +1928,15 @@ function WorkspaceRuntime() {
   function closeOtherTabs(tabKey) {
     closeTabGroup(
       tabs.filter((tab) => !tab.pinned && tab.key !== tabKey).map((tab) => tab.key),
+      tabKey,
+    )
+  }
+
+  function closeTabsToLeft(tabKey) {
+    const targetIndex = tabs.findIndex((tab) => tab.key === tabKey)
+    if (targetIndex < 0) return
+    closeTabGroup(
+      tabs.slice(0, targetIndex).filter((tab) => !tab.pinned).map((tab) => tab.key),
       tabKey,
     )
   }
@@ -2715,11 +2815,19 @@ function WorkspaceRuntime() {
     if (activeView === 'home') {
       return (
         <DashboardView
+          assets={assets}
+          calendarEvents={calendarEvents}
           currentUser={session}
+          knowledgeArticles={knowledgeArticles}
+          liveChatConversations={liveChatConversations}
           openRecordTab={(ticket) =>
             openTab('tickets', { key: `ticket-${ticket.id}`, title: ticket.id, recordId: ticket.id })
           }
           openTab={openTab}
+          people={people}
+          projects={projects}
+          rotaEntries={rotaEntries}
+          serviceCatalog={serviceCatalog}
           sidebarMode={sidebarMode}
           tickets={tickets}
         />
@@ -2911,6 +3019,7 @@ function WorkspaceRuntime() {
           onSaveTeam={saveTeam}
           people={people}
           teams={teams}
+          tickets={tickets}
         />
       )
     }
@@ -2930,19 +3039,9 @@ function WorkspaceRuntime() {
       return <CmdbView assets={assets} openAsset={openAsset} tickets={tickets} />
     }
 
-    if (activeView === 'knowledge') {
-      if (selectedArticle) {
-        return <KnowledgeArticleView article={selectedArticle} />
-      }
-      return (
-        <KnowledgeView
-          openArticle={openArticle}
-          portalQuery={portalQuery}
-          portalResults={portalResults}
-          setPortalQuery={setPortalQuery}
-        />
-      )
-    }
+    // Production Knowledge is a regular workspace page, not a competing
+    // document-level portal layered over the demo Knowledge view.
+    if (activeView === 'knowledge') return <ProductionKnowledgeBase />
 
     if (activeView === 'reports') {
       return <ReportsView metrics={metrics} tickets={tickets} />
@@ -2958,40 +3057,41 @@ function WorkspaceRuntime() {
 
   if (!session || session.role !== 'analyst') return null
 
+  const [accentR, accentG, accentB] = accentRgb(accent)
+  const accentRgbValue = `${accentR}, ${accentG}, ${accentB}`
+  const accentStyle = {
+    '--accent-rgb': accentRgbValue,
+    '--accent-ink': accentInk(accent),
+    '--accent': accentHex(accent),
+  }
+
   return (
     <div
       className={`app-shell sidebar-${sidebarMode} density-${density}`}
       data-accent={accent}
       data-theme={resolvedTheme}
+      style={accentStyle}
     >
-      {(!sidebarHidden || mobileNavOpen) && <aside className={mobileNavOpen ? 'sidebar mobile-open' : 'sidebar'} aria-label="Primary navigation">
+      {(!sidebarHidden || mobileNavOpen) && <aside className={mobileNavOpen ? 'sidebar rmm-sidebar mobile-open' : 'sidebar rmm-sidebar'} aria-label="Primary navigation">
         <div className="sidebar-top">
-          <div className="brand">
+          <div className="brand rmm-sidebar-brand">
             <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" />
             <div className="brand-copy">
               <strong>{workspaceBrandName}</strong>
               <span>ITSM</span>
             </div>
+            <button
+              className="mobile-drawer-close rmm-mobile-close"
+              onClick={() => setMobileNavOpen(false)}
+              title="Close navigation"
+              type="button"
+            >
+              <X size={18} aria-hidden="true" />
+            </button>
           </div>
-          <button
-            className="sidebar-toggle desktop-sidebar-toggle"
-            onClick={() => setSidebarMode(sidebarCollapsed ? 'expanded' : 'collapsed')}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            type="button"
-          >
-            {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-          </button>
-          <button
-            className="mobile-drawer-close"
-            onClick={() => setMobileNavOpen(false)}
-            title="Close navigation"
-            type="button"
-          >
-            <X size={18} aria-hidden="true" />
-          </button>
         </div>
 
-        <nav className="nav-stack">
+        <nav className="nav-stack rmm-nav">
           {navGroups.map((group) => {
             const groupIsActive = group.items.some(({ id }) => id === activeNavId)
 
@@ -2999,6 +3099,7 @@ function WorkspaceRuntime() {
               <div
                 className={[
                   'nav-group',
+                  'rmm-nav-section',
                   group.separated ? 'nav-group-separated' : '',
                   groupIsActive ? 'nav-group-active' : '',
                 ].filter(Boolean).join(' ')}
@@ -3027,25 +3128,34 @@ function WorkspaceRuntime() {
           })}
         </nav>
 
-        <div className="sidebar-footer">
-          <div className="sidebar-product-switches">
-            {platform.rmmUrl ? <a href={platform.rmmUrl}>RMM</a> : null}
-            {platform.adminUrl ? <a href={platform.adminUrl}>Admin</a> : null}
+        <div className="sidebar-footer rmm-sidebar-footer">
+          <div className="sidebar-product-switches rmm-product-switches">
+            {platform.rmmUrl && session?.platformAccess?.rmm !== false ? <a href={platform.rmmUrl}>RMM</a> : null}
+            {platform.adminUrl && session?.platformAccess?.admin ? <a href={platform.adminUrl}>Admin</a> : null}
           </div>
-          <div className="sidebar-identity">
+          <div className="sidebar-identity rmm-sidebar-identity">
             <span>{shellUserInitials}</span>
             <div>
               <strong>{session?.name || session?.user?.name || 'Hi5Central'}</strong>
-              <small>{metrics.slaPressure} SLA watch items</small>
+              <small>ITSM workspace</small>
             </div>
           </div>
+          <button
+            className="sidebar-footer-toggle desktop-sidebar-toggle rmm-sidebar-toggle"
+            onClick={() => setSidebarMode(sidebarCollapsed ? 'expanded' : 'collapsed')}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            type="button"
+          >
+            {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            <span>{sidebarCollapsed ? 'Expand' : 'Collapse'}</span>
+          </button>
         </div>
       </aside>}
 
       {mobileNavOpen && (
         <button
           aria-label="Close navigation"
-          className="mobile-nav-backdrop"
+          className="mobile-nav-backdrop rmm-sidebar-backdrop is-open"
           onClick={() => setMobileNavOpen(false)}
           type="button"
         />
@@ -3093,6 +3203,134 @@ function WorkspaceRuntime() {
             </div>
           </div>
 
+          {/* The desktop tab dock belongs between the page title and header
+              actions. The legacy tabbar stays mounted for mobile navigation. */}
+                    <div className="tabbar" aria-label="Open workspace tabs">
+          <div className="mobile-workspace-tabs" aria-label="Open workspace tabs on mobile">
+            {tabs.map((tab) => (
+              <button
+                className={['mobile-workspace-tab', activeTabKey === tab.key ? 'active' : ''].filter(Boolean).join(' ')}
+                data-tab-key={tab.key}
+                key={`mobile-${tab.key}`}
+                onClick={() => activateTab(tab)}
+                type="button"
+              >
+                <span>{tab.title}</span>
+                {!tab.pinned && (
+                  <span
+                    className="mobile-workspace-tab-close"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      closeTab(tab.key)
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <X size={12} aria-hidden="true" />
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              aria-label="Open new workspace tab"
+              className="mobile-workspace-tab mobile-workspace-tab-add"
+              onClick={openNewTab}
+              type="button"
+            >
+              <Plus size={17} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="tabbar-tab-zone">
+            <div
+              className="tab-list"
+              data-tab-density={tabs.length >= 18 ? 'ultra' : tabs.length >= 12 ? 'dense' : tabs.length >= 8 ? 'compact' : 'normal'}
+              // 136px preferred width per tab; reserve 64px for the
+              // launcher and the searchable switcher. Tabs share the
+              // available space only when that preferred width is exceeded.
+              style={{ '--hi5-tab-group-width': `${tabs.length * 136 + 64}px` }}
+              ref={tabListRef}
+            >
+            {tabs.map((tab) => {
+              const tabModule = workspaceTabModule(tab)
+
+              return (
+                <button
+                  className={[
+                    'workspace-tab',
+                    tab.viewId === 'livechat' ? 'workspace-tab-livechat' : '',
+                    activeTabKey === tab.key ? 'active' : '',
+                    activeTabKey === tab.key && activeHasUnsavedChanges ? 'dirty' : '',
+                  ].filter(Boolean).join(' ')}
+                  data-tab-key={tab.key}
+                  data-tab-module={tabModule}
+                  key={tab.key}
+                  title={tab.title}
+                  onClick={() => activateTab(tab)}
+                  onContextMenu={(event) => openTabContextMenu(event, tab)}
+                  type="button"
+                >
+                  <span className="workspace-tab-label">
+                    <span className="workspace-tab-title">{tab.title}</span>
+                    {tab.viewId === 'livechat' && liveChatUnreadCount > 0 && (
+                      <span className="live-chat-tab-notification" aria-label={`${liveChatUnreadCount} unread Live Chat messages`}>
+                        <Bell size={10} aria-hidden="true" />
+                        {liveChatUnreadCount}
+                      </span>
+                    )}
+                    {activeTabKey === tab.key && activeHasUnsavedChanges && (
+                      <span className="unsaved-dot" aria-label="Unsaved changes" />
+                    )}
+                  </span>
+                  {!tab.pinned && (
+                    <span
+                      className="tab-close"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        closeTab(tab.key)
+                      }}
+                      role="button"
+                      tabIndex={0}
+                    >
+                      <X size={13} aria-hidden="true" />
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+            <button
+              aria-label="Open Hi5 workspace launcher"
+              className="tab-add"
+              onClick={openNewTab}
+              title="Open Hi5 workspace launcher"
+              type="button"
+            >
+              <Plus size={18} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+            <ProductionTabSwitcher
+              tabs={tabs}
+              activeTabKey={activeTabKey}
+              onActivate={activateTab}
+              onClose={closeTab}
+              onCloseGroup={closeTabGroup}
+              onCloseOthers={closeOtherTabs}
+              onCloseAll={closeAllClosableTabs}
+            />
+            </div>
+
+            <button
+              aria-label="Open Hi5Central navigation"
+              className="tabbar-brand"
+              onClick={() => setMobileNavOpen(true)}
+              title="Open navigation"
+              type="button"
+            >
+              <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="" aria-hidden="true" />
+            </button>
+          </div>
+
+          </div>
+
           <div className="itsm-topbar-actions">
             <button
               aria-expanded={globalSearchOpen}
@@ -3129,57 +3367,17 @@ function WorkspaceRuntime() {
                   <span>{shellUserInitials}</span>
                   <div>
                     <strong>{session?.name || session?.user?.name || 'Hi5Central user'}</strong>
-                    <small>{session?.email || session?.user?.email || 'ITSM user'}</small>
+                    <small>{session?.username || session?.email || session?.user?.email || 'Hi5Central account'}</small>
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setProfileMenuOpen(false)
-                    openTab('profile')
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
+                <button onClick={() => openProfileSection('profile')} role="menuitem" type="button">
                   <UserRound size={15} aria-hidden="true" />
-                  Profile
+                  My Profile
                 </button>
-                <button
-                  onClick={() => {
-                    setProfileMenuOpen(false)
-                    openTab('settings')
-                  }}
-                  role="menuitem"
-                  type="button"
-                >
-                  <Settings size={15} aria-hidden="true" />
-                  Settings
+                <button onClick={() => openProfileSection('workspace')} role="menuitem" type="button">
+                  <SlidersHorizontal size={15} aria-hidden="true" />
+                  Workspace
                 </button>
-                {platform.rmmUrl && (
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false)
-                      window.location.assign(platform.rmmUrl)
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <Monitor size={15} aria-hidden="true" />
-                    Open RMM
-                  </button>
-                )}
-                {platform.adminUrl && (
-                  <button
-                    onClick={() => {
-                      setProfileMenuOpen(false)
-                      window.location.assign(platform.adminUrl)
-                    }}
-                    role="menuitem"
-                    type="button"
-                  >
-                    <ShieldCheck size={15} aria-hidden="true" />
-                    Open Admin
-                  </button>
-                )}
                 <button
                   onClick={() => {
                     setProfileMenuOpen(false)
@@ -3194,79 +3392,6 @@ function WorkspaceRuntime() {
               </div>
             )}
           </div>
-        </header>
-
-        <header className="tabbar" aria-label="Open workspace tabs">
-          <div className="tabbar-tab-zone">
-            <div className="tab-list" ref={tabListRef}>
-            {tabs.map((tab) => {
-              const tabModule = workspaceTabModule(tab)
-
-              return (
-                <button
-                  className={[
-                    'workspace-tab',
-                    tab.viewId === 'livechat' ? 'workspace-tab-livechat' : '',
-                    activeTabKey === tab.key ? 'active' : '',
-                    activeTabKey === tab.key && activeHasUnsavedChanges ? 'dirty' : '',
-                  ].filter(Boolean).join(' ')}
-                  data-tab-key={tab.key}
-                  data-tab-module={tabModule}
-                  key={tab.key}
-                  onClick={() => activateTab(tab)}
-                  onContextMenu={(event) => openTabContextMenu(event, tab)}
-                  type="button"
-                >
-                  <span className="workspace-tab-label">
-                    {tab.title}
-                    {tab.viewId === 'livechat' && liveChatUnreadCount > 0 && (
-                      <span className="live-chat-tab-notification" aria-label={`${liveChatUnreadCount} unread Live Chat messages`}>
-                        <Bell size={10} aria-hidden="true" />
-                        {liveChatUnreadCount}
-                      </span>
-                    )}
-                    {activeTabKey === tab.key && activeHasUnsavedChanges && (
-                      <span className="unsaved-dot" aria-label="Unsaved changes" />
-                    )}
-                  </span>
-                  {!tab.pinned && (
-                    <span
-                      className="tab-close"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        closeTab(tab.key)
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <X size={13} aria-hidden="true" />
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-            <button
-              aria-label="Open Hi5 workspace launcher"
-              className="tab-add"
-              onClick={openNewTab}
-              title="Open Hi5 workspace launcher"
-              type="button"
-            >
-              <Plus size={18} strokeWidth={2.4} aria-hidden="true" />
-            </button>
-            </div>
-
-            <button
-              aria-label="Open Hi5Central navigation"
-              className="tabbar-brand"
-              onClick={() => setMobileNavOpen(true)}
-              title="Open navigation"
-              type="button"
-            >
-              <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="" aria-hidden="true" />
-            </button>
-          </div>
-
         </header>
 
         {tabContextMenu && contextMenuTab && (
@@ -3300,6 +3425,14 @@ function WorkspaceRuntime() {
               type="button"
             >
               Close other tabs
+            </button>
+            <button
+              disabled={!tabs.slice(0, tabs.findIndex((tab) => tab.key === contextMenuTab.key)).some((tab) => !tab.pinned)}
+              onClick={() => closeTabsToLeft(contextMenuTab.key)}
+              role="menuitem"
+              type="button"
+            >
+              Close tabs to the left
             </button>
             <button
               disabled={!tabs.slice(tabs.findIndex((tab) => tab.key === contextMenuTab.key) + 1).some((tab) => !tab.pinned)}
@@ -3416,7 +3549,7 @@ function WorkspaceRuntime() {
         )}
 
         <main className="workspace">
-          <section className="content-frame">{renderActiveView()}</section>
+          <section className="content-frame" data-hi5-active-view={activeView}>{renderActiveView()}</section>
         </main>
       </section>
 

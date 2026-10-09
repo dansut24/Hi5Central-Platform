@@ -1,0 +1,31 @@
+/* Project task opened from the unified Tasks queue. */
+.project-task-detail{min-width:0;min-height:0;height:100%;overflow:auto;color:var(--ink);background:var(--page);padding:12px 14px;}
+.project-task-detail .task-detail-breadcrumbs{display:flex;align-items:center;gap:7px;min-height:35px;margin-bottom:10px;}
+.project-task-detail .task-detail-breadcrumbs button{display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:12px;cursor:pointer;}
+.project-task-detail-workspace{display:grid;gap:10px;}
+.project-task-detail-heading{display:flex;align-items:center;gap:10px;min-width:0;padding:11px;border:1px solid var(--line);border-radius:11px;background:var(--surface);}
+.project-task-detail-icon{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:rgba(var(--accent-rgb),.1);color:rgb(var(--accent-rgb));flex:0 0 auto;}
+.project-task-detail-heading>div{flex:1;min-width:0;}
+.project-task-detail-heading small{color:var(--muted);font-size:11px;}
+.project-task-detail-heading h1{margin:4px 0;font-size:18px;line-height:1.35;overflow-wrap:anywhere;}
+.project-task-detail-heading p{margin:0;color:var(--muted);font-size:12px;}
+.project-task-detail-heading>.project-task-detail-open-project{display:inline-flex;align-items:center;gap:6px;min-width:auto;width:auto;padding:6px 10px;font-size:12px;font-weight:760;color:rgb(var(--accent-rgb));white-space:nowrap;}
+@media(max-width:760px){.project-task-detail-heading>.project-task-detail-open-project{padding:6px;white-space:normal;text-align:center;}}
+.project-task-detail-heading>button{min-width:34px;min-height:34px;display:grid;place-items:center;border:1px solid var(--line);border-radius:8px;background:var(--surface-soft);color:var(--ink);cursor:pointer;}
+.project-task-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(230px,280px);gap:12px;min-height:0;}
+.project-task-detail-main,.project-task-detail-context{min-width:0;padding:14px;border:1px solid var(--line);border-radius:11px;background:color-mix(in srgb,var(--surface) 90%,transparent);}
+.project-task-detail-main h2,.project-task-detail-context h2{margin:0 0 12px;font-size:15px;}
+.project-task-detail-main label{display:grid;gap:5px;min-width:0;color:var(--muted);font-size:12px;font-weight:750;}
+.project-task-detail-main :is(input,select){width:100%;min-width:0;min-height:37px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:13px;}
+.project-task-detail-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:13px;}
+.project-task-detail-save{display:flex;justify-content:flex-end;padding-top:14px;}
+.project-task-detail-save button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:38px;padding:6px 13px;border:1px solid rgba(var(--accent-rgb),.33);border-radius:9px;background:rgb(var(--accent-rgb));color:var(--accent-ink);font:inherit;font-size:12px;font-weight:820;cursor:pointer;}
+.project-task-detail-save button:disabled{opacity:.5;cursor:not-allowed;}
+.project-task-detail-context{display:grid;align-content:start;gap:10px;}
+.project-task-detail-context>div{display:grid;gap:4px;min-width:0;padding-bottom:9px;border-bottom:1px solid var(--line);}
+.project-task-detail-context span{color:var(--muted);font-size:11px;}
+.project-task-detail-context strong{font-size:12px;overflow-wrap:anywhere;}
+.project-task-detail-context small{color:var(--muted);font-size:11px;}
+.project-task-detail-context p{display:flex;align-items:start;gap:6px;color:var(--muted);font-size:12px;line-height:1.4;}
+.project-task-detail :is(button,select,input):focus-visible{outline:2px solid rgb(var(--accent-rgb));outline-offset:2px;}
+@media(max-width:760px){.project-task-detail{height:auto;min-height:100%;overflow:visible;padding:9px;}.project-task-detail-grid{grid-template-columns:minmax(0,1fr);}.project-task-detail-fields{grid-template-columns:minmax(0,1fr);}}

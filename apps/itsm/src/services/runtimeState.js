@@ -183,7 +183,45 @@ export function saveProductionSession(session) {
 }
 export function clearProductionSession() { removeKey(PRODUCTION_SESSION_KEY) }
 export function loadTheme() { const value = readJson('hi5central-theme-mode', null); return ['system', 'light', 'dark'].includes(value) ? value : 'system' }
-export function loadAccent() { const value = readJson('hi5central-accent', 'amber'); return ['amber', 'cyan', 'blue', 'violet', 'emerald', 'rose'].includes(value) ? value : 'amber' }
+const ACCENT_PRESETS = {
+  blue: '#3b82f6',
+  cyan: '#06b6d4',
+  amber: '#f59e0b',
+  emerald: '#10b981',
+  violet: '#8b5cf6',
+  rose: '#f43f5e',
+}
+
+export function normaliseAccent(value, fallback = '#3b82f6') {
+  const raw = String(value || '').trim().toLowerCase()
+  if (ACCENT_PRESETS[raw]) return raw
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return fallback
+}
+
+export function accentHex(value) {
+  const normalised = normaliseAccent(value)
+  return ACCENT_PRESETS[normalised] || normalised
+}
+
+export function accentRgb(value) {
+  const hex = accentHex(value).slice(1)
+  return [
+    Number.parseInt(hex.slice(0, 2), 16),
+    Number.parseInt(hex.slice(2, 4), 16),
+    Number.parseInt(hex.slice(4, 6), 16),
+  ]
+}
+
+export function accentInk(value) {
+  const [r, g, b] = accentRgb(value)
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+  return luminance > 165 ? '#05203a' : '#ffffff'
+}
+
+export function loadAccent() {
+  return normaliseAccent(readJson('hi5central-accent', '#3b82f6'))
+}
 export function loadDensity() { const value = readJson('hi5central-density', 'comfortable'); return ['comfortable', 'compact'].includes(value) ? value : 'comfortable' }
 export function loadSidebarMode() { const value = readJson('hi5central-sidebar-mode', 'expanded'); return ['expanded', 'collapsed', 'hidden'].includes(value) ? value : 'expanded' }
 export function loadWorkspace() { const value = readJson('hi5central-workspace-analyst', null); return value && Array.isArray(value.tabs) ? { tabs: value.tabs, activeTabKey: typeof value.activeTabKey === 'string' ? value.activeTabKey : null } : null }
@@ -213,7 +251,7 @@ export function saveLiveChatPreferences(value) { writeJson('hi5central-live-chat
 export function saveLiveChatConversations(value) { writeJson('hi5central-live-chat-conversations-v1', Array.isArray(value) ? value : []) }
 export function saveNotifications(value) { writeJson('hi5central-notifications-v1', Array.isArray(value) ? value : []) }
 export function saveTheme(value) { writeJson('hi5central-theme-mode', value) }
-export function saveAccent(value) { writeJson('hi5central-accent', value) }
+export function saveAccent(value) { writeJson('hi5central-accent', normaliseAccent(value)) }
 export function saveDensity(value) { writeJson('hi5central-density', value) }
 export function saveSidebarMode(value) { writeJson('hi5central-sidebar-mode', value) }
 

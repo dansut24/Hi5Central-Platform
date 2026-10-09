@@ -9,7 +9,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
-import { originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { recordJobCompletionActivity, recordRmmActivity } from './rmmActivity.js'
@@ -28,7 +28,7 @@ const AGENT_DOWNLOAD_URL_MACOS = 'https://downloads.hi5central.com/agent/latest/
 const TENANT_INSTALLER_REPO = process.env.TENANT_INSTALLER_REPO || 'dansut24/Hi5Central-Agent'
 const TENANT_INSTALLER_WORKFLOW = process.env.TENANT_INSTALLER_WORKFLOW || 'tenant-installer.yml'
 const TENANT_INSTALLER_REF = process.env.TENANT_INSTALLER_REF || 'main'
-const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || 'https://api.hi5central.com'
+const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || deployment.apiUrl || 'https://api.hi5central.com'
 const TENANT_INSTALLER_ARTIFACT_DIR = process.env.TENANT_INSTALLER_ARTIFACT_DIR || '/srv/tenant-installers'
 const TENANT_INSTALLER_MAX_ARTIFACT_BYTES = 300 * 1024 * 1024
 const TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH = process.env.TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'templates', 'Hi5CentralAgentTemplate.exe')
@@ -47,6 +47,21 @@ const TENANT_INSTALLER_GENERIC_URLS = {
   run: 'https://downloads.hi5central.com/agent/deployment/latest/Hi5CentralAgentDeployment-Linux.run',
   deb: 'https://downloads.hi5central.com/agent/deployment/latest/hi5central-agent-deployment_amd64.deb',
   rpm: 'https://downloads.hi5central.com/agent/deployment/latest/hi5central-agent-deployment_x86_64.rpm',
+}
+const TENANT_INSTALLER_GENERIC_ASSET_DIR = process.env.TENANT_INSTALLER_GENERIC_ASSET_DIR || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'generic')
+const TENANT_INSTALLER_GENERIC_FILES = {
+  app: 'Hi5CentralAgentDeployment-macOS.app.zip',
+  pkg: 'Hi5CentralAgentDeployment-macOS.pkg',
+  dmg: 'Hi5CentralAgentDeployment-macOS.dmg',
+  run: 'Hi5CentralAgentDeployment-Linux.run',
+  deb: 'hi5central-agent-deployment_amd64.deb',
+  rpm: 'hi5central-agent-deployment_x86_64.rpm',
+}
+
+function tenantInstallerGenericAssetPath(formatValue = '') {
+  const format = clean(formatValue).toLowerCase()
+  const fileName = TENANT_INSTALLER_GENERIC_FILES[format]
+  return fileName ? path.join(TENANT_INSTALLER_GENERIC_ASSET_DIR, fileName) : ''
 }
 const TENANT_INSTALLER_OIDC_AUDIENCE = 'hi5central-tenant-installer'
 const TENANT_INSTALLER_OIDC_ISSUER = 'https://token.actions.githubusercontent.com'
@@ -253,7 +268,7 @@ function windowsTenantInstallerBuffer(packageId, formatValue = 'exe') {
 
 function tenantInstallerUrl(packageId, formatValue = '') {
   const format = clean(formatValue).toLowerCase()
-  if (['exe', 'msi', 'deb', 'rpm'].includes(format)) {
+  if (['exe', 'msi', 'deb', 'rpm', 'app', 'pkg', 'dmg'].includes(format)) {
     return TENANT_INSTALLER_API_BASE + '/api/v1/rmm/agent/enrollment-packages/' + packageId + '/installer'
   }
   return TENANT_INSTALLER_GENERIC_URLS[format] || null
@@ -578,9 +593,15 @@ async function linuxTenantInstallerBundle(pkg) {
   if (clean(pkg?.installer_platform).toLowerCase() !== 'linux' || !installerUrl || !definition) {
     throw new Error('This deployment is not a supported Linux installer.')
   }
-  const response = await fetch(installerUrl, { signal: AbortSignal.timeout(30_000) })
-  if (!response.ok) throw new Error('Linux installer download failed HTTP ' + response.status + '.')
-  const installer = Buffer.from(await response.arrayBuffer())
+  const localAssetPath = tenantInstallerGenericAssetPath(format)
+  let installer
+  if (localAssetPath && existsSync(localAssetPath)) {
+    installer = readFileSync(localAssetPath)
+  } else {
+    const response = await fetch(installerUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!response.ok) throw new Error('Linux installer download failed HTTP ' + response.status + '.')
+    installer = Buffer.from(await response.arrayBuffer())
+  }
   if (!installer.length || installer.length > TENANT_INSTALLER_MAX_ARTIFACT_BYTES) {
     throw new Error('Linux installer has an invalid size.')
   }
@@ -1585,6 +1606,22 @@ export function registerRmmAgentRoutes(app) {
         downloadName = pkg.installer_format === 'deb'
           ? 'hi5centralagent.deb'
           : 'hi5centralagent.rpm'
+      } else if (pkg.installer_platform === 'macos' && ['app', 'pkg', 'dmg'].includes(pkg.installer_format)) {
+        const assetPath = tenantInstallerGenericAssetPath(pkg.installer_format)
+        if (!assetPath || !existsSync(assetPath)) {
+          throw new Error('The shared macOS deployment asset is not available on this Hi5Central server.')
+        }
+        installer = readFileSync(assetPath)
+        contentType = pkg.installer_format === 'app'
+          ? 'application/zip'
+          : pkg.installer_format === 'pkg'
+            ? 'application/octet-stream'
+            : 'application/x-apple-diskimage'
+        downloadName = pkg.installer_format === 'app'
+          ? 'Hi5CentralAgentDeployment-macOS.app.zip'
+          : pkg.installer_format === 'pkg'
+            ? 'Hi5CentralAgentDeployment-macOS.pkg'
+            : 'Hi5CentralAgentDeployment-macOS.dmg'
       } else {
         return c.json({ error: 'This installer record is not a supported single-file installer.' }, 409)
       }
@@ -2291,23 +2328,79 @@ export function registerRmmAgentRoutes(app) {
       if (!pkg.persistent && Number(pkg.use_count) >= Number(pkg.max_uses)) {
         return { error: 'Enrollment token has already been used.', status: 410 }
       }
-      const deviceId = randomUUID()
       const deviceKey = secret('h5d')
-      const reference = `RMM-${deviceId.slice(0, 8).toUpperCase()}`
-      const inventoryResult = await client.query(
-        `INSERT INTO rmm_device_inventory
-           (tenant_id,source,source_device_id,reference,name,platform,operating_system,
-            management_state,management_agent,enrolled_at,source_last_sync_at,active,source_payload)
-         VALUES ($1,'hi5central_agent',$2,$3,$4,$5,$6,'managed','Hi5Central Agent',now(),now(),true,$7::jsonb)
-         RETURNING id`,
-        [pkg.tenant_id, deviceId, reference, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform } })],
-      )
-      await client.query(
-        `INSERT INTO rmm_agent_devices
-           (id,tenant_id,inventory_id,secret_hash,fingerprint,architecture,agent_version,enrollment_package_id,last_authenticated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
-        [deviceId, pkg.tenant_id, inventoryResult.rows[0].id, sha256(deviceKey), fingerprint, architecture, agentVersion, pkg.id],
-      )
+      let deviceId = ''
+      let reference = ''
+      let inventoryId = ''
+
+      // Reinstalling the Agent on the same physical device should refresh the
+      // existing record instead of creating a duplicate. Fingerprints are
+      // tenant-scoped, so moving a device to another tenant/server still
+      // creates a new managed device in that target tenant.
+      const existingDevice = fingerprint
+        ? await client.query(
+            `SELECT d.id,d.inventory_id,i.reference
+               FROM rmm_agent_devices d
+               JOIN rmm_device_inventory i ON i.id=d.inventory_id
+              WHERE d.tenant_id=$1 AND d.fingerprint=$2
+              ORDER BY d.updated_at DESC
+              LIMIT 1
+              FOR UPDATE OF d`,
+            [pkg.tenant_id, fingerprint],
+          )
+        : { rowCount: 0, rows: [] }
+
+      if (existingDevice.rowCount) {
+        deviceId = existingDevice.rows[0].id
+        inventoryId = existingDevice.rows[0].inventory_id
+        reference = existingDevice.rows[0].reference || `RMM-${String(deviceId).slice(0, 8).toUpperCase()}`
+
+        await client.query(
+          `UPDATE rmm_agent_devices
+              SET secret_hash=$2,
+                  architecture=$3,
+                  agent_version=$4,
+                  enrollment_package_id=$5,
+                  last_authenticated_at=now(),
+                  updated_at=now()
+            WHERE id=$1`,
+          [deviceId, sha256(deviceKey), architecture, agentVersion, pkg.id],
+        )
+        await client.query(
+          `UPDATE rmm_device_inventory
+              SET name=$2,
+                  platform=$3,
+                  operating_system=$4,
+                  management_state='managed',
+                  management_agent='Hi5Central Agent',
+                  active=true,
+                  source_last_sync_at=now(),
+                  last_imported_at=now(),
+                  source_payload=$5::jsonb,
+                  updated_at=now()
+            WHERE id=$1`,
+          [inventoryId, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform, reinstalled: true } })],
+        )
+      } else {
+        deviceId = randomUUID()
+        reference = `RMM-${deviceId.slice(0, 8).toUpperCase()}`
+        const inventoryResult = await client.query(
+          `INSERT INTO rmm_device_inventory
+             (tenant_id,source,source_device_id,reference,name,platform,operating_system,
+              management_state,management_agent,enrolled_at,source_last_sync_at,active,source_payload)
+           VALUES ($1,'hi5central_agent',$2,$3,$4,$5,$6,'managed','Hi5Central Agent',now(),now(),true,$7::jsonb)
+           RETURNING id`,
+          [pkg.tenant_id, deviceId, reference, hostname, platform, platform, JSON.stringify({ enrollment: { architecture, agentVersion, fingerprint, platform } })],
+        )
+        inventoryId = inventoryResult.rows[0].id
+        await client.query(
+          `INSERT INTO rmm_agent_devices
+             (id,tenant_id,inventory_id,secret_hash,fingerprint,architecture,agent_version,enrollment_package_id,last_authenticated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())`,
+          [deviceId, pkg.tenant_id, inventoryId, sha256(deviceKey), fingerprint, architecture, agentVersion, pkg.id],
+        )
+      }
+
       await client.query(
         `UPDATE rmm_agent_enrollment_packages
             SET use_count=use_count+1,last_used_at=now(),updated_at=now()

@@ -1,28 +1,27 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import { MarketingApp } from './features/marketing/MarketingApp.jsx'
+import { SignupPage } from './features/marketing/SignupPage.jsx'
 import { ServiceCatalogueSettingsEnhancer } from './features/catalogue/ServiceCatalogueSettingsEnhancer.jsx'
 import { KnowledgeContextEnhancer } from './features/knowledge/KnowledgeContextEnhancer.jsx'
 import { OrganisationSitesEnhancer } from './features/people/OrganisationSitesEnhancer.jsx'
 import { OnboardingMfaEnhancer } from './features/security/OnboardingMfaEnhancer.jsx'
-import { ProductionMfaLoginEnhancer } from './features/security/ProductionMfaLoginEnhancer.jsx'
 import { ProductionPasswordRecoveryEnhancer } from './features/security/ProductionPasswordRecoveryEnhancer.jsx'
 import { ProductionAccessControl } from './production/ProductionAccessControl.jsx'
 import { ProductionAccessGuard } from './production/ProductionAccessGuard.jsx'
 import { ProductionAssignmentExperience } from './production/ProductionAssignmentExperience.jsx'
 import { ProductionFinalTaskCompletionPrompt } from './production/ProductionFinalTaskCompletionPrompt.jsx'
 import { ProductionSessionBoundary } from './production/ProductionSessionBoundary.jsx'
-import { ProductionFirstLoginExperience } from './production/ProductionFirstLoginExperience.jsx'
 import { ProductionFirstLoginRouteBridge } from './production/ProductionFirstLoginRouteBridge.jsx'
 import { ProductionItsmWorkspace } from './production/ProductionItsmWorkspace.jsx'
-import { ProductionKnowledgeBase } from './production/ProductionKnowledgeBase.jsx'
+import { ProductionCmdb } from './production/ProductionCmdb.jsx'
 import { ProductionLiveChatBadgeBridge } from './production/ProductionLiveChatBadgeBridge.jsx'
 import { ProductionLiveChatOperations, ProductionPortalLiveChatOperations } from './production/ProductionLiveChatOperations.jsx'
 import { ProductionLiveChatCompactTools } from './production/ProductionLiveChatCompactTools.jsx'
 import { ProductionLiveChatWorkspace } from './production/ProductionLiveChatWorkspace.jsx'
 import { ProductionNavigationDockPreferences } from './production/ProductionNavigationDockPreferences.jsx'
 import { ProductionNotificationCenter } from './production/ProductionNotificationCenter.jsx'
-import { ProductionOnboardingBootstrap } from './production/ProductionOnboardingBootstrap.jsx'
 import { ProductionOrganisationWriteThrough } from './production/ProductionOrganisationWriteThrough.jsx'
 import { ProductionPortalBootstrap } from './production/ProductionPortalBootstrap.jsx'
 import { ProductionPortalKnowledgeChat } from './production/ProductionPortalKnowledgeChat.jsx'
@@ -37,7 +36,6 @@ import { ProductionWorkflowExperience } from './production/ProductionWorkflowExp
 import { ProductionWorkspaceBootstrap } from './production/ProductionWorkspaceBootstrap.jsx'
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
-import { ProductionWorkspaceShellV2 } from './production/ProductionWorkspaceShellV2.jsx'
 import { ProductionWorkspaceTabPersistence, installWorkspaceTabSessionIsolation } from './production/ProductionWorkspaceTabPersistence.jsx'
 import { resolveTenantSurface } from './lib/tenantSurface.js'
 import './features/settings/ProductionSettingsFloating.css'
@@ -54,8 +52,6 @@ import './production/ProductionWorkspaceDensity.css'
 import './production/ProductionPlanningSurface.css'
 import './production/ProductionPlanningResponsive.css'
 import './production/ProductionResponsiveViewport.css'
-import './production/ProductionWorkspaceShellV2.css'
-import './production/ProductionWorkspaceShellV2Mobile.css'
 import './production/ProductionLiquidGlassWorkspace.css'
 import './production/ProductionShellV3Corrections.css'
 import './production/ProductionWorkspaceTabBehaviour.css'
@@ -69,6 +65,22 @@ import './production/ProductionItsmUnifiedShell.css'
 import './production/ProductionItsmUnifiedPages.css'
 import './production/ProductionItsmRecordTheme.css'
 import './production/ProductionRmmThemeParity.css'
+import './production/RmmSidebarParity.css'
+import './production/ProductionDashboardTest2Parity.css'
+import './production/ProductionRecordDensity.css'
+import './production/ProductionWorkspaceLegibility.css'
+import './production/ProductionActivityFocus.css'
+import './production/ProductionRecordWorkbench.css'
+import './production/ProductionRecordLiquidGlass.css'
+import './production/ProductionRecordInlineComposer.css'
+import './production/ProductionRichNoteEditor.css'
+import './production/ProductionWorkingPeekModal.css'
+import './production/ProductionCalendarWorkbench.css'
+import './production/ProductionPlanningWorkbenchPolish.css'
+import './production/ProductionCalendarTeams.css'
+import './production/ProductionProjectWorkbench.css'
+import './production/ProductionOrganisationKnowledgeLayout.css'
+import './production/ProductionLiquidGlassTabs.css'
 
 installWorkspaceTabSessionIsolation()
 
@@ -83,11 +95,14 @@ const productionPortal = initialSurface.kind === 'portal'
 const productionOnboarding = productionWorkspace
   && (window.location.pathname === '/onboarding' || window.location.pathname.startsWith('/onboarding/'))
 
-let RootApp = productionPortal
-  ? ProductionPortalBootstrap
-  : productionOnboarding
-    ? ProductionOnboardingBootstrap
-    : ProductionWorkspaceBootstrap
+let RootApp = ProductionWorkspaceBootstrap
+if (initialSurface.kind === 'marketing') {
+  RootApp = window.location.pathname === '/signup' || window.location.pathname.startsWith('/signup/')
+    ? SignupPage
+    : MarketingApp
+}
+if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
+if (productionPortal) RootApp = ProductionPortalBootstrap
 
 createRoot(rootElement).render(
   <StrictMode>
@@ -102,7 +117,7 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionItsmWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionAssignmentExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFinalTaskCompletionPrompt /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionKnowledgeBase /> : null}
+    {productionWorkspace && !productionOnboarding ? <ProductionCmdb /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatBadgeBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatWorkspace /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionLiveChatOperations /> : null}
@@ -115,16 +130,13 @@ createRoot(rootElement).render(
     {productionWorkspace && !productionOnboarding ? <ProductionNotificationCenter /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceRefinement /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionNavigationDockPreferences /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceShellV2 /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceTabPersistence /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceLiveChatMenu /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionPremiumWorkspaceExperience /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionPortalThemeBridge /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionUniversalPeekV2 /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginRouteBridge /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginExperience /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionMfaLoginEnhancer /> : null}
-    {productionWorkspace && productionOnboarding ? <OnboardingMfaEnhancer /> : null}
+    {productionWorkspace && !productionOnboarding ? <OnboardingMfaEnhancer /> : null}
     {productionWorkspace && !productionOnboarding ? <ProductionPasswordRecoveryEnhancer /> : null}
     {productionPortal ? <ProductionPortalKnowledgeChat /> : null}
     {productionPortal ? <ProductionPortalLiveChatOperations /> : null}

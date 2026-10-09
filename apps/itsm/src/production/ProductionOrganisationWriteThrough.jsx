@@ -43,12 +43,12 @@ async function fetchOrganisation() {
   return payload
 }
 
-async function putCollection(collection, items) {
-  const response = await fetch(`${API_BASE}/api/v1/organisation/${encodeURIComponent(collection)}`, {
-    method: 'PUT',
+async function upsertEntry(collection, item) {
+  const response = await fetch(`${API_BASE}/api/v1/organisation/${encodeURIComponent(collection)}/upsert`, {
+    method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ item }),
   })
   const payload = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(payload.error || `Could not save ${collection}.`)
@@ -92,8 +92,9 @@ export function ProductionOrganisationWriteThrough() {
             for (const { id } of collections) {
               const changes = Array.isArray(requestedChanges[id]) ? requestedChanges[id] : []
               if (!changes.length) continue
-              const latestItems = Array.isArray(authoritative[id]) ? authoritative[id] : []
-              authoritative = await putCollection(id, mergeRecords(latestItems, changes))
+              for (const entry of changes) {
+                authoritative = await upsertEntry(id, entry)
+              }
             }
 
             if (!activeRef.current) return
@@ -104,6 +105,8 @@ export function ProductionOrganisationWriteThrough() {
             })
           } catch (error) {
             console.error('Production Organisation write-through failed.', error)
+            // Undo optimistic local changes when the API denies or rejects an edit.
+            try { publishSnapshot(await fetchOrganisation()) } catch { /* retain error notice */ }
             if (!activeRef.current) return
             setNotice({
               type: 'error',

@@ -1,9 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck } from 'lucide-react'
 import { RmmPlatformApp } from '../features/rmm/RmmPlatformApp.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
+import { ProductionUserExperience } from './ProductionUserExperience.jsx'
 import './ProductionWorkspaceBootstrap.css'
 
 const API_BASE = window.__HI5_API_BASE__
+const APP_URL = window.__HI5_CONFIG__?.appUrl || ''
+const SHARED_THEME_KEY = 'hi5central-theme-mode'
+
+function rawStoredTheme() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
+    return ['system', 'light', 'dark'].includes(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function resolveThemeMode(userTheme = rawStoredTheme(), tenantTheme = 'system') {
+  const preferred = ['system', 'light', 'dark'].includes(userTheme)
+    ? userTheme
+    : (['system', 'light', 'dark'].includes(tenantTheme) ? tenantTheme : 'system')
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : preferred
+}
+
+function persistThemeMode(value) {
+  const next = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  try { window.localStorage.setItem(SHARED_THEME_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+}
 
 function sessionHasPermission(session, permission) {
   const effective = session?.access?.effectivePermissions || []
@@ -131,24 +158,69 @@ function deviceToRmm(row) {
 export function ProductionRmmBootstrap() {
   const surface = useMemo(() => resolveTenantSurface(), [])
   const [session, setSession] = useState(null)
+  const [tenantState, setTenantState] = useState(null)
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
-  const [theme, setTheme] = useState('light')
+  const [theme, setTheme] = useState(() => resolveThemeMode())
+  const [accent, setAccent] = useState('#3b82f6')
+  const [density, setDensity] = useState('comfortable')
+  const [navSide, setNavSide] = useState('left')
+  const [sidebarMode, setSidebarMode] = useState('expanded')
   const [devices, setDevices] = useState([])
   const [sites, setSites] = useState([])
   const [dataLoading, setDataLoading] = useState(false)
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [mfaFlow, setMfaFlow] = useState(null)
+  const [mfaSetup, setMfaSetup] = useState(null)
+  const [mfaCode, setMfaCode] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState([])
+  const [authenticatedPayload, setAuthenticatedPayload] = useState(null)
 
   useEffect(() => {
     let active = true
-    fetch(`${API_BASE}/api/v1/auth/session`, { credentials: 'include' })
-      .then(async (response) => ({ response, payload: await response.json().catch(() => ({})) }))
-      .then(({ response, payload }) => {
-        if (active && response.ok && payload?.tenant?.slug === surface.tenantSlug) setSession(payload)
-      })
-      .finally(() => { if (active) setLoading(false) })
+
+    async function bootstrap() {
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/auth/session`, { credentials: 'include', cache: 'no-store' })
+        const payload = await response.json().catch(() => ({}))
+
+        if (active && response.ok && payload?.tenant?.slug === surface.tenantSlug) {
+          if (!payload?.onboarding?.completedAt) {
+            window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
+            return
+          }
+          if (payload.platformAccess?.rmm === false) {
+            window.location.replace(APP_URL || '/')
+            return
+          }
+          const tenantTheme = payload.settings?.theme?.mode || payload.onboarding?.data?.theme?.mode || 'system'
+          const userTheme = payload.preferences?.appearance?.theme
+          const preferredTheme = ['system', 'light', 'dark'].includes(userTheme) ? userTheme : tenantTheme
+          persistThemeMode(preferredTheme)
+          setTheme(resolveThemeMode(preferredTheme, tenantTheme))
+          setSession(payload)
+          setTenantState({
+            companyName: payload.tenant?.companyName || surface.tenantName,
+            slug: payload.tenant?.slug || surface.tenantSlug,
+            status: 'active',
+          })
+          return
+        }
+
+        const stateResponse = await fetch(
+          `${API_BASE}/api/v1/auth/tenant-state/${encodeURIComponent(surface.tenantSlug)}`,
+          { cache: 'no-store' },
+        )
+        const statePayload = await stateResponse.json().catch(() => ({}))
+        if (active && stateResponse.ok) setTenantState(statePayload)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    void bootstrap()
     return () => { active = false }
   }, [surface.tenantSlug])
 
@@ -189,6 +261,63 @@ export function ProductionRmmBootstrap() {
     }
   }, [session])
 
+  async function refreshAuthenticatedSession() {
+    const response = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      credentials: 'include',
+      cache: 'no-store',
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || payload?.tenant?.slug !== surface.tenantSlug) {
+      throw new Error(payload.error || 'Hi5Central could not open your authenticated RMM session.')
+    }
+    if (!payload?.onboarding?.completedAt) {
+      window.location.replace(`${APP_URL || window.location.origin}/onboarding`)
+      return null
+    }
+    if (payload.platformAccess?.rmm === false) {
+      window.location.replace(APP_URL || '/')
+      return null
+    }
+    setSession(payload)
+    return payload
+  }
+
+  async function beginMfa(payload) {
+    const flow = {
+      challengeToken: payload.challengeToken,
+      setupRequired: Boolean(payload.setupRequired),
+      tenant: payload.tenant,
+      user: payload.user,
+    }
+    setMfaFlow(flow)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+
+    if (!flow.setupRequired) return
+    const response = await fetch(`${API_BASE}/api/v1/auth/mfa/setup`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: flow.challengeToken }),
+    })
+    const setupPayload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(setupPayload.error || 'Could not start MFA setup.')
+    setMfaSetup(setupPayload)
+  }
+
+  function resetPasswordSignIn() {
+    setPasswordStep(false)
+    setForm((current) => ({ ...current, password: '' }))
+    setMfaFlow(null)
+    setMfaSetup(null)
+    setMfaCode('')
+    setRecoveryCodes([])
+    setAuthenticatedPayload(null)
+    setError('')
+  }
+
   async function login(event) {
     event.preventDefault()
     setError('')
@@ -205,18 +334,93 @@ export function ProductionRmmBootstrap() {
           return
         }
         setPasswordStep(true)
-      } finally { setSubmitting(false) }
+      } catch {
+        setError('Could not check the configured sign-in method. Please try again.')
+      } finally {
+        setSubmitting(false)
+      }
       return
     }
+
     setSubmitting(true)
-    const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
-      method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenantSlug: surface.tenantSlug, email, password: form.password }),
-    })
-    const payload = await response.json().catch(() => ({}))
-    setSubmitting(false)
-    if (!response.ok) { setError(payload.error || 'Sign in failed.'); return }
-    setSession(payload)
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/login-secure`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenantSlug: surface.tenantSlug, email, password: form.password }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Sign in failed.')
+
+      if (payload.mfaRequired) {
+        await beginMfa(payload)
+        return
+      }
+      if (!payload.authenticated) throw new Error('Hi5Central could not complete sign in.')
+      await refreshAuthenticatedSession()
+    } catch (loginError) {
+      setError(loginError.message || 'Sign in failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function verifyMfa(event) {
+    event.preventDefault()
+    if (!mfaFlow?.challengeToken || !mfaCode.trim()) return
+    setSubmitting(true)
+    setError('')
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim() }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'MFA verification failed.')
+
+      if (Array.isArray(payload.recoveryCodes) && payload.recoveryCodes.length) {
+        setAuthenticatedPayload(payload)
+        setRecoveryCodes(payload.recoveryCodes)
+        return
+      }
+      await refreshAuthenticatedSession()
+    } catch (verifyError) {
+      setError(verifyError.message || 'MFA verification failed.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function continueAfterRecoveryCodes() {
+    setSubmitting(true)
+    setError('')
+    try {
+      if (!authenticatedPayload?.authenticated) throw new Error('The authenticated session is no longer available.')
+      await refreshAuthenticatedSession()
+    } catch (continueError) {
+      setError(continueError.message || 'Could not open the RMM workspace.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function applyUserPreferences(preferences = {}) {
+    const appearance = preferences.appearance || {}
+    const navigation = preferences.navigation || {}
+    const preferredTheme = ['system', 'light', 'dark'].includes(appearance.theme)
+      ? appearance.theme
+      : (session?.settings?.theme?.mode || session?.onboarding?.data?.theme?.mode || 'system')
+    persistThemeMode(preferredTheme)
+    const resolvedTheme = resolveThemeMode(preferredTheme, session?.settings?.theme?.mode)
+    const organisationAccent = session?.settings?.theme?.accent || '#3b82f6'
+    setTheme(resolvedTheme)
+    setAccent(appearance.accentMode === 'personal' ? (appearance.accent || '#3b82f6') : organisationAccent)
+    setDensity(appearance.density === 'compact' ? 'compact' : 'comfortable')
+    setNavSide(navigation.desktopSide === 'right' ? 'right' : 'left')
+    setSidebarMode(navigation.sidebarMode === 'collapsed' ? 'collapsed' : 'expanded')
   }
 
   async function saveSites(nextSites) {
@@ -241,27 +445,106 @@ export function ProductionRmmBootstrap() {
     setSession(null)
   }
 
-  if (loading) return <main className="production-auth-shell"><div className="production-auth-card">Opening RMM…</div></main>
+  if (loading) return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if (!session) {
+    const tenantName = tenantState?.companyName || surface.tenantName || surface.tenantSlug || 'your organisation'
     return (
       <main className="production-auth-shell">
-        <form className="production-auth-card" onSubmit={login}>
-          <img src="/hi5central-logo.png" alt="Hi5Central" />
-          <h1>RMM sign in</h1>
-          <p>Enter your email address and Hi5Central will use the sign-in method configured by {surface.tenantName || surface.tenantSlug}.</p>
-          <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
-          {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
-          {error ? <div className="production-auth-error">{error}</div> : null}
-          <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}</button>
-          {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={() => { setPasswordStep(false); setForm((current) => ({ ...current, password: '' })); setError('') }}>Use a different email</button> : null}
-        </form>
+        <div className="production-auth-layout">
+          <section className="production-auth-copy">
+            <img src="/hi5central-logo.png" alt="" />
+            <span className="production-auth-kicker"><ShieldCheck size={15} /> Secure tenant sign-in</span>
+            <h1>Welcome back to {tenantName}.</h1>
+            <p>Enter your email address and Hi5Central will use the sign-in method configured by your organisation.</p>
+            <div className="production-auth-points">
+              <span><CheckCircle2 size={17} /> Tenant-isolated session</span>
+              <span><CheckCircle2 size={17} /> HttpOnly secure cookie</span>
+              <span><CheckCircle2 size={17} /> Organisation-managed sign-in</span>
+            </div>
+          </section>
+
+          <form className="production-auth-card" onSubmit={mfaFlow ? verifyMfa : login}>
+            <div className="production-auth-card-heading">
+              <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
+              <div>
+                <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : 'Hi5Central RMM'}</span>
+                <strong>{surface.tenantSlug ? `${surface.tenantSlug}.hi5central.com` : tenantName}</strong>
+              </div>
+            </div>
+
+            {recoveryCodes.length ? (
+              <>
+                <div className="production-auth-notice">
+                  MFA is enabled. Save these recovery codes somewhere secure. Each code can be used once.
+                </div>
+                <div className="production-auth-recovery-grid">
+                  {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
+                </div>
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting} onClick={continueAfterRecoveryCodes} type="button">
+                  {submitting ? 'Opening RMM…' : 'I have saved these codes'}{!submitting ? <ArrowRight size={17}/> : null}
+                </button>
+              </>
+            ) : mfaFlow ? (
+              <>
+                <p className="production-auth-method-note">
+                  {mfaFlow.setupRequired
+                    ? 'Add Hi5Central to your authenticator app, then enter the six-digit code to finish setup.'
+                    : 'Enter the six-digit code from your authenticator app, or an unused recovery code.'}
+                </p>
+                {mfaFlow.setupRequired ? (
+                  mfaSetup ? (
+                    <div className="production-auth-mfa-setup">
+                      <span>Authenticator setup key</span>
+                      <code>{mfaSetup.secret}</code>
+                      <small>Issuer: Hi5Central · Account: {mfaSetup.account}</small>
+                      <a href={mfaSetup.otpauthUri}>Open in authenticator app</a>
+                    </div>
+                  ) : <div className="production-auth-notice">Preparing authenticator setup…</div>
+                ) : null}
+                <label>
+                  <span>{mfaFlow.setupRequired ? 'Six-digit authenticator code' : 'Authenticator or recovery code'}</span>
+                  <input
+                    autoComplete="one-time-code"
+                    autoFocus
+                    inputMode={mfaFlow.setupRequired ? 'numeric' : 'text'}
+                    maxLength={mfaFlow.setupRequired ? 6 : 20}
+                    placeholder={mfaFlow.setupRequired ? '000000' : '000000 or recovery code'}
+                    required
+                    value={mfaCode}
+                    onChange={(event) => setMfaCode(event.target.value)}
+                  />
+                </label>
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting || !mfaCode.trim() || (mfaFlow.setupRequired && !mfaSetup)} type="submit">
+                  {submitting ? 'Verifying…' : mfaFlow.setupRequired ? 'Verify and enable MFA' : 'Verify and sign in'}
+                  {!submitting ? <ArrowRight size={17}/> : null}
+                </button>
+                <button className="production-auth-secondary-action" disabled={submitting} onClick={resetPasswordSignIn} type="button">Back to sign in</button>
+              </>
+            ) : (
+              <>
+                <label><span>Email address</span><input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} /></label>
+                {passwordStep ? <label><span>Password</span><input type="password" autoComplete="current-password" required autoFocus value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} /></label> : <p className="production-auth-method-note">Your organisation may continue with Microsoft 365 or ask for your Hi5Central password.</p>}
+                {error ? <div className="production-auth-error">{error}</div> : null}
+                <button disabled={submitting} type="submit">{submitting ? (passwordStep ? 'Signing in…' : 'Checking sign-in…') : passwordStep ? 'Sign in' : 'Continue'}{!submitting ? <ArrowRight size={17}/> : null}</button>
+                {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={resetPasswordSignIn}>Use a different email</button> : null}
+                <a href={APP_URL || '/'}>Back to Hi5Central</a>
+              </>
+            )}
+          </form>
+        </div>
       </main>
     )
   }
 
   return (
-    <RmmPlatformApp
-      accent="amber"
+    <>
+      <RmmPlatformApp
+      accent={accent}
+      accountSession={session}
+      canAdmin={Boolean(session.platformAccess?.admin)}
+      canItsm={session.platformAccess?.itsm !== false}
       dataLoading={dataLoading}
       devices={devices}
       sites={sites}
@@ -269,13 +552,19 @@ export function ProductionRmmBootstrap() {
       canBackstageRemote={sessionHasPermission(session, 'rmm.devices.backstage')}
       canAudit={sessionHasPermission(session, 'rmm.audit.view') || sessionHasPermission(session, 'audit.view')}
       currentUser={{ role: 'rmm', name: session.user?.name || session.user?.email || 'RMM user', username: session.user?.email || '' }}
+      density={density}
       handleLogout={logout}
+      navSide={navSide}
       onCreateItsmIncident={() => null}
       onSitesChange={saveSites}
       setTheme={setTheme}
+      sidebarMode={sidebarMode}
+      setSidebarMode={setSidebarMode}
       tenantName={session.tenant?.companyName || surface.tenantName || surface.tenantSlug}
       theme={theme}
       tickets={[]}
     />
+      <ProductionUserExperience session={session} onPreferences={applyUserPreferences} />
+    </>
   )
 }

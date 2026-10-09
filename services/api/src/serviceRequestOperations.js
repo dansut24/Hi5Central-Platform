@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
+import { syncServiceRequestTaskFlow, unlockDependentRequestTasks } from './serviceRequestTaskFlow.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
 import { attachmentPolicyFor } from './itsmConfig.js'
+import { sanitizeActivityHtml } from './itsmRichText.js'
 
 const priorities = new Set(['Low', 'Medium', 'High', 'Critical'])
 const taskStatuses = new Set(['Waiting', 'Ready', 'In Progress', 'Completed', 'Blocked'])
@@ -311,6 +313,17 @@ export function registerServiceRequestOperationRoutes(app) {
           error.status = 400
           throw error
         }
+        if (targetStatus === 'Completed') {
+          const outstanding = await client.query(
+            "SELECT count(*)::int AS pending FROM service_request_tasks WHERE request_id=$1 AND status<>'Completed'",
+            [request.id],
+          )
+          if (Number(outstanding.rows[0]?.pending || 0) > 0) {
+            const error = new Error('Complete all fulfilment tasks before completing the Service Request.')
+            error.status = 409
+            throw error
+          }
+        }
         if (request.status === 'Completed' && targetStatus === 'In Progress' && !text(values.reopenReason, 10_000)) {
           const error = new Error('Reopen reason is required before fulfilment resumes.')
           error.status = 400
@@ -416,7 +429,7 @@ export function registerServiceRequestOperationRoutes(app) {
     }
     const visibility = requestedKind === 'work' ? 'internal' : 'customer'
     const bodyText = text(body?.text, 20_000)
-    const bodyHtml = String(body?.html || '').slice(0, 100_000)
+    const bodyHtml = sanitizeActivityHtml(body?.html)
     const attachments = safeAttachments(body?.attachments, visibility)
     if (!bodyText && !bodyHtml && !attachments.length) return c.json({ error: 'Add a message or attachment.' }, 400)
 
@@ -605,6 +618,44 @@ export function registerServiceRequestOperationRoutes(app) {
           throw error
         }
         const task = taskResult.rows[0]
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          if (!['New','Approved','In Progress'].includes(request.status)) {
+            const error = new Error('Required approvals and an active request are needed before task fulfilment.')
+            error.status = 409; throw error
+          }
+          if (task.status === 'Waiting') {
+            const error = new Error('This task is still waiting for an earlier fulfilment step.')
+            error.status = 409; throw error
+          }
+          const dependencies = await client.query(
+            `SELECT count(*)::int AS pending
+             FROM jsonb_array_elements_text(COALESCE($1::jsonb,'[]'::jsonb)) dependency(task_key)
+             LEFT JOIN service_request_tasks predecessor
+               ON predecessor.request_id=$2 AND predecessor.external_key=dependency.task_key
+             WHERE predecessor.id IS NULL OR predecessor.status<>'Completed'`,
+            [JSON.stringify(task.dependencies||[]),request.id],
+          )
+          if (Number(dependencies.rows[0]?.pending||0)>0) {
+            const error=new Error('Complete prerequisite tasks before progressing this task.')
+            error.status=409; throw error
+          }
+          const pendingApprovals=await client.query(
+            "SELECT count(*)::int AS pending FROM service_request_approvals WHERE request_id=$1 AND status IN ('Pending','Rejected')",
+            [request.id],
+          )
+          if (Number(pendingApprovals.rows[0]?.pending||0)>0) {
+            const error=new Error('Required approvals must be resolved before fulfilment.')
+            error.status=409; throw error
+          }
+          if (body.status==='Completed' && !text(body.completionNotes??task.completion_notes,10000)) {
+            const error=new Error('Completion notes are required before completing the task.')
+            error.status=400; throw error
+          }
+        }
+        if (task.status==='Completed' && changeStatus && body.status!=='Completed') {
+          const error=new Error('Completed fulfilment tasks cannot be reopened from this form.')
+          error.status=409; throw error
+        }
         const assignee = changeAssignee
           ? await resolvePerson(client, auth.session.tenant_id, body.assigneeId ?? body.assignee)
           : null
@@ -649,6 +700,16 @@ export function registerServiceRequestOperationRoutes(app) {
           bodyText: `${actor.snapshot.name} updated task ${task.external_key}${changeStatus ? ` to ${body.status}` : ''}.`,
           metadata: { event: 'request.task.updated', taskKey: task.external_key },
         })
+        if (changeStatus && body.status==='Completed') await unlockDependentRequestTasks(client, request.id)
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          // Parent fulfilment only advances through the same approval-safe
+          // transaction as the task. Never auto-close a Service Request.
+          await syncServiceRequestTaskFlow(client, {
+            tenantId:auth.session.tenant_id,requestId:request.id,
+            actorUserId:auth.session.user_id,actorPersonId:actor.person?.id,
+            actorSnapshot:actor.snapshot,triggeringTaskKey:task.external_key,taskStatus:body.status,
+          })
+        }
         return { reference: request.reference, taskKey: task.external_key, updated: true }
       })
       return c.json(result)

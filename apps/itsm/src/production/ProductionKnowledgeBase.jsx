@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Archive, BookOpen, Check, ChevronRight, FileClock, Link2, Plus, Search, Send, X } from 'lucide-react'
+import { RichNoteEditor, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
+import { KnowledgeArticleBody, isFormattedKnowledge } from './KnowledgeArticleBody.jsx'
 import './ProductionKnowledgeLiveChat.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -35,8 +36,6 @@ function articleDraft(article) {
 }
 
 export function ProductionKnowledgeBase() {
-  const [target, setTarget] = useState(null)
-  const [active, setActive] = useState(() => window.location.pathname === '/knowledge' || window.location.pathname.startsWith('/knowledge/'))
   const [items, setItems] = useState([])
   const [selected, setSelected] = useState(null)
   const [query, setQuery] = useState('')
@@ -47,31 +46,11 @@ export function ProductionKnowledgeBase() {
   const [showVersions, setShowVersions] = useState(false)
   const [linkRecord, setLinkRecord] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    const sync = () => setActive(window.location.pathname === '/knowledge' || window.location.pathname.startsWith('/knowledge/'))
-    window.addEventListener('popstate', sync)
-    window.addEventListener('hi5-routechange', sync)
-    return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hi5-routechange', sync) }
-  }, [])
-
-  useEffect(() => {
-    if (!active) { setTarget(null); return undefined }
-    let mounted = null
-    const attach = () => {
-      const next = document.querySelector('.content-frame')
-      if (!(next instanceof HTMLElement)) return false
-      mounted = next; mounted.classList.add('production-knowledge-mounted'); setTarget(next); return true
-    }
-    if (attach()) return () => mounted?.classList.remove('production-knowledge-mounted')
-    const observer = new MutationObserver(() => { if (attach()) observer.disconnect() })
-    observer.observe(document.body, { childList: true, subtree: true })
-    return () => { observer.disconnect(); mounted?.classList.remove('production-knowledge-mounted') }
-  }, [active])
-
   async function load(preferred = selected?.reference) {
-    if (!active) return
+    setLoading(true)
     try {
       setError('')
       const payload = await api('/api/v1/knowledge')
@@ -79,10 +58,14 @@ export function ProductionKnowledgeBase() {
       const key = preferred || String(window.location.pathname.split('/')[2] || '')
       const next = (payload.items || []).find((item) => item.reference === key || item.slug === key) || (payload.items || [])[0] || null
       setSelected(next)
-    } catch (err) { setError(err.message) }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { if (active) load() }, [active])
+  useEffect(() => { void load() }, [])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -156,30 +139,42 @@ export function ProductionKnowledgeBase() {
     } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
 
-  if (!active || !target) return null
-
-  return createPortal(
+  return (
     <div className="production-knowledge-root">
+      <header className="pkb-page-heading">
+        <div className="pkb-page-title">
+          <span className="pkb-page-icon"><BookOpen size={21} /></span>
+          <div><small>KNOWLEDGE & DATA</small><h1>Knowledge Base</h1><p>Build, publish and maintain support articles across the service desk and self-service portal.</p></div>
+        </div>
+        <div className="pkb-page-actions">
+          <span className="pkb-article-total">{items.length} article{items.length === 1 ? '' : 's'} · {items.filter((item) => item.status === 'Published').length} published</span>
+          <button className="pkb-primary" onClick={newArticle} type="button"><Plus size={16} /> New article</button>
+        </div>
+      </header>
+      <div className="pkb-layout">
       <aside className="pkb-sidebar">
         <header><div><small>Knowledge Base</small><h2>Articles</h2></div><button className="pkb-icon primary" onClick={newArticle} title="New article"><Plus size={17} /></button></header>
         <label className="pkb-search"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search knowledge…" /></label>
         <div className="pkb-status-filter">{['All','Published','Draft','Archived'].map((item) => <button className={status === item ? 'active' : ''} key={item} onClick={() => setStatus(item)}>{item}</button>)}</div>
         <div className="pkb-list">
           {filtered.map((article) => <button className={selected?.reference === article.reference && !editing ? 'active' : ''} key={article.reference} onClick={() => choose(article)}><span><small>{article.reference} · {article.category}</small><strong>{article.title}</strong><em>{article.status} · v{article.version}</em></span><ChevronRight size={16} /></button>)}
-          {!filtered.length ? <div className="pkb-empty"><BookOpen size={26} /><strong>No articles found</strong><span>Create your first real Knowledge article.</span></div> : null}
+          {!filtered.length && !loading ? <div className="pkb-empty"><BookOpen size={26} /><strong>No articles found</strong><span>{items.length ? 'Try a different search or status filter.' : 'Create your first Knowledge article.'}</span></div> : null}
+          {loading ? <div className="pkb-loading-list" role="status">Loading articles…</div> : null}
         </div>
       </aside>
 
       <main className="pkb-main">
         {error ? <div className="pkb-error">{error}<button onClick={() => setError('')}><X size={15} /></button></div> : null}
-        {editing ? (
+        {loading && !selected && !editing ? (
+          <div className="pkb-empty large" role="status"><BookOpen size={38} /><strong>Loading Knowledge Base…</strong><span>Retrieving published articles and drafts from Hi5Central.</span></div>
+        ) : editing ? (
           <form className="pkb-editor" onSubmit={saveArticle}>
             <header><div><small>{selected ? selected.reference : 'New article'}</small><h1>{selected ? 'Edit Knowledge article' : 'Create Knowledge article'}</h1></div><div><button type="button" className="pkb-secondary" onClick={() => { setEditing(false); setDraft(emptyDraft()) }}>Cancel</button><button className="pkb-primary" disabled={busy}><Check size={16} /> {busy ? 'Saving…' : 'Save article'}</button></div></header>
             <div className="pkb-editor-grid">
               <section className="pkb-card pkb-editor-main">
                 <label><span>Title</span><input value={draft.title} onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))} /></label>
                 <label><span>Summary</span><textarea rows={3} value={draft.summary} onChange={(e) => setDraft((v) => ({ ...v, summary: e.target.value }))} /></label>
-                <label><span>Article content</span><textarea className="pkb-body-editor" rows={18} value={draft.bodyText} onChange={(e) => setDraft((v) => ({ ...v, bodyText: e.target.value }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></label>
+                <div className="pkb-rich-field"><span>Article content</span><RichNoteEditor html={isFormattedKnowledge(draft.bodyText) ? draft.bodyText : undefined} text={isFormattedKnowledge(draft.bodyText) ? undefined : draft.bodyText} onChange={({ html }) => setDraft((v) => ({ ...v, bodyText: '<div>' + sanitizeNoteHtml(html) + '</div>' }))} placeholder="Write clear steps, troubleshooting guidance, workarounds and resolution information…" /></div>
               </section>
               <aside className="pkb-card pkb-editor-side">
                 <label><span>Category</span><input list="pkb-categories" value={draft.category} onChange={(e) => setDraft((v) => ({ ...v, category: e.target.value }))} /><datalist id="pkb-categories">{categories.map((item) => <option key={item} value={item} />)}</datalist></label>
@@ -194,14 +189,14 @@ export function ProductionKnowledgeBase() {
           <article className="pkb-article">
             <header><div><small>{selected.reference} · {selected.category}</small><h1>{selected.title}</h1><p>{selected.summary}</p><div className="pkb-tags">{(selected.tags || []).map((tag) => <span key={tag}>{tag}</span>)}</div></div><div className="pkb-actions"><button className="pkb-secondary" onClick={openVersions}><FileClock size={16} /> Versions</button><button className="pkb-secondary" onClick={editArticle}>Edit</button>{selected.status !== 'Published' ? <button className="pkb-primary" onClick={() => changeStatus('Published')} disabled={busy}>Publish</button> : <button className="pkb-secondary" onClick={() => changeStatus('Draft')} disabled={busy}>Unpublish</button>}{selected.status !== 'Archived' ? <button className="pkb-icon" onClick={() => changeStatus('Archived')} title="Archive"><Archive size={17} /></button> : null}</div></header>
             <div className="pkb-meta"><span>Status <strong>{selected.status}</strong></span><span>Visibility <strong>{selected.visibility}</strong></span><span>Version <strong>{selected.version}</strong></span><span>Published <strong>{formatDate(selected.publishedAt)}</strong></span><span>Review <strong>{formatDate(selected.reviewAt)}</strong></span></div>
-            <section className="pkb-card pkb-article-body">{selected.bodyText ? selected.bodyText.split(/\n{2,}/).map((paragraph, index) => <p key={index}>{paragraph}</p>) : <p className="pkb-muted">No article content yet.</p>}</section>
+            <section className="pkb-card pkb-article-body"><KnowledgeArticleBody content={selected.bodyText} /></section>
             <div className="pkb-detail-grid"><section className="pkb-card"><h3>Linked ITSM records</h3>{selected.links?.length ? <div className="pkb-links">{selected.links.map((link) => <span key={link.id}><Link2 size={14} /> {link.recordReference} <small>{link.recordType}</small></span>)}</div> : <p className="pkb-muted">No records linked yet.</p>}<form className="pkb-link-form" onSubmit={addLink}><input value={linkRecord} onChange={(e) => setLinkRecord(e.target.value)} placeholder="INC-00001, PRB-00001…" /><button disabled={busy || !linkRecord.trim()}><Link2 size={15} /> Link</button></form></section><section className="pkb-card"><h3>Portal feedback</h3><div className="pkb-feedback"><span><strong>{selected.helpfulCount}</strong> Helpful</span><span><strong>{selected.notHelpfulCount}</strong> Not helpful</span></div><p className="pkb-muted">Feedback comes only from authenticated portal users viewing a published article.</p></section></div>
           </article>
-        ) : <div className="pkb-empty large"><BookOpen size={42} /><strong>Build trustworthy support knowledge</strong><span>Create a draft, publish it internally or to the Help Centre, then link it to ITSM records.</span><button className="pkb-primary" onClick={newArticle}><Plus size={16} /> New article</button></div>}
+        ) : <div className="pkb-empty large"><BookOpen size={42} /><strong>{error ? 'Knowledge articles could not be loaded' : 'Build trustworthy support knowledge'}</strong><span>{error ? 'Check your connection to the ITSM API, then try again.' : 'Create a draft, publish it internally or to the Help Centre, then link it to ITSM records.'}</span>{error ? <button className="pkb-secondary" onClick={() => load()} type="button">Retry loading</button> : <button className="pkb-primary" onClick={newArticle} type="button"><Plus size={16} /> New article</button>}</div>}
 
         {showVersions && selected ? <div className="pkb-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setShowVersions(false)}><aside className="pkb-versions"><header><div><small>{selected.reference}</small><h2>Version history</h2></div><button className="pkb-icon" onClick={() => setShowVersions(false)}><X size={18} /></button></header><div>{versions.map((version) => <article key={version.version}><span>v{version.version}</span><div><strong>{version.title}</strong><small>{version.status} · {version.visibility} · {formatDate(version.createdAt)}</small><p>{version.changeNote || 'Article updated'}</p></div></article>)}</div></aside></div> : null}
       </main>
-    </div>,
-    target,
+      </div>
+    </div>
   )
 }

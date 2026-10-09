@@ -64,6 +64,44 @@
   line-height: 1.5;
 }
 
+.production-profile-section-tabs {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--soft-shadow);
+}
+
+.production-profile-section-tabs button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.production-profile-section-tabs button:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.production-profile-section-tabs button.is-active {
+  background: rgb(var(--accent-rgb));
+  color: var(--accent-ink, #fff);
+}
+
 .production-profile-state,
 .production-profile-error {
   padding: 16px 18px;
@@ -291,7 +329,8 @@
   font-weight: 850;
 }
 
-.production-profile-form-grid select {
+.production-profile-form-grid select,
+.production-profile-form-grid input[type='color'] {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -303,14 +342,22 @@
   font-size: 12px;
 }
 
-.production-profile-form-grid select:focus {
+.production-profile-form-grid input[type='color'] {
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.production-profile-form-grid select:focus,
+.production-profile-form-grid input[type='color']:focus {
   outline: 3px solid rgba(var(--accent-rgb), .18);
   border-color: var(--brand);
 }
 
-.production-profile-form-grid select:disabled {
+.production-profile-form-grid select:disabled,
+.production-profile-form-grid input[type='color']:disabled {
   background: var(--surface-soft);
   color: var(--muted);
+  cursor: not-allowed;
 }
 
 .production-profile-save-row {
@@ -377,6 +424,15 @@
 
   .production-profile-heading {
     padding: 2px 4px 0;
+  }
+
+  .production-profile-section-tabs {
+    width: 100%;
+  }
+
+  .production-profile-section-tabs button {
+    flex: 1 1 0;
+    justify-content: center;
   }
 
   .production-profile-heading h1 {

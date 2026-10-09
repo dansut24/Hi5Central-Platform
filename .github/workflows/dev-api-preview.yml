@@ -1,0 +1,44 @@
+name: Dev API preview
+
+# Run once when this workflow is added, or manually. Do not publish
+# the API on every develop commit; keep developer CI usage predictable.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/dev-api-preview.yml'
+      - 'services/api/src/mfa.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hi5central-dev-api-preview
+  cancel-in-progress: true
+
+jobs:
+  build-api:
+    name: Build and publish Dev API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/api
+          push: true
+          tags: |
+            ghcr.io/dansut24/hi5central-platform-api:dev
+            ghcr.io/dansut24/hi5central-platform-api:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=API
+          cache-to: type=gha,mode=max,scope=API

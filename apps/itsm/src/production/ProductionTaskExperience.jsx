@@ -33,6 +33,8 @@ import './ProductionItsmWorkspaceEnhancements.css'
 import './ProductionActivityCanvasRecord.css'
 import './ProductionActivityActionRecord.css'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
+import { ProjectTaskDetail } from './ProductionProjectTaskDetail.jsx'
+import { TaskWorkbenchFrame, TaskActivityFeed, TaskContextField, TaskRailField } from './ProductionTaskWorkbench.jsx'
 import './ProductionTaskExperience.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -44,7 +46,8 @@ const VIEW_STYLES = [
 ]
 const WORK_VIEWS = [
   { id: 'mine', label: 'My Tasks', description: 'Work currently assigned to you' },
-  { id: 'team', label: 'Team Queue', description: 'Active work routed to your teams' },
+  { id: 'team', label: 'Team Queue', description: 'Work assigned to you or your teams' },
+  { id: 'project', label: 'Project Tasks', description: 'Active tasks across accessible projects' },
   { id: 'unassigned', label: 'Unassigned', description: 'Ready work waiting to be taken' },
   { id: 'blocked', label: 'Blocked', description: 'Work that needs attention' },
 ]
@@ -53,14 +56,14 @@ const COLUMNS = [
   { key: 'summary', label: 'Summary', width: 245, locked: true },
   { key: 'priority', label: 'Priority / risk', width: 110 },
   { key: 'status', label: 'Status', width: 125 },
-  { key: 'requester', label: 'Requester', width: 150 },
-  { key: 'service', label: 'Service', width: 140 },
+  { key: 'requester', label: 'Requester / project', width: 170 },
+  { key: 'service', label: 'Type / service', width: 140 },
   { key: 'assignment', label: 'Assignment', width: 180 },
   { key: 'due', label: 'Due / target', width: 155 },
   { key: 'updated', label: 'Updated', width: 145 },
   { key: 'actions', label: 'Action', width: 125, locked: true },
 ]
-const DEFAULT_FILTERS = { scope: 'team', status: 'All', priority: 'All', team: 'All', assignee: 'All', service: 'All', due: 'All' }
+const DEFAULT_FILTERS = { scope: 'team', status: 'All', priority: 'All', team: 'All', assignee: 'All', service: 'All', source: 'All', due: 'All' }
 
 function routeFromPath(pathname = window.location.pathname) {
   if (pathname === '/tasks' || pathname === '/tasks/') return { kind: 'list' }
@@ -110,7 +113,7 @@ function priorityClass(value = '') {
 }
 
 function dueMeta(value, status = '') {
-  if (status === 'Completed') return { className: 'is-complete', label: 'Completed', overdue: false }
+  if (status === 'Completed' || status === 'Done') return { className: 'is-complete', label: 'Completed', overdue: false }
   if (!value) return { className: 'is-none', label: 'No due date', overdue: false }
   const due = new Date(value)
   if (Number.isNaN(due.getTime())) return { className: 'is-none', label: 'No due date', overdue: false }
@@ -127,9 +130,11 @@ function taskRecord(task) {
     id: task.id,
     title: task.title,
     status: task.status,
-    priority: task.primaryRequest?.priority || 'Medium',
-    requester: task.primaryRequest?.requester || 'Not recorded',
-    service: task.primaryRequest?.service || 'Unclassified',
+    source: task.source || 'service-request',
+    project: task.project || null,
+    priority: task.priority || task.primaryRequest?.priority || 'Medium',
+    requester: task.source === 'project' ? task.project?.name || 'Project' : task.primaryRequest?.requester || 'Not recorded',
+    service: task.source === 'project' ? 'Project' : task.primaryRequest?.service || 'Unclassified',
     team: task.team || 'Unassigned team',
     assignee: task.assignee || 'Unassigned',
     assigneeEmail: task.assigneeEmail || '',
@@ -228,6 +233,7 @@ function TaskFilters({ payload, filters, onChange, onClear, query, onQueryChange
       <FilterSelect label="Priority / risk" value={filters.priority} options={options.priorities} onChange={(value) => onChange({ ...filters, priority: value })} />
       <FilterSelect label="Assignment group" value={filters.team} options={options.teams} onChange={(value) => onChange({ ...filters, team: value })} />
       <FilterSelect label="Assignee" value={filters.assignee} options={options.assignees} onChange={(value) => onChange({ ...filters, assignee: value })} />
+      <FilterSelect label="Type" value={filters.source} options={['service-request','project'].filter(value => (options.sources || []).includes(value))} onChange={(value) => onChange({ ...filters, source: value })} />
       <FilterSelect label="Service" value={filters.service} options={options.services} onChange={(value) => onChange({ ...filters, service: value })} />
       <FilterSelect label="Due / target" value={filters.due} options={options.due} onChange={(value) => onChange({ ...filters, due: value })} />
       <button className="production-record-clear" type="button" onClick={onClear}>Reset to Team Queue</button>
@@ -242,11 +248,11 @@ function TaskWorkViews({ payload, active, onChange }) {
 
 function renderCell(record, key) {
   if (key === 'reference') return <strong className="production-record-reference">{record.id}</strong>
-  if (key === 'summary') return <><strong>{record.title}</strong><small>{record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'}</small></>
+  if (key === 'summary') return <><strong>{record.title}</strong><small>{record.project ? `Project ${record.project.id} · ${record.project.name}` : record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'}</small></>
   if (key === 'priority') return <span className={`production-record-priority ${priorityClass(record.priority)}`}>{record.priority}</span>
   if (key === 'status') return <span className={`production-record-status ${statusClass(record.status)}`}>{record.status}</span>
   if (key === 'requester') return <span>{record.requester}</span>
-  if (key === 'service') return <span>{record.service}</span>
+  if (key === 'service') return <span>{record.source === 'project' ? 'Project task' : record.service}</span>
   if (key === 'assignment') return <span className="production-task-assignment"><strong>{record.team}</strong><small>{record.assignee}</small></span>
   if (key === 'due') return <TaskDue record={record} />
   if (key === 'updated') return <span>{formatDate(record.updatedAt)}</span>
@@ -254,10 +260,11 @@ function renderCell(record, key) {
 }
 
 function taskCanBeTaken(record) {
-  return record.status === 'Ready' && (!record.assignee || record.assignee === 'Unassigned')
+  return record.source !== 'project' && record.status === 'Ready' && (!record.assignee || record.assignee === 'Unassigned')
 }
 
 function TaskOwnershipButton({ record, onTake, busyTask }) {
+  if (record.source === 'project') return <button type="button" className="production-task-ownership-button" onClick={(event) => { event.stopPropagation(); navigate(`/tasks/${encodeURIComponent(record.id)}`) }}><ExternalLink size={14}/>Open task</button>
   if (!taskCanBeTaken(record)) return <span className="production-task-ownership-state">{record.status === 'Ready' ? record.assignee : '—'}</span>
   const busy = busyTask === record.id
   return <button type="button" className="production-task-ownership-button" disabled={busy} onClick={(event) => { event.stopPropagation(); void onTake(record) }}><UserPlus size={14} />{busy ? 'Taking…' : 'Take task'}</button>
@@ -276,11 +283,11 @@ function TaskCardList({ items, onOpen, onTake, busyTask }) {
     const due = dueMeta(record.dueAt, record.status)
     return <article className={`production-record-card production-record-card-enhanced production-task-mobile-card${due.overdue ? ' is-task-overdue' : ''}`} key={record.id}>
       <button className="production-record-card-open production-task-mobile-card-open" type="button" onClick={() => onOpen(record)}>
-        <span className="production-record-card-icon is-service-request"><ListChecks size={18} /></span>
+        <span className={`production-record-card-icon ${record.source === 'project' ? 'is-project' : 'is-service-request'}`}><ListChecks size={18}/></span>
         <span className="production-record-card-copy">
           <strong>{record.id}</strong>
           <b>{record.title}</b>
-          <small>{record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'} · {record.team || 'Unassigned'}</small>
+          <small>{record.project ? `Project ${record.project.id}` : record.primaryRequest ? `Primary ${record.primaryRequest}` : 'Workflow task'} · {record.team || 'Unassigned'}</small>
         </span>
         <span className={`production-record-status ${statusClass(record.status)}`}>{record.status}</span>
         <span className="production-record-card-facts">
@@ -316,7 +323,7 @@ function TaskQueue() {
     setError('')
     const params = new URLSearchParams({ limit: String(pageSize), offset: String(page * pageSize), scope: filters.scope })
     if (query.trim()) params.set('search', query.trim())
-    for (const key of ['status', 'priority', 'team', 'assignee', 'service', 'due']) {
+    for (const key of ['status', 'priority', 'team', 'assignee', 'service', 'source', 'due']) {
       if (filters[key] && filters[key] !== 'All') params.set(key, filters[key])
     }
     apiJson(`/api/v1/task-work-queue?${params}`)
@@ -343,6 +350,7 @@ function TaskQueue() {
     filters.team !== 'All' ? filters.team : '',
     filters.assignee !== 'All' ? filters.assignee : '',
     filters.service !== 'All' ? filters.service : '',
+    filters.source !== 'All' ? filters.source : '',
     filters.due !== 'All' ? filters.due : '',
   ].filter(Boolean).length
 
@@ -375,7 +383,7 @@ function TaskQueue() {
       <div className="production-record-content">
         {loading ? <div className="production-record-state"><strong>Loading tasks…</strong><span>Checking your current fulfilment queues.</span></div> : null}
         {!loading && error ? <div className="production-record-state is-error"><strong>Could not load this queue</strong><span>{error}</span><button type="button" onClick={() => setRevision((value) => value + 1)}>Retry</button></div> : null}
-        {!loading && !error && !records.length ? <div className="production-record-state"><strong>No tasks in {currentView?.label || 'this view'}</strong><span>Waiting workflow steps stay hidden until their dependencies are complete.</span></div> : null}
+        {!loading && !error && !records.length ? <div className="production-record-state"><strong>No tasks in {currentView?.label || 'this view'}</strong><span>{filters.scope === 'project' && !(payload.filters?.sources || []).includes('project') ? 'Project tasks require Projects: View permission. Ask an administrator to check your role.' : filters.scope === 'project' ? 'No active project tasks match these filters. Completed tasks are in the Completed view.' : 'Check My Tasks, Project Tasks or All active, or adjust filters to see more work.'}</span></div> : null}
         {!loading && !error && records.length ? <div className="production-motion-enter production-motion-enter-fast">{renderedViewStyle === 'cards' ? <TaskCardList items={records} onOpen={(record) => navigate(`/tasks/${encodeURIComponent(record.id)}`)} onTake={takeTask} busyTask={ownershipBusy} /> : <TaskTable items={records} columns={columns} onOpen={(record) => navigate(`/tasks/${encodeURIComponent(record.id)}`)} onTake={takeTask} busyTask={ownershipBusy} />}</div> : null}
       </div>
 
@@ -395,202 +403,138 @@ function InspectorRow({ label, value, meta, onClick }) {
 }
 
 function TaskDetail({ taskKey }) {
-  const [task, setTask] = useState(null)
-  const [directory, setDirectory] = useState({ people: [], teams: [] })
-  const [parentRequest, setParentRequest] = useState(null)
-  const [team, setTeam] = useState('')
-  const [assignee, setAssignee] = useState('Unassigned')
-  const [completionNotes, setCompletionNotes] = useState('')
-  const [completionOpen, setCompletionOpen] = useState(false)
-  const [assignmentEditing, setAssignmentEditing] = useState(false)
-  const [tab, setTab] = useState('overview')
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
+  const [task,setTask] = useState(null)
+  const [directory,setDirectory] = useState({people:[],teams:[]})
+  const [parentRequest,setParentRequest] = useState(null)
+  const [team,setTeam] = useState('')
+  const [assignee,setAssignee] = useState('Unassigned')
+  const [completionNotes,setCompletionNotes] = useState('')
+  const [completionOpen,setCompletionOpen] = useState(false)
+  const [loading,setLoading] = useState(true)
+  const [saving,setSaving] = useState(false)
+  const [error,setError] = useState('')
+  const [notice,setNotice] = useState('')
 
-  async function load({ quiet = false } = {}) {
-    if (!quiet) setLoading(true)
-    setError('')
+  async function load(quiet = false) {
+    if(!quiet)setLoading(true)
     try {
-      const nextTask = await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}`)
-      const [nextDirectory, nextParent] = await Promise.all([
-        apiJson('/api/v1/assignment/options?recordType=Service%20Request').catch(() => ({ people: [], teams: [] })),
-        nextTask.primaryRequest?.id ? apiJson(`/api/v1/service-requests/${encodeURIComponent(nextTask.primaryRequest.id)}`).catch(() => null) : null,
+      const next=await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}`)
+      const [options,parent]=await Promise.all([
+        apiJson('/api/v1/assignment/options?recordType=Service%20Request').catch(()=>({people:[],teams:[]})),
+        next.primaryRequest?.id ? apiJson(`/api/v1/service-requests/${encodeURIComponent(next.primaryRequest.id)}`).catch(()=>null) : null,
       ])
-      setTask(nextTask)
-      setDirectory(nextDirectory || { people: [], teams: [] })
-      setParentRequest(nextParent)
-      setTeam(nextTask.team || '')
-      setAssignee(nextTask.assignee || 'Unassigned')
-      setCompletionNotes(nextTask.completionNotes || '')
-    } catch (loadError) { setError(loadError.message) } finally { if (!quiet) setLoading(false) }
+      setTask(next);setDirectory(options||{people:[],teams:[]});setParentRequest(parent)
+      setTeam(next.team||'');setAssignee(next.assignee||'Unassigned')
+      setCompletionNotes(next.completionNotes||'')
+      setError('')
+    }catch(e){setError(e.message)}
+    finally{setLoading(false)}
   }
-
-  useEffect(() => { void load() }, [taskKey])
-
-  async function patch(body, success) {
-    setSaving(true); setError(''); setNotice('')
+  useEffect(()=>{void load()},[taskKey])
+  async function patch(body,message) {
+    if(saving)return false
+    setSaving(true);setError('');setNotice('')
     try {
-      await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}`, { method: 'PATCH', body: JSON.stringify(body) })
-      await load({ quiet: true })
+      await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}`,{method:'PATCH',body:JSON.stringify(body)})
+      await load(true)
       setCompletionOpen(false)
-      setAssignmentEditing(false)
-      if (success) setNotice(success)
+      setNotice(message||'Task updated')
       return true
-    } catch (saveError) { setError(saveError.message); return false } finally { setSaving(false) }
+    }catch(e){setError(e.message);return false}
+    finally{setSaving(false)}
   }
-
-  async function ownershipAction(action, success) {
-    if (saving) return
-    setSaving(true); setError(''); setNotice('')
+  async function ownership(action,message) {
+    if(saving)return
+    setSaving(true);setError('');setNotice('')
     try {
-      await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}/${action}`, { method: 'POST' })
-      await load({ quiet: true })
-      setNotice(success)
-    } catch (ownershipError) { setError(ownershipError.message) } finally { setSaving(false) }
+      await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}/${action}`,{method:'POST'})
+      await load(true)
+      setNotice(message)
+    }catch(e){setError(e.message)}finally{setSaving(false)}
   }
-
-  if (loading) return <section className="production-task-experience task-work-item is-loading"><div className="activity-canvas-skeleton is-heading" /><div className="activity-canvas-skeleton is-ribbon" /></section>
-  if (!task) return <section className="production-task-experience task-work-item"><div className="activity-canvas-failure"><strong>Could not open this task</strong><span>{error}</span><button type="button" onClick={() => load()}>Retry</button></div></section>
-  const completed = task.status === 'Completed'
-  const parent = task.primaryRequest || {}
-  const session = readSession()
-  const taskUnassigned = !task.assignee || task.assignee === 'Unassigned'
-  const taskIsMine = !taskUnassigned && (
-    (task.assigneeEmail && session.email && task.assigneeEmail.toLowerCase() === String(session.email).toLowerCase())
-    || (task.assignee && session.name && task.assignee === session.name)
+  async function saveNote(note) {
+    if(saving)return false
+    setSaving(true);setError('');setNotice('')
+    try {
+      await apiJson(`/api/v1/tasks/${encodeURIComponent(taskKey)}/notes`,{method:'POST',body:JSON.stringify(note)})
+      await load(true)
+      setNotice(note.visibility==='customer'?'Customer update sent to the parent request.':'Task note added to the parent request.')
+      return true
+    }catch(e){setError(e.message);return false}
+    finally{setSaving(false)}
+  }
+  if(loading)return <section className="task-record-loading">Loading task details…</section>
+  if(!task)return <section className="task-record-loading" role="alert">{error||'Task not found.'}<button type="button" onClick={()=>void load()}>Retry</button></section>
+  const parent=task.primaryRequest||{}
+  const completed=task.status==='Completed'
+  const user=readSession()
+  const unassigned=!task.assignee||task.assignee==='Unassigned'
+  const isMine=!unassigned && Boolean(
+    (task.assigneeEmail&&user.email&&task.assigneeEmail.toLowerCase()===String(user.email).toLowerCase())
+    || (task.assignee&&user.name&&task.assignee===user.name)
   )
-  const canTake = task.status === 'Ready' && taskUnassigned
-  const canRelease = task.status === 'Ready' && taskIsMine
-  const detailDue = dueMeta(task.dueAt, task.status)
-  const teams = directory.teams || []
-  const selectedTeam = teams.find((item) => item.name === team) || null
-  const allPeople = directory.people || []
-  const teamPeople = selectedTeam ? (selectedTeam.members || []) : allPeople
-  const selectedAssignee = allPeople.find((person) => person.name === assignee) || null
-  const assignmentDirty = team !== (task.team || '') || assignee !== (task.assignee || 'Unassigned')
-  const taskEvents = (parentRequest?.activities || []).filter((activity) => activity?.metadata?.taskKey === task.id)
-  const taskAttachments = taskEvents.flatMap((activity) => (activity.attachments || []).map((item, index) => ({ ...item, eventId: activity.id, _key: item.id || `${activity.id}-${index}` })))
-  const tabs = [
-    ['overview', 'Overview'],
-    ['activity', `Activity${taskEvents.length ? ` ${taskEvents.length + 1}` : ''}`],
-    ['attachments', `Attachments${taskAttachments.length ? ` ${taskAttachments.length}` : ''}`],
-    ['audit', 'Audit Log'],
-  ]
-  const activeTabLabel = (tabs.find(([value]) => value === tab)?.[1] || 'Overview').replace(/\s+\d+$/, '')
-
-  const personMatches = (left, right) => {
-    if (!left || !right) return false
-    return Boolean(
-      (left.databaseId && right.databaseId && left.databaseId === right.databaseId)
-      || (left.id && right.id && left.id === right.id)
-      || (left.email && right.email && left.email.toLowerCase() === right.email.toLowerCase())
-      || (left.name && right.name && left.name === right.name)
-    )
+  const teams=directory.teams||[]
+  const people=directory.people||[]
+  const selectedTeam=teams.find(item=>item.name===team)||null
+  const selectedAssignee=people.find(item=>item.name===assignee)||null
+  const events=(parentRequest?.activities||[]).filter(item=>item.metadata?.taskKey===task.id).sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0))
+  const parentTasks=parentRequest?.requestTasks||[]
+  const completedCount=parentTasks.filter(item=>item.status==='Completed').length
+  const assignmentChanged=team!==(task.team||'')||assignee!==(task.assignee||'Unassigned')
+  const approvers=parentRequest?.requestApprovals||[]
+  const pending=approvers.filter(item=>item.status==='Pending').length
+  const blocked=task.status==='Blocked'
+  const matchPerson=(a,b)=>Boolean(a&&b&&((a.id&&a.id===b.id)||(a.email&&b.email&&a.email.toLowerCase()===b.email.toLowerCase())||(a.name&&a.name===b.name)))
+  const changeTeam=(value)=>{
+    setTeam(value?.name||'')
+    if(!value||(selectedAssignee&&!(value.members||[]).some(person=>matchPerson(person,selectedAssignee))))setAssignee('Unassigned')
   }
-
-  const chooseAssignee = (person) => {
-    if (!person) { setAssignee('Unassigned'); return }
-    setAssignee(person.name || 'Unassigned')
-    const compatible = teams.filter((candidate) => (candidate.members || []).some((member) => personMatches(member, person)))
-    if (selectedTeam && compatible.some((candidate) => candidate.name === selectedTeam.name)) return
-    const preferred = compatible.find((candidate) => (candidate.members || []).some((member) => personMatches(member, person) && member.isPrimary)) || compatible[0]
-    if (preferred) setTeam(preferred.name)
+  const changePerson=(value)=>{
+    setAssignee(value?.name||'Unassigned')
+    if(!value)return
+    const compatible=teams.find(item=>(item.members||[]).some(person=>matchPerson(person,value)))
+    if(compatible&&!((selectedTeam?.members)||[]).some(person=>matchPerson(person,value)))setTeam(compatible.name)
   }
-
-  const changeTeam = (nextTeam) => {
-    const nextName = nextTeam?.name || ''
-    setTeam(nextName)
-    if (!nextTeam) { setAssignee('Unassigned'); return }
-    const stillEligible = selectedAssignee && (nextTeam.members || []).some((member) => personMatches(member, selectedAssignee))
-    if (!stillEligible) setAssignee('Unassigned')
-  }
-
-  const renderAssignmentEditor = () => <div className="task-detail-assignment-editor">
-    <label><span>Assignment group</span><Hi5EntityTypeahead items={teams} value={selectedTeam} disabled={completed || saving} onSelect={changeTeam} placeholder="Type at least 2 characters…" minimumCharacters={2} emptyLabel="No matching assignment groups" getSearchText={(item) => item.name || ''} getMeta={(item) => `${(item.members || []).length} eligible technician${(item.members || []).length === 1 ? '' : 's'}`} /></label>
-    <label><span>Assignee</span><Hi5EntityTypeahead items={teamPeople} value={selectedAssignee} disabled={completed || saving} onSelect={chooseAssignee} placeholder="Type at least 2 characters…" minimumCharacters={2} emptyLabel={team ? `No matching eligible users in ${team}` : 'No matching eligible technicians'} /></label>
-    {assignmentDirty && !completed ? <button type="button" disabled={saving} onClick={() => patch({ team, assignee }, 'Assignment saved')}><Check size={15} />Save assignment</button> : null}
-  </div>
-
-  const renderOverview = () => <div className="task-detail-overview">
-    <section className="task-detail-card task-detail-instructions">
-      <header><div><span>Work item</span><h2>Task instructions</h2></div></header>
-      <div className="task-detail-card-body"><p>{task.instructions || 'No additional instructions were supplied for this task.'}</p>{task.completionNotes ? <div className="task-detail-completion-note"><CheckCircle2 size={16} /><span><small>Completion notes</small><strong>{task.completionNotes}</strong></span></div> : null}</div>
-    </section>
-
-    <section className="task-detail-card">
-      <header><div><span>Context</span><h2>Task information</h2></div></header>
-      <div className="task-detail-facts">
-        <button type="button" onClick={() => parent.id && navigate(`/requests/${encodeURIComponent(parent.id)}`)}><small>Primary request</small><strong>{parent.id || 'Not recorded'}</strong><span>{parent.title || 'No parent request title'}</span></button>
-        <div><small>Requester</small><strong>{parent.requester || 'Not recorded'}</strong><span>{parent.requesterEmail || 'No requester email'}</span></div>
-        <div><small>Service</small><strong>{parent.service || 'Not recorded'}</strong><span>Service context</span></div>
-        <div><small>Due / target</small><strong>{task.dueAt ? formatDate(task.dueAt) : 'No due date'}</strong><span className={detailDue.overdue ? 'is-danger' : ''}>{detailDue.label}</span></div>
-        <div><small>Dependencies</small><strong>{task.dependencies?.length ? `${task.dependencies.length} prerequisite${task.dependencies.length === 1 ? '' : 's'}` : 'None'}</strong><span>{task.dependencies?.length ? 'Workflow dependencies recorded' : 'No prerequisites'}</span></div>
-        <div><small>Created</small><strong>{formatDate(task.createdAt)}</strong><span>Task creation time</span></div>
-      </div>
-    </section>
-
-    <section className="task-detail-card">
-      <header><div><span>Ownership</span><h2>Assignment</h2></div><button type="button" disabled={completed} onClick={() => setAssignmentEditing((value) => !value)}>{assignmentEditing ? 'Close' : 'Edit'}</button></header>
-      <div className="task-detail-assignment-summary"><span><small>Team</small><strong>{task.team || 'Unassigned'}</strong></span><span><small>Assignee</small><strong>{task.assignee || 'Unassigned'}</strong></span></div>
-      {assignmentEditing ? renderAssignmentEditor() : null}
-    </section>
-  </div>
-
-  const renderActivity = () => <section className="task-detail-card task-detail-activity">
-    {completionOpen && !completed ? <div className="task-work-item-composer"><label><span>Completion notes</span><textarea rows="3" value={completionNotes} disabled={saving || !taskIsMine} onChange={(event) => setCompletionNotes(event.target.value)} placeholder="Record what was completed and any relevant outcome…" /></label><button type="button" disabled={saving || !taskIsMine || !completionNotes.trim()} onClick={() => patch({ status: 'Completed', completionNotes }, 'Task completed')}><CheckCircle2 size={15} />Complete task</button></div> : null}
-    <header><div><span>Timeline</span><h2>Activity</h2></div></header>
-    <div className="task-detail-timeline">{taskEvents.length ? taskEvents.map((event) => <div className="task-work-item-event" key={event.id}><i /><div><strong>{event.text || event.message || 'Task updated'}</strong><small>{event.actor || 'Hi5Central'} · {formatDate(event.createdAt)}</small></div></div>) : <div className="task-detail-empty">No task-specific activity has been recorded yet.</div>}{completed && !taskEvents.length ? <div className="task-work-item-event"><i /><div><strong>Task completed</strong><small>{task.completionNotes || 'No completion notes'} · {formatDate(task.completedAt)}</small></div></div> : null}</div>
-  </section>
-
-  const renderAttachments = () => <section className="task-detail-card"><header><div><span>Evidence</span><h2>Attachments</h2></div></header><div className="task-detail-list">{taskAttachments.length ? taskAttachments.map((item, index) => <div className="task-work-item-attachment" key={item.id || item._key || index}><span><Paperclip size={17} /></span><div><strong>{item.name || item.fileName || 'Attachment'}</strong><small>{item.size ? `${Math.max(1, Math.round(Number(item.size) / 1024))} KB` : 'Attached to task activity'}</small></div></div>) : <div className="task-detail-empty">No attachments are linked to this task yet.</div>}</div></section>
-
-  const renderAudit = () => <section className="task-detail-card"><header><div><span>Forensic history</span><h2>Audit Log</h2></div></header><div className="task-detail-list">{taskEvents.length ? taskEvents.map((event) => <div className="task-work-item-audit" key={event.id}><time>{formatDate(event.createdAt)}</time><div><strong>{event.text || event.message || event.metadata?.event || 'Task updated'}</strong><small>{event.actor || 'Hi5Central'}{event.metadata?.event ? ` · ${event.metadata.event}` : ''}</small></div></div>) : <div className="task-detail-empty">No task-specific audit events have been recorded yet.</div>}</div></section>
-
-  const activeContent = tab === 'overview' ? renderOverview() : tab === 'attachments' ? renderAttachments() : tab === 'audit' ? renderAudit() : renderActivity()
-
-  return <section className="production-task-experience task-work-item task-detail-rmm production-motion-enter">
-    <nav className="task-detail-breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" onClick={() => navigate('/tasks')}>Tasks</button><ChevronRight size={13} />
-      <button type="button" onClick={() => setTab('overview')}>{task.id}</button><ChevronRight size={13} />
-      <span>{activeTabLabel}</span>
-    </nav>
-
-    <section className="task-detail-hero">
-      <span className="task-detail-hero-icon"><ListChecks size={27} /></span>
-      <div className="task-detail-identity">
-        <div><strong>{task.id}</strong><span className={`activity-canvas-pill ${statusClass(task.status)}`}>{task.status}</span><span className={`activity-canvas-pill ${priorityClass(parent.priority || 'Medium')}`}>{parent.priority || 'Medium'}</span></div>
-        <h1>{task.title}</h1>
-        <p>{task.team || 'Unassigned'} / {task.assignee || 'Unassigned'} · Parent {parent.id || 'not recorded'} · {detailDue.label}</p>
-      </div>
-      <div className="task-detail-hero-actions">
-        {canTake ? <button type="button" className="is-primary" disabled={saving} onClick={() => ownershipAction('take', 'Task taken')}><UserPlus size={16} />Take task</button> : null}
-        {canRelease ? <button type="button" disabled={saving} onClick={() => ownershipAction('release', 'Task released to team queue')}><UserMinus size={16} />Release</button> : null}
-        <details className="record-lab-action-menu task-detail-action-menu">
-          <summary><UserPlus size={16} /><span>Assignment</span><ChevronDown size={14} /></summary>
-          <div className="record-lab-action-menu-popover">
-            <button type="button" disabled={completed} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setTab('overview'); setAssignmentEditing(true) }}><UserPlus size={15} /><span><strong>Edit assignment</strong><small>Change team or technician</small></span></button>
-            <button type="button" disabled={!parent.id} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); if (parent.id) navigate(`/requests/${encodeURIComponent(parent.id)}`) }}><ExternalLink size={15} /><span><strong>Open parent</strong><small>{parent.id || 'No parent request'}</small></span></button>
-          </div>
-        </details>
-        <details className="record-lab-action-menu task-detail-action-menu">
-          <summary><CheckCircle2 size={16} /><span>Status</span><ChevronDown size={14} /></summary>
-          <div className="record-lab-action-menu-popover align-right">
-            <button type="button" disabled={saving || completed || !taskIsMine} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void patch({ status: 'In Progress' }, 'Task started') }}><PlayCircle size={15} /><span><strong>Start</strong><small>Set task in progress</small></span></button>
-            <button type="button" disabled={saving || completed || !taskIsMine} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void patch({ status: 'Blocked' }, 'Task blocked') }}><CircleStop size={15} /><span><strong>Block</strong><small>Mark task blocked</small></span></button>
-            <button type="button" disabled={saving || completed || !taskIsMine} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setTab('activity'); setCompletionOpen(true) }}><CheckCircle2 size={15} /><span><strong>Complete</strong><small>Add completion notes and finish</small></span></button>
-          </div>
-        </details>
-      </div>
-    </section>
-
-    {error ? <div className="activity-canvas-banner is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
-    {notice ? <div className="activity-canvas-banner is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
-
-    <nav className="task-detail-tabs">{tabs.map(([value, label]) => <button type="button" key={value} className={tab === value ? 'is-active' : ''} onClick={() => { setCompletionOpen(false); setTab(value) }}>{label}</button>)}<button type="button" className="task-detail-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} /><span>Refresh</span></button></nav>
-    <main className="task-detail-content">{activeContent}</main>
-  </section>
+  const left=<>
+    <h2>Task information</h2>
+    <TaskRailField label="Status"><strong className="task-record-status">{task.status}</strong></TaskRailField>
+    <TaskRailField label="Assigned team"><Hi5EntityTypeahead items={teams} value={selectedTeam} disabled={saving||completed} onSelect={changeTeam} placeholder="Search teams…" minimumCharacters={2} getSearchText={item=>item.name||''} getMeta={item=>`${(item.members||[]).length} technicians`}/></TaskRailField>
+    <TaskRailField label="Technician"><Hi5EntityTypeahead items={selectedTeam?.members||people} value={selectedAssignee} disabled={saving||completed} onSelect={changePerson} placeholder="Search technicians…" minimumCharacters={2}/></TaskRailField>
+    {assignmentChanged?<div className="task-record-rail-actions"><button type="button" disabled={saving||completed} onClick={()=>void patch({team,assignee},'Assignment saved')}>Save assignment</button></div>:null}
+    <div className="task-record-rail-actions">
+      {task.status==='Ready'&&unassigned?<button type="button" disabled={saving} onClick={()=>void ownership('take','Task assigned to you')}><UserPlus size={14}/>Take task</button>:null}
+      {task.status==='Ready'&&isMine?<button type="button" disabled={saving} onClick={()=>void ownership('release','Task returned to team queue')}><UserMinus size={14}/>Release</button>:null}
+      {!completed?<><button type="button" disabled={!isMine||saving} onClick={()=>void patch({status:'In Progress'},'Task started')}><PlayCircle size={14}/>Start</button><button type="button" disabled={!isMine||saving} onClick={()=>void patch({status:'Blocked'},'Task blocked')}><CircleStop size={14}/>Block</button><button type="button" className="is-primary" disabled={!isMine||saving} onClick={()=>setCompletionOpen(v=>!v)}><CheckCircle2 size={14}/>Complete</button></>:null}
+    </div>
+    {completionOpen&&!completed?<div className="task-record-rail-section"><h3>Completion notes</h3><TaskRailField label="Required to complete fulfilment"><textarea rows={4} value={completionNotes} onChange={e=>setCompletionNotes(e.target.value)} placeholder="Record the outcome before completing the task…" /></TaskRailField><button className="task-record-action is-primary" type="button" disabled={!isMine||saving||!completionNotes.trim()} onClick={()=>void patch({status:'Completed',completionNotes},'Task completed. The parent request and its next workflow step were updated.')}><CheckCircle2 size={14}/>Confirm completion</button></div>:null}
+    {completed?<div className="task-record-rail-section task-record-completed"><CheckCircle2 size={15}/>Completed {task.completedAt?formatDate(task.completedAt):''}</div>:null}
+    {task.instructions?<div className="task-record-rail-section"><h3>Instructions</h3><p>{task.instructions}</p></div>:null}
+  </>
+  const context=<>
+    <TaskContextField label="Request status" value={parentRequest?.status||parent.status}/>
+    <TaskContextField label="Requester" value={parent.requester}/>
+    <TaskContextField label="Service" value={parent.service}/>
+    <TaskContextField label="Priority" value={parent.priority}/>
+    <TaskContextField label="Fulfilment progress" value={parentTasks.length?`${completedCount} of ${parentTasks.length} completed`:'No progress data'}/>
+    <TaskContextField label="Approvals outstanding" value={pending}/>
+    <TaskContextField label="Due" value={task.dueAt?formatDate(task.dueAt):'Not set'}/>
+    <TaskContextField label="Prerequisites" value={task.dependencies?.length?task.dependencies.join(', '):'None'}/>
+    {completed&&parentRequest?.status==='Completed'?<div className="task-record-rail-section"><h3>Fulfilment complete</h3><p>The parent Service Request is marked Completed and can proceed to Closed through its workflow.</p></div>:null}
+  </>
+  const details=<>
+    <h2>Fulfilment instructions</h2>
+    <p>{task.instructions||'No additional instructions were provided.'}</p>
+    {task.completionNotes?<div className="task-record-rail-section"><h3>Recorded outcome</h3><p>{task.completionNotes}</p></div>:null}
+    <div className="task-record-rail-section"><h3>Workflow</h3><p>Task completion unlocks any dependent tasks. Once all required tasks are complete, the parent request advances to Completed, ready for closure.</p></div>
+  </>
+  return <TaskWorkbenchFrame
+    taskId={task.id} title={task.title} status={task.status} priority={parent.priority}
+    parentId={parent.id} parentTitle={parent.title} parentType="Service Request"
+    onBack={()=>navigate('/tasks')} onOpenParent={()=>navigate(`/requests/${encodeURIComponent(parent.id)}`)}
+    onRefresh={()=>void load(true)} left={left} details={details}
+    activity={<TaskActivityFeed taskId={taskKey} events={events} busy={saving} onSave={saveNote} allowCustomer/>}
+    context={context} alert={error} notice={notice}
+  />
 }
 
 export function ProductionTaskExperience() {
@@ -615,6 +559,6 @@ export function ProductionTaskExperience() {
   return <>
     <TaskNavButton target={targets.nav} />
     <AwaitingApprovalButton target={targets.approvalTarget} statusSelect={targets.approvalSelect} />
-    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} /> : <TaskQueue />, targets.content) : null}
+    {taskRoute && targets.content ? createPortal(taskRoute.kind === 'detail' ? (/^PRJ-\d+-T\d+$/i.test(taskRoute.taskKey) ? <ProjectTaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} onNavigate={navigate} /> : <TaskDetail key={taskRoute.taskKey} taskKey={taskRoute.taskKey} />) : <TaskQueue />, targets.content) : null}
   </>
 }

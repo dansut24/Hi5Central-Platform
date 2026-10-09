@@ -1789,7 +1789,7 @@ class Worker {
                         ? "Media Foundation H.264 sender experiment requested; set HI5_CODEC=vp8 to return to stable VP8"
                         : "stable VP8 path"));
 
-                const std::string defaultAgentWsBase = "wss://rmm.hi5central.com/agent/ws";
+                const std::string defaultAgentWsBase;
                 const std::wstring configDir = L"C:\\ProgramData\\Hi5Central\\Agent";
 
                 AgentIdentity ident;
@@ -2148,7 +2148,7 @@ class Worker {
                     patchConfig.enabled = true;
                     patchConfig.apiBaseUrl = ReadConfigValue("HI5_PATCH_API_BASE_URL");
                     if (patchConfig.apiBaseUrl.empty()) {
-                        patchConfig.apiBaseUrl = "https://api.hi5central.com";
+                        patchConfig.apiBaseUrl = ident.apiBaseUrl;
                     }
                     patchConfig.apiKey = ReadConfigValue("HI5_PATCH_API_KEY");
                     patchConfig.deviceId = ident.deviceId;
@@ -3343,7 +3343,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                 }
 
                 HttpPostJsonWithAgentAuth(
-                    "https://api.hi5central.com/api/v1/agent/devices/jobs/" + jobId + "/result",
+                    ident.apiBaseUrl + "/api/v1/agent/devices/jobs/" + jobId + "/result",
                     body.dump(),
                     ident
                 );
@@ -3443,7 +3443,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
 
                         try {
                             const std::string response = HttpGetJsonWithAgentAuth(
-                                "https://api.hi5central.com/api/v1/agent/devices/jobs",
+                                ident.apiBaseUrl + "/api/v1/agent/devices/jobs",
                                 ident
                             );
 
@@ -4796,7 +4796,7 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                             json payload = BuildTelemetryPayload(previousCpu, hasPreviousCpu);
 
                             HttpPostJsonWithAgentAuth(
-                                "https://api.hi5central.com/api/v1/agent/devices/telemetry",
+                                ident.apiBaseUrl + "/api/v1/agent/devices/telemetry",
                                 payload.dump(),
                                 ident
                             );

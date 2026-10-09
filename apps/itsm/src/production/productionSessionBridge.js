@@ -1,17 +1,31 @@
+import { deploymentConfig } from '../lib/deploymentConfig.js'
+
 const AUTH_HANDOFF_KEY = 'hi5central-auth-handoff-v1'
 const HANDOFF_MAX_AGE_MS = 2 * 60 * 1000
 
-function tenantSlugFromHost() {
-  const host = window.location.hostname.toLowerCase()
-  const match = host.match(/^([a-z0-9-]+)\.hi5central\.com$/)
-  if (!match) return ''
-  const slug = match[1]
+function tenantSlugFromRuntime() {
+  const config = deploymentConfig()
+
+  if (config.tenancyMode === 'single') {
+    return String(config.primaryTenantSlug || '').trim().toLowerCase()
+  }
+
+  const host = String(window.location.hostname || '').toLowerCase()
+  const rootDomain = String(config.rootDomain || 'hi5central.com').trim().toLowerCase()
+  const suffix = `.${rootDomain}`
+
+  if (!host.endsWith(suffix)) return ''
+
+  const slug = host.slice(0, -suffix.length)
+  if (!/^[a-z0-9-]+$/.test(slug)) return ''
   if (slug.endsWith('-portal') || slug.endsWith('-rmm')) return ''
+  if (['admin', 'api', 'www', 'downloads', 'turn'].includes(slug)) return ''
   return slug
 }
 
 export function storeProductionAuthHandoff(payload) {
   if (!payload?.authenticated || !payload?.tenant?.slug) return false
+
   try {
     window.sessionStorage.setItem(AUTH_HANDOFF_KEY, JSON.stringify({
       createdAt: Date.now(),
@@ -31,10 +45,11 @@ export function takeProductionAuthHandoff() {
     const stored = JSON.parse(raw)
     const payload = stored?.payload || stored
     const createdAt = Number(stored?.createdAt || 0)
-    const tenantSlug = tenantSlugFromHost()
+    const tenantSlug = tenantSlugFromRuntime()
 
     const stale = createdAt > 0 && Date.now() - createdAt > HANDOFF_MAX_AGE_MS
     const valid = !stale
+      && Boolean(tenantSlug)
       && payload?.authenticated === true
       && payload?.tenant?.slug === tenantSlug
 

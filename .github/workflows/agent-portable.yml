@@ -7,7 +7,7 @@ on:
       - 'native/agent/**'
       - '.github/workflows/agent-portable.yml'
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'native/agent/**'
       - '.github/workflows/agent-portable.yml'

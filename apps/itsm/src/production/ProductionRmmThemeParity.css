@@ -706,3 +706,1361 @@ html[data-hi5-surface='workspace'] .production-profile-content {
 .hi5-env-dev { color: #536176; background: #f0f3f8; }
 .hi5-env-test { color: #7c3aed; background: #f5f0ff; }
 .hi5-env-uat { color: #b45309; background: #fff6e5; }
+
+/* Full-width record creation workspace (Incident / Request / Problem / Change). */
+/* The page already has its own cards. Do not nest them in a second 'page card'
+   or compound the workspace gutter with the inner form gutter. */
+html[data-hi5-surface='workspace'] .workspace:has(.unified-new-record-page) {
+  min-height: 0;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+}
+html[data-hi5-surface='workspace'] .content-frame:has(.unified-new-record-page) {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 100% !important;
+  overflow: visible !important;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-page {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: 100% !important;
+  margin: 0 !important;
+  padding: 20px 30px 44px !important;
+  overflow: visible !important;
+  box-sizing: border-box;
+  background: var(--page) !important;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-shell {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0;
+  min-height: 0;
+  gap: 16px;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-breadcrumbs {
+  min-height: 22px;
+  font-size: 11px;
+  font-weight: 700;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-header {
+  min-height: 78px;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 14px;
+  padding: 0 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-header > .record-type-mark {
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(var(--accent-rgb), .18);
+  border-radius: 13px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-header h2 {
+  font-size: 25px;
+  line-height: 1.16;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-header p {
+  max-width: 780px;
+  font-size: 12px !important;
+  line-height: 1.5;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-header .draft-status {
+  font-size: 10px;
+  border: 1px solid rgba(var(--accent-rgb), .2);
+}
+html[data-hi5-surface='workspace'] .unified-record-type-picker {
+  gap: 12px;
+}
+html[data-hi5-surface='workspace'] .unified-record-type-picker button {
+  min-height: 78px;
+  padding: 12px 14px !important;
+  border-radius: 12px !important;
+  transition: border-color .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+html[data-hi5-surface='workspace'] .unified-record-type-picker button:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+html[data-hi5-surface='workspace'] .unified-record-type-picker button.active {
+  background: color-mix(in srgb, rgb(var(--accent-rgb)) 5%, var(--surface)) !important;
+}
+html[data-hi5-surface='workspace'] .unified-record-type-card-copy strong {
+  font-size: 13px !important;
+  line-height: 1.3;
+}
+html[data-hi5-surface='workspace'] :is(.unified-requester-lookup-stage,.unified-record-requester-card,.unified-new-record-form .unified-form-section) {
+  min-width: 0;
+  border-radius: 12px;
+  overflow: clip;
+}
+html[data-hi5-surface='workspace'] .unified-form-section-heading {
+  min-height: 68px;
+  padding: 14px 18px;
+}
+html[data-hi5-surface='workspace'] .unified-form-section-heading strong {
+  font-size: 15px;
+  line-height: 1.3;
+}
+html[data-hi5-surface='workspace'] .unified-form-section-heading small {
+  font-size: 11px;
+  line-height: 1.45;
+}
+html[data-hi5-surface='workspace'] .unified-user-combobox {
+  gap: 10px;
+  padding: 18px;
+}
+html[data-hi5-surface='workspace'] .unified-user-combobox .incident-user-search {
+  min-height: 48px;
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .unified-user-combobox .incident-user-search input {
+  min-width: 0;
+  font-size: 13px;
+}
+html[data-hi5-surface='workspace'] .unified-user-combobox .unified-typeahead-hint {
+  min-height: 56px;
+  font-size: 12px;
+}
+html[data-hi5-surface='workspace'] .unified-user-combobox .unified-typeahead-hint small {
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-details-layout,
+html[data-hi5-surface='workspace'] .unified-new-record-form {
+  gap: 16px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-form .unified-form-section {
+  gap: 14px;
+  padding: 0 18px 18px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-form .unified-form-section-heading {
+  margin: 0 -18px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-form label {
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 750;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-form :is(input,select,textarea) {
+  font-size: 13px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-form :is(input,select) {
+  min-height: 44px;
+}
+html[data-hi5-surface='workspace'] .unified-form-grid {
+  gap: 14px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-submit {
+  min-height: 68px;
+  bottom: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-submit > div strong {
+  font-size: 11px;
+}
+html[data-hi5-surface='workspace'] .unified-new-record-submit .primary-action {
+  min-height: 44px;
+  font-size: 12px;
+}
+@media (max-width: 900px) {
+  html[data-hi5-surface='workspace'] .unified-new-record-page {
+    padding: 18px 20px 40px !important;
+  }
+}
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .unified-new-record-page {
+    padding: 14px 14px calc(88px + env(safe-area-inset-bottom)) !important;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-shell {
+    gap: 12px;
+    padding: 0 !important;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-header {
+    min-height: 0;
+    grid-template-columns: 44px minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 0;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-header > .record-type-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    font-size: 13px;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-header h2 {
+    font-size: 20px;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-header p {
+    font-size: 11px !important;
+  }
+  html[data-hi5-surface='workspace'] .unified-record-type-picker {
+    gap: 8px;
+  }
+  html[data-hi5-surface='workspace'] .unified-record-type-picker button {
+    min-height: 70px;
+    padding: 10px !important;
+  }
+  html[data-hi5-surface='workspace'] .unified-form-section-heading {
+    min-height: 58px;
+    padding: 12px 14px;
+  }
+  html[data-hi5-surface='workspace'] .unified-form-section-heading strong {
+    font-size: 14px;
+  }
+  html[data-hi5-surface='workspace'] .unified-form-section-heading small {
+    font-size: 10px;
+  }
+  html[data-hi5-surface='workspace'] .unified-user-combobox {
+    padding: 14px;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-form .unified-form-section {
+    padding: 0 14px 14px;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-form .unified-form-section-heading {
+    margin: 0 -14px;
+  }
+  html[data-hi5-surface='workspace'] .unified-new-record-submit {
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    padding: 10px;
+  }
+}
+
+/* ITSM record details: issue and notes before metadata, with modular RMM context. */
+/* Shared .workspace owns the 20px / 30px page gutter (as on Dashboard).
+   The record shell must not apply that gutter a second time. */
+html[data-hi5-surface='workspace'] .record-lab-shell {
+  width: 100%;
+  max-width: none;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box;
+  background: var(--page) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-breadcrumbs {
+  margin-bottom: 10px;
+}
+html[data-hi5-surface='workspace'] .record-lab-masthead {
+  min-height: 96px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--rmm-shadow);
+}
+html[data-hi5-surface='workspace'] .record-lab-heading h1 {
+  font-size: clamp(19px, 1.35vw, 24px);
+  line-height: 1.25;
+  letter-spacing: -.025em;
+}
+html[data-hi5-surface='workspace'] .record-lab-workspace-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 320px);
+  align-items: stretch;
+  gap: 14px;
+  margin-top: 14px;
+}
+html[data-hi5-surface='workspace'] .record-lab-workspace-grid.is-inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+html[data-hi5-surface='workspace'] .record-lab-primary-workspace {
+  min-width: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+html[data-hi5-surface='workspace'] .record-lab-workspace-grid > .record-lab-inspector {
+  min-width: 0;
+  grid-column: 2;
+  grid-row: 1;
+}
+html[data-hi5-surface='workspace'] .record-lab-primary-workspace > .record-lab-tabs {
+  min-width: 0;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel {
+  min-height: 0;
+  display: flex !important;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line) !important;
+  border-radius: 12px !important;
+  background: var(--surface) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-height: min(29vh, 250px);
+  overflow-y: auto;
+  padding: 17px 20px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary-heading > span {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 850;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary-heading > small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions {
+  display: flex !important;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 62px;
+  padding: 10px 16px !important;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > button:hover,
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > button.is-active {
+  border-color: rgba(var(--accent-rgb), .45);
+  background: rgba(var(--accent-rgb), .10);
+  color: rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > button:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > small {
+  flex: 1 1 160px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: right;
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer {
+  flex: 0 0 auto;
+  max-height: 38vh;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-heading {
+  flex: 0 0 auto;
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-timeline-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 15px 18px;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-timeline-card {
+  margin-bottom: 6px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 12px 13px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-timeline-card p {
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+html[data-hi5-surface='workspace'] .record-lab-inspector-card.is-unified {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--rmm-shadow);
+}
+html[data-hi5-surface='workspace'] .record-lab-inspector-card.is-unified > header {
+  min-height: 58px;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-module {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+html[data-hi5-surface='workspace'] .record-lab-device-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  margin: 0 10px 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-device-symbol {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(var(--accent-rgb), .10);
+  color: rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .record-lab-device-row > div:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-row > div:nth-child(2) strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-row > div:nth-child(2) small {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.3;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions {
+  display: flex;
+  gap: 5px;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions a,
+html[data-hi5-surface='workspace'] .record-lab-device-actions .record-lab-device-remote-disabled {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions .record-lab-device-remote-disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-more {
+  display: block;
+  margin: 0 12px 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions a.is-online {
+  border-color: rgba(var(--accent-rgb), .3);
+  color: rgb(var(--accent-rgb));
+}
+html[data-hi5-surface='workspace'] .record-lab-device-actions a.is-offline,
+html[data-hi5-surface='workspace'] .record-lab-context-asset-actions a[aria-disabled='true'] {
+  opacity: .45;
+  cursor: not-allowed;
+}
+@media (min-width: 821px) {
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace.is-activity-view {
+    min-height: 0;
+    height: 100% !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace.is-activity-view .record-lab-activity-panel {
+    height: 100%;
+    min-height: 0;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-workspace-grid > .record-lab-inspector {
+    height: 100%;
+    overflow-y: auto;
+  }
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  html[data-hi5-surface='workspace'] .record-lab-workspace-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(230px, 270px);
+  }
+  html[data-hi5-surface='workspace'] .record-lab-masthead-signals {
+    display: none;
+  }
+}
+@media (max-width: 820px) {
+  /* Mobile .workspace already owns the phone gutter; retain only
+     the small 2px inset and bottom clearance used by record pages. */
+  html[data-hi5-surface='workspace'] .record-lab-shell {
+    padding: 4px 2px calc(34px + env(safe-area-inset-bottom)) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-workspace-grid,
+  html[data-hi5-surface='workspace'] .record-lab-workspace-grid.is-inspector-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 10px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-workspace-grid > .record-lab-inspector {
+    display: none;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel {
+    height: auto;
+    overflow: visible;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-issue-summary {
+    max-height: none;
+    overflow: visible;
+    padding: 14px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-issue-summary-heading > span {
+    font-size: 14px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-issue-summary p {
+    font-size: 12px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions {
+    gap: 7px;
+    padding: 9px 12px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > button {
+    flex: 1 1 125px;
+    font-size: 11px;
+    padding: 0 9px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-actions > small {
+    display: none;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer {
+    max-height: none;
+    overflow: visible;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-timeline-scroll {
+    height: auto;
+    min-height: 120px;
+    overflow: visible;
+    padding: 10px;
+  }
+}
+
+/* Record details must also be reachable from the mobile Details tab. */
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy {
+    position: static !important;
+    display: grid !important;
+    width: 100%;
+    height: auto !important;
+    min-height: 0;
+    overflow: visible !important;
+    margin: 0;
+    grid-column: auto;
+    grid-row: auto;
+    align-content: start;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-primary-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy .record-lab-inspector-card {
+    width: 100%;
+    min-width: 0;
+  }
+}
+
+/* Record details: readable summary disclosure and actionable overflow devices. */
+html[data-hi5-surface='workspace'] .record-lab-issue-summary {
+  max-height: none !important;
+  overflow: visible !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary.is-collapsible:not(.is-expanded) > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 9px 0 0;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
+  color: rgb(var(--accent-rgb));
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand:hover {
+  text-decoration: underline;
+}
+html[data-hi5-surface='workspace'] .record-lab-summary-expand:focus-visible,
+html[data-hi5-surface='workspace'] .record-lab-device-more:focus-visible {
+  outline: 2px solid rgb(var(--accent-rgb));
+  outline-offset: 2px;
+}
+html[data-hi5-surface='workspace'] .record-lab-issue-summary.is-expanded .record-lab-summary-expand svg {
+  transform: rotate(180deg);
+}
+html[data-hi5-surface='workspace'] button.record-lab-device-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: calc(100% - 24px);
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: rgb(var(--accent-rgb));
+  font-size: 11px;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+html[data-hi5-surface='workspace'] button.record-lab-device-more:hover {
+  text-decoration: underline;
+}
+
+/* Activity-first record details: compact inline note editor. */
+html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer:has(.record-lab-composer.is-note) {
+  padding: 0 15px 12px;
+  background: var(--surface);
+}
+html[data-hi5-surface='workspace'] .record-lab-activity-composer .record-lab-composer.is-note {
+  margin-top: 10px;
+  border: 1px solid rgba(var(--accent-rgb), .22);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  box-shadow: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea {
+  min-height: 88px;
+  max-height: 180px;
+  margin: 0;
+  padding: 12px 13px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea::placeholder {
+  color: var(--muted);
+  opacity: .9;
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note .record-lab-composer-attachments {
+  padding: 7px 12px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note > footer {
+  min-height: 52px;
+  padding: 8px 12px;
+  background: var(--surface-soft);
+}
+html[data-hi5-surface='workspace'] .record-lab-composer.is-note > footer > button {
+  min-height: 36px;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  html[data-hi5-surface='workspace'] .record-lab-activity-panel > .record-lab-activity-composer:has(.record-lab-composer.is-note) {
+    padding: 0 10px 10px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-composer.is-note textarea {
+    min-height: 96px;
+    font-size: 14px;
+  }
+}
+
+/* Record workbench viewport: fixed compact masthead and tabs, independent timeline scroll. */
+/* Layout ownership lives on the routed record only. Dashboard/queues keep their
+   existing page-scrolling rules. */
+html[data-hi5-surface='workspace'] .workspace:has(.record-lab-shell.is-fixed-workspace) {
+  height: 100% !important;
+  min-height: 0 !important;
+  min-width: 0;
+  overflow: hidden !important;
+  grid-template-rows: minmax(0, 1fr) !important;
+  align-content: stretch !important;
+  gap: 0 !important;
+}
+html[data-hi5-surface='workspace'] .content-frame.production-record-workspace-mounted:has(.record-lab-shell.is-fixed-workspace) {
+  height: 100% !important;
+  min-height: 0 !important;
+  min-width: 0;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+  display: grid !important;
+  grid-template-rows: auto auto auto minmax(0, 1fr) !important;
+  align-content: stretch !important;
+  gap: 8px !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  min-width: 0;
+  max-height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-breadcrumbs {
+  min-height: 16px;
+  margin: 0 !important;
+  flex: 0 0 auto;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead {
+  position: relative !important;
+  z-index: 30 !important;
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto !important;
+  align-items: center !important;
+  column-gap: 13px !important;
+  row-gap: 5px !important;
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 10px 14px !important;
+  overflow: visible !important;
+  border-radius: 10px !important;
+  background: var(--surface) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-leading {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-icon {
+  width: 40px !important;
+  height: 40px !important;
+  min-width: 40px !important;
+  min-height: 40px !important;
+  border-radius: 10px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-icon > svg {
+  width: 20px;
+  height: 20px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  min-width: 0;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading > div {
+  gap: 5px;
+  margin: 0 0 3px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading h1 {
+  margin: 0 !important;
+  font-size: clamp(17px, 1.3vw, 21px) !important;
+  line-height: 1.17;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading p {
+  margin: 3px 0 0 !important;
+  font-size: 9px !important;
+  line-height: 1.3;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-pill {
+  min-height: 17px;
+  padding: 0 6px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-signals {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  align-self: center;
+  justify-content: flex-end;
+  width: auto;
+  gap: 6px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-context-signal,.record-lab-sla-badge) {
+  min-height: 31px;
+  min-width: 0;
+  padding: 5px 9px;
+  gap: 6px;
+  border-radius: 7px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-context-signal,.record-lab-sla-badge) svg {
+  width: 14px;
+  height: 14px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-context-signal,.record-lab-sla-badge) small {
+  font-size: 8px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-context-signal,.record-lab-sla-badge) strong {
+  font-size: 10px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-actions {
+  grid-column: 3;
+  grid-row: 2;
+  display: flex !important;
+  justify-content: flex-end;
+  justify-self: end;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin: 0 !important;
+  min-width: 0;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-action-menu > summary {
+  min-height: 30px !important;
+  height: 30px;
+  padding: 0 9px !important;
+  border-radius: 7px;
+  font-size: 10px;
+  gap: 6px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+  position: relative !important;
+  z-index: 20 !important;
+  top: auto !important;
+  display: flex !important;
+  align-items: center;
+  gap: 5px;
+  width: 100% !important;
+  min-height: 41px !important;
+  height: 41px;
+  margin: 0 !important;
+  padding: 4px 6px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 9px !important;
+  background: var(--surface) !important;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs::-webkit-scrollbar {
+  display: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs > button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs > .record-lab-refresh {
+  margin-left: auto !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid {
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0;
+  min-height: 0 !important;
+  max-height: 100%;
+  display: grid !important;
+  align-items: stretch !important;
+  gap: 12px !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-inspector-collapsed {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace {
+  grid-row: 1;
+  grid-column: 1;
+  display: flex !important;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-notices {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+  max-height: 88px;
+  overflow-y: auto;
+  margin-bottom: 6px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view > .record-lab-content {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  padding: 0 !important;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view > .record-lab-content {
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel {
+  display: flex !important;
+  flex-direction: column;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary,
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > :is(.record-lab-activity-actions,.record-lab-activity-heading) {
+  flex: 0 0 auto;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+  max-height: 26vh !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-composer {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 36vh !important;
+  overflow-y: auto !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-scroll {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-mobile-copy) {
+  grid-column: 2;
+  grid-row: 1;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-signals {
+    display: none !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead {
+    grid-template-rows: auto !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-leading,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-actions {
+    grid-row: 1;
+  }
+}
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    gap: 7px !important;
+    padding: 0 2px calc(6px + env(safe-area-inset-bottom)) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead {
+    grid-template-columns: 35px minmax(0, 1fr) !important;
+    grid-template-rows: auto auto !important;
+    column-gap: 9px !important;
+    row-gap: 6px !important;
+    padding: 9px 10px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-leading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-icon {
+    width: 34px !important;
+    height: 34px !important;
+    min-height: 34px !important;
+    min-width: 34px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading h1 {
+    font-size: 17px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading p {
+    display: block !important;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-masthead-signals {
+    display: none !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-hero-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-self: stretch;
+    width: 100%;
+    gap: 7px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-action-menu > summary {
+    width: 100% !important;
+    justify-content: center;
+    min-height: 31px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+    min-height: 39px !important;
+    height: 39px;
+    padding: 4px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs > button {
+    min-height: 30px;
+    padding: 0 9px;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-inspector-collapsed {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inspector:not(.is-mobile-copy) {
+    display: none !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel {
+    height: 100% !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+    max-height: 19vh !important;
+    overflow-y: auto !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-composer {
+    max-height: 28vh !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-scroll {
+    min-height: 0 !important;
+    overflow-y: auto !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy {
+    height: 100% !important;
+    overflow-y: auto !important;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-scroll {
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Compact record activity toolbar: reclaim height for the scrollable notes feed. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+  display: grid !important;
+  grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  min-height: 38px;
+  max-height: 26vh !important;
+  padding: 6px 12px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary-heading {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  min-width: 0;
+  margin: 0 !important;
+  align-items: center;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary-heading > span {
+  font-size: 11px !important;
+  font-weight: 850;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary-heading > small {
+  display: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary > p {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  margin: 0 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary.is-collapsible:not(.is-expanded) > p {
+  -webkit-line-clamp: 1;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-summary-expand {
+  grid-column: 3;
+  grid-row: 1;
+  align-self: center;
+  margin: 0 !important;
+  padding: 3px 0;
+  font-size: 10px;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary.is-expanded > p {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: block;
+  white-space: pre-wrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions {
+  flex-wrap: nowrap !important;
+  gap: 6px !important;
+  min-height: 38px !important;
+  padding: 4px 10px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > button {
+  flex: 0 0 auto;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border-radius: 7px !important;
+  font-size: 10px !important;
+  gap: 5px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > button svg {
+  width: 13px;
+  height: 13px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > small {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 9px;
+  line-height: 1.2;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-heading {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between;
+  flex-wrap: nowrap !important;
+  gap: 9px !important;
+  min-height: 36px !important;
+  height: auto;
+  padding: 4px 10px !important;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading > div:first-child {
+  display: flex !important;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading > div:first-child > span {
+  display: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading h2 {
+  margin: 0 !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading > div:first-child > small {
+  font-size: 9px;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading-tools {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  width: auto !important;
+  margin: 0 !important;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading-tools::-webkit-scrollbar {
+  display: none;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-filter {
+  flex: 0 0 auto;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 7px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-filter > button {
+  min-height: 24px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 9px;
+  white-space: nowrap;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace :is(.record-lab-activity-search,.record-lab-jump-latest,.record-lab-activity-heading-tools > select) {
+  min-height: 27px;
+  border-radius: 7px;
+}
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-search {
+  min-width: 104px;
+  flex: 0 1 135px;
+}
+@media (max-width: 1100px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading > div:first-child > small {
+    display: none;
+  }
+}
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 7px;
+    min-height: 0;
+    padding: 7px 10px !important;
+    max-height: 19vh !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary-heading {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary > p {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    font-size: 11px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary .record-lab-summary-expand {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary.is-expanded > p {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions {
+    min-height: 37px !important;
+    padding: 4px 8px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > button {
+    flex: 0 0 auto;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > small {
+    display: none;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-heading {
+    min-height: 35px !important;
+    padding: 4px 8px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading > div:first-child {
+    flex: 0 0 auto;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading-tools {
+    flex: 1 1 auto;
+  }
+}
+
+/* Phone/tablet record details: single continuous page scroll, no nested activity scrolling. */
+@media (max-width: 820px) {
+  /* The workspace itself is the sole vertical scroll container on mobile. */
+  html[data-hi5-surface='workspace'] .workspace:has(.record-lab-shell.is-fixed-workspace) {
+    height: 100% !important;
+    min-height: 0 !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    align-content: stretch !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  html[data-hi5-surface='workspace'] .content-frame.production-record-workspace-mounted:has(.record-lab-shell.is-fixed-workspace) {
+    height: auto !important;
+    min-height: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 100% !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 2px calc(24px + env(safe-area-inset-bottom)) !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-breadcrumbs,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-masthead,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs {
+    position: relative !important;
+    top: auto !important;
+    margin-bottom: 8px !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-workspace-grid.is-inspector-collapsed {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    margin: 0 !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content,
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-primary-workspace.is-activity-view > .record-lab-content {
+    display: block;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-composer {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-scroll {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overscroll-behavior-y: auto;
+    scrollbar-gutter: auto;
+  }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-content > .record-lab-inspector.is-mobile-copy {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+}
+

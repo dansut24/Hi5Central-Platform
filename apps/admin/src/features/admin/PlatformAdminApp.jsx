@@ -1,15 +1,68 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowUp, Ban, Building2, Check, Copy, CreditCard, Database, Download,
-  KeyRound, Link2Off, LogOut, Menu, Moon, PackageCheck, PackageSearch, Pause, Play, Plus, RefreshCw,
-  RotateCcw, Save, Search, ServerCog, ShieldCheck, Sun, Trash2, UserRound, Wrench, X,
+  Activity, AlertTriangle, ArrowRight, ArrowUp, Ban, Building2, Check, CheckCircle2, Copy, CreditCard, Database, Download,
+  KeyRound, Link2Off, LockKeyhole, LogOut, Menu, PackageCheck, PackageSearch, PanelLeftClose, PanelLeftOpen, Pause, Play, Plus, RefreshCw,
+  RotateCcw, Save, Search, ServerCog, ShieldCheck, SlidersHorizontal, Trash2, UserRound, Wrench, X,
 } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
+import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
+import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
+import '../../production/ProductionWorkspaceBootstrap.css'
+import '../../production/RmmSidebarParity.css'
 
 const config = deploymentConfig()
 const API = config.apiUrl || `https://api.${config.rootDomain}`
+const SHARED_THEME_KEY = 'hi5central-theme-mode'
+
+function rawStoredTheme() {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(SHARED_THEME_KEY) || 'null')
+    return ['system', 'light', 'dark'].includes(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function resolveThemeMode(value = rawStoredTheme(), tenantTheme = 'system') {
+  const preferred = ['system', 'light', 'dark'].includes(value)
+    ? value
+    : (['system', 'light', 'dark'].includes(tenantTheme) ? tenantTheme : 'system')
+  return preferred === 'system'
+    ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : preferred
+}
+
+function persistThemeMode(value) {
+  const next = ['system', 'light', 'dark'].includes(value) ? value : 'system'
+  try { window.localStorage.setItem(SHARED_THEME_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+}
+
+function adminAccentStyle(value) {
+  const presets = {
+    blue: '#3b82f6',
+    cyan: '#089fc5',
+    amber: '#d98a0a',
+    emerald: '#188c61',
+    violet: '#7858df',
+    rose: '#d84e73',
+  }
+  const raw = String(value || '').trim().toLowerCase()
+  const hex = presets[raw] || (/^#[0-9a-f]{6}$/i.test(raw) ? raw : '#3b82f6')
+  const clean = hex.slice(1)
+  const r = Number.parseInt(clean.slice(0, 2), 16)
+  const g = Number.parseInt(clean.slice(2, 4), 16)
+  const b = Number.parseInt(clean.slice(4, 6), 16)
+  const luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+  return {
+    '--rmm-accent': hex,
+    '--rmm-accent-soft': `rgba(${r}, ${g}, ${b}, .13)`,
+    '--rmm-accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+    '--accent-rgb': `${r}, ${g}, ${b}`,
+    '--accent-ink': luminance > 165 ? '#10213f' : '#ffffff',
+  }
+}
 
 const navigation = [
   { id:'overview', label:'Overview', section:'Platform', icon:Database },
@@ -32,6 +85,7 @@ const pageMeta = {
   catalogue:['GLOBAL SOFTWARE INTELLIGENCE','Software catalogue','The approved global software catalogue consumed by customer RMM tenants.'],
   winget:['WINDOWS PACKAGE INTELLIGENCE','WinGet manifest index','Browse the full Microsoft WinGet source index and control its sync state.'],
   audit:['GOVERNANCE','Platform audit','Administrative actions performed in the Hi5Central control plane.'],
+  profile:['ACCOUNT','My Profile','Your shared Hi5Central identity, security and workspace preferences.'],
 }
 
 async function api(path, options = {}) {
@@ -79,36 +133,70 @@ function StatusPill({ value }) {
   return <span className={`rmm-status-pill ${tone(value)}`}>{String(value||'unknown').replaceAll('_',' ')}</span>
 }
 
-function Login({ onLogin, theme, setTheme }) {
+function Login({ onLogin }) {
   const [email,setEmail]=useState('')
   const [password,setPassword]=useState('')
+  const [passwordStep,setPasswordStep]=useState(false)
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
+
   async function submit(event){
-    event.preventDefault(); setBusy(true); setError('')
+    event.preventDefault()
+    setError('')
+    if(!email.trim()) {
+      setError('Enter your email address to continue.')
+      return
+    }
+    if(!passwordStep) {
+      setPasswordStep(true)
+      return
+    }
+    setBusy(true)
     try {
-      const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email,password})})
-      onLogin(result.user)
-    } catch(err){ setError(err.message) } finally { setBusy(false) }
+      const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email:email.trim(),password})})
+      onLogin(result)
+    } catch(err){
+      setError(err.message)
+    } finally {
+      setBusy(false)
+    }
   }
-  return <div className="rmm-login" data-accent="amber" data-theme={theme}>
-    <section className="rmm-login-panel">
-      <div className="rmm-login-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central"/><span>ADMIN</span></div>
-      <div className="rmm-login-copy"><span className="rmm-eyebrow">HI5CENTRAL CONTROL PLANE</span><h1>Platform administration</h1><p>Manage tenants, qualification and the global software catalogue from the Hi5Central control plane.</p></div>
-      <form className="rmm-login-form" onSubmit={submit}>
-        <label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="username" required/></label>
-        <label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" required/></label>
-        {error?<div className="rmm-login-error">{error}</div>:null}
-        <button className="rmm-primary" disabled={busy}>{busy?'Signing in…':'Sign in'}</button>
-      </form>
-    </section>
-    <section className="rmm-login-visual">
-      <div className="rmm-login-visual-head"><button onClick={()=>setTheme(theme==='light'?'dark':'light')} type="button">{theme==='light'?<Moon size={18}/>:<Sun size={18}/>}</button></div>
-      <div className="rmm-login-preview"><span className="rmm-eyebrow">PLATFORM OPERATIONS</span><h2>One control plane for every Hi5Central tenant.</h2><div className="rmm-login-preview-grid"><div><Building2/><strong>Tenants</strong><span>Products, billing and lifecycle</span></div><div><PackageCheck/><strong>Qualification</strong><span>Software safety and deployment readiness</span></div></div></div>
-    </section>
-  </div>
+
+  return (
+    <main className="production-auth-shell">
+      <div className="production-auth-layout">
+        <section className="production-auth-copy">
+          <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="" />
+          <span className="production-auth-kicker"><ShieldCheck size={15}/> Secure Hi5Central sign-in</span>
+          <h1>Welcome back to Hi5Central.</h1>
+          <p>Sign in with an account that has access to Platform Admin. If you are already signed in to ITSM or RMM, Hi5Central will normally open Admin automatically.</p>
+          <div className="production-auth-points">
+            <span><CheckCircle2 size={17}/> Shared Hi5Central identity</span>
+            <span><CheckCircle2 size={17}/> HttpOnly secure session</span>
+            <span><CheckCircle2 size={17}/> Role-gated Platform Admin access</span>
+          </div>
+        </section>
+
+        <form className="production-auth-card" onSubmit={submit}>
+          <div className="production-auth-card-heading">
+            <span className="production-auth-icon"><LockKeyhole size={19}/></span>
+            <div><span>Hi5Central</span><strong>Platform Admin</strong></div>
+          </div>
+          <label><span>Email address</span><input type="email" value={email} onChange={e=>{setEmail(e.target.value);if(passwordStep)setPasswordStep(false);setError('')}} autoComplete="username" required/></label>
+          {passwordStep
+            ? <label><span>Password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" autoFocus required/></label>
+            : <p className="production-auth-method-note">Hi5Central will check your Platform Admin access before opening the control plane.</p>}
+          {error?<div className="production-auth-error">{error}</div>:null}
+          <button disabled={busy} type="submit">{busy?'Signing in…':passwordStep?'Sign in':'Continue'}{!busy?<ArrowRight size={17}/>:null}</button>
+          {passwordStep?<button className="production-auth-secondary-action" type="button" onClick={()=>{setPasswordStep(false);setPassword('');setError('')}}>Use a different email</button>:null}
+          {config.appUrl?<a href={config.appUrl}>Back to Hi5Central</a>:null}
+        </form>
+      </div>
+    </main>
+  )
 }
-function AdminSidebar({ activeView, mobileOpen, navigate, onClose }) {
+
+function AdminSidebar({ activeView, canItsm = false, canRmm = false, collapsed = false, mobileOpen, navigate, onClose, onToggleCollapse, user }) {
   const sections=[...new Set(navigation.map(item=>item.section))]
   return <>
     <button className={`rmm-sidebar-backdrop ${mobileOpen?'is-open':''}`} aria-label="Close navigation" onClick={onClose} type="button"/>
@@ -118,22 +206,77 @@ function AdminSidebar({ activeView, mobileOpen, navigate, onClose }) {
         <div><strong>Hi5Central</strong><span>ADMIN</span></div>
         <button className="rmm-mobile-close" onClick={onClose} type="button"><X size={19}/></button>
       </div>
-      <div className="rmm-estate-chip"><span><ShieldCheck size={16}/></span><div><strong>Platform control plane</strong><small>Hi5Central internal administration</small></div></div>
       <nav className="rmm-nav">
         {sections.map(section=><div className="rmm-nav-section" key={section}><span>{section}</span>{navigation.filter(item=>item.section===section).map(({id,label,icon:Icon})=><button className={activeView===id?'active':''} key={id} onClick={()=>navigate(id)} type="button"><Icon size={17}/><span>{label}</span></button>)}</div>)}
       </nav>
-      <div className="rmm-sidebar-footer"><div className="rmm-product-switches">{config.appUrl ? <a href={config.appUrl}>ITSM</a> : null}{config.rmmUrl ? <a href={config.rmmUrl}>RMM</a> : null}</div><div><span>HC</span><div><strong>Hi5Central</strong><small>Platform administration</small></div></div></div>
+      <div className="rmm-sidebar-footer"><div className="rmm-product-switches">{config.appUrl && canItsm ? <a href={config.appUrl}>ITSM</a> : null}{config.rmmUrl && canRmm ? <a href={config.rmmUrl}>RMM</a> : null}</div><div className="rmm-sidebar-identity"><span>{initials(user?.name || user?.email || 'HC')}</span><div><strong>{user?.name || user?.email || 'Hi5Central'}</strong><small>Platform Admin</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div>
     </aside>
   </>
 }
 
-function AdminTopbar({ activeView, user, onLogout, onMenu, query, setQuery, theme, setTheme, refresh }) {
+function AdminTopbar({ activeView, user, onLogout, onMenu, onOpenAccount, query, setQuery, refresh }) {
   const [,title]=pageMeta[activeView]
+  const [profileMenuOpen,setProfileMenuOpen]=useState(false)
+  const userInitials=initials(user?.name || user?.email || 'HC')
   return <header className="rmm-topbar">
     <div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19}/></button><div><span>ADMIN {config.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${config.runtimeEnvironment}`}>{config.runtimeEnvironment.toUpperCase()}{config.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div>
     <label className="rmm-global-search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search tenants, software, qualification…"/></label>
-    <div className="rmm-topbar-actions"><button onClick={refresh} type="button" title="Refresh"><RefreshCw size={17}/></button><button onClick={()=>setTheme(theme==='light'?'dark':'light')} type="button">{theme==='light'?<Moon size={17}/>:<Sun size={17}/>}</button><button className="rmm-user" onClick={onLogout} type="button"><span>{initials(user?.name)}</span><div><strong>{user?.name||'Hi5Central admin'}</strong><small>{user?.role||'Sign out'}</small></div><LogOut size={14}/></button></div>
+    <div className="rmm-topbar-actions">
+      <button onClick={refresh} type="button" title="Refresh"><RefreshCw size={17}/></button>
+      <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={()=>setProfileMenuOpen(open=>!open)} title="Profile" type="button"><span>{userInitials}</span></button>
+      {profileMenuOpen?<div className="rmm-profile-menu" role="menu">
+        <div className="rmm-profile-summary"><span>{userInitials}</span><div><strong>{user?.name||'Hi5Central admin'}</strong><small>{user?.email||'Hi5Central account'}</small></div></div>
+        <button onClick={()=>{setProfileMenuOpen(false);onOpenAccount?.('profile')}} role="menuitem" type="button"><UserRound size={15}/>My Profile</button>
+        <button onClick={()=>{setProfileMenuOpen(false);onOpenAccount?.('workspace')}} role="menuitem" type="button"><SlidersHorizontal size={15}/>Workspace</button>
+        <button onClick={()=>{setProfileMenuOpen(false);onLogout?.()}} role="menuitem" type="button"><LogOut size={15}/>Sign out</button>
+      </div>:null}
+    </div>
   </header>
+}
+
+function adminWorkspaceTabForView(viewId) {
+  const [, title] = pageMeta[viewId] || pageMeta.overview
+  return {
+    key: `view:${viewId}`,
+    viewId,
+    label: title,
+    pinned: viewId === 'overview',
+  }
+}
+
+function AdminWorkspaceTabs({ activeKey, onActivate, onClose, onNew, tabs }) {
+  return (
+    <div className="rmm-workspace-tabs" aria-label="Open Admin workspace tabs">
+      <div className="rmm-workspace-tab-list">
+        {tabs.map((tab) => (
+          <button
+            className={activeKey === tab.key ? 'rmm-workspace-tab active' : 'rmm-workspace-tab'}
+            key={tab.key}
+            onClick={() => onActivate(tab)}
+            type="button"
+          >
+            <span>{tab.label}</span>
+            {!tab.pinned ? (
+              <i
+                aria-label={`Close ${tab.label}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onClose(tab.key)
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <X size={12}/>
+              </i>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <button className="rmm-workspace-tab-add" onClick={onNew} title="Open overview tab" type="button">
+        <Plus size={16}/>
+      </button>
+    </div>
+  )
 }
 
 function PageHeading({ view, action }) {
@@ -1018,15 +1161,85 @@ function Audit({ items, query }) {
 export function PlatformAdminApp() {
   const [user,setUser]=useState(null)
   const [loading,setLoading]=useState(true)
-  const [view,setView]=useState('overview')
+  const [view,setView]=useState(()=>window.location.pathname === '/profile' ? 'profile' : 'overview')
+  const [workspaceTabs,setWorkspaceTabs]=useState(()=>[adminWorkspaceTabForView('overview')])
   const [query,setQuery]=useState('')
   const [mobileOpen,setMobileOpen]=useState(false)
-  const [theme,setThemeState]=useState(()=>localStorage.getItem('hi5central-admin-theme')||'light')
+  const [theme,setThemeState]=useState(()=>resolveThemeMode())
+  const [accent,setAccent]=useState('#3b82f6')
+  const [organisationAccent,setOrganisationAccent]=useState('#3b82f6')
+  const [platformAccess,setPlatformAccess]=useState({admin:true,itsm:false,rmm:false})
+  const [sessionTenant,setSessionTenant]=useState(null)
+  const [lastPreferences,setLastPreferences]=useState(null)
+  const [density,setDensity]=useState('comfortable')
+  const [navSide,setNavSide]=useState('left')
+  const [sidebarMode,setSidebarMode]=useState('expanded')
   const [data,setData]=useState({overview:null,releases:{environments:[],features:[],changes:[],promotions:[],actions:[]},tenants:[],billing:[],licenses:[],qualification:{runners:[],active:[],pending:[],recent:[]},catalogue:[],audit:[]})
   const [wingetRefreshKey,setWingetRefreshKey]=useState(0)
   const [error,setError]=useState('')
-  function setTheme(value){setThemeState(value);localStorage.setItem('hi5central-admin-theme',value)}
-  useEffect(()=>{api('/auth/session').then(r=>setUser(r.user)).catch(()=>{}).finally(()=>setLoading(false))},[])
+  const accountSession=useMemo(()=>({user,tenant:sessionTenant}),[user,sessionTenant])
+  function applyUserPreferences(preferences={}){
+    const appearance=preferences.appearance||{}
+    const navigation=preferences.navigation||{}
+    setLastPreferences(preferences)
+    const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:'system'
+    persistThemeMode(preferredTheme)
+    const resolvedTheme=resolveThemeMode(preferredTheme)
+    setThemeState(resolvedTheme)
+    setAccent(appearance.accentMode==='personal'
+      ? (appearance.accent||organisationAccent||'#3b82f6')
+      : organisationAccent)
+    setDensity(appearance.density==='compact'?'compact':'comfortable')
+    setNavSide(navigation.desktopSide==='right'?'right':'left')
+    setSidebarMode(navigation.sidebarMode==='collapsed'?'collapsed':'expanded')
+  }
+  useEffect(()=>{
+    let active=true
+    Promise.all([
+      api('/auth/session'),
+      api('/user-preferences?surface=admin').catch(()=>null),
+    ])
+      .then(([r,experience])=>{
+        if(!active)return
+        setUser(r.user)
+        setPlatformAccess(r.platformAccess||{admin:true,itsm:false,rmm:false})
+        setSessionTenant(r.tenant||null)
+        const organisation=r.tenant?.accent||'#3b82f6'
+        setOrganisationAccent(organisation)
+        const preferences=experience?.preferences||{}
+        const appearance=preferences.appearance||{}
+        if(experience?.preferences){
+          setLastPreferences(preferences)
+          const tenantTheme=r.tenant?.themeMode||'system'
+          const preferredTheme=['system','light','dark'].includes(appearance.theme)?appearance.theme:tenantTheme
+          persistThemeMode(preferredTheme)
+          setThemeState(resolveThemeMode(preferredTheme,tenantTheme))
+          setAccent(appearance.accentMode==='personal'?(appearance.accent||organisation):organisation)
+          setDensity(appearance.density==='compact'?'compact':'comfortable')
+          setNavSide(preferences.navigation?.desktopSide==='right'?'right':'left')
+          setSidebarMode(preferences.navigation?.sidebarMode==='collapsed'?'collapsed':'expanded')
+        }else{
+          const tenantTheme=r.tenant?.themeMode||'system'
+          setThemeState(resolveThemeMode(null,tenantTheme))
+          setAccent(organisation)
+        }
+      })
+      .catch(()=>{})
+      .finally(()=>{if(active)setLoading(false)})
+    return()=>{active=false}
+  },[])
+
+  useEffect(()=>{
+    if(lastPreferences?.appearance?.accentMode==='tenant'){
+      setAccent(organisationAccent||'#3b82f6')
+    }
+  },[organisationAccent,lastPreferences])
+
+  useEffect(()=>{
+    const onPop=()=>setView(window.location.pathname === '/profile' ? 'profile' : 'overview')
+    window.addEventListener('popstate',onPop)
+    return()=>window.removeEventListener('popstate',onPop)
+  },[])
   async function load(target=view){
     if(!user||target==='winget')return
     setError('')
@@ -1040,10 +1253,48 @@ export function PlatformAdminApp() {
   }
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
-  if(loading)return <div className="h5a-loading">Loading Hi5Central Admin…</div>
-  if(!user)return <Login onLogin={setUser} theme={theme} setTheme={setTheme}/>
-  function navigate(next){setView(next);setQuery('');setMobileOpen(false)}
-  async function logout(){await api('/auth/logout',{method:'POST'}).catch(()=>{});setUser(null)}
+  if(loading)return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
+  if(!user)return <Login onLogin={()=>window.location.reload()}/>
+  function navigate(next,options={}){
+    if(!options.skipTab&&next!=='profile'){
+      const tab=adminWorkspaceTabForView(next)
+      setWorkspaceTabs(current=>current.some(item=>item.key===tab.key)?current:[...current,tab])
+    }
+    setView(next)
+    setQuery('')
+    setMobileOpen(false)
+    if(next!=='profile'&&window.location.pathname==='/profile'){
+      window.history.pushState({},'', '/')
+    }
+  }
+  function openAccount(section='profile'){
+    setView('profile')
+    setMobileOpen(false)
+    setQuery('')
+    const url=new URL(window.location.href)
+    url.pathname='/profile'
+    if(section==='workspace')url.searchParams.set('section','workspace')
+    else url.searchParams.delete('section')
+    window.history.pushState({},'',`${url.pathname}${url.search}`)
+    window.dispatchEvent(new PopStateEvent('popstate',{state:window.history.state}))
+  }
+  function activateWorkspaceTab(tab){if(tab)navigate(tab.viewId||'overview',{skipTab:true})}
+  function closeWorkspaceTab(key){
+    const index=workspaceTabs.findIndex(tab=>tab.key===key)
+    const closing=workspaceTabs[index]
+    if(!closing||closing.pinned)return
+    const nextTabs=workspaceTabs.filter(tab=>tab.key!==key)
+    setWorkspaceTabs(nextTabs)
+    if(`view:${view}`===key){
+      const fallback=nextTabs[Math.max(0,index-1)]||nextTabs[0]||adminWorkspaceTabForView('overview')
+      window.setTimeout(()=>activateWorkspaceTab(fallback),0)
+    }
+  }
+  async function logout(){
+    await api('/auth/logout',{method:'POST'}).catch(()=>{})
+    await fetch(`${API}/api/v1/auth/logout`, { method:'POST', credentials:'include' }).catch(()=>{})
+    setUser(null)
+  }
   function refreshCurrent(){if(view==='winget')setWingetRefreshKey(value=>value+1);else load(view)}
   function renderPage(){
     if(view==='overview')return <Overview data={data.overview} refresh={()=>load('overview')}/>
@@ -1054,13 +1305,17 @@ export function PlatformAdminApp() {
     if(view==='qualification')return <Qualification data={data.qualification} query={query} refresh={()=>load('qualification')}/>
     if(view==='catalogue')return <Catalogue items={data.catalogue} query={query} refresh={()=>load('catalogue')}/>
     if(view==='winget')return <Winget key={query} query={query} refreshKey={wingetRefreshKey}/>
+    if(view==='profile')return <ProductionProfileWorkspace platform="admin" session={accountSession} />
     return <Audit items={data.audit} query={query}/>
   }
-  return <div className="rmm-app h5a-rmm-shell" data-accent="amber" data-theme={theme}>
-    <AdminSidebar activeView={view} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)}/>
-    <div className="rmm-shell-main">
-      <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} query={query} setQuery={setQuery} theme={theme} setTheme={setTheme} refresh={refreshCurrent}/>
-      <main className="rmm-main-scroll"><div className="rmm-page">{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
+  return <>
+    <div className={`rmm-app h5a-rmm-shell sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={adminAccentStyle(accent)}>
+      <AdminSidebar activeView={view} canItsm={Boolean(platformAccess.itsm)} canRmm={Boolean(platformAccess.rmm)} collapsed={sidebarMode==='collapsed'} mobileOpen={mobileOpen} navigate={navigate} onClose={()=>setMobileOpen(false)} onToggleCollapse={()=>setSidebarMode(value=>value==='collapsed'?'expanded':'collapsed')} user={user}/>
+      <div className="rmm-shell-main">
+        <AdminTopbar activeView={view} user={user} onLogout={logout} onMenu={()=>setMobileOpen(true)} onOpenAccount={openAccount} query={query} setQuery={setQuery} refresh={refreshCurrent}/>
+        <main className={`rmm-main-scroll ${view==='profile'?'rmm-account-mounted':''}`}><div className={`rmm-page ${view==='profile'?'rmm-page-profile':''}`}>{error?<div className="h5a-page-error">{error}</div>:null}{renderPage()}</div></main>
+      </div>
     </div>
-  </div>
+    <ProductionUserExperience user={user} onPreferences={applyUserPreferences}/>
+  </>
 }

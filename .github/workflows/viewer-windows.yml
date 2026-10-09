@@ -7,7 +7,7 @@ on:
       - 'native/viewer/**'
       - '.github/workflows/viewer-windows.yml'
   push:
-    branches: [main, develop]
+    branches: [main]
     paths:
       - 'native/viewer/**'
       - '.github/workflows/viewer-windows.yml'

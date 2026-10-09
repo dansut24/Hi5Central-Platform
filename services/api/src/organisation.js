@@ -379,11 +379,225 @@ async function syncPeople(client, tenantId, items) {
   }
 }
 
+function editDenied(message = 'You do not have permission to change this organisation entry.') {
+  throw Object.assign(new Error(message), { status: 403 })
+}
+
+function validName(value) {
+  const name = text(value, 120)
+  if (name.length < 2) throw Object.assign(new Error('A name of at least two characters is required.'), { status: 400 })
+  return name
+}
+
+async function upsertOrganisationEntry(client, session, collection, item) {
+  const tenantId = session.tenant_id
+  const isTenantAdmin = ['owner', 'admin'].includes(session.tenant_role)
+  const actorResult = await client.query(
+    'SELECT * FROM organisation_people WHERE tenant_id=$1 AND user_id=$2 LIMIT 1',
+    [tenantId, session.user_id],
+  )
+  const actor = actorResult.rows[0] || null
+  const profile = isTenantAdmin ? 'tenant_admin' : actor?.access_profile || 'employee'
+  const peopleAdmin = isTenantAdmin || profile === 'people_admin'
+  const maps = await externalIdMaps(client, tenantId)
+  const itemKey = key(item?.id)
+  if (!itemKey) throw Object.assign(new Error('An organisation identifier is required.'), { status: 400 })
+
+  const actorTeam = actor?.primary_team_id || null
+  const actorDepartmentResult = actor?.department_id ? actor.department_id : actorTeam
+    ? (await client.query('SELECT department_id FROM organisation_teams WHERE tenant_id=$1 AND id=$2', [tenantId, actorTeam])).rows[0]?.department_id
+    : null
+  const actorDepartment = actorDepartmentResult || null
+
+  const lookup = {
+    people: 'organisation_people', teams: 'organisation_teams', departments: 'organisation_departments',
+  }
+  if (!lookup[collection]) throw Object.assign(new Error('Unsupported organisation collection.'), { status: 404 })
+  const found = await client.query(
+    'SELECT * FROM ' + lookup[collection] + ' WHERE tenant_id=$1 AND external_key=$2 FOR UPDATE',
+    [tenantId, itemKey],
+  )
+  const current = found.rows[0] || null
+  const creating = !current
+
+  // Non-admin edits must be checked against the DATABASE role and scope,
+  // never the browser's editable People profile or a submitted accessProfile.
+  if (collection === 'departments') {
+    if (!peopleAdmin) editDenied('People administrator access is required to manage departments.')
+    const name = validName(item.name)
+    const source = isTenantAdmin ? asObject(item.source) : asObject(current?.source)
+    await client.query(
+      `INSERT INTO organisation_departments
+        (tenant_id, external_key, name, description, lead_person_id, source, active, updated_at)
+       VALUES($1,$2,$3,$4,$5,$6::jsonb,$7,now())
+       ON CONFLICT(tenant_id, external_key) DO UPDATE
+         SET name=EXCLUDED.name, description=EXCLUDED.description, lead_person_id=EXCLUDED.lead_person_id,
+             source=EXCLUDED.source, active=EXCLUDED.active, updated_at=now()`,
+      [
+        tenantId, itemKey, name, text(item.description, 2000),
+        maps.people.get(item.leadId) || null, JSON.stringify(source), bool(item.active),
+      ],
+    )
+    return
+  }
+
+  if (collection === 'teams') {
+    const nextDepartmentId = maps.departments.get(item.departmentId) || null
+    if (item.departmentId && !nextDepartmentId) {
+      throw Object.assign(new Error('Choose a department in this tenant.'), { status: 400 })
+    }
+    if (!peopleAdmin && !(profile === 'department_manager' && actorDepartment &&
+      nextDepartmentId === actorDepartment && (creating || current.department_id === actorDepartment))) {
+      editDenied('You can only manage teams in your department.')
+    }
+    const name = validName(item.name)
+    const source = isTenantAdmin ? asObject(item.source) : asObject(current?.source)
+    await client.query(
+      `INSERT INTO organisation_teams
+         (tenant_id,external_key,department_id,name,description,colour,lead_person_id,source,active,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,now())
+       ON CONFLICT(tenant_id,external_key) DO UPDATE
+         SET department_id=EXCLUDED.department_id, name=EXCLUDED.name,
+             description=EXCLUDED.description, colour=EXCLUDED.colour,
+             lead_person_id=EXCLUDED.lead_person_id, source=EXCLUDED.source,
+             active=EXCLUDED.active, updated_at=now()`,
+      [
+        tenantId, itemKey, nextDepartmentId, name, text(item.description, 2000),
+        text(item.colour || 'blue', 30), maps.people.get(item.leadId) || null,
+        JSON.stringify(source), bool(item.active),
+      ],
+    )
+    return
+  }
+
+  if (creating && !peopleAdmin) editDenied('Only People administrators can create people.')
+  const ownRecord = Boolean(actor && current && actor.id === current.id)
+  const currentTeam = current?.primary_team_id || null
+  const currentDepartment = current?.department_id || (currentTeam
+    ? (await client.query('SELECT department_id FROM organisation_teams WHERE tenant_id=$1 AND id=$2', [tenantId, currentTeam])).rows[0]?.department_id
+    : null)
+  const departmentScoped = profile === 'department_manager' && actorDepartment &&
+    currentDepartment === actorDepartment
+  const teamScoped = profile === 'team_manager' && actorTeam && currentTeam === actorTeam
+  const canBasic = peopleAdmin || ownRecord || departmentScoped || teamScoped
+  const canOrganisation = peopleAdmin || departmentScoped || teamScoped
+  if (!canBasic) editDenied('You can only edit people within your permitted scope.')
+
+  const source = asObject(current?.directory_source)
+  const managed = new Set(asArray(source.managedFields))
+  const allowed = (field, canEdit) => canEdit && (isTenantAdmin || !managed.has(field))
+  const pick = (field, previous, canEdit) =>
+    item[field] !== undefined && allowed(field, canEdit) ? item[field] : previous
+  const selectedTeam = pick('teamId', null, canOrganisation)
+  const nextTeamId = selectedTeam === null ? currentTeam : maps.teams.get(selectedTeam) || null
+  if (selectedTeam && !nextTeamId) {
+    throw Object.assign(new Error('Choose a team in this tenant.'), { status: 400 })
+  }
+  const selectedDepartment = pick('departmentId', null, canOrganisation)
+  const nextDepartmentId = selectedDepartment === null
+    ? (current?.department_id || null)
+    : (maps.departments.get(selectedDepartment) || null)
+  if (selectedDepartment && !nextDepartmentId) {
+    throw Object.assign(new Error('Choose a department in this tenant.'), { status: 400 })
+  }
+  const nextTeamDepartment = nextTeamId
+    ? (await client.query('SELECT department_id FROM organisation_teams WHERE tenant_id=$1 AND id=$2', [tenantId, nextTeamId])).rows[0]?.department_id
+    : null
+  const targetDepartment = nextTeamDepartment || nextDepartmentId
+  if (departmentScoped && targetDepartment !== actorDepartment) {
+    editDenied('You cannot move a person outside your department.')
+  }
+  if (teamScoped && nextTeamId !== actorTeam) {
+    editDenied('You cannot move a person outside your team.')
+  }
+
+  const selectedSite = pick('siteId', null, canOrganisation)
+  const nextSiteId = selectedSite === null ? (current?.site_id || null) : (maps.sites.get(selectedSite) || null)
+  if (selectedSite && !nextSiteId) {
+    throw Object.assign(new Error('Choose a site in this tenant.'), { status: 400 })
+  }
+  const selectedManager = pick('managerId', null, canOrganisation)
+  const nextManagerId = selectedManager === null ? (current?.manager_id || null) : (maps.people.get(selectedManager) || null)
+  if (selectedManager && !nextManagerId) {
+    throw Object.assign(new Error('Choose a manager in this tenant.'), { status: 400 })
+  }
+  const name = validName(pick('name', current?.name || '', canBasic))
+  const values = [
+    name,
+    text(pick('email', current?.email || '', canOrganisation), 254).toLowerCase(),
+    text(pick('phone', current?.phone || '', canBasic), 80),
+    text(pick('role', current?.job_title || '', canBasic), 160),
+    text(pick('status', current?.availability || 'Available', canBasic), 40),
+    Math.max(0, Math.min(168, Number(pick('capacityHours', current?.capacity_hours || 0, canBasic)) || 0)),
+    JSON.stringify(asArray(pick('skills', current?.skills || [], canBasic)).map((skill) => text(skill, 100)).slice(0, 40)),
+    JSON.stringify(asObject(pick('workingPattern', current?.working_pattern || {}, canBasic))),
+    nextTeamId, nextDepartmentId, nextSiteId, nextManagerId,
+    isTenantAdmin ? text(item.accessProfile || current?.access_profile || 'employee', 60)
+      : current?.access_profile || 'employee',
+    isTenantAdmin ? JSON.stringify(asObject(item.directorySource, current?.directory_source || { provider: 'local' }))
+      : JSON.stringify(current?.directory_source || { provider: 'local' }),
+    peopleAdmin ? bool(item.active, current?.active ?? true) : (current?.active ?? true),
+  ]
+  if (creating) {
+    await client.query(
+      `INSERT INTO organisation_people
+        (tenant_id,external_key,name,email,phone,job_title,availability,capacity_hours,skills,working_pattern,
+         primary_team_id,department_id,site_id,manager_id,access_profile,directory_source,active,updated_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13,$14,$15,$16::jsonb,$17,now())`,
+      [tenantId, itemKey, ...values],
+    )
+  } else {
+    await client.query(
+      `UPDATE organisation_people SET name=$3,email=$4,phone=$5,job_title=$6,availability=$7,
+        capacity_hours=$8,skills=$9::jsonb,working_pattern=$10::jsonb,
+        primary_team_id=$11,department_id=$12,site_id=$13,manager_id=$14,
+        access_profile=$15,directory_source=$16::jsonb,active=$17,updated_at=now()
+       WHERE id=$1 AND tenant_id=$2`,
+      [current.id, tenantId, ...values],
+    )
+  }
+  const personId = current?.id || (await client.query(
+    'SELECT id FROM organisation_people WHERE tenant_id=$1 AND external_key=$2',
+    [tenantId, itemKey],
+  )).rows[0].id
+  await client.query(
+    'DELETE FROM organisation_team_memberships WHERE tenant_id=$1 AND person_id=$2 AND is_primary=true',
+    [tenantId, personId],
+  )
+  if (nextTeamId) {
+    await client.query(
+      `INSERT INTO organisation_team_memberships(tenant_id,person_id,team_id,role,is_primary)
+       VALUES($1,$2,$3,'member',true)
+       ON CONFLICT(person_id,team_id) DO UPDATE SET is_primary=true`,
+      [tenantId, personId, nextTeamId],
+    )
+  }
+}
+
 export function registerOrganisationRoutes(app) {
   app.get('/api/v1/organisation', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
     await ensureOrganisationSeed(auth.session)
+    return c.json(await organisationSnapshot(auth.session.tenant_id))
+  })
+
+  // Per-entry writes avoid full-collection replacement and enforce scope server-side.
+  app.post('/api/v1/organisation/:collection/upsert', async (c) => {
+    const auth = await requireSession(c)
+    if (auth.error) return auth.error
+    if (auth.session.tenant_role === 'requester') return c.json({ error: 'Technician access required.' }, 403)
+    const collection = text(c.req.param('collection'), 40).toLowerCase()
+    if (!['people', 'teams', 'departments'].includes(collection)) {
+      return c.json({ error: 'Unsupported organisation collection.' }, 404)
+    }
+    const body = await c.req.json().catch(() => null)
+    const entry = body?.item
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || JSON.stringify(entry).length > 50000) {
+      return c.json({ error: 'Valid organisation entry required.' }, 400)
+    }
+    await ensureOrganisationSeed(auth.session)
+    await withTransaction((client) => upsertOrganisationEntry(client, auth.session, collection, entry))
     return c.json(await organisationSnapshot(auth.session.tenant_id))
   })
 

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowRight,
   Building2,
   Check,
-  CheckCircle2,
-  Cloud,
   LockKeyhole,
   Mail,
   MonitorCog,
@@ -14,17 +13,44 @@ import {
   Users,
   Wrench,
 } from 'lucide-react'
+import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import { OnboardingMfaEnhancer } from '../security/OnboardingMfaEnhancer.jsx'
 import './OnboardingWizard.css'
 
 const API_BASE = window.__HI5_API_BASE__
+const DEPLOYMENT = deploymentConfig()
+const SELF_HOSTED = DEPLOYMENT.deploymentMode === 'self_hosted'
 
 const accentColours = {
-  amber: '#f59e0b',
   blue: '#3b82f6',
   cyan: '#06b6d4',
+  amber: '#f59e0b',
   emerald: '#10b981',
   violet: '#8b5cf6',
   rose: '#f43f5e',
+}
+
+const accentPresets = [
+  ['Hi5Central blue', '#3b82f6'],
+  ['Cyan', '#06b6d4'],
+  ['Amber', '#f59e0b'],
+  ['Emerald', '#10b981'],
+  ['Violet', '#8b5cf6'],
+  ['Rose', '#f43f5e'],
+]
+
+function accentColour(value) {
+  const raw = String(value || '').trim().toLowerCase()
+  if (/^#[0-9a-f]{6}$/i.test(raw)) return raw
+  return accentColours[raw] || accentColours.blue
+}
+
+function accentTextColour(value) {
+  const hex = accentColour(value).slice(1)
+  const r = Number.parseInt(hex.slice(0, 2), 16)
+  const g = Number.parseInt(hex.slice(2, 4), 16)
+  const b = Number.parseInt(hex.slice(4, 6), 16)
+  return ((0.2126 * r) + (0.7152 * g) + (0.0722 * b)) > 165 ? '#10213f' : '#ffffff'
 }
 
 const defaultPrefixes = {
@@ -37,13 +63,12 @@ const defaultPrefixes = {
 const stepMeta = {
   company: { label: 'Company', icon: Building2, description: 'Organisation identity and regional defaults.' },
   theme: { label: 'Branding', icon: Palette, description: 'Set the default look and feel for your tenant.' },
-  users: { label: 'Microsoft 365 & users', icon: Cloud, description: 'Choose how people will enter Hi5Central.' },
+  delivery: { label: 'Domain & email', icon: Mail, description: 'Choose platform addresses and outbound email delivery.' },
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
   itsm: { label: 'ITSM setup', icon: Wrench, description: 'Configure records, service desk defaults, portal and notifications.' },
   rmm: { label: 'RMM setup', icon: MonitorCog, description: 'Set the first device-management defaults.' },
-  billing: { label: 'Plan', icon: Check, description: 'Choose the initial subscription state for this tenant.' },
   finish: { label: 'Review', icon: Sparkles, description: 'Review the tenant before opening Hi5Central.' },
 }
 
@@ -51,13 +76,12 @@ function sequenceFor(modules = {}) {
   return [
     'company',
     'theme',
-    'users',
+    'delivery',
     'groups',
     'permissions',
     'security',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
-    'billing',
     'finish',
   ].filter(Boolean)
 }
@@ -77,26 +101,29 @@ function defaultData(step, session) {
       employeeBand: '51-250',
     },
     theme: {
-      accent: 'amber',
-      mode: 'system',
+      accent: '#3b82f6',
+      mode: 'light',
       brandName: session?.tenant?.companyName || '',
       portalTitle: 'IT Help Centre',
     },
-    users: {
-      source: 'microsoft365',
-      microsoft365: {
-        status: 'not_connected',
-        tenantName: '',
-        directoryUsers: 0,
-        directoryGroups: 0,
-      },
-      syncUsers: true,
-      syncGroups: true,
-      inviteMode: 'later',
-      invites: '',
+    delivery: {
+      domainMode: 'default',
+      customWorkspaceDomain: '',
+      customPortalDomain: '',
+      domainStatus: 'default',
+      domainVerificationToken: '',
+      smtpMode: 'default',
+      smtpHost: '',
+      smtpPort: '587',
+      smtpSecurity: 'starttls',
+      smtpUsername: '',
+      smtpPasswordConfigured: false,
+      smtpFromName: session?.tenant?.companyName || 'Hi5Central',
+      smtpFromEmail: '',
+      smtpVerifiedAt: null,
     },
     groups: {
-      serviceDeskTeam: 'Service Desk',
+      serviceDeskTeam: session?.tenant?.modules?.itsm ? 'Service Desk' : 'Endpoint Operations',
       firstDepartment: 'IT',
       firstSite: 'Head Office',
       assignmentModel: 'team-first',
@@ -143,12 +170,6 @@ function defaultData(step, session) {
       unattendedAccess: true,
       requireRemoteApproval: false,
     },
-    billing: {
-      plan: 'trial',
-      billingLater: true,
-      expectedTechnicians: '5',
-      expectedDevices: '100',
-    },
     finish: {},
   }
 
@@ -160,7 +181,7 @@ function Field({ label, children, hint, full = false }) {
     <label className={`onboarding-field ${full ? 'onboarding-field-full' : ''}`}>
       <span>{label}</span>
       {children}
-      {hint ? <small>{hint}</small> : null}
+      <small className={hint ? '' : 'is-empty'}>{hint || ' '}</small>
     </label>
   )
 }
@@ -202,29 +223,64 @@ function normalisePrefix(value, fallback) {
   return cleaned.endsWith('-') ? cleaned : `${cleaned}-`
 }
 
+async function fetchWithDeadline(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('Hi5Central did not finish saving this step within 12 seconds. Your previous progress is safe; retry this step.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
 export function OnboardingWizard({ session, onSessionChange }) {
   const modules = session?.tenant?.modules || {}
   const sequence = useMemo(() => sequenceFor(modules), [modules])
-  const step = sequence.includes(session?.onboarding?.step) ? session.onboarding.step : sequence[0]
-  const index = Math.max(0, sequence.indexOf(step))
-  const [data, setData] = useState(() => defaultData(step, session))
-  const [activeStep, setActiveStep] = useState(step)
+  const canonicalStep = sequence.includes(session?.onboarding?.step) ? session.onboarding.step : sequence[0]
+  const canonicalIndex = Math.max(0, sequence.indexOf(canonicalStep))
+  const [viewStep, setViewStep] = useState(canonicalStep)
+  const [data, setData] = useState(() => defaultData(canonicalStep, session))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [smtpPassword, setSmtpPassword] = useState('')
+  const [deliveryBusy, setDeliveryBusy] = useState(false)
+  const [deliveryNotice, setDeliveryNotice] = useState('')
 
   useEffect(() => {
-    if (activeStep === step) return
-    setActiveStep(step)
-    setData(defaultData(step, session))
+    setViewStep(canonicalStep)
+    setData(defaultData(canonicalStep, session))
     setError('')
-  }, [activeStep, session, step])
+  }, [canonicalStep])
 
+  useEffect(() => {
+    if (viewStep !== 'delivery') return undefined
+    let active = true
+    fetch(`${API_BASE}/api/v1/onboarding/delivery`, { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(payload.error || 'Could not load domain and email settings.')
+        if (!active) return
+        setData((current) => ({ ...current, ...(payload.config || {}) }))
+      })
+      .catch((loadError) => { if (active) setError(loadError.message) })
+    return () => { active = false }
+  }, [viewStep])
+
+  const viewIndex = Math.max(0, sequence.indexOf(viewStep))
   const savedAccent = session?.onboarding?.data?.theme?.accent
-  const activeAccent = step === 'theme' ? data.accent : savedAccent || 'amber'
-  const shellStyle = { '--onboarding-accent': accentColours[activeAccent] || accentColours.amber }
-  const meta = stepMeta[step]
+  const activeAccent = viewStep === 'theme' ? data.accent : savedAccent || '#3b82f6'
+  const shellStyle = {
+    '--onboarding-accent': accentColour(activeAccent),
+    '--onboarding-accent-ink': accentTextColour(activeAccent),
+  }
+  const meta = stepMeta[viewStep]
   const Icon = meta?.icon || Sparkles
-  const progress = Math.round(((index + 1) / sequence.length) * 100)
+  const progress = Math.round(((canonicalIndex + 1) / sequence.length) * 100)
 
   function update(field, value) {
     setData((current) => ({ ...current, [field]: value }))
@@ -242,32 +298,126 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setError('')
   }
 
-  async function saveStep() {
-    setSaving(true)
-    setError('')
-
-    let payloadData = data
-    if (step === 'itsm') {
-      const configured = data.numberingMode === 'custom'
-        ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key, fallback]) => [
-            key,
-            normalisePrefix(data.recordPrefixes?.[key], fallback),
-          ]))
-        : { ...defaultPrefixes }
-      payloadData = { ...data, recordPrefixes: configured }
-      setData(payloadData)
-    }
-
+  async function saveDeliveryConfig({ testSmtp = false } = {}) {
+    setDeliveryBusy(true)
+    setDeliveryNotice('')
     try {
-      const response = await fetch(`${API_BASE}/api/v1/onboarding/step`, {
+      const endpoint = testSmtp ? 'test-smtp' : ''
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/delivery${endpoint ? `/${endpoint}` : ''}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step, data: payloadData }),
+        body: JSON.stringify({
+          ...data,
+          smtpPassword,
+        }),
       })
       const payload = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(payload.error || 'We could not save this onboarding step.')
+      if (!response.ok) throw new Error(payload.error || (testSmtp ? 'SMTP connection test failed.' : 'Could not save domain and email settings.'))
+      const next = { ...data, ...(payload.config || {}) }
+      setData(next)
+      if (testSmtp) {
+        setSmtpPassword('')
+        setDeliveryNotice('SMTP connection verified. Hi5Central can use these details for tenant notifications.')
+      } else {
+        setDeliveryNotice(data.domainMode === 'custom'
+          ? 'Domain settings saved. Keep the default Hi5Central address active until DNS verification is complete.'
+          : 'Hi5Central default addressing and mail delivery selected.')
+      }
+      return next
+    } finally {
+      setDeliveryBusy(false)
+    }
+  }
+
+  async function verifyDomain() {
+    setDeliveryBusy(true)
+    setDeliveryNotice('')
+    try {
+      const saved = await saveDeliveryConfig()
+      setData(saved)
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/delivery/verify-domain`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(payload.error || 'Custom domain verification failed.')
+      const next = { ...saved, ...(payload.config || {}) }
+      setData(next)
+      setDeliveryNotice('DNS ownership verified. Hi5Central will keep the default address active until HTTPS provisioning is complete.')
+      return next
+    } finally {
+      setDeliveryBusy(false)
+    }
+  }
+
+  function normalisedStepData(stepName, stepData) {
+    if (stepName !== 'itsm') return stepData
+    const configured = stepData.numberingMode === 'custom'
+      ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key, fallback]) => [
+          key,
+          normalisePrefix(stepData.recordPrefixes?.[key], fallback),
+        ]))
+      : { ...defaultPrefixes }
+    return { ...stepData, recordPrefixes: configured }
+  }
+
+  async function persistStep(stepName, stepData, { advance = false } = {}) {
+    const payloadData = normalisedStepData(stepName, stepData)
+    const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/${advance ? 'step' : 'save'}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step: stepName, data: payloadData }),
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(payload.error || 'We could not save this onboarding step.')
+    return { payload, payloadData }
+  }
+
+  async function continueStep() {
+    setSaving(true)
+    setError('')
+    try {
+      let stepData = data
+      if (viewStep === 'delivery') {
+        stepData = await saveDeliveryConfig()
+        if (stepData.smtpMode === 'custom' && !stepData.smtpVerifiedAt) {
+          throw new Error('Test the custom SMTP connection successfully before continuing.')
+        }
+      }
+
+      if (viewStep === canonicalStep) {
+        const { payload, payloadData } = await persistStep(viewStep, stepData, { advance: true })
+        setData(payloadData)
+        onSessionChange(payload)
+        return
+      }
+
+      const { payload } = await persistStep(viewStep, stepData)
       onSessionChange(payload)
+      const nextView = sequence[Math.min(viewIndex + 1, canonicalIndex)]
+      setViewStep(nextView)
+      setData(defaultData(nextView, payload))
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function goPrevious() {
+    if (viewIndex <= 0) return
+    setSaving(true)
+    setError('')
+    try {
+      let stepData = data
+      if (viewStep === 'delivery') stepData = await saveDeliveryConfig()
+      const { payload } = await persistStep(viewStep, stepData)
+      onSessionChange(payload)
+      const previousView = sequence[viewIndex - 1]
+      setViewStep(previousView)
+      setData(defaultData(previousView, payload))
     } catch (saveError) {
       setError(saveError.message)
     } finally {
@@ -279,7 +429,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
     setSaving(true)
     setError('')
     try {
-      const response = await fetch(`${API_BASE}/api/v1/onboarding/complete`, {
+      const response = await fetchWithDeadline(`${API_BASE}/api/v1/onboarding/complete`, {
         method: 'POST',
         credentials: 'include',
       })
@@ -293,8 +443,17 @@ export function OnboardingWizard({ session, onSessionChange }) {
     }
   }
 
+  const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
-  const saved365 = session?.onboarding?.data?.users?.microsoft365 || {}
+  const defaultWorkspaceAddress = session?.tenant?.tenantUrl
+    || DEPLOYMENT.appUrl
+    || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
+  const defaultSupportDomain = DEPLOYMENT.runtimeEnvironment === 'dev'
+    ? 'local.hi5central.test'
+    : (SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)
+  const supportDomain = savedDelivery.domainMode === 'custom' && savedDelivery.customWorkspaceDomain
+    ? savedDelivery.customWorkspaceDomain
+    : defaultSupportDomain
 
   return (
     <div className="onboarding-shell" style={shellStyle}>
@@ -308,8 +467,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
         <nav className="onboarding-steps" aria-label="Onboarding progress">
           {sequence.map((item, itemIndex) => {
             const ItemIcon = stepMeta[item]?.icon || Check
-            const complete = itemIndex < index
-            const current = item === step
+            const complete = itemIndex < canonicalIndex
+            const current = item === viewStep
             return (
               <div className={`onboarding-step ${complete ? 'is-complete' : ''} ${current ? 'is-current' : ''}`} key={item}>
                 <span className="onboarding-step-icon">{complete ? <Check size={15} /> : <ItemIcon size={15} />}</span>
@@ -325,13 +484,13 @@ export function OnboardingWizard({ session, onSessionChange }) {
           <div className="onboarding-heading">
             <span className="onboarding-heading-icon"><Icon size={21} /></span>
             <div>
-              <span>Step {index + 1} of {sequence.length}</span>
+              <span>Step {viewIndex + 1} of {sequence.length}</span>
               <h1>{meta?.label}</h1>
               <p>{meta?.description}</p>
             </div>
           </div>
 
-          {step === 'company' ? (
+          {viewStep === 'company' ? (
             <>
               <Section title="Organisation" description="These values become the tenant defaults and can be changed later in Settings.">
                 <div className="onboarding-form-grid">
@@ -347,61 +506,147 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'theme' ? (
+          {viewStep === 'theme' ? (
             <>
               <Section title="Default appearance" description="This becomes the starting experience for the tenant. Individual users can later have personal preferences.">
                 <div className="onboarding-form-grid">
                   <Field label="Appearance"><select value={data.mode || 'system'} onChange={(event) => update('mode', event.target.value)}><option value="system">Use device setting</option><option value="light">Light</option><option value="dark">Dark</option></select></Field>
-                  <Field label="Accent colour"><select value={data.accent || 'amber'} onChange={(event) => update('accent', event.target.value)}><option value="amber">Amber</option><option value="blue">Blue</option><option value="cyan">Cyan</option><option value="emerald">Emerald</option><option value="violet">Violet</option><option value="rose">Rose</option></select></Field>
+                  <Field label="Accent colour" hint="Choose any colour. The onboarding preview updates instantly.">
+                    <div className="onboarding-colour-picker">
+                      <input
+                        aria-label="Choose accent colour"
+                        className="onboarding-colour-input"
+                        type="color"
+                        value={accentColour(data.accent)}
+                        onChange={(event) => update('accent', event.target.value.toLowerCase())}
+                      />
+                      <input
+                        aria-label="Accent hex colour"
+                        className="onboarding-colour-hex"
+                        inputMode="text"
+                        maxLength="7"
+                        value={String(data.accent || '').startsWith('#') ? String(data.accent) : accentColour(data.accent)}
+                        onChange={(event) => {
+                          const next = event.target.value.trim()
+                          if (/^#[0-9a-fA-F]{0,6}$/.test(next)) update('accent', next)
+                        }}
+                        onBlur={(event) => {
+                          if (!/^#[0-9a-fA-F]{6}$/.test(event.target.value)) update('accent', '#3b82f6')
+                        }}
+                      />
+                    </div>
+                  </Field>
+                  <div className="onboarding-accent-presets" aria-label="Accent colour shortcuts">
+                    {accentPresets.map(([label, colour]) => (
+                      <button
+                        aria-label={label}
+                        className={accentColour(data.accent) === colour ? 'is-selected' : ''}
+                        key={colour}
+                        onClick={() => update('accent', colour)}
+                        style={{ '--preset-colour': colour }}
+                        title={label}
+                        type="button"
+                      >
+                        <span />
+                      </button>
+                    ))}
+                  </div>
                   <Field label="Workspace brand name"><input value={data.brandName || ''} onChange={(event) => update('brandName', event.target.value)} /></Field>
-                  <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field>
+                  {modules.itsm ? <Field label="Portal title"><input value={data.portalTitle || ''} onChange={(event) => update('portalTitle', event.target.value)} /></Field> : null}
                 </div>
                 <div className="onboarding-theme-preview">
                   <span className="onboarding-theme-preview-accent" />
-                  <div><strong>{data.brandName || session.tenant.companyName}</strong><span>{data.portalTitle || 'IT Help Centre'} · {data.mode === 'system' ? 'Follows device appearance' : `${data.mode} mode`}</span></div>
-                </div>
-              </Section>
-            </>
-          ) : null}
-
-          {step === 'users' ? (
-            <>
-              <Section title="Microsoft 365" description="Directory connections are established through the production Microsoft connector.">
-                <div className={`onboarding-integration-card ${data.microsoft365?.status === 'connected' ? 'is-connected' : ''}`}>
-                  <div className="onboarding-integration-logo"><Cloud size={24} /></div>
-                  <div className="onboarding-integration-copy">
-                    <div className="onboarding-integration-title">
-                      <strong>Microsoft 365 directory</strong>
-                      {data.microsoft365?.status === 'connected' ? <span><CheckCircle2 size={14} /> Connected</span> : <span>Not connected</span>}
-                    </div>
-                    {data.microsoft365?.status === 'connected' ? (
-                      <p>{data.microsoft365.tenantName || 'Microsoft 365'} · {data.microsoft365.directoryUsers || 0} users · {data.microsoft365.directoryGroups || 0} groups discovered.</p>
-                    ) : (
-                      <p>Configure Microsoft 365 from Settings → Integrations after onboarding. No directory data is created locally.</p>
-                    )}
+                  <div>
+                    <strong>{data.brandName || session.tenant.companyName}</strong>
+                    <span>{modules.itsm ? `${data.portalTitle || 'IT Help Centre'} · ` : ''}{data.mode === 'system' ? 'Follows device appearance' : `${data.mode} mode`}</span>
                   </div>
-                  <button className="onboarding-secondary" disabled type="button">{data.microsoft365?.status === 'connected' ? 'Managed by connector' : 'Configure after onboarding'}</button>
-                </div>
-                <div className="onboarding-integration-note"><ShieldCheck size={16} /><span>Hi5Central only treats Microsoft 365 as connected after the production OAuth and Microsoft Graph connector reports a successful connection.</span></div>
-              </Section>
-
-              <Section title="User provisioning" description="Choose what a future live Microsoft 365 sync should manage.">
-                <div className="onboarding-toggle-grid">
-                  <Toggle checked={Boolean(data.syncUsers)} onChange={(value) => update('syncUsers', value)} title="Synchronise users" description="Create and update Hi5Central people from Microsoft 365." />
-                  <Toggle checked={Boolean(data.syncGroups)} onChange={(value) => update('syncGroups', value)} title="Synchronise groups" description="Use selected Microsoft 365 groups as managed team membership sources." />
-                </div>
-                <div className="onboarding-form-grid onboarding-form-grid-one">
-                  <Field label="Additional invites" hint="Optional. Separate email addresses with commas."><textarea value={data.invites || ''} onChange={(event) => update('invites', event.target.value)} rows={3} placeholder="alex@example.com, jamie@example.com" /></Field>
                 </div>
               </Section>
             </>
           ) : null}
 
-          {step === 'groups' ? (
+          {viewStep === 'delivery' ? (
+            <>
+              <Section title="Platform address" description="Keep the standard Hi5Central address or prepare your own domain. The default URL stays active until custom DNS ownership and HTTPS are ready.">
+                <div className="onboarding-choice-grid onboarding-choice-grid-two">
+                  <button type="button" onClick={() => update('domainMode', 'default')} className={data.domainMode !== 'custom' ? 'is-selected' : ''}>
+                    <strong>{SELF_HOSTED ? 'Use installation defaults' : 'Use Hi5Central address'}</strong>
+                    <span>{SELF_HOSTED ? DEPLOYMENT.appUrl : `Keep ${defaultWorkspaceAddress} as the workspace address.`}</span>
+                  </button>
+                  <button type="button" onClick={() => update('domainMode', 'custom')} className={data.domainMode === 'custom' ? 'is-selected' : ''}>
+                    <strong>Use my own domain</strong>
+                    <span>Prepare branded workspace and portal hostnames without taking the default address offline.</span>
+                  </button>
+                </div>
+                {data.domainMode === 'custom' ? (
+                  <>
+                    <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                      <Field label="Workspace domain" hint="Example: support.example.com"><input autoCapitalize="none" autoCorrect="off" value={data.customWorkspaceDomain || ''} onChange={(event) => update('customWorkspaceDomain', event.target.value)} /></Field>
+                      <Field label="Portal domain" hint="Optional, for example help.example.com"><input autoCapitalize="none" autoCorrect="off" value={data.customPortalDomain || ''} onChange={(event) => update('customPortalDomain', event.target.value)} /></Field>
+                    </div>
+                    <button className="onboarding-secondary onboarding-inline-action" disabled={deliveryBusy} onClick={() => saveDeliveryConfig().catch((saveError) => setError(saveError.message))} type="button">
+                      {deliveryBusy ? 'Saving…' : 'Save domain setup'}
+                    </button>
+                    {data.domainVerificationToken ? (
+                      <div className="onboarding-dns-card">
+                        <strong>DNS ownership record</strong>
+                        <span>Add this TXT record before activating the custom domain:</span>
+                        <code>_hi5central.{data.customWorkspaceDomain}</code>
+                        <code>hi5central-verification={data.domainVerificationToken}</code>
+                        {data.customPortalDomain ? <code>_hi5central.{data.customPortalDomain}</code> : null}
+                        <div className="onboarding-inline-actions">
+                          <button className="onboarding-secondary" disabled={deliveryBusy} onClick={() => verifyDomain().catch((verifyError) => setError(verifyError.message))} type="button">
+                            {deliveryBusy ? 'Checking DNS…' : data.domainStatus === 'verified' ? 'Verify DNS again' : 'Verify DNS'}
+                          </button>
+                          {data.domainStatus === 'verified' ? <span className="onboarding-verified"><Check size={15} /> Domain ownership verified</span> : null}
+                        </div>
+                        <small>The default Hi5Central address remains live until DNS verification and certificate provisioning complete.</small>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </Section>
+
+              <Section title="Outbound email" description="Use Hi5Central delivery or send tenant notifications through your own SMTP service. Security-critical account mail remains on the trusted platform mail path.">
+                <div className="onboarding-choice-grid onboarding-choice-grid-two">
+                  <button type="button" onClick={() => update('smtpMode', 'default')} className={data.smtpMode !== 'custom' ? 'is-selected' : ''}>
+                    <strong>{SELF_HOSTED ? 'Use server SMTP' : 'Use Hi5Central mail'}</strong>
+                    <span>{SELF_HOSTED ? 'Use the SMTP configuration supplied with this installation.' : 'Recommended. Hi5Central handles notification delivery and retries.'}</span>
+                  </button>
+                  <button type="button" onClick={() => update('smtpMode', 'custom')} className={data.smtpMode === 'custom' ? 'is-selected' : ''}>
+                    <strong>Use custom SMTP</strong>
+                    <span>Send tenant notifications using your own SMTP server and From address.</span>
+                  </button>
+                </div>
+                {data.smtpMode === 'custom' ? (
+                  <>
+                    <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                      <Field label="SMTP host"><input autoCapitalize="none" autoCorrect="off" value={data.smtpHost || ''} onChange={(event) => update('smtpHost', event.target.value)} /></Field>
+                      <Field label="Port"><input inputMode="numeric" type="number" min="1" max="65535" value={data.smtpPort || '587'} onChange={(event) => update('smtpPort', event.target.value)} /></Field>
+                      <Field label="Security"><select value={data.smtpSecurity || 'starttls'} onChange={(event) => update('smtpSecurity', event.target.value)}><option value="starttls">STARTTLS</option><option value="tls">TLS / SSL</option><option value="plain">No TLS</option></select></Field>
+                      <Field label="Username"><input autoCapitalize="none" autoCorrect="off" value={data.smtpUsername || ''} onChange={(event) => update('smtpUsername', event.target.value)} /></Field>
+                      <Field label="Password" hint={data.smtpPasswordConfigured && !smtpPassword ? 'A password is already stored securely. Leave blank to keep it.' : 'Stored encrypted and never returned to the browser.'}><input autoComplete="new-password" type="password" value={smtpPassword} onChange={(event) => setSmtpPassword(event.target.value)} placeholder={data.smtpPasswordConfigured ? '••••••••••••' : ''} /></Field>
+                      <Field label="From name"><input value={data.smtpFromName || ''} onChange={(event) => update('smtpFromName', event.target.value)} /></Field>
+                      <Field label="From email" full hint="This address should be authorised by your SMTP provider."><input autoCapitalize="none" autoCorrect="off" type="email" value={data.smtpFromEmail || ''} onChange={(event) => update('smtpFromEmail', event.target.value)} /></Field>
+                    </div>
+                    <div className="onboarding-inline-actions">
+                      <button className="onboarding-secondary" disabled={deliveryBusy} onClick={() => saveDeliveryConfig({ testSmtp: true }).catch((testError) => setError(testError.message))} type="button">
+                        {deliveryBusy ? 'Testing…' : data.smtpVerifiedAt ? 'Test SMTP again' : 'Test SMTP connection'}
+                      </button>
+                      {data.smtpVerifiedAt ? <span className="onboarding-verified"><Check size={15} /> SMTP verified</span> : null}
+                    </div>
+                  </>
+                ) : null}
+                {deliveryNotice ? <div className="onboarding-integration-note"><Mail size={16} /><span>{deliveryNotice}</span></div> : null}
+              </Section>
+            </>
+          ) : null}
+
+          {viewStep === 'groups' ? (
             <>
               <Section title="Initial structure" description="Create sensible defaults before importing or manually adding the full organisation.">
                 <div className="onboarding-form-grid">
-                  <Field label="Primary support team"><input value={data.serviceDeskTeam || ''} onChange={(event) => update('serviceDeskTeam', event.target.value)} /></Field>
+                  <Field label={modules.itsm ? 'Primary support team' : 'Primary operations team'}><input value={data.serviceDeskTeam || ''} onChange={(event) => update('serviceDeskTeam', event.target.value)} /></Field>
                   <Field label="First department"><input value={data.firstDepartment || ''} onChange={(event) => update('firstDepartment', event.target.value)} /></Field>
                   <Field label="First site / location"><input value={data.firstSite || ''} onChange={(event) => update('firstSite', event.target.value)} /></Field>
                   <Field label="Assignment model"><select value={data.assignmentModel || 'team-first'} onChange={(event) => update('assignmentModel', event.target.value)}><option value="team-first">Assign to team, then technician</option><option value="technician-first">Assign directly to technician</option><option value="queue">Shared queue ownership</option></select></Field>
@@ -410,7 +655,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'permissions' ? (
+          {viewStep === 'permissions' ? (
             <>
               <Section title="Role model" description="Start with a template; granular RBAC remains editable later in Settings.">
                 <div className="onboarding-choice-grid">
@@ -420,15 +665,17 @@ export function OnboardingWizard({ session, onSessionChange }) {
                     ['open', 'Collaborative', 'Broader analyst access for smaller IT teams.'],
                   ].map(([value, title, copy]) => <button type="button" onClick={() => update('preset', value)} className={data.preset === value ? 'is-selected' : ''} key={value}><strong>{title}</strong><span>{copy}</span></button>)}
                 </div>
-                <div className="onboarding-form-grid onboarding-form-grid-spaced">
-                  <Field label="Requester access"><select value={data.requesterAccess || 'portal'} onChange={(event) => update('requesterAccess', event.target.value)}><option value="portal">Portal only</option><option value="portal-approvals">Portal + assigned approvals</option></select></Field>
-                  <Field label="Change approvals"><select value={data.changeApprovalRole || 'admin-change'} onChange={(event) => update('changeApprovalRole', event.target.value)}><option value="admin-change">Admins + Change Managers</option><option value="change-only">Change Managers only</option></select></Field>
-                </div>
+                {modules.itsm ? (
+                  <div className="onboarding-form-grid onboarding-form-grid-spaced">
+                    <Field label="Requester access"><select value={data.requesterAccess || 'portal'} onChange={(event) => update('requesterAccess', event.target.value)}><option value="portal">Portal only</option><option value="portal-approvals">Portal + assigned approvals</option></select></Field>
+                    <Field label="Change approvals"><select value={data.changeApprovalRole || 'admin-change'} onChange={(event) => update('changeApprovalRole', event.target.value)}><option value="admin-change">Admins + Change Managers</option><option value="change-only">Change Managers only</option></select></Field>
+                  </div>
+                ) : null}
               </Section>
             </>
           ) : null}
 
-          {step === 'security' ? (
+          {viewStep === 'security' ? (
             <>
               <Section title="Authentication & sessions" description="These are tenant defaults and are enforced by the tenant security service where supported.">
                 <div className="onboarding-form-grid">
@@ -441,7 +688,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'itsm' ? (
+          {viewStep === 'itsm' ? (
             <>
               <Section title="Record numbering" description="Use Hi5Central defaults or choose your own prefixes for records created in this tenant.">
                 <div className="onboarding-segmented">
@@ -474,7 +721,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
               <Section title="Service desk defaults" description="Starting values for new incidents, requests and service routing.">
                 <div className="onboarding-form-grid">
-                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{session.tenant.slug}.hi5central.com</span></div></Field>
+                  <Field label="Support address" hint="Inbound mail routing is a later backend step."><div className="onboarding-prefix-input"><input value={data.supportEmail || 'support'} onChange={(event) => update('supportEmail', event.target.value)} /><span>@{supportDomain}</span></div></Field>
                   <Field label="Default assignment team"><input value={data.defaultTeam || 'Service Desk'} onChange={(event) => update('defaultTeam', event.target.value)} /></Field>
                   <Field label="Business hours"><select value={data.businessHours || 'uk-business'} onChange={(event) => update('businessHours', event.target.value)}><option value="uk-business">Mon-Fri 09:00-17:30 UK</option><option value="extended">Mon-Fri 08:00-20:00</option><option value="24x7">24 × 7</option></select></Field>
                   <Field label="Default priority"><select value={data.defaultPriority || 'Medium'} onChange={(event) => update('defaultPriority', event.target.value)}><option>Low</option><option>Medium</option><option>High</option><option>Critical</option></select></Field>
@@ -496,7 +743,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
               <Section title="Portal, knowledge & engagement" description="Choose which self-service capabilities are enabled from day one.">
                 <div className="onboarding-form-grid">
-                  <Field label="Portal name"><input value={data.portalName || ''} onChange={(event) => update('portalName', event.target.value)} /></Field>
+                  <Field label="Portal name" full><input value={data.portalName || ''} onChange={(event) => update('portalName', event.target.value)} /></Field>
                 </div>
                 <div className="onboarding-toggle-grid onboarding-toggle-grid-spaced">
                   <Toggle checked={Boolean(data.portalKnowledge)} onChange={(value) => update('portalKnowledge', value)} title="Knowledge in Portal" description="Show published knowledge articles to requesters." />
@@ -510,7 +757,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'rmm' ? (
+          {viewStep === 'rmm' ? (
             <>
               <Section title="Managed estate defaults" description="These values seed the first RMM site, policy and operational defaults.">
                 <div className="onboarding-form-grid">
@@ -518,7 +765,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                   <Field label="Agent update channel"><select value={data.agentChannel || 'stable'} onChange={(event) => update('agentChannel', event.target.value)}><option value="stable">Stable</option><option value="early">Early access</option></select></Field>
                   <Field label="Monitoring policy"><input value={data.monitoringPolicy || ''} onChange={(event) => update('monitoringPolicy', event.target.value)} /></Field>
                   <Field label="Patch ring"><input value={data.patchRing || ''} onChange={(event) => update('patchRing', event.target.value)} /></Field>
-                  <Field label="Maintenance window"><input value={data.maintenanceWindow || ''} onChange={(event) => update('maintenanceWindow', event.target.value)} /></Field>
+                  <Field label="Maintenance window" full><input value={data.maintenanceWindow || ''} onChange={(event) => update('maintenanceWindow', event.target.value)} /></Field>
                 </div>
                 <div className="onboarding-toggle-grid onboarding-toggle-grid-spaced">
                   <Toggle checked={Boolean(data.unattendedAccess)} onChange={(value) => update('unattendedAccess', value)} title="Unattended remote access" description="Allow authorised technicians to start unattended sessions." />
@@ -528,49 +775,48 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
-          {step === 'billing' ? (
-            <>
-              <Section title="Plan" description="Choose the tenant subscription state. Payment activation is handled by the production billing service.">
-                <div className="onboarding-choice-grid">
-                  <button type="button" onClick={() => update('plan', 'trial')} className={data.plan === 'trial' ? 'is-selected' : ''}><strong>Start trial</strong><span>Use the enabled Hi5Central products during the evaluation period.</span></button>
-                  <button type="button" onClick={() => update('plan', 'internal')} className={data.plan === 'internal' ? 'is-selected' : ''}><strong>Internal test tenant</strong><span>Mark this tenant as a non-billable controlled validation environment.</span></button>
-                </div>
-                <div className="onboarding-form-grid onboarding-form-grid-spaced">
-                  <Field label="Expected technicians"><input type="number" min="1" value={data.expectedTechnicians || '5'} onChange={(event) => update('expectedTechnicians', event.target.value)} /></Field>
-                  {modules.rmm ? <Field label="Expected managed devices"><input type="number" min="1" value={data.expectedDevices || '100'} onChange={(event) => update('expectedDevices', event.target.value)} /></Field> : null}
-                </div>
-              </Section>
-            </>
-          ) : null}
-
-          {step === 'finish' ? (
+          {viewStep === 'finish' ? (
             <div className="onboarding-finish">
               <span><Sparkles size={24} /></span>
               <h2>Your workspace is ready.</h2>
               <p>Open Hi5Central with the owner account and the tenant defaults you configured during onboarding.</p>
               <div className="onboarding-summary onboarding-summary-expanded">
-                <div><span>Tenant</span><strong>{session.tenant.slug}.hi5central.com</strong></div>
+                <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
-                <div><span>Microsoft 365</span><strong>{saved365.status === 'connected' ? 'Connected' : 'Not connected'}</strong></div>
+                <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
+                <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
-              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>All settings in this onboarding pass are persisted to the tenant. Microsoft 365, inbound email, AI and billing features remain unavailable until their production integrations are connected.</span></div>
+              <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'}</span></div>
             </div>
           ) : null}
 
           {error ? <div className="onboarding-error">{error}</div> : null}
 
           <div className="onboarding-actions">
-            <span className="onboarding-saved">Your progress is saved to this tenant.</span>
-            <button className="onboarding-primary" disabled={saving} onClick={step === 'finish' ? complete : saveStep} type="button">
-              {saving ? 'Saving…' : step === 'finish' ? 'Open Hi5Central' : 'Continue'}
-              {!saving ? <ArrowRight size={17} /> : null}
-            </button>
+            <span className="onboarding-saved">Changes are saved as you move between steps.</span>
+            <div className="onboarding-action-buttons">
+              {viewIndex > 0 ? (
+                <button className="onboarding-secondary" disabled={saving} onClick={goPrevious} type="button">
+                  <ArrowLeft size={16} /> Previous
+                </button>
+              ) : null}
+              <button
+                className="onboarding-primary"
+                disabled={saving}
+                onClick={viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
+                type="button"
+              >
+                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Continue'}
+                {!saving ? <ArrowRight size={17} /> : null}
+              </button>
+            </div>
           </div>
         </div>
       </main>
+      <OnboardingMfaEnhancer />
     </div>
   )
 }

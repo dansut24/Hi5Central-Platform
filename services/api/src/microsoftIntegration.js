@@ -855,11 +855,19 @@ export function registerMicrosoftRoutes(app) {
     if (!session) return c.json({ error: 'Authentication required.' }, 401)
     if (!originMatchesTenant(c.req.header('origin'), session.slug)) return c.json({ error: 'Tenant session mismatch.' }, 403)
     const personId = clean(c.req.query('personId'))
+    // Explicit record/device links can resolve against the same tenant-scoped
+    // inventory used for requester devices, including merged Intune + Agent rows.
+    const references = [...new Set(clean(c.req.query('references')).split(',').map((value) => value.trim().toLowerCase()).filter(Boolean))].slice(0, 12)
     const params = [session.tenant_id]
     let where = `d.tenant_id=$1 AND d.active=true AND NOT (d.source='hi5central_agent' AND EXISTS (SELECT 1 FROM rmm_device_inventory i WHERE i.tenant_id=d.tenant_id AND i.source='intune' AND i.active=true AND ((NULLIF(trim(d.directory_device_id),'') IS NOT NULL AND NULLIF(trim(i.directory_device_id),'') IS NOT NULL AND lower(trim(i.directory_device_id))=lower(trim(d.directory_device_id))) OR (NULLIF(trim(d.serial_number),'') IS NOT NULL AND NULLIF(trim(i.serial_number),'') IS NOT NULL AND lower(trim(i.serial_number))=lower(trim(d.serial_number)) AND (NULLIF(trim(d.manufacturer),'') IS NULL OR NULLIF(trim(i.manufacturer),'') IS NULL OR lower(trim(i.manufacturer))=lower(trim(d.manufacturer)))))))`
     if (personId) {
       params.push(personId)
       where += ` AND d.assigned_person_id IN (SELECT p2.id FROM organisation_people p2 WHERE p2.tenant_id=$1 AND (p2.id::text=$2 OR p2.external_key=$2))`
+    }
+    if (references.length) {
+      params.push(references)
+      const index = params.length
+      where += ` AND (lower(d.reference) = ANY(${index}::text[]) OR lower(agent_match.reference) = ANY(${index}::text[]))`
     }
     const result = await pool.query(
       `SELECT d.id,d.reference,d.source,d.source_device_id,d.directory_device_id,d.name,d.platform,d.operating_system,d.os_version,d.manufacturer,d.model,d.serial_number,d.user_display_name,d.user_principal_name,d.owner_type,d.compliance_state,d.management_state,d.management_agent,d.enrollment_type,d.registration_state,d.category_name,d.is_encrypted,d.memory_bytes,d.storage_total_bytes,d.storage_free_bytes,d.enrolled_at,d.source_last_sync_at,d.last_imported_at,d.assigned_person_id,d.microsoft_connection_id,

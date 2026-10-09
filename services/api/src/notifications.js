@@ -190,7 +190,7 @@ async function processEmailDeliveries() {
       }
       await pool.query(`UPDATE notification_deliveries SET status='sending',attempts=attempts+1,updated_at=now() WHERE id=$1`, [row.delivery_id])
       try {
-        await sendPlatformNotificationEmail({ to: row.email, companyName: row.company_name, title: row.title, body: row.body, actionUrl: targetUrl(row), eventType: row.event_type })
+        await sendPlatformNotificationEmail({ tenantId: row.tenant_id, to: row.email, companyName: row.company_name, title: row.title, body: row.body, actionUrl: targetUrl(row), eventType: row.event_type })
         await pool.query(`UPDATE notification_deliveries SET status='sent',sent_at=now(),last_error='',updated_at=now() WHERE id=$1`, [row.delivery_id])
       } catch (error) {
         const attempts = Number(row.attempts || 0) + 1

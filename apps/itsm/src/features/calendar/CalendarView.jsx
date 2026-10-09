@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CalendarDays,
@@ -16,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { CALENDAR_TODAY, calendarEventTypes } from '../../data/calendarData.js'
+import { CalendarTeamSidebar, CalendarPersonLane } from './CalendarTeamView.jsx'
 import './CalendarView.css'
 
 const SOURCE_META = {
@@ -104,13 +105,13 @@ function parseSimpleDate(value) {
   const cleaned = String(value).replace(/^Required by\s+/i, '').replace(/^Before\s+/i, '').trim()
   const match = cleaned.match(/^(\d{1,2})\s+([A-Za-z]{3})(?:\s+(\d{4}))?$/)
   if (!match) return null
-  return parseHi5DateTime(`${match[1]} ${match[2]} ${match[3] || '2026'}`)?.date || null
+  return parseHi5DateTime(`${match[1]} ${match[2]} ${match[3] || parseIsoDate(CALENDAR_TODAY)?.getFullYear() || new Date().getFullYear()}`)?.date || null
 }
 
 function parseSla(value) {
   if (!value) return null
   const explicit = String(value).match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{1,2}):(\d{2})$/)
-  if (explicit) return parseHi5DateTime(`${explicit[1]} ${explicit[2]} 2026 ${explicit[3]}:${explicit[4]}`)
+  if (explicit) return parseHi5DateTime(`${explicit[1]} ${explicit[2]} ${parseIsoDate(CALENDAR_TODAY)?.getFullYear() || new Date().getFullYear()} ${explicit[3]}:${explicit[4]}`)
 
   const weekday = String(value).match(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)\s+(\d{1,2}):(\d{2})$/i)
   if (!weekday) return null
@@ -398,22 +399,52 @@ export function CalendarView({
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [draft, setDraft] = useState(null)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
+  const filtersRef = useRef(null)
+  const filterToggleRef = useRef(null)
+  const teamTrackRef = useRef(null)
+  const [teamSidebarOpen, setTeamSidebarOpen] = useState(false)
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem('hi5-calendar-selected-people') || '[]')
+      return Array.isArray(saved) ? saved.filter(id => typeof id === 'string' || typeof id === 'number').slice(0, 60) : []
+    } catch { return [] }
+  })
+  const selectedPeople = selectedCalendarIds.map(id => people.find(person => person.id === id)).filter(Boolean)
+  const chooseCalendars = (ids) => {
+    const allowed = new Set(people.map(person => person.id))
+    setSelectedCalendarIds([...new Set(ids)].filter(id => allowed.has(id)))
+  }
+  useEffect(() => {
+    window.localStorage.setItem('hi5-calendar-selected-people', JSON.stringify(selectedCalendarIds))
+    const track = teamTrackRef.current
+    if (track) track.scrollTo({ left: selectedCalendarIds.length ? track.scrollWidth : 0, behavior: 'smooth' })
+  }, [selectedCalendarIds])
+  useEffect(() => {
+    if (!mobileFiltersOpen) return undefined
+    const close = (event) => {
+      if (event.type === 'keydown' && event.key === 'Escape') { setMobileFiltersOpen(false); filterToggleRef.current?.focus(); return }
+      if (event.type === 'pointerdown' && !filtersRef.current?.contains(event.target) && !filterToggleRef.current?.contains(event.target)) setMobileFiltersOpen(false)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', close)
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close) }
+  }, [mobileFiltersOpen])
 
   const allEvents = useMemo(() => deriveEvents({ calendarEvents, projects, rotaEntries, tickets, people }), [calendarEvents, projects, rotaEntries, tickets, people])
   const conflicts = useMemo(() => detectConflicts(allEvents), [allEvents])
   const eventTypes = useMemo(() => [...new Set(allEvents.map((event) => event.kind).filter(Boolean))].sort(), [allEvents])
 
-  const filteredEvents = useMemo(() => {
+  const teamEvents = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return allEvents.filter((event) => {
       if (sourceFilter !== 'all' && event.source !== sourceFilter) return false
       if (teamFilter !== 'all' && event.team !== teamFilter) return false
-      if (personFilter !== 'all' && event.personId !== personFilter && event.personName !== personFor(people, personFilter)) return false
       if (typeFilter !== 'all' && event.kind !== typeFilter) return false
       if (needle && ![event.title, event.sourceLabel, event.team, event.personName, event.status, event.priority, event.projectName, event.recordId].filter(Boolean).join(' ').toLowerCase().includes(needle)) return false
       return true
     })
-  }, [allEvents, sourceFilter, teamFilter, personFilter, typeFilter, query, people])
+  }, [allEvents, sourceFilter, teamFilter, typeFilter, query])
+  const filteredEvents = useMemo(() => teamEvents.filter(event => personFilter === 'all' || event.personId === personFilter || event.personName === personFor(people, personFilter)), [teamEvents, personFilter, people])
 
   const activeFilterCount = [sourceFilter, teamFilter, personFilter, typeFilter].filter((value) => value !== 'all').length
   const visibleConflictCount = new Set(filteredEvents.filter((event) => conflicts.has(event.id)).map((event) => event.id)).size
@@ -423,7 +454,9 @@ export function CalendarView({
       const monthStart = startOfMonth(selectedDate)
       const monthEnd = endOfMonth(selectedDate)
       const gridStart = startOfWeek(monthStart)
-      const days = Array.from({ length: 42 }, (_, index) => addDays(gridStart, index))
+      const lastWeekEnd = addDays(startOfWeek(monthEnd), 6)
+      const days = []
+      for (let date = gridStart; date <= lastWeekEnd; date = addDays(date, 1)) days.push(date)
       return { start: monthStart, end: monthEnd, days }
     }
     if (view === 'week') {
@@ -514,13 +547,6 @@ export function CalendarView({
         <button className="calendar-primary-action calendar-new-event" onClick={() => createEvent()} type="button"><Plus size={16} />New event</button>
       </header>
 
-      <section className="calendar-kpi-strip" aria-label="Calendar summary">
-        <article><span>Visible schedule</span><strong>{periodEvents.length}</strong><small>{view === 'agenda' ? 'next 31 days' : view}</small></article>
-        <article><span>Project dates</span><strong>{sourceCounts.project || 0}</strong><small>tasks, milestones & targets</small></article>
-        <article><span>Rota entries</span><strong>{sourceCounts.rota || 0}</strong><small>shifts, leave & on call</small></article>
-        <article className={visibleConflictCount ? 'needs-attention' : ''}><span>Conflicts</span><strong>{visibleConflictCount}</strong><small>{visibleConflictCount ? 'visible scheduling warnings' : 'no visible clashes'}</small></article>
-      </section>
-
       <section className="calendar-toolbar">
         <div className="calendar-period-nav">
           <button aria-label="Previous period" onClick={() => movePeriod(-1)} type="button"><ChevronLeft size={17} /></button>
@@ -531,22 +557,33 @@ export function CalendarView({
         <div className="calendar-view-switch" aria-label="Calendar view">
           {['month', 'week', 'day', 'agenda'].map((item) => <button className={view === item ? 'active' : ''} key={item} onClick={() => setView(item)} type="button">{item[0].toUpperCase() + item.slice(1)}</button>)}
         </div>
-        <button className={`calendar-filter-toggle ${activeFilterCount ? 'active' : ''}`} onClick={() => setMobileFiltersOpen((value) => !value)} type="button"><Filter size={15} />Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}</button>
+        <button className={`calendar-team-toggle ${teamSidebarOpen || selectedPeople.length ? 'is-active' : ''}`} type="button" aria-expanded={teamSidebarOpen} aria-controls="calendar-team-sidebar" onClick={() => setTeamSidebarOpen(value => !value)}><Users size={15}/>Team calendars{selectedPeople.length ? ` (${selectedPeople.length})` : ''}</button>
+        <button className={`calendar-filter-toggle ${activeFilterCount || query ? 'active' : ''}`} ref={filterToggleRef} aria-controls="calendar-filters" aria-expanded={mobileFiltersOpen} onClick={() => setMobileFiltersOpen((value) => !value)} type="button"><Filter size={15} />Filters{activeFilterCount || query ? ` (${activeFilterCount + (query ? 1 : 0)})` : ''}</button>
       </section>
 
-      <section className={`calendar-filter-bar ${mobileFiltersOpen ? 'mobile-open' : ''}`}>
+      <section className={`calendar-filter-bar ${mobileFiltersOpen ? 'mobile-open' : ''}`} id="calendar-filters" ref={filtersRef} aria-label="Calendar filters">
+        <div className="calendar-filters-heading"><strong>Calendar filters</strong><button type="button" onClick={() => setMobileFiltersOpen(false)} aria-label="Close calendar filters"><X size={16}/></button></div>
         <label className="calendar-search"><Search size={15} /><input onChange={(event) => setQuery(event.target.value)} placeholder="Search schedule" value={query} /></label>
         <label><span>Source</span><select onChange={(event) => setSourceFilter(event.target.value)} value={sourceFilter}><option value="all">All sources</option>{Object.entries(SOURCE_META).map(([id, meta]) => <option key={id} value={id}>{meta.label}</option>)}</select></label>
         <label><span>Team</span><select onChange={(event) => setTeamFilter(event.target.value)} value={teamFilter}><option value="all">All teams</option>{teams.map((team) => <option key={team.id} value={team.name}>{team.name}</option>)}</select></label>
         <label><span>Person</span><select onChange={(event) => setPersonFilter(event.target.value)} value={personFilter}><option value="all">All people</option>{people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
         <label><span>Type</span><select onChange={(event) => setTypeFilter(event.target.value)} value={typeFilter}><option value="all">All types</option>{eventTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
         {(activeFilterCount || query) && <button className="calendar-clear-filters" onClick={clearFilters} type="button">Clear</button>}
+        <div className="calendar-source-legend">
+          {Object.entries(SOURCE_META).map(([id, meta]) => <button className={sourceFilter === id ? 'active' : ''} key={id} onClick={() => setSourceFilter(sourceFilter === id ? 'all' : id)} type="button"><span className={`calendar-source-mark ${meta.className}`}><i /></span>{meta.label}<small>{sourceCounts[id] || 0}</small></button>)}
+        </div>
+        <section className="calendar-kpi-strip" aria-label="Calendar summary">
+          <article><span>Visible schedule</span><strong>{periodEvents.length}</strong><small>{view === 'agenda' ? 'next 31 days' : view}</small></article>
+          <article><span>Project dates</span><strong>{sourceCounts.project || 0}</strong><small>tasks, milestones & targets</small></article>
+          <article><span>Rota entries</span><strong>{sourceCounts.rota || 0}</strong><small>shifts, leave & on call</small></article>
+          <article className={visibleConflictCount ? 'needs-attention' : ''}><span>Conflicts</span><strong>{visibleConflictCount}</strong><small>{visibleConflictCount ? 'visible scheduling warnings' : 'no visible clashes'}</small></article>
+        </section>
       </section>
 
-      <div className="calendar-source-legend">
-        {Object.entries(SOURCE_META).map(([id, meta]) => <button className={sourceFilter === id ? 'active' : ''} key={id} onClick={() => setSourceFilter(sourceFilter === id ? 'all' : id)} type="button"><span className={`calendar-source-mark ${meta.className}`}><i /></span>{meta.label}<small>{sourceCounts[id] || 0}</small></button>)}
-      </div>
-
+      <div className={`calendar-team-layout${teamSidebarOpen ? ' has-sidebar' : ''}`}>
+        {teamSidebarOpen ? <div className="calendar-team-sidebar-slot" id="calendar-team-sidebar"><CalendarTeamSidebar people={people} teams={teams} selectedIds={selectedCalendarIds} onChange={chooseCalendars} onClose={() => setTeamSidebarOpen(false)}/></div> : null}
+        <div className={`calendar-team-track${selectedPeople.length ? ' has-people' : ''}`} ref={teamTrackRef} aria-label="Calendar comparison">
+          <div className="calendar-primary-panel" aria-label="Unified schedule">
       {view === 'month' && (
         <section className="calendar-month-shell">
           <div className="calendar-weekday-row">{['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => <span key={day}>{day}</span>)}</div>
@@ -592,6 +629,11 @@ export function CalendarView({
           <div>{Array.from(new Set(periodEvents.map((event) => event.date))).map((date) => <section className="calendar-agenda-day" key={date}><header><strong>{formatDate(date, { weekday: 'long', day: 'numeric', month: 'long' })}</strong>{date === CALENDAR_TODAY && <span>Today</span>}</header>{(eventsByDate.get(date) || []).map((event) => <EventListItem conflicts={conflicts} event={event} key={event.id} onOpen={openEvent} />)}</section>)}{!periodEvents.length && <div className="calendar-empty-state"><CircleDot size={26} /><strong>No matching events</strong><span>Adjust the filters or add a calendar event.</span></div>}</div>
         </section>
       )}
+
+          </div>
+          {selectedPeople.map(person => <CalendarPersonLane key={person.id} person={person} events={teamEvents} period={period} view={view} selectedDate={selectedDate} conflicts={conflicts} onOpen={openEvent} onRemove={id => chooseCalendars(selectedCalendarIds.filter(value => value !== id))} />)}
+        </div>
+      </div>
 
       <CalendarPanel conflicts={conflicts} draft={draft} event={selectedEvent} onChangeDraft={setDraft} onClose={() => { setDraft(null); setSelectedEvent(null) }} onDelete={deleteDraft} onEdit={editEvent} onSave={saveDraft} people={people} teams={teams} />
     </div>

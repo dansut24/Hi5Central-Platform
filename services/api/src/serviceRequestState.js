@@ -1,7 +1,9 @@
 import { effectiveAccessForUser, hasPermission } from './access.js'
 import { pool, withTransaction } from './db.js'
+import { syncServiceRequestTaskFlow } from './serviceRequestTaskFlow.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
+import { sanitizeActivityHtml } from './itsmRichText.js'
 
 const activeTaskStatuses = new Set(['Ready', 'In Progress', 'Blocked'])
 const editableTaskStatuses = new Set([...activeTaskStatuses, 'Completed'])
@@ -376,6 +378,41 @@ export function registerServiceRequestStateRoutes(app) {
     return c.json(taskFromRow(task))
   })
 
+  app.post('/api/v1/tasks/:taskKey/notes', async (c) => {
+    const auth = await requireTaskPermission(c, 'itsm.tasks.manage')
+    if (auth.error) return auth.error
+    let body
+    try { body = await c.req.json() }
+    catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
+    const bodyText = text(body?.text, 20_000)
+    const bodyHtml = sanitizeActivityHtml(body?.html)
+    if (!bodyText && !bodyHtml) return c.json({ error: 'Write a note before saving.' }, 400)
+    const visibility = body?.visibility === 'customer' ? 'customer' : 'internal'
+    const result = await withTransaction(async (client) => {
+      const task = await taskByKey(client, auth.session.tenant_id, c.req.param('taskKey'))
+      if (!task) return null
+      const actor = await actorSnapshot(client, auth.session)
+      const inserted = await client.query(
+        `INSERT INTO service_request_activities (
+          tenant_id,request_id,actor_user_id,actor_person_id,actor_snapshot,
+          kind,visibility,body_text,body_html,metadata
+        ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10::jsonb)
+        RETURNING id,created_at`,
+        [
+          auth.session.tenant_id,task.request_id,auth.session.user_id,
+          actor.person?.id || null,JSON.stringify(actor.snapshot),
+          visibility === 'customer' ? 'customer' : 'work',visibility,
+          bodyText,bodyHtml,
+          JSON.stringify({event:'request.task.note_added',taskKey:task.external_key}),
+        ],
+      )
+      await client.query('UPDATE service_requests SET updated_at=now() WHERE id=$1',[task.request_id])
+      return inserted.rows[0]
+    })
+    if (!result) return c.json({ error: 'Task not found.' }, 404)
+    return c.json({id:result.id,createdAt:result.created_at,visibility},201)
+  })
+
   app.patch('/api/v1/tasks/:taskKey', async (c) => {
     const auth = await requireTaskPermission(c, 'itsm.tasks.manage')
     if (auth.error) return auth.error
@@ -406,6 +443,17 @@ export function registerServiceRequestStateRoutes(app) {
           const error = new Error('This task is waiting for its earlier tasks to be completed.')
           error.status = 409
           throw error
+        }
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          const approvals=await client.query(
+            "SELECT count(*)::int AS pending FROM service_request_approvals WHERE request_id=$1 AND status IN ('Pending','Rejected')",
+            [task.request_id],
+          )
+          if (Number(approvals.rows[0]?.pending||0)>0) {
+            const error=new Error('Required approvals must be resolved before fulfilment can progress.')
+            error.status=409
+            throw error
+          }
         }
         if (task.status === 'Completed' && changeStatus && body.status !== 'Completed') {
           const error = new Error('Completed tasks cannot be reopened from the Tasks queue.')
@@ -473,6 +521,13 @@ export function registerServiceRequestStateRoutes(app) {
         )
 
         if (changeStatus && body.status === 'Completed') await unlockReadyTasks(client, task.request_id)
+        if (changeStatus && ['In Progress','Completed'].includes(body.status)) {
+          await syncServiceRequestTaskFlow(client, {
+            tenantId:auth.session.tenant_id,requestId:task.request_id,
+            actorUserId:auth.session.user_id,actorPersonId:actor.person?.id,
+            actorSnapshot:actor.snapshot,triggeringTaskKey:task.external_key,taskStatus:body.status,
+          })
+        }
         const updated = await taskByKey(client, auth.session.tenant_id, task.external_key)
         return taskFromRow(updated)
       })

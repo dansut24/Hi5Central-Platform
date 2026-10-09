@@ -1,0 +1,61 @@
+/* Readable workspace typography: labelled actions, data and navigation.
+   Do not scale the entire UI; preserve compact cards and usable viewport space. */
+html[data-hi5-surface='workspace'] #root { font-size: 14px; }
+html[data-hi5-surface='workspace'] #root small { font-size: max(11px, 0.78rem) !important; line-height: 1.4; }
+html[data-hi5-surface='workspace'] :is(.nav-item, .workspace-tab, .workspace-tab button) { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] :is(.nav-group-label, .nav-group-active .nav-group-label) { font-size: 11px !important; letter-spacing: .045em; }
+html[data-hi5-surface='workspace'] :is(.breadcrumb-bar, .breadcrumb-bar button) { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] :is(.sidebar-status, .itsm-profile-summary strong) { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] :is(.production-record-table, .production-record-compact-list > button > span:nth-child(2)) { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] :is(.production-record-table th, .production-record-table td small, .production-record-card footer, .production-record-status) { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] :is(.production-record-search input, .production-record-view-select select, .production-record-filter-field > span) { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] :is(.production-record-card h3, .production-unified-panel > header h2) { font-size: 16px !important; }
+html[data-hi5-surface='workspace'] :is(.production-record-card dd, .production-unified-field, .production-unified-activity p) { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] .dashboard-builder-v3 :is(button, input, select, textarea) { font-size: max(12px, .8rem); }
+html[data-hi5-surface='workspace'] :is(.calendar-view, .rota-view, .organisation-content, .project-list-view, .projects-view, .cmdb-view, .reports-view, .knowledge-view, .live-chat-view, .production-settings-shell) :is(button, input, select, textarea) { font-size: max(12px, .8rem); }
+/* Activity is the primary reading surface. Important copy never drops below 12px. */
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading > div > strong { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading h1 { font-size: clamp(18px, 1.25vw, 22px) !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading p { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace > .record-lab-fixed-tabs > button { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-inline-breadcrumb { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-pill { font-size: 10px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary-heading > span { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary > p { font-size: 13px !important; line-height: 1.45 !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > button { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-panel > .record-lab-activity-actions > small { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-heading h2 { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-activity-filter > button { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card header strong { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card header small { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card p { font-size: 13px !important; line-height: 1.55 !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-compact-stage { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-compact-facts :is(div,button) > strong { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-compact-facts :is(div,button) > span { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-compact-requester-link strong { font-size: 13px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-requester-contacts a { font-size: 12px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-requester-facts :is(strong,span) { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-compact-shortcuts button { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-summary-expand { font-size: 11px !important; }
+html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-composer.is-note textarea { font-size: 14px !important; }
+@media (max-width: 820px) {
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-heading h1 { font-size: 18px !important; }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-issue-summary > p { font-size: 13px !important; }
+  html[data-hi5-surface='workspace'] .record-lab-shell.is-fixed-workspace .record-lab-timeline-card p { font-size: 14px !important; }
+}
+
+/* The end-user portal is the fourth Hi5Central surface: readable without
+   inheriting internal technician chrome or navigation styles. */
+html[data-hi5-surface='portal'] .prp-shell { font-size: 14px; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-header nav button,.prp-user strong,.prp-request-list strong,.prp-timeline strong) { font-size: 14px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-category,.prp-request-list small,.prp-request-list em,.prp-timeline time,.prp-status,.prp-progress-row small,.prp-muted) { font-size: 12px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(.prp-catalogue-card p,.prp-timeline p,.prp-request-form label,.prp-request-summary dt,.prp-info-list dt,.prp-request-summary dd,.prp-info-list dd) { font-size: 13px !important; }
+html[data-hi5-surface='portal'] .prp-shell :is(button,input,select,textarea) { font-size: max(13px,.82rem); }
+@media (max-width: 760px) {
+  html[data-hi5-surface='portal'] .prp-shell :is(input,select,textarea) { font-size: 16px !important; }
+}
+
+/* Sidebar contrast: labels are informational, not decorative. */
+html[data-hi5-surface='workspace'] .sidebar .nav-group-label { color: rgba(255,255,255,.74) !important; }
+html[data-hi5-surface='workspace'] .sidebar .nav-item:not(.active) { color: rgba(255,255,255,.90) !important; }
+html[data-hi5-surface='workspace'] :is(.sidebar-product-switches a, .sidebar-identity strong, .sidebar-identity small) { font-size: 11px !important; }

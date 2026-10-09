@@ -12,7 +12,7 @@
   --brand-strong: #071b3d;
   --brand-2: #f4b13d;
   --accent-ink: #05203a;
-  --accent-rgb: 244, 177, 61;
+  --accent-rgb: 59, 130, 246;
   --danger: #c93d4f;
   --warning: #ad7414;
   --steady: #2f5f9e;
@@ -16523,3 +16523,480 @@ textarea:focus {
   text-decoration: none;
 }
 .unified-rmm-open-link:hover { border-color: rgba(var(--accent-rgb), .36); background: rgba(var(--accent-rgb), .08); }
+
+
+/* ==========================================================================
+   Shared record/list + detail contract
+   This is the ITSM implementation of the cross-platform list/detail pattern.
+   The same spacing, shell and responsive rhythm is the baseline for RMM/Admin.
+   ========================================================================== */
+
+/* All ITSM record queues share one full-width page contract. */
+.unified-record-queue-inner {
+  gap: 12px !important;
+  padding: 20px 30px 30px !important;
+}
+
+.unified-record-header {
+  align-items: center !important;
+}
+
+.unified-record-header h2 {
+  font-size: 26px !important;
+}
+
+.unified-record-metrics {
+  gap: 0 !important;
+  border-radius: 9px !important;
+  box-shadow: none !important;
+}
+
+.unified-record-toolbar {
+  gap: 8px !important;
+}
+
+.unified-record-search,
+.unified-filter-button {
+  min-height: 38px !important;
+  border-radius: 8px !important;
+}
+
+.unified-record-table-wrap {
+  border-radius: 9px !important;
+  box-shadow: none !important;
+}
+
+/* Record details use the same full-width page shell. */
+.unified-detail-shell {
+  gap: 12px !important;
+  padding: 20px 30px 30px !important;
+}
+
+.unified-detail-header {
+  align-items: center !important;
+  min-height: 58px;
+}
+
+.unified-detail-identity h2 {
+  margin-top: 4px !important;
+  font-size: clamp(20px, 1.8vw, 27px) !important;
+}
+
+.unified-detail-lifecycle {
+  gap: 6px !important;
+}
+
+/* Summary is always visible; Activity is the primary tab. */
+.unified-record-summary-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  align-items: stretch;
+  gap: 12px;
+  min-width: 0;
+}
+
+.unified-record-summary-main,
+.unified-record-summary-context {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.unified-record-summary-main {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+}
+
+.unified-record-summary-main > p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.58;
+}
+
+.unified-record-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.unified-record-summary-actions button {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font: inherit;
+  font-size: 9px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.unified-record-summary-actions button:hover {
+  border-color: color-mix(in srgb, var(--brand-2) 34%, var(--line));
+  background: color-mix(in srgb, var(--brand-2) 6%, var(--surface));
+}
+
+.unified-record-summary-context {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.unified-record-person {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.unified-record-person > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.unified-record-person strong,
+.unified-record-person span,
+.unified-record-person small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-record-person strong {
+  font-size: 11px;
+}
+
+.unified-record-person span,
+.unified-record-person small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.unified-record-device {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.unified-record-device > span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.unified-record-device strong,
+.unified-record-device small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unified-record-device strong {
+  font-size: 10px;
+}
+
+.unified-record-device small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.unified-record-context-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.unified-record-context-meta > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border-right: 1px solid var(--line);
+}
+
+.unified-record-context-meta > span:last-child {
+  border-right: 0;
+}
+
+.unified-record-context-meta small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.unified-record-context-meta strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status / assignee / priority use one common quick-field row everywhere. */
+.unified-record-quick-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 58px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.unified-record-quick-fields > * {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 7px 10px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: center;
+  font: inherit;
+}
+
+.unified-record-quick-fields > *:last-child {
+  border-right: 0;
+}
+
+.unified-record-quick-fields > button {
+  cursor: pointer;
+}
+
+.unified-record-quick-fields span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .035em;
+}
+
+.unified-record-quick-fields strong,
+.unified-record-quick-fields select {
+  max-width: 100%;
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.unified-record-quick-fields select {
+  min-height: 24px;
+  width: 100%;
+  padding: 0 20px 0 4px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.unified-detail-tabs {
+  min-height: 44px;
+  padding: 4px !important;
+  border-radius: 9px !important;
+}
+
+.unified-detail-tabs button {
+  min-height: 34px !important;
+}
+
+.unified-detail-activity-layout,
+.unified-detail-task-layout,
+.unified-detail-approval-layout,
+.unified-detail-attachment-layout {
+  gap: 12px !important;
+}
+
+.unified-detail-section {
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.record-approval-list {
+  background: var(--surface);
+}
+
+/* Tablet keeps the same contract but removes the fixed context width. */
+@media (max-width: 1050px) {
+  .unified-record-queue-inner,
+  .unified-detail-shell {
+    padding: 18px !important;
+    padding-bottom: max(26px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .unified-record-summary-band {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  }
+}
+
+/* Mobile list + detail contract shared across every record type. */
+@media (max-width: 760px) {
+  .unified-record-queue-inner,
+  .unified-detail-shell {
+    gap: 10px !important;
+    padding: 12px !important;
+    padding-bottom: max(24px, env(safe-area-inset-bottom)) !important;
+  }
+
+  .unified-record-header h2 {
+    font-size: 22px !important;
+  }
+
+  .unified-record-metrics {
+    border-radius: 8px !important;
+  }
+
+  .unified-record-mobile-card {
+    gap: 7px !important;
+    padding: 10px !important;
+    border-radius: 9px !important;
+    box-shadow: none !important;
+  }
+
+  .unified-detail-header {
+    min-height: auto;
+    align-items: flex-start !important;
+  }
+
+  .unified-detail-reference-row {
+    font-size: 8px !important;
+  }
+
+  .unified-detail-identity h2 {
+    margin-top: 4px !important;
+    font-size: 19px !important;
+    line-height: 1.2 !important;
+  }
+
+  .unified-detail-lifecycle {
+    display: flex !important;
+    gap: 5px !important;
+    overflow-x: auto !important;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .unified-detail-lifecycle::-webkit-scrollbar {
+    display: none;
+  }
+
+  .unified-detail-lifecycle > div {
+    flex: 0 0 118px;
+  }
+
+  .unified-record-summary-band {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .unified-record-summary-context {
+    order: -1;
+    padding: 11px !important;
+  }
+
+  .unified-record-summary-main {
+    padding: 11px !important;
+  }
+
+  .unified-record-summary-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .unified-record-summary-actions button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .unified-record-context-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .unified-record-context-meta > span {
+    min-height: 48px;
+    align-content: center;
+    padding: 6px;
+    text-align: center;
+  }
+
+  .unified-record-context-meta strong {
+    white-space: normal;
+    line-height: 1.18;
+  }
+
+  .unified-record-quick-fields {
+    min-height: 58px !important;
+  }
+
+  .unified-record-quick-fields > * {
+    min-height: 58px !important;
+    padding: 6px 5px !important;
+  }
+
+  .unified-record-quick-fields strong,
+  .unified-record-quick-fields select {
+    white-space: normal !important;
+    line-height: 1.2 !important;
+  }
+
+  .unified-detail-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .unified-detail-tabs button {
+    flex: 0 0 auto !important;
+    min-width: 98px;
+  }
+
+  .unified-detail-section {
+    padding: 11px !important;
+  }
+
+  .rich-activity-composer {
+    border-radius: 11px !important;
+  }
+
+  .rich-activity-toolbar {
+    border-radius: 11px 11px 0 0 !important;
+  }
+}
+
+@media (max-width: 430px) {
+  .unified-record-summary-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .unified-record-summary-actions button:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .unified-record-device {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+}

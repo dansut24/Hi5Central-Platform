@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import './PlatformCurves.css'
 import './ContextualSurfaces.css'
+import './production/ProductionWorkspaceLegibility.css'
 import { PlatformAdminApp } from './features/admin/PlatformAdminApp.jsx'
 
 const root = document.getElementById('root')

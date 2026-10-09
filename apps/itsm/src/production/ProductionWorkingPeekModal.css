@@ -1,0 +1,65 @@
+/* Working Peek modal shell only. Other universal previews stay unchanged. */
+.hi5-universal-peek-layer.is-working-record { padding:20px; place-items:center; }
+.hi5-universal-peek-layer.is-working-record > .hi5-universal-peek.is-working-record {
+  width:min(1160px,calc(100vw - 48px)) !important;
+  height:min(85dvh,860px) !important;
+  max-height:calc(100dvh - 40px) !important;
+  grid-template-rows:auto minmax(0,1fr) !important;
+  border-radius:16px !important;
+  background:color-mix(in srgb,var(--surface) 97%,transparent) !important;
+  box-shadow:0 28px 74px rgba(9,22,40,.26) !important;
+}
+.hi5-universal-peek-layer.is-working-record .hi5-universal-peek-backdrop {
+  background:rgba(7,17,33,.36);
+}
+.hi5-universal-peek.is-working-record > header {
+  grid-template-columns:30px minmax(0,1fr) auto !important;
+  gap:9px !important;
+  min-height:52px;
+  padding:8px 12px !important;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);
+}
+.hi5-universal-peek.is-working-record > header .hi5-universal-peek-icon {
+  width:30px; height:30px; border-radius:9px;
+}
+.hi5-universal-peek.is-working-record > header > div:nth-child(2) span {
+  font-size:10px; font-weight:750; letter-spacing:.04em;
+}
+.hi5-universal-peek.is-working-record > header > div:nth-child(2) strong {
+  font-size:13px; font-weight:850;
+}
+.hi5-universal-peek.is-working-record > header > div:nth-child(2) small {
+  font-size:11px;
+}
+.hi5-universal-peek.is-working-record > header .hi5-working-peek-header-actions {
+  display:flex; align-items:center; justify-content:flex-end; gap:6px;
+}
+.hi5-universal-peek.is-working-record > header .hi5-working-peek-header-actions > button {
+  min-height:33px; display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:5px 10px; border:1px solid var(--line); border-radius:9px;
+  background:var(--surface-soft); color:var(--ink);
+  font:inherit; font-size:11px; font-weight:770; cursor:pointer;
+}
+.hi5-universal-peek.is-working-record > header .hi5-working-peek-header-actions > .hi5-working-peek-open-full {
+  color:rgb(var(--accent-rgb));
+  border-color:rgba(var(--accent-rgb),.24);
+}
+.hi5-universal-peek.is-working-record > header .hi5-working-peek-header-actions > button:hover {
+  border-color:rgba(var(--accent-rgb),.48); background:rgba(var(--accent-rgb),.08);
+}
+.hi5-universal-peek.is-working-record > .hi5-universal-peek-working-body {
+  min-height:0 !important; height:100%; overflow:hidden !important; padding:0 !important;
+}
+@media (max-width:700px) {
+  .hi5-universal-peek-layer.is-working-record { padding:0 !important; place-items:end center !important; }
+  .hi5-universal-peek-layer.is-working-record > .hi5-universal-peek.is-working-record {
+    width:100vw !important; height:92dvh !important; max-height:92dvh !important;
+    border-radius:15px 15px 0 0 !important; border-bottom:0 !important;
+  }
+  .hi5-universal-peek.is-working-record > header { padding:8px 10px !important; }
+  .hi5-universal-peek.is-working-record > header .hi5-working-peek-header-actions > .hi5-working-peek-open-full { padding:5px 7px; font-size:10px; }
+  .hi5-universal-peek.is-working-record > .hi5-universal-peek-working-body { overflow-y:auto !important; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .hi5-universal-peek.is-working-record { animation:none !important; }
+}

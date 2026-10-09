@@ -338,7 +338,10 @@ function safeAttachments(value) {
 async function requestPayload(db, requestRow, { requesterView = false } = {}) {
   const [itemsResult, approvalsResult, tasksResult, activitiesResult, attachmentsResult, assigneeResult] = await Promise.all([
     db.query('SELECT * FROM service_request_items WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
-    db.query('SELECT * FROM service_request_approvals WHERE request_id = $1 ORDER BY sequence, created_at', [requestRow.id]),
+    db.query(`SELECT a.*, COALESCE(a.approver_user_id, p.user_id) AS effective_approver_user_id
+      FROM service_request_approvals a
+      LEFT JOIN organisation_people p ON p.id=a.approver_person_id AND p.tenant_id=a.tenant_id
+      WHERE a.request_id=$1 ORDER BY a.sequence,a.created_at`, [requestRow.id]),
     db.query('SELECT * FROM service_request_tasks WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
     db.query('SELECT * FROM service_request_activities WHERE request_id = $1 ORDER BY created_at, id', [requestRow.id]),
     db.query('SELECT id,file_name,mime_type,byte_size,sha256,visibility,uploaded_by_snapshot,created_at FROM service_request_attachments WHERE request_id = $1 ORDER BY created_at DESC', [requestRow.id]),
@@ -411,7 +414,9 @@ async function requestPayload(db, requestRow, { requesterView = false } = {}) {
       approver: asObject(approval.approver_snapshot).name || 'Unassigned approver',
       approverEmail: asObject(approval.approver_snapshot).email || '',
       approverId: asObject(approval.approver_snapshot).personId || '',
+      approverUserId: approval.effective_approver_user_id || null,
       decisionNote: approval.decision_note,
+      decidedAt: approval.decided_at || null,
       updated: approval.updated_at,
     })),
     requestTasks: tasksResult.rows.map((task) => ({
@@ -729,6 +734,10 @@ export function registerServiceRequestRoutes(app) {
     }
     const decision = text(body?.decision, 20)
     if (!allowedDecisions.has(decision)) return c.json({ error: 'Decision must be Approved or Rejected.' }, 400)
+    const decisionNote = text(body?.note, 5000)
+    if (decision === 'Rejected' && !decisionNote) {
+      return c.json({ error: 'A rejection reason is required.' }, 400)
+    }
 
     const row = await lookupRequest(auth.session.tenant_id, c.req.param('reference'))
     if (!row) return c.json({ error: 'Service Request not found.' }, 404)
@@ -754,7 +763,7 @@ export function registerServiceRequestRoutes(app) {
         `UPDATE service_request_approvals
          SET status = $1, decision_note = $2, decided_at = now(), updated_at = now()
          WHERE id = $3`,
-        [decision, text(body?.note, 5000), approval.id],
+        [decision, decisionNote, approval.id],
       )
 
       if (decision === 'Rejected') {
@@ -786,7 +795,7 @@ export function registerServiceRequestRoutes(app) {
           auth.session.user_id,
           requester.person?.id || null,
           JSON.stringify({ name: requester.snapshot.name, email: requester.snapshot.email }),
-          `${requester.snapshot.name} ${decision.toLowerCase()} the approval${body?.note ? `: ${text(body.note, 1000)}` : '.'}`,
+          `${requester.snapshot.name} ${decision.toLowerCase()} the approval${decisionNote ? `: ${decisionNote.slice(0, 1000)}` : '.'}`,
           JSON.stringify({ event: 'approval.decided', decision, approvalId: approval.id }),
         ],
       )

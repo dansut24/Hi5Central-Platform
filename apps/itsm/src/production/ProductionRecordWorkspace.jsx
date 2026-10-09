@@ -15,11 +15,13 @@ import {
   FileText,
   Link2,
   Laptop,
+  Monitor,
   MessageSquareText,
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Paperclip,
+  Pin,
   RefreshCw,
   Search,
   Send,
@@ -40,6 +42,9 @@ import {
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
+import { RecordLinkedDevices } from './RecordLinkedDevices.jsx'
+import { RecordTasksPanel, RecordApprovalsPanel } from './RecordWorkflowPanels.jsx'
+import { RichNoteEditor, RichActivityBody, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
 import './ProductionRecordWorkspace.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -172,6 +177,27 @@ function slug(value = '') {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '-')
 }
 
+function inventoryDeviceToContext(device) {
+  return {
+    id: device.reference || device.id,
+    name: device.name,
+    type: [device.platform || device.operating_system, device.compliance_state ? `Compliance: ${device.compliance_state}` : '', device.source_connection_name || ''].filter(Boolean).join(' · '),
+    status: device.management_state || 'Managed',
+    source: device.source,
+    sourceTenant: device.source_connection_name || '',
+    sourceDirectoryTenantId: device.source_directory_tenant_id || '',
+    serialNumber: device.serial_number,
+    sourceDeviceId: device.source_device_id || '',
+    directoryDeviceId: device.directory_device_id || '',
+    rmmReference: device.rmm_reference || device.reference || '',
+    rmmMatchMethod: device.rmm_match_method || (device.source === 'hi5central_agent' ? 'agent' : 'inventory'),
+    deviceId: device.reference,
+    agentDeviceId: device.agent_device_id || null,
+    agentOnline: device.agent_online === true,
+    agentVersion: device.agent_version || '',
+  }
+}
+
 function serviceRequestToLab(request, assignment, organisation) {
   const activities = Array.isArray(request.activities) ? request.activities : []
   return {
@@ -209,6 +235,28 @@ function serviceRequestToLab(request, assignment, organisation) {
       people: assignment?.people || [],
       teams: assignment?.teams || [],
     },
+  }
+}
+
+// Three or four readable workflow phases without inventing transition timestamps.
+// This is a status indicator only; it does not change the record lifecycle.
+function recordWorkflowPhases(type, status) {
+  const value = String(status || '').toLowerCase()
+  if (type === 'Incident') return {
+    labels: ['Triage', 'In progress', 'Resolved'],
+    active: ['resolved', 'closed'].includes(value) ? 2 : ['new'].includes(value) ? 0 : 1,
+  }
+  if (type === 'Service Request') return {
+    labels: ['Requested', 'Approval', 'Fulfilment'],
+    active: value === 'pending approval' ? 1 : ['new'].includes(value) ? 0 : 2,
+  }
+  if (type === 'Change') return {
+    labels: ['Assessment', 'Approval', 'Implementation', 'Review'],
+    active: ['review', 'completed'].includes(value) ? 3 : ['scheduled', 'implementing'].includes(value) ? 2 : value === 'awaiting approval' ? 1 : 0,
+  }
+  return {
+    labels: ['Opened', 'Investigation', 'Resolved'],
+    active: ['resolved', 'closed'].includes(value) ? 2 : value === 'new' ? 0 : 1,
   }
 }
 
@@ -271,7 +319,7 @@ function TimelineItem({ item }) {
     <div className={`record-lab-avatar${origin ? ' is-origin' : ''}`}>{origin ? <FileText size={16} /> : initials(item.actor || 'Hi5Central')}</div>
     <div>
       <header><span><strong>{item.actor || 'Hi5Central'}</strong><small>{formatDate(item.createdAt)}</small></span><LabPill tone={origin ? 'warning' : customer ? 'accent' : 'neutral'}>{label}</LabPill></header>
-      <p>{activityText(item)}</p>
+      <RichActivityBody html={item.html || item.metadata?.richHtml} text={activityText(item)} />
       {inlineAttachments.length ? <div className="record-lab-inline-attachments">{inlineAttachments.map((attachment, index) => <span key={attachment.id || attachment.fileName || attachment.name || index}><Paperclip size={13} />{attachment.fileName || attachment.name || 'Attachment'}</span>)}</div> : null}
     </div>
   </article>
@@ -308,17 +356,33 @@ function SlaPanel({ detail }) {
   </section>
 }
 
-function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onResolve, onPending }) {
-  const [text, setText] = useState('')
+function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onResolve, onPending, noteDraft, onNoteDraftChange }) {
+  const [actionText, setActionText] = useState('')
   const [team, setTeam] = useState(detail.team || '')
   const [assignee, setAssignee] = useState(detail.assignee || 'Unassigned')
   const [pendingStatus, setPendingStatus] = useState('Pending Customer')
   const [resolutionCode, setResolutionCode] = useState('Fixed')
-  const [files, setFiles] = useState([])
+  const [actionFiles, setActionFiles] = useState([])
   const [fileError, setFileError] = useState('')
+  const textareaRef = useRef(null)
   const customer = mode === 'customer'
   const noteMode = mode === 'internal' || mode === 'customer'
   const attachmentsSupported = noteMode
+  const text = noteMode ? (noteDraft?.text || '') : actionText
+  const html = noteMode ? (noteDraft?.html || '') : ''
+  const files = noteMode ? (noteDraft?.files || []) : actionFiles
+  useEffect(() => {
+    if (!noteMode || !textareaRef.current) return
+    const field = textareaRef.current
+    field.style.height = 'auto'
+    field.style.height = `${Math.max(96, field.scrollHeight)}px`
+  }, [noteMode, text])
+  const setText = (value) => noteMode ? onNoteDraftChange?.({ text: value }) : setActionText(value)
+  const setFiles = (value) => {
+    if (!noteMode) return setActionFiles(value)
+    const next = typeof value === 'function' ? value(files) : value
+    onNoteDraftChange?.({ files: next })
+  }
   const teams = detail.options?.teams || []
   const allPeople = detail.options?.people || []
   const selectedTeam = teams.find((item) => item.name === team) || null
@@ -378,7 +442,7 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
   const removeFile = (index) => setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index))
 
   const submit = async () => {
-    if (mode === 'internal' || mode === 'customer') return onPost({ visibility: customer ? 'customer' : 'internal', text, files })
+    if (mode === 'internal' || mode === 'customer') return onPost({ visibility: customer ? 'customer' : 'internal', text: text.trim() || (/<img\b/i.test(html) ? '[Inline image]' : ''), html: sanitizeNoteHtml(html), files })
     if (mode === 'reassign') return onReassign({ team, assignee, note: text })
     if (mode === 'resolve') return onResolve({ resolutionCode, note: text })
     if (mode === 'pending') return onPending({ status: pendingStatus, note: text })
@@ -393,8 +457,11 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
     pending: 'Set pending',
   }[mode] || 'Update record'
 
-  return <div className="record-lab-composer">
-    <header><div><span>Working action</span><strong>{label}</strong></div><button type="button" onClick={onClose}><X size={16} />Close</button></header>
+  return <div className={`record-lab-composer${noteMode ? ' is-note' : ''}`}>
+    <header className={noteMode ? 'record-lab-inline-draft-heading' : undefined}>
+      <div><span>{noteMode ? 'New activity · Draft' : 'Working action'}</span><strong>{label}</strong></div>
+      <button type="button" onClick={onClose} disabled={saving}><X size={15} />{noteMode ? 'Cancel' : 'Close'}</button>
+    </header>
     {mode === 'reassign' ? <div className="record-lab-composer-fields">
       <label className="record-lab-person-picker-field"><span>Assignment group</span><Hi5EntityTypeahead
         items={teams}
@@ -419,9 +486,9 @@ function ActionComposer({ mode, detail, saving, onClose, onPost, onReassign, onR
     </div> : null}
     {mode === 'resolve' && detail.type === 'Incident' ? <div className="record-lab-composer-fields is-single"><label><span>Resolution code</span><select value={resolutionCode} onChange={(event) => setResolutionCode(event.target.value)}>{['Fixed','Workaround','User education','Configuration change','Known error','Duplicate','No fault found','Other'].map((value) => <option key={value}>{value}</option>)}</select></label></div> : null}
     {mode === 'pending' ? <div className="record-lab-composer-fields is-single"><label><span>Pending status</span><select value={pendingStatus} onChange={(event) => setPendingStatus(event.target.value)}><option>Pending Customer</option><option>Pending Vendor</option></select></label></div> : null}
-    <textarea autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={customer ? 'Write a customer-visible update…' : mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an internal work note…'} />
+    {noteMode ? <RichNoteEditor key={mode} html={html} text={text} onChange={(patch) => onNoteDraftChange?.(patch)} placeholder={customer ? 'Write a customer-visible update…' : 'Write an internal work note…'} /> : <textarea ref={textareaRef} aria-label={label} autoFocus={mode !== 'reassign'} value={text} onChange={(event) => setText(event.target.value)} placeholder={mode === 'reassign' ? 'Add a handoff note…' : mode === 'resolve' ? 'Add resolution notes…' : mode === 'pending' ? 'Why is this record being placed on hold?' : 'Write an update…'} />}
     {attachmentsSupported ? <div className="record-lab-composer-attachments"><label><Paperclip size={14} />Attach files<input type="file" multiple onChange={(event) => { addFiles(event.target.files); event.target.value = '' }} /></label>{files.length ? <div className="record-lab-composer-file-list">{files.map((file, index) => <span key={`${file.name}-${file.size}-${index}`}><Paperclip size={12} /><b>{file.name}</b><small>{formatBytes(file.size)}</small><button type="button" onClick={() => removeFile(index)} aria-label={`Remove ${file.name}`}><X size={12} /></button></span>)}</div> : null}{fileError ? <small className="record-lab-composer-file-error">{fileError}</small> : null}</div> : null}
-    <footer><span>{customer ? 'Visible to requester' : mode === 'reassign' ? `Selected: ${assignee || 'Unassigned'}` : files.length ? `${files.length} attachment${files.length === 1 ? '' : 's'} will be added with this note` : 'Technician workspace'}</span><button type="button" disabled={saving || ((mode === 'internal' || mode === 'customer') && !text.trim() && !files.length)} onClick={submit}><Send size={16} />{saving ? 'Saving…' : label}</button></footer>
+    <footer><span>{customer ? 'Visible to requester' : mode === 'reassign' ? `Selected: ${assignee || 'Unassigned'}` : files.length ? `${files.length} attachment${files.length === 1 ? '' : 's'} will be added with this note` : 'Technician workspace'}</span><button type="button" disabled={saving || ((mode === 'internal' || mode === 'customer') && !text.trim() && !files.length && !/<img\b/i.test(html))} onClick={submit}><Send size={16} />{saving ? 'Saving…' : noteMode ? (customer ? 'Send update' : 'Save note') : label}</button></footer>
   </div>
 }
 
@@ -431,14 +498,31 @@ function RecordWorkspace({ route }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [tab, setTab] = useState('overview')
+  const [tab, setTab] = useState('activity')
   const [composerMode, setComposerMode] = useState('')
+  const [newNotePosted, setNewNotePosted] = useState(false)
+  const [noteDrafts, setNoteDrafts] = useState({ internal: { text: '', html: '', files: [] }, customer: { text: '', html: '', files: [] } })
+  const updateNoteDraft = (visibility, patch) => setNoteDrafts((current) => ({
+    ...current,
+    [visibility]: { ...current[visibility], ...patch },
+  }))
   const [showSystemEvents, setShowSystemEvents] = useState(() => window.localStorage.getItem('hi5central-record-lab-activity-mode') === 'all')
   const [activityQuery, setActivityQuery] = useState('')
+  const [summaryExpanded, setSummaryExpanded] = useState(false)
   const [attachment, setAttachment] = useState(null)
   const [contextView, setContextView] = useState('home')
   const [requesterAssets, setRequesterAssets] = useState([])
-  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => window.localStorage.getItem('hi5central-record-lab-inspector-collapsed') === '1')
+  const [recordDevices, setRecordDevices] = useState([])
+  const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
+  const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userId: '', tenantRole: '' })
+  const [workbenchMode, setWorkbenchMode] = useState(() => window.localStorage.getItem('hi5central-record-workbench-mode') === 'focus' ? 'focus' : 'workbench')
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(() => {
+    const saved = window.localStorage.getItem('hi5central-record-workbench-context')
+    return saved === 'collapsed' || (!saved && window.matchMedia('(min-width: 821px) and (max-width: 1260px)').matches)
+  })
+  const [inspectorDrawerOpen, setInspectorDrawerOpen] = useState(false)
+  const [compactWorkbench, setCompactWorkbench] = useState(() => window.matchMedia('(max-width: 1260px)').matches)
+  const contextPinned = workbenchMode === 'workbench' && !inspectorCollapsed && !compactWorkbench
   const scrollRef = useRef(null)
   const timelineRef = useRef(null)
 
@@ -487,6 +571,20 @@ function RecordWorkspace({ route }) {
 
   useEffect(() => { void load() }, [route.reference, route.type])
   useEffect(() => {
+    let active = true
+    apiJson('/api/v1/auth/session').then((session) => {
+      if (!active) return
+      const grants = session.access?.effectivePermissions || session.access?.permissions || []
+      const permitted = (key) => grants.includes('*') || grants.includes(key) || grants.some((grant) => grant.endsWith('*') && key.startsWith(grant.slice(0, -1)))
+      const enabled = session.platformAccess?.rmm === true && permitted('rmm.access')
+      const canView = enabled && permitted('rmm.devices.view')
+      setRmmAccess({ checked: true, canView, canRemote: canView && permitted('rmm.devices.remote') })
+      setWorkflowAccess({ canManageTasks: session.platformAccess?.itsm === true && permitted('itsm.tasks.manage'), userId: String(session.user?.id || ''), tenantRole: String(session.user?.tenantRole || '').toLowerCase() })
+    }).catch(() => { if (active) { setRmmAccess({ checked: true, canView: false, canRemote: false }); setWorkflowAccess({ canManageTasks: false, userId: '', tenantRole: '' }) } })
+    return () => { active = false }
+  }, [])
+  useEffect(() => {
+    if (!rmmAccess.canView) { setRequesterAssets([]); return undefined }
     if (!detail) { setRequesterAssets([]); return undefined }
     const people = Array.isArray(detail.organisation?.people) ? detail.organisation.people : []
     const person = people.find((item) =>
@@ -500,29 +598,73 @@ function RecordWorkspace({ route }) {
     apiJson(`/api/v1/rmm/devices?personId=${encodeURIComponent(personLookupId)}`)
       .then((payload) => {
         if (!active) return
-        setRequesterAssets((payload.devices || []).map((device) => ({
-          id: device.reference || device.id,
-          name: device.name,
-          type: [device.platform || device.operating_system, device.compliance_state ? `Compliance: ${device.compliance_state}` : '', device.source_connection_name || ''].filter(Boolean).join(' · '),
-          status: device.management_state || 'Managed',
-          source: device.source,
-          sourceTenant: device.source_connection_name || '',
-          sourceDirectoryTenantId: device.source_directory_tenant_id || '',
-          serialNumber: device.serial_number,
-          sourceDeviceId: device.source_device_id || '',
-          directoryDeviceId: device.directory_device_id || '',
-          rmmReference: device.rmm_reference || device.reference || '',
-          rmmMatchMethod: device.rmm_match_method || (device.source === 'hi5central_agent' ? 'agent' : 'inventory'),
-          deviceId: device.reference,
-        })))
+        setRequesterAssets((payload.devices || []).map(inventoryDeviceToContext))
       })
       .catch(() => { if (active) setRequesterAssets([]) })
     return () => { active = false }
-  }, [detail?.id, detail?.requesterEmail, detail?.requesterId, detail?.requester])
+  }, [detail?.id, detail?.requesterEmail, detail?.requesterId, detail?.requester, rmmAccess.canView])
+  useEffect(() => {
+    if (!detail || !rmmAccess.canView) { setRecordDevices([]); return undefined }
+    const recordAssets = [
+      ...(Array.isArray(detail.assets) ? detail.assets : []),
+      ...(Array.isArray(detail.configurationItems) ? detail.configurationItems : []),
+      ...(Array.isArray(detail.recordData?.assets) ? detail.recordData.assets : []),
+      ...(Array.isArray(detail.recordData?.configurationItems) ? detail.recordData.configurationItems : []),
+    ]
+    const references = [...new Set([
+      detail.rmmDeviceId,
+      detail.rmmDeviceReference,
+      ...recordAssets.map((asset) => asset.rmmReference || asset.rmmDeviceId || ''),
+    ].map((value) => String(value || '').trim()).filter(Boolean))].slice(0, 12)
+    if (!references.length) { setRecordDevices([]); return undefined }
+    let active = true
+    apiJson(`/api/v1/rmm/devices?references=${encodeURIComponent(references.join(','))}`)
+      .then((payload) => { if (active) setRecordDevices((payload.devices || []).map(inventoryDeviceToContext)) })
+      .catch(() => { if (active) setRecordDevices([]) })
+    return () => { active = false }
+  }, [detail, rmmAccess.canView])
+
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1260px)')
+    const update = (event) => { setCompactWorkbench(event.matches); setInspectorDrawerOpen(false) }
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 0 }, [tab])
-  useEffect(() => { setContextView('home'); setActivityQuery('') }, [route.reference])
-  useEffect(() => { window.localStorage.setItem('hi5central-record-lab-inspector-collapsed', inspectorCollapsed ? '1' : '0') }, [inspectorCollapsed])
+  useEffect(() => { setContextView('home'); setActivityQuery(''); setSummaryExpanded(false); setInspectorDrawerOpen(false) }, [route.reference])
+  useEffect(() => { window.localStorage.setItem('hi5central-record-workbench-mode', workbenchMode) }, [workbenchMode])
+  useEffect(() => { window.localStorage.setItem('hi5central-record-workbench-context', inspectorCollapsed ? 'collapsed' : 'pinned') }, [inspectorCollapsed])
+  useEffect(() => {
+    if (!inspectorDrawerOpen) return undefined
+    const dismiss = (event) => { if (event.key === 'Escape') setInspectorDrawerOpen(false) }
+    document.addEventListener('keydown', dismiss)
+    return () => document.removeEventListener('keydown', dismiss)
+  }, [inspectorDrawerOpen])
   useEffect(() => { window.localStorage.setItem('hi5central-record-lab-activity-mode', showSystemEvents ? 'all' : 'human') }, [showSystemEvents])
+  // The latest note and editor share one scroll owner on desktop. On mobile
+  // the existing workspace page scrolls naturally instead.
+  useEffect(() => {
+    if (!composerMode || tab !== 'activity') return
+    const feed = timelineRef.current
+    const draft = feed?.querySelector('.record-lab-activity-composer')
+    if (!feed || !draft) return
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      draft.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    } else {
+      feed.scrollTop = 0
+    }
+  }, [composerMode, tab])
+  useEffect(() => {
+    if (!newNotePosted || composerMode || tab !== 'activity') return
+    setNewNotePosted(false)
+    const feed = timelineRef.current
+    if (!feed) return
+    if (window.matchMedia('(max-width: 820px)').matches) {
+      feed.querySelector('.record-lab-timeline-card')?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    } else {
+      feed.scrollTop = 0
+    }
+  }, [newNotePosted, composerMode, tab])
 
   const run = async (handler, success) => {
     setSaving(true); setError(''); setNotice('')
@@ -540,7 +682,7 @@ function RecordWorkspace({ route }) {
     }
   }
 
-  const postNote = ({ visibility, text, files = [] }) => run(async () => {
+  const postNote = ({ visibility, text, html = '', files = [] }) => run(async () => {
     if (route.type === 'Service Request') {
       const uploaded = []
       for (const file of files) {
@@ -560,7 +702,7 @@ function RecordWorkspace({ route }) {
       await addProductionServiceRequestActivity(route.reference, {
         kind: visibility === 'customer' ? 'customer' : 'work',
         text,
-        html: '',
+        html,
         attachments: uploaded,
       })
     } else {
@@ -579,11 +721,18 @@ function RecordWorkspace({ route }) {
         body: JSON.stringify({
           text,
           visibility,
-          metadata: uploaded.length ? { attachments: uploaded.map((item) => ({ id: item.id, fileName: item.fileName, mimeType: item.mimeType, byteSize: item.byteSize })) } : {},
+          metadata: { ...(uploaded.length ? { attachments: uploaded.map((item) => ({ id: item.id, fileName: item.fileName, mimeType: item.mimeType, byteSize: item.byteSize })) } : {}), ...(html ? { richHtml: html } : {}) },
         }),
       })
     }
-  }, visibility === 'customer' ? 'Customer update sent' : 'Internal note added')
+  }, visibility === 'customer' ? 'Customer update sent' : 'Internal note added').then((saved) => {
+    if (saved) {
+      updateNoteDraft(visibility, { text: '', html: '', files: [] })
+      setActivityQuery('')
+      setNewNotePosted(true)
+    }
+    return saved
+  })
 
 
   const reassign = ({ team, assignee, note }) => run(async () => {
@@ -602,6 +751,36 @@ function RecordWorkspace({ route }) {
       await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/resolve`, { method: 'POST', body: JSON.stringify({ version: detail.version, resolutionCode, note, visibility: 'internal' }) })
     }
   }, route.type === 'Service Request' ? 'Request completed' : `${route.type} resolved`)
+
+  const createRecordTask = (task) => run(async () => {
+    if (route.type === 'Service Request' || !workflowAccess.canManageTasks) return
+    await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ version: detail.version, title: task.title, instructions: task.instructions, dueAt: task.dueAt }),
+    })
+  }, 'Task created')
+
+  const changeRecordTaskStatus = (task, status) => run(async () => {
+    if (route.type === 'Service Request' || !workflowAccess.canManageTasks || !task.id) return
+    await apiJson(`/api/v1/itsm-actions/${encodeURIComponent(route.reference)}/tasks/${encodeURIComponent(task.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ version: detail.version, status }),
+    })
+  }, 'Task updated')
+
+  const canDecideApproval = (approval) => {
+    if (route.type !== 'Service Request') return false
+    if (['owner', 'admin'].includes(workflowAccess.tenantRole)) return true
+    return Boolean(workflowAccess.userId && approval.approverUserId && workflowAccess.userId === String(approval.approverUserId))
+  }
+
+  const decideRequestApproval = (approval, decision, note) => run(async () => {
+    if (route.type !== 'Service Request' || !canDecideApproval(approval)) return
+    await apiJson(`/api/v1/service-requests/${encodeURIComponent(route.reference)}/approvals/${encodeURIComponent(approval.id)}/decision`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, note }),
+    })
+  }, 'Approval decision recorded')
 
   const pending = ({ status, note }) => run(async () => {
     if (route.type === 'Service Request') {
@@ -679,8 +858,6 @@ function RecordWorkspace({ route }) {
   const attachmentMap = new Map()
   ;[...recordAttachments, ...activityAttachments].forEach((item, index) => attachmentMap.set(item.id || item._key || `attachment-${index}`, item))
   const attachments = [...attachmentMap.values()]
-  const completeTasks = tasks.filter((item) => item.status === 'Completed').length
-  const pendingApprovals = approvals.filter((item) => item.status === 'Pending').length
   const responseState = detail.sla?.response?.state
   const resolutionState = detail.sla?.resolution?.state
   const primarySlaTone = resolutionState === 'breached' ? 'danger' : resolutionState === 'warning' ? 'warning' : resolutionState === 'met' ? 'good' : 'accent'
@@ -698,12 +875,18 @@ function RecordWorkspace({ route }) {
   const requesterManager = organisationPeople.find((person) => person.id === requesterPerson?.managerId)
   const contextRecentRecords = Array.isArray(detail.contextRecentRecords) ? detail.contextRecentRecords : []
   const linkedAssets = [
+    ...recordDevices,
     ...requesterAssets,
+    ...(detail.rmmDeviceId ? [{ id: detail.rmmDeviceId, rmmReference: detail.rmmDeviceId, name: detail.rmmDeviceName || detail.rmmDeviceId, type: 'Record-linked RMM device' }] : []),
     ...(Array.isArray(detail.assets) ? detail.assets : []),
     ...(Array.isArray(detail.configurationItems) ? detail.configurationItems : []),
     ...(Array.isArray(detail.recordData?.assets) ? detail.recordData.assets : []),
     ...(Array.isArray(detail.recordData?.configurationItems) ? detail.recordData.configurationItems : []),
-  ]
+  ].filter((asset, index, all) => {
+    const key = String(asset.rmmReference || asset.reference || asset.deviceId || asset.id || asset.serialNumber || asset.name || '').toLowerCase()
+    return !key || all.findIndex((candidate) => String(candidate.rmmReference || candidate.reference || candidate.deviceId || candidate.id || candidate.serialNumber || candidate.name || '').toLowerCase() === key) === index
+  })
+  const managedDevices = linkedAssets.filter((asset) => asset.agentDeviceId || asset.rmmReference)
   const blockedTask = tasks.find((item) => String(item.status || '').toLowerCase() === 'blocked')
   const contextualInsights = [
     ...(blockedTask ? [{ tone: 'danger', title: 'Blocked task', text: `${blockedTask.title || 'A linked task'} needs attention before work can continue.` }] : []),
@@ -727,11 +910,10 @@ function RecordWorkspace({ route }) {
 
   const tabs = route.type === 'Service Request'
     ? [
-        ['overview', 'Overview'],
         ['activity', `Activity${meaningfulActivities.length ? ` ${meaningfulActivities.length}` : ''}`],
         ['request', `Request${requestInformation.length ? ` ${requestInformation.length}` : ''}`],
         ['tasks', `Tasks${tasks.length ? ` ${tasks.length}` : ''}`],
-        ...(approvals.length ? [['approvals', `Approvals ${approvals.length}`]] : []),
+        ['approvals', `Approvals${approvals.length ? ` ${approvals.length}` : ''}`],
         ['sla', 'SLA'],
         ['related', 'Related'],
         ['attachments', `Attachments${attachments.length ? ` ${attachments.length}` : ''}`],
@@ -739,9 +921,9 @@ function RecordWorkspace({ route }) {
         ['details', 'Details'],
       ]
     : [
-        ['overview', 'Overview'],
         ['activity', `Activity${meaningfulActivities.length ? ` ${meaningfulActivities.length}` : ''}`],
         ['tasks', `Tasks${tasks.length ? ` ${tasks.length}` : ''}`],
+        ...(route.type === 'Change' ? [['approvals', 'Approvals']] : []),
         ['sla', 'SLA'],
         ['related', 'Related'],
         ['attachments', `Attachments${attachments.length ? ` ${attachments.length}` : ''}`],
@@ -749,67 +931,64 @@ function RecordWorkspace({ route }) {
         ['details', 'Details'],
       ]
 
-  const latest = meaningfulActivities.slice(0, 4)
-  const activeTabLabel = (tabs.find(([value]) => value === tab)?.[1] || 'Overview').replace(/\s+\d+$/, '')
-
-  const renderOverview = () => <div className="record-lab-overview-grid">
-    <section className="record-lab-panel record-lab-summary-panel">
-      <header><span>Record information</span><h2>{route.type === 'Service Request' ? 'Request summary' : 'What is happening?'}</h2></header>
-      <div className="record-lab-description">{detail.description?.trim() || 'No description has been recorded.'}</div>
-      <div className="record-lab-facts-grid">
-        <OverviewFact label="Requester" value={detail.requester} sub={detail.requesterEmail} />
-        <OverviewFact label="Service" value={detail.service} />
-        <OverviewFact label="Category" value={detail.category || detail.catalogueItemTitle} />
-        <OverviewFact label="Assignment" value={detail.team || 'Unassigned'} sub={detail.assignee || 'Unassigned'} />
-        <OverviewFact label="Created" value={formatDate(detail.createdAt, true)} />
-        <OverviewFact label="Last updated" value={formatDate(detail.updatedAt, true)} />
-      </div>
-    </section>
-
-    <aside className="record-lab-work-rail">
-      <section className="record-lab-panel">
-        <header><span>Work</span><h3>Next attention</h3></header>
-        {route.type === 'Service Request' ? <>
-          <OverviewFact label="Fulfilment" value={tasks.length ? `${completeTasks} of ${tasks.length} tasks complete` : (detail.nextStep || detail.status)} />
-          <OverviewFact label="Approvals" value={approvals.length ? (pendingApprovals ? `${pendingApprovals} pending` : 'Complete') : 'Not required'} />
-          <OverviewFact label="Cost" value={`${money(detail.oneOffCost, detail.currency)} one-off`} sub={`${money(detail.monthlyCost, detail.currency)}/month`} />
-        </> : <>
-          <OverviewFact label="Priority" value={detail.priority || 'Medium'} sub={`${detail.impact || 'Medium'} impact · ${detail.urgency || 'Medium'} urgency`} />
-          <OverviewFact label="SLA" value={primarySlaLabel} />
-          <OverviewFact label="Resolution" value={detail.resolutionCode || 'Not resolved'} />
-        </>}
-      </section>
-      <section className={`record-lab-panel record-lab-mini-sla is-${primarySlaTone}`} onClick={() => setTab('sla')} role="button" tabIndex="0">
-        <span>Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small>
-      </section>
-    </aside>
-
-    <section className="record-lab-panel record-lab-recent-panel">
-      <header><span>Recent activity</span><h2>Latest meaningful updates</h2><button type="button" onClick={() => setTab('activity')}>View all activity</button></header>
-      <div className="record-lab-recent-list">{latest.length ? latest.map((item) => <TimelineItem item={item} key={item.id} />) : <div className="record-lab-empty">No notes or customer updates yet.</div>}</div>
-    </section>
-  </div>
 
   const renderInspector = (mobile = false) => {
-    if (!mobile && inspectorCollapsed) return null
+    if (!mobile && !contextPinned && !inspectorDrawerOpen) return null
 
     const peekTitle = { user: 'Requester', assets: 'Assets & CIs', related: 'Related work', insights: 'Insights' }[contextView]
-    const openRecord = (item) => navigateLab(`/record-lab/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
-    const coreContext = <div className="record-lab-inspector-facts">
-      <button type="button" className="record-lab-inspector-action" onClick={() => setContextView('user')}><span>Requester</span><strong>{detail.requester || 'Not recorded'}</strong><small>{detail.requesterEmail || requesterPerson?.role || 'Open requester context'}</small></button>
-      <OverviewFact label="Service" value={detail.service} />
-      <OverviewFact label="Category" value={detail.category || detail.catalogueItemTitle} />
-      <button type="button" className="record-lab-inspector-action" onClick={() => beginAction('reassign')}><span>Assignment</span><strong>{detail.team || 'Unassigned'}</strong><small>{detail.assignee || 'Unassigned'}</small></button>
-      <OverviewFact label="Priority" value={detail.priority || 'Medium'} sub={route.type === 'Incident' ? `${detail.impact || 'Medium'} impact · ${detail.urgency || 'Medium'} urgency` : ''} />
-      <OverviewFact label="Created" value={formatDate(detail.createdAt, true)} />
-      <OverviewFact label="Last updated" value={formatDate(detail.updatedAt, true)} />
-    </div>
+    const openRecord = (item) => navigateLab(`/${sectionForRecordType(item.type || item.targetType)}/${encodeURIComponent(item.id || item.reference || item.targetReference)}`)
+    const email = detail.requesterEmail || requesterPerson?.email || ''
+    const phone = requesterPerson?.phone || detail.requesterPhone || ''
+    const site = (organisation.sites || []).find((entry) => entry.id === requesterPerson?.siteId)?.name
+      || requesterPerson?.location || detail.requesterLocation || detail.requesterSite || ''
+    const department = requesterDepartment?.name || detail.requesterDepartment || ''
+    const managerName = requesterManager?.name || ''
+    const phases = recordWorkflowPhases(route.type, detail.status)
+    const stageIndex = String(detail.status || '').toLowerCase()
+    const hasProgress = !['cancelled', 'rejected'].includes(stageIndex)
 
-    const contextMenu = <div className="record-lab-context-menu">
-      <button type="button" onClick={() => setContextView('user')}><UserRound size={16} /><span><strong>User</strong><small>{requesterPerson?.role || detail.requesterJobTitle || 'Requester profile and recent records'}</small></span></button>
-      <button type="button" onClick={() => setContextView('assets')}><Laptop size={16} /><span><strong>Assets & CIs</strong><small>{linkedAssets.length ? `${linkedAssets.length} linked item${linkedAssets.length === 1 ? '' : 's'}` : 'No linked assets yet'}</small></span></button>
-      <button type="button" onClick={() => setContextView('related')}><Link2 size={16} /><span><strong>Related</strong><small>{relationships.length ? `${relationships.length} linked record${relationships.length === 1 ? '' : 's'}` : 'No linked records'}</small></span></button>
-      <button type="button" onClick={() => setContextView('insights')}><Sparkles size={16} /><span><strong>Insights</strong><small>{contextualInsights.length ? `${contextualInsights.length} evidence-based signal${contextualInsights.length === 1 ? '' : 's'}` : 'No immediate exceptions detected'}</small></span></button>
+    const coreContext = <>
+      {workbenchMode !== 'workbench' ? <>
+      {hasProgress ? <div className="record-lab-compact-progress" aria-label={`Workflow stage: ${phases.labels[phases.active]}`}>
+        {phases.labels.map((label, index) => <span key={label} className={`record-lab-compact-stage${index < phases.active ? ' is-past' : ''}${index === phases.active ? ' is-current' : ''}`} title={label}>{label}</span>)}
+      </div> : null}
+      <div className="record-lab-inspector-section-title"><span>Ticket information</span></div>
+      <div className="record-lab-compact-facts">
+        <div><span>Service</span><strong>{detail.service || 'Not recorded'}</strong></div>
+        <div><span>Category</span><strong>{detail.category || detail.catalogueItemTitle || 'Not recorded'}</strong></div>
+        {detail.source ? <div><span>Source</span><strong>{detail.source}</strong></div> : null}
+        {route.type === 'Incident' && (detail.impact || detail.urgency) ? <div><span>Impact / urgency</span><strong>{detail.impact || '—'} / {detail.urgency || '—'}</strong></div> : null}
+        <button type="button" className="record-lab-compact-assignment" onClick={() => beginAction('reassign')} title="Change assignment">
+          <span>Assigned to <UserRoundCog size={13} /></span>
+          <strong>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.assignee : detail.team || 'Unassigned'}</strong>
+          <small>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.team : 'Select a technician or team'}</small>
+        </button>
+        <div><span>Created</span><strong>{formatDate(detail.createdAt, true)}</strong></div>
+      </div>
+      </> : null}
+      <div className="record-lab-inspector-section-title"><span>End-user details</span></div>
+      <div className="record-lab-compact-requester">
+        <button type="button" className="record-lab-compact-requester-link" onClick={() => setContextView('user')} title="Open requester profile">
+          <span className="record-lab-user-avatar">{initials(detail.requester || '')}</span>
+          <span><strong>{detail.requester || 'Requester not recorded'}</strong><small>{requesterPerson?.jobTitle || detail.requesterJobTitle || 'Requester'}</small></span>
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+        {(email || phone) ? <div className="record-lab-requester-contacts">
+          {email ? <a href={`mailto:${email}`} title={email}><MessageSquareText size={13} /><span>{email}</span></a> : null}
+          {phone ? <a href={`tel:${String(phone).replace(/[^+\d]/g, '')}`} title={phone}><UserRound size={13} /><span>{phone}</span></a> : null}
+        </div> : null}
+        {(department || site || managerName) ? <div className="record-lab-requester-facts">
+          {department ? <div><span>Department</span><strong>{department}</strong></div> : null}
+          {site ? <div><span>Site</span><strong>{site}</strong></div> : null}
+          {managerName ? <div><span>Manager</span><strong>{managerName}</strong></div> : null}
+        </div> : null}
+      </div>
+    </>
+
+    const contextMenu = <div className="record-lab-compact-shortcuts" aria-label="Additional record context">
+      <button type="button" onClick={() => setContextView('assets')}><Laptop size={15} /><span>Assets{linkedAssets.length ? ` · ${linkedAssets.length}` : ''}</span></button>
+      <button type="button" onClick={() => setContextView('related')}><Link2 size={15} /><span>Related{relationships.length ? ` · ${relationships.length}` : ''}</span></button>
+      <button type="button" onClick={() => setContextView('insights')}><Sparkles size={15} /><span>Insights{contextualInsights.length ? ` · ${contextualInsights.length}` : ''}</span></button>
     </div>
 
     let peekContent = null
@@ -828,17 +1007,20 @@ function RecordWorkspace({ route }) {
         <div className="record-lab-context-records">{contextRecentRecords.length ? contextRecentRecords.map((item) => <button type="button" key={item.id} onClick={() => openRecord(item)}><span><strong>{item.id}</strong><small>{item.type} · {item.status}</small></span><b>{item.title}</b></button>) : <div className="record-lab-context-empty">No other recent records were found for this requester.</div>}</div>
       </div>
     } else if (contextView === 'assets') {
-      peekContent = <div className="record-lab-context-peek">{linkedAssets.length ? <div className="record-lab-context-records">{linkedAssets.map((asset, index) => <div className="record-lab-context-asset" key={asset.id || asset.deviceId || asset.name || index}><Laptop size={17} /><span><strong>{asset.name || asset.hostname || asset.displayName || asset.id || 'Asset'}</strong><small>{asset.type || asset.deviceType || asset.status || 'Linked configuration item'}</small>{asset.serialNumber ? <small>Serial: {asset.serialNumber}</small> : null}</span><div className="record-lab-context-asset-actions">{asset.rmmReference ? <a href={rmmDeviceHref(asset.rmmReference)} target="_blank" rel="noreferrer">Open in RMM <ExternalLink size={12} /></a> : null}{asset.source === 'intune' && asset.sourceDeviceId ? <a href={intuneDeviceHref(asset.sourceDeviceId)} target="_blank" rel="noreferrer">Open in Intune <ExternalLink size={12} /></a> : null}</div></div>)}</div> : <div className="record-lab-context-empty is-large"><Laptop size={24} /><strong>No linked assets or CIs yet</strong><span>This area is ready to surface assigned devices and configuration items as Intune/RMM data is linked to people and services.</span></div>}</div>
+      peekContent = <div className="record-lab-context-peek">{linkedAssets.length ? <div className="record-lab-context-records">{linkedAssets.map((asset, index) => <div className="record-lab-context-asset" key={asset.id || asset.deviceId || asset.name || index}><Laptop size={17} /><span><strong>{asset.name || asset.hostname || asset.displayName || asset.id || 'Asset'}</strong><small>{asset.type || asset.deviceType || asset.status || 'Linked configuration item'}</small>{asset.serialNumber ? <small>Serial: {asset.serialNumber}</small> : null}</span><div className="record-lab-context-asset-actions">{rmmAccess.canView && asset.rmmReference ? <a href={rmmDeviceHref(asset.rmmReference)} target="_blank" rel="noopener noreferrer">Open in RMM <ExternalLink size={12} /></a> : null}{rmmAccess.canRemote && asset.agentDeviceId && asset.rmmReference ? <a href={asset.agentOnline ? rmmDeviceHref(asset.rmmReference) : undefined} aria-disabled={!asset.agentOnline} onClick={!asset.agentOnline ? (event) => event.preventDefault() : undefined} target="_blank" rel="noopener noreferrer" title={asset.agentOnline ? 'Open RMM for remote desktop' : 'Agent offline'}><Monitor size={13} />Remote</a> : null}{asset.source === 'intune' && asset.sourceDeviceId ? <a href={intuneDeviceHref(asset.sourceDeviceId)} target="_blank" rel="noreferrer">Open in Intune <ExternalLink size={12} /></a> : null}</div></div>)}</div> : <div className="record-lab-context-empty is-large"><Laptop size={24} /><strong>No linked assets or CIs yet</strong><span>This area is ready to surface assigned devices and configuration items as Intune/RMM data is linked to people and services.</span></div>}</div>
     } else if (contextView === 'related') {
       peekContent = <div className="record-lab-context-peek"><div className="record-lab-context-records">{relationships.length ? relationships.map((item) => <button type="button" key={item.id || item.targetReference} onClick={() => openRecord(item)}><span><strong>{item.targetReference || item.reference}</strong><small>{item.targetType || item.type} · {item.relationshipType || 'Related'}</small></span><b>Open record</b></button>) : <div className="record-lab-context-empty">No records are currently linked to this work item.</div>}</div></div>
     } else if (contextView === 'insights') {
       peekContent = <div className="record-lab-context-peek"><div className="record-lab-insight-intro"><Sparkles size={16} /><span><strong>Evidence-based context</strong><small>Signals below are derived from the record and linked data. AI-generated recommendations can use this same panel when the AI service is enabled.</small></span></div><div className="record-lab-insight-list">{contextualInsights.length ? contextualInsights.map((insight, index) => <div className={`record-lab-insight is-${insight.tone}`} key={`${insight.title}-${index}`}><span /><div><strong>{insight.title}</strong><small>{insight.text}</small></div></div>) : <div className="record-lab-context-empty">No high-confidence operational exceptions are visible from the current record data.</div>}</div></div>
     }
 
-    return <aside className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}`}>
+    return <aside id={mobile ? undefined : 'record-lab-context-panel'} aria-label="Record context" className={`record-lab-inspector${mobile ? ' is-mobile-copy' : ''}${!mobile && !contextPinned ? ' is-overlay' : ''}`}>
       <section className="record-lab-panel record-lab-inspector-card is-unified">
-        <header>{contextView === 'home' ? <div><span>Record details</span><h2>Context</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <button type="button" className="record-lab-inspector-collapse" onClick={() => setInspectorCollapsed(true)} title="Collapse record details"><PanelLeftClose size={17} /></button> : null}</header>
-        {contextView === 'home' ? <>{coreContext}<button type="button" className={`record-lab-inspector-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={16} />Resolution SLA</span><strong>{primarySlaLabel}</strong><small>{responseState === 'met' ? 'First response met' : 'Open SLA detail'}</small></button><div className="record-lab-inspector-section-title"><span>Context</span></div>{contextMenu}</> : peekContent}
+        <header>{contextView === 'home' ? <div><span>At a glance</span><h2>{workbenchMode === 'workbench' ? 'Requester & devices' : 'Record context'}</h2></div> : <button type="button" className="record-lab-context-back" onClick={() => setContextView('home')}><ChevronLeft size={16} /><span><small>Context</small><strong>{peekTitle}</strong></span></button>}{!mobile ? <div className="record-lab-context-header-actions">
+          {!contextPinned && !compactWorkbench ? <button type="button" className="record-lab-context-pin" onClick={() => { setWorkbenchMode('workbench'); setInspectorCollapsed(false); setInspectorDrawerOpen(false) }} title="Pin context beside activity"><Pin size={16} /><span>Pin</span></button> : null}
+          <button type="button" className="record-lab-inspector-collapse" onClick={() => { setInspectorDrawerOpen(false); setInspectorCollapsed(true) }} title={!contextPinned ? 'Close record context' : 'Unpin context'} aria-label={!contextPinned ? 'Close record context' : 'Unpin record context'}>{!contextPinned ? <X size={17} /> : <PanelLeftClose size={17} />}</button>
+        </div> : null}</header>
+        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
       </section>
     </aside>
   }
@@ -868,23 +1050,126 @@ function RecordWorkspace({ route }) {
     activityRows.push(<TimelineItem item={item} key={item.id} />)
   })
 
-  const jumpToLatest = () => timelineRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  // Desktop scrolls the timeline. Mobile scrolls the entire workspace;
+  // navigation controls must target whichever surface actually owns scrolling.
+  const scrollActivityTarget = (target) => {
+    if (!(target instanceof HTMLElement)) return
+    const mobile = window.matchMedia('(max-width: 820px)').matches
+    if (mobile) {
+      const workspace = scrollRef.current?.closest('.workspace')
+      if (workspace instanceof HTMLElement) {
+        const offset = target.getBoundingClientRect().top - workspace.getBoundingClientRect().top
+        workspace.scrollTo({ top: Math.max(0, workspace.scrollTop + offset - 8), behavior: 'smooth' })
+      } else {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
+      return
+    }
+    if (!timelineRef.current) return
+    const offset = target.getBoundingClientRect().top - timelineRef.current.getBoundingClientRect().top
+    timelineRef.current.scrollTo({ top: Math.max(0, timelineRef.current.scrollTop + offset - 8), behavior: 'smooth' })
+  }
+  const jumpToLatest = () => {
+    if (timelineRef.current) scrollActivityTarget(timelineRef.current.firstElementChild || timelineRef.current)
+  }
   const jumpToDay = (dayKey) => {
     if (!dayKey || !timelineRef.current) return
     const node = timelineRef.current.querySelector(`[data-day-key="${dayKey}"]`)
-    if (node instanceof HTMLElement) timelineRef.current.scrollTo({ top: Math.max(0, node.offsetTop - 8), behavior: 'smooth' })
+    if (node instanceof HTMLElement) scrollActivityTarget(node)
   }
 
+  const currentPhases = recordWorkflowPhases(route.type, detail.status)
+  const originalSummary = detail.description?.trim() || ''
+  const summaryLong = originalSummary.length > 145 || originalSummary.split('\n').length > 4
+  const renderRecordPanel = () => <aside className="record-lab-summary-rail" aria-label="Record summary">
+    <section className="record-lab-panel record-lab-record-card">
+      <div className="record-lab-record-identity">
+        <span className={`record-lab-record-type-icon is-${slug(route.type)}`} aria-hidden="true">
+          {route.type === 'Incident' ? <AlertTriangle size={19} /> : route.type === 'Change' ? <ShieldCheck size={19} /> : route.type === 'Problem' ? <CircleDot size={19} /> : <FileText size={19} />}
+        </span>
+        <div><span className="record-lab-record-reference">{detail.id || detail.reference}</span><span className="record-lab-record-type-label">{detail.type || route.type}</span></div>
+      </div>
+      <h1 className="record-lab-record-title">{detail.title}</h1>
+      <div className="record-lab-record-status-row">
+        <LabPill tone={['Resolved', 'Closed', 'Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status || 'New'}</LabPill>
+        <LabPill tone={detail.priority === 'Critical' || detail.priority === 'High' ? 'danger' : detail.priority === 'Medium' ? 'warning' : 'good'}>{detail.priority || 'Not set'}</LabPill>
+      </div>
+      {!['cancelled', 'rejected'].includes(String(detail.status || '').toLowerCase()) ? <div className="record-lab-record-progress" aria-label={`Current stage: ${currentPhases.labels[currentPhases.active]}`}>
+        {currentPhases.labels.map((label, index) => <span key={label} title={label} className={`record-lab-compact-stage${index < currentPhases.active ? ' is-past' : ''}${index === currentPhases.active ? ' is-current' : ''}`}>{label}</span>)}
+      </div> : null}
+      <div className="record-lab-record-section">
+        <div className="record-lab-record-section-label">{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</div>
+        <p className={`record-lab-record-description${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>{originalSummary || 'No description has been recorded.'}</p>
+        {summaryLong ? <button type="button" className="record-lab-record-expand" aria-expanded={summaryExpanded} onClick={() => setSummaryExpanded((open) => !open)}>{summaryExpanded ? 'Show less' : 'Read full description'}<ChevronDown size={13}/></button> : null}
+      </div>
+      <div className="record-lab-record-section">
+        <div className="record-lab-record-section-label">Assignment</div>
+        <button type="button" className="record-lab-record-assignment" onClick={() => beginAction('reassign')}>
+          <UserRoundCog size={16} aria-hidden="true" /><span><strong>{detail.assignee && detail.assignee !== 'Unassigned' ? detail.assignee : 'Unassigned'}</strong><small>{detail.team || 'No team assigned'}</small></span><ChevronRight size={15} aria-hidden="true"/>
+        </button>
+        <div className="record-lab-record-fields">
+          {detail.service ? <div><span>Service</span><strong>{detail.service}</strong></div> : null}
+          {detail.category ? <div><span>Category</span><strong>{detail.category}</strong></div> : null}
+          {detail.source ? <div><span>Source</span><strong>{detail.source}</strong></div> : null}
+          <div><span>Created</span><strong>{formatDate(detail.createdAt, true)}</strong></div>
+          <div><span>Updated</span><strong>{relativeTime(detail.updatedAt)}</strong></div>
+          {route.type === 'Incident' && (detail.impact || detail.urgency) ? <div><span>Impact / urgency</span><strong>{detail.impact || '—'} / {detail.urgency || '—'}</strong></div> : null}
+        </div>
+      </div>
+      <button type="button" className={`record-lab-record-sla is-${primarySlaTone}`} onClick={() => setTab('sla')}>
+        <Clock3 size={17} aria-hidden="true" /><span><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></span><ChevronRight size={14}/>
+      </button>
+      {contextualSignal ? <button type="button" className={`record-lab-record-signal is-${contextualSignal.tone}`} onClick={() => {
+        setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights')
+        if (window.matchMedia('(max-width: 820px)').matches) { setTab('details'); setInspectorDrawerOpen(false) }
+        else setInspectorDrawerOpen(!contextPinned)
+      }}>
+        <Sparkles size={15} aria-hidden="true" /><span>{contextualSignal.label}</span><ChevronRight size={13}/>
+      </button> : null}
+      <div className="record-lab-record-actions">
+        <button type="button" onClick={() => beginAction('reassign')}><UserRoundCog size={15}/>Reassign</button>
+        {route.type === 'Incident' ? <button type="button" onClick={() => beginAction('pending')}><Clock3 size={15}/>Pending</button> : null}
+        <button type="button" onClick={() => beginAction('resolve')}><CheckCircle2 size={15}/>{route.type === 'Service Request' ? 'Complete' : 'Resolve'}</button>
+      </div>
+    </section>
+  </aside>
+
   const renderActivity = () => <section className="record-lab-panel record-lab-tab-panel record-lab-activity-panel">
-    {composerMode ? <div className="record-lab-activity-composer"><ActionComposer key={composerMode} mode={composerMode} detail={detail} saving={saving} onClose={() => setComposerMode('')} onPost={postNote} onReassign={reassign} onResolve={resolve} onPending={pending} /></div> : null}
-    <header className="record-lab-activity-heading"><div><span>Timeline</span><h2>Activity</h2><small>{meaningfulActivities.length ? `Latest update ${relativeTime(meaningfulActivities[0]?.createdAt)}` : 'No human updates yet'}</small></div><div className="record-lab-activity-heading-tools">{longActivity ? <><label className="record-lab-activity-search"><Search size={13} /><input type="search" value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search activity…" /></label>{activityDays.length > 1 ? <select aria-label="Jump to activity date" defaultValue="" onChange={(event) => { jumpToDay(event.target.value); event.target.value = '' }}><option value="">Jump to date…</option>{activityDays.map((day) => <option key={day.key} value={day.key}>{day.label}</option>)}</select> : null}<button type="button" className="record-lab-jump-latest" onClick={jumpToLatest}><ArrowUp size={13} />Latest</button></> : null}<div className="record-lab-activity-filter"><button type="button" className={!showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(false)}>Human updates</button><button type="button" className={showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(true)}>All events{auditActivities.length ? ` ${auditActivities.length}` : ''}</button></div></div></header>
-    <div className="record-lab-timeline record-lab-timeline-scroll" ref={timelineRef}>{visibleActivities.length ? activityRows : <div className="record-lab-empty">{normalizedActivityQuery ? 'No activity matches this search.' : 'No notes or customer updates have been recorded yet.'}</div>}</div>
+    {workbenchMode === 'focus' ? <div className={`record-lab-issue-summary${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>
+      <div className="record-lab-issue-summary-heading"><span>{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</span><small>Original description</small></div>
+      <p>{originalSummary || 'No issue description has been provided yet.'}</p>
+      {summaryLong ? <button type="button" className="record-lab-summary-expand" aria-expanded={summaryExpanded} onClick={() => setSummaryExpanded((current) => !current)}>{summaryExpanded ? 'Show less' : 'Read full description'} <ChevronDown size={14} aria-hidden="true" /></button> : null}
+    </div> : null}
+    <header className="record-lab-activity-heading is-unified-toolbar" aria-label="Activity actions and filters">
+      <div className="record-lab-note-actions" role="group" aria-label="Add an update">
+        <button type="button" className={composerMode === 'internal' ? 'is-active' : ''} onClick={() => beginAction('internal')} title="Visible only to technicians"><MessageSquareText size={15} />Internal note</button>
+        <button type="button" className={composerMode === 'customer' ? 'is-active' : ''} onClick={() => beginAction('customer')} title="Visible to the requester"><Send size={14} />Customer update</button>
+      </div>
+      <div className="record-lab-activity-heading-tools">{longActivity ? <><label className="record-lab-activity-search"><Search size={13} /><input type="search" value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="Search activity…" /></label>{activityDays.length > 1 ? <select aria-label="Jump to activity date" defaultValue="" onChange={(event) => { jumpToDay(event.target.value); event.target.value = '' }}><option value="">Jump to date…</option>{activityDays.map((day) => <option key={day.key} value={day.key}>{day.label}</option>)}</select> : null}<button type="button" className="record-lab-jump-latest" onClick={jumpToLatest}><ArrowUp size={13} />Latest</button></> : null}<div className="record-lab-activity-filter"><button type="button" className={!showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(false)}>Human updates</button><button type="button" className={showSystemEvents ? 'is-active' : ''} onClick={() => setShowSystemEvents(true)}>All events{auditActivities.length ? ` ${auditActivities.length}` : ''}</button></div></div></header>
+    <div className="record-lab-timeline record-lab-timeline-scroll" ref={timelineRef}>
+      {composerMode ? <div className="record-lab-activity-composer is-timeline-draft" aria-label="Draft record update"><ActionComposer key={composerMode} mode={composerMode} detail={detail} saving={saving} onClose={() => setComposerMode('')} onPost={postNote} onReassign={reassign} onResolve={resolve} onPending={pending} noteDraft={noteDrafts[composerMode]} onNoteDraftChange={(patch) => updateNoteDraft(composerMode, patch)} /></div> : null}
+      {visibleActivities.length ? activityRows : <div className="record-lab-empty">{normalizedActivityQuery ? 'No activity matches this search.' : 'No notes or customer updates have been recorded yet.'}</div>}
+    </div>
   </section>
 
 
-  const renderTasks = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Work</span><h2>{route.type === 'Service Request' ? 'Fulfilment tasks' : 'Record tasks'}</h2></header>{tasks.length ? <div className="record-lab-task-list">{tasks.map((task, index) => <button type="button" className={`record-lab-task is-${slug(task.status || 'waiting')}`} key={task.id || `${task.title}-${index}`} onClick={() => route.type === 'Service Request' && task.id && navigateLab(`/tasks/${encodeURIComponent(task.id)}`)}><span className="record-lab-task-state">{task.status === 'Completed' ? <CheckCircle2 size={18} /> : <CircleDot size={18} />}</span><div><strong>{task.title}</strong><small>{task.team || 'Unassigned team'} · {task.assignee || 'Unassigned'}{task.dueAt ? ` · due ${formatDate(task.dueAt)}` : ''}</small></div><LabPill tone={task.status === 'Completed' ? 'good' : task.status === 'Blocked' ? 'danger' : 'neutral'}>{task.status || 'Waiting'}</LabPill>{route.type === 'Service Request' ? <span className="record-lab-task-open">Open</span> : null}</button>)}</div> : <div className="record-lab-empty">No tasks are currently linked to this record.</div>}</section>
+  const renderTasks = () => <RecordTasksPanel
+    tasks={tasks}
+    isServiceRequest={route.type === 'Service Request'}
+    canManage={workflowAccess.canManageTasks}
+    saving={saving}
+    onCreate={createRecordTask}
+    onChangeStatus={changeRecordTaskStatus}
+    onOpenTask={(task) => task?.id && navigateLab(`/tasks/${encodeURIComponent(task.id)}`)}
+  />
 
-  const renderApprovals = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Governance</span><h2>Approvals</h2></header>{approvals.length ? <div className="record-lab-task-list">{approvals.map((approval) => <div className="record-lab-task" key={approval.id}><span className="record-lab-task-state"><ShieldCheck size={18} /></span><div><strong>{approval.label}</strong><small>{approval.approver || 'Approver'} · {approval.status}</small></div><LabPill tone={approval.status === 'Approved' ? 'good' : approval.status === 'Rejected' ? 'danger' : 'warning'}>{approval.status}</LabPill></div>)}</div> : <div className="record-lab-empty">No approval is required.</div>}</section>
+  const renderApprovals = () => <RecordApprovalsPanel
+    approvals={approvals}
+    isServiceRequest={route.type === 'Service Request'}
+    saving={saving}
+    canDecideApproval={canDecideApproval}
+    onDecision={decideRequestApproval}
+  />
 
   const renderRelated = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Relationships</span><h2>Related records</h2></header>{relationships.length ? <div className="record-lab-link-list">{relationships.map((item) => <div key={item.id}><Link2 size={18} /><span><strong>{item.targetReference || item.reference}</strong><small>{item.targetType || item.type} · {item.relationshipType || 'Related'}</small></span></div>)}</div> : <div className="record-lab-empty">No related records.</div>}</section>
 
@@ -899,8 +1184,7 @@ function RecordWorkspace({ route }) {
 
   const renderAudit = () => <section className="record-lab-panel record-lab-tab-panel"><header><span>Forensic history</span><h2>Audit Log</h2></header>{auditActivities.length ? <div className="record-lab-audit-list">{auditActivities.map((item) => { const changes = Array.isArray(item.metadata?.changes) ? item.metadata.changes : []; return <div className="record-lab-audit-row" key={item.id}><time>{formatDate(item.createdAt, true)}</time><div><strong>{activityText(item)}</strong>{changes.length ? changes.map((change, index) => <small key={`${change.field}-${index}`}><b>{change.field}</b><span>{String(change.from || '—')}</span><i>→</i><span>{String(change.to || '—')}</span></small>) : <small>{item.actor ? `By ${item.actor}` : 'System event'}</small>}</div></div> })}</div> : <div className="record-lab-empty">No system audit events are available for this record yet.</div>}</section>
 
-  const tabContent = tab === 'overview' ? renderOverview()
-    : tab === 'activity' ? renderActivity()
+  const tabContent = tab === 'activity' ? renderActivity()
     : tab === 'request' ? renderRequest()
       : tab === 'tasks' ? renderTasks()
         : tab === 'approvals' ? renderApprovals()
@@ -910,60 +1194,39 @@ function RecordWorkspace({ route }) {
                 : tab === 'details' ? renderInspector(true)
                   : renderAudit()
 
-  return <div className="record-lab-shell" ref={scrollRef}>
-    <nav className="record-lab-breadcrumbs" aria-label="Breadcrumb">
-      <button type="button" onClick={() => navigateLab(`/${route.section}`)}>{route.section.charAt(0).toUpperCase() + route.section.slice(1)}</button>
-      <ChevronRight size={13} aria-hidden="true" />
-      <button type="button" onClick={() => setTab('overview')}>{detail.id || detail.reference}</button>
-      <ChevronRight size={13} aria-hidden="true" />
-      <span>{activeTabLabel}</span>
+  return <div className="record-lab-shell is-fixed-workspace" ref={scrollRef}>
+    <nav className="record-lab-tabs record-lab-fixed-tabs" aria-label="Record workspace sections">
+      <span className="record-lab-inline-breadcrumb">
+        <button type="button" onClick={() => navigateLab(`/${route.section}`)} aria-label={`Back to ${route.section}`}>{route.section === 'requests' ? 'Requests' : route.section.charAt(0).toUpperCase() + route.section.slice(1)}</button>
+        <ChevronRight size={12} aria-hidden="true" />
+        <span title={detail.id || detail.reference}>{detail.id || detail.reference}</span>
+      </span>
+      {tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value); setInspectorDrawerOpen(false) }}>{label}</button>)}
+      <div className="record-lab-layout-switch" role="group" aria-label="Record layout">
+        <button type="button" className={workbenchMode === 'workbench' ? 'is-selected' : ''} aria-pressed={workbenchMode === 'workbench'} onClick={() => { setWorkbenchMode('workbench'); setInspectorDrawerOpen(false) }} title="Three-panel workbench"><PanelLeftOpen size={14}/>Workbench</button>
+        <button type="button" className={workbenchMode === 'focus' ? 'is-selected' : ''} aria-pressed={workbenchMode === 'focus'} onClick={() => { setWorkbenchMode('focus'); setInspectorDrawerOpen(false) }} title="Full-width activity"><PanelLeftClose size={14}/>Focus</button>
+      </div>
+      {rmmAccess.canView && managedDevices.length ? <button type="button" className="record-lab-device-peek" title="View linked RMM devices" onClick={() => { setContextView('assets'); if (!contextPinned) setInspectorDrawerOpen(true) }}><Laptop size={15} />Devices {managedDevices.length}</button> : null}
+      <button type="button" className="record-lab-context-toggle" aria-expanded={contextPinned || inspectorDrawerOpen} aria-controls="record-lab-context-panel" onClick={() => { if (contextPinned) { setInspectorCollapsed(true); setInspectorDrawerOpen(false) } else { setInspectorDrawerOpen((open) => !open) } }} title={contextPinned ? 'Unpin requester and device panel' : 'Open requester and device panel'}>{contextPinned ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}<span>{contextPinned ? 'Unpin' : 'Context'}</span></button>
+      <button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button>
     </nav>
 
-    <section className="record-lab-masthead">
-      <div className="record-lab-masthead-leading">
-        <span className={`record-lab-hero-icon is-${slug(route.type)}`}>
-          {route.type === 'Incident' ? <AlertTriangle size={27} /> : route.type === 'Change' ? <ShieldCheck size={27} /> : route.type === 'Problem' ? <CircleDot size={27} /> : <FileText size={27} />}
-        </span>
-        {inspectorCollapsed ? <button type="button" className="record-lab-details-restore" onClick={() => setInspectorCollapsed(false)} title="Show record details"><PanelLeftOpen size={18} /><span>Details</span></button> : null}
-      </div>
-      <div className="record-lab-heading"><div><strong>{detail.id || detail.reference}</strong><LabPill tone="accent">{detail.type || route.type}</LabPill><LabPill tone={['Resolved','Closed','Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status}</LabPill><LabPill tone={detail.priority === 'Critical' || detail.priority === 'High' ? 'danger' : detail.priority === 'Medium' ? 'warning' : 'good'}>{detail.priority}</LabPill></div><h1>{detail.title}</h1><p>{detail.requester || 'Requester not recorded'} · {detail.team || 'Unassigned'} / {detail.assignee || 'Unassigned'} · Updated {relativeTime(detail.updatedAt)}</p></div>
-      <div className="record-lab-masthead-signals">{contextualSignal ? <button type="button" className={`record-lab-context-signal is-${contextualSignal.tone}`} onClick={() => { setInspectorCollapsed(false); setContextView(contextualSignal.label === 'Repeat contact' ? 'user' : 'insights') }}><Sparkles size={16} /><span><small>{contextualSignal.label}</small><strong>{contextualSignal.detail}</strong></span></button> : null}<button type="button" className={`record-lab-sla-badge is-${primarySlaTone}`} onClick={() => setTab('sla')}><Clock3 size={18} /><span><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></span></button></div>
-      <div className="record-lab-hero-actions">
-        <details className="record-lab-action-menu">
-          <summary><MessageSquareText size={16} /><span>Note</span><ChevronDown size={14} /></summary>
-          <div className="record-lab-action-menu-popover">
-            <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginAction('internal') }}><MessageSquareText size={15} /><span><strong>Internal note</strong><small>Visible to technicians only</small></span></button>
-            <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginAction('customer') }}><Send size={15} /><span><strong>Customer update</strong><small>Visible to the requester</small></span></button>
-          </div>
-        </details>
-        <details className="record-lab-action-menu">
-          <summary><UserRoundCog size={16} /><span>Reassign</span><ChevronDown size={14} /></summary>
-          <div className="record-lab-action-menu-popover align-right">
-            <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginAction('reassign') }}><UserRoundCog size={15} /><span><strong>Reassign</strong><small>Change team or technician</small></span></button>
-            <div className="record-lab-action-menu-label">Status</div>
-            {route.type === 'Incident' ? <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginAction('pending') }}><Clock3 size={15} /><span><strong>Set pending</strong><small>Customer or vendor hold</small></span></button> : null}
-            <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); beginAction('resolve') }}><CheckCircle2 size={15} /><span><strong>{route.type === 'Service Request' ? 'Complete request' : 'Resolve record'}</strong><small>{route.type === 'Service Request' ? 'Mark fulfilment complete' : 'Set final resolution'}</small></span></button>
-          </div>
-        </details>
-      </div>
-    </section>
-
-    <div className="record-lab-summary-metrics">
-      <button type="button" className={`record-lab-summary-metric is-${primarySlaTone}`} onClick={() => setTab('sla')}><span><Clock3 size={18} /></span><div><small>Resolution SLA</small><strong>{primarySlaLabel}</strong></div></button>
-      <button type="button" className="record-lab-summary-metric" onClick={() => { setInspectorCollapsed(false); setContextView('home'); setTab('details') }}><span><UserRoundCog size={18} /></span><div><small>Assignment</small><strong>{detail.assignee || detail.team || 'Unassigned'}</strong></div></button>
-      <div className="record-lab-summary-metric"><span><FileText size={18} /></span><div><small>Record age</small><strong>{relativeTime(detail.createdAt)}</strong></div></div>
-      <button type="button" className="record-lab-summary-metric" onClick={() => setTab('activity')}><span><MessageSquareText size={18} /></span><div><small>Activity</small><strong>{meaningfulActivities.length} update{meaningfulActivities.length === 1 ? '' : 's'}</strong></div></button>
-    </div>
-
-    {error ? <div className="record-lab-notice is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
-    {notice ? <div className="record-lab-notice is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
-
-    <div className={`record-lab-workspace-grid${inspectorCollapsed ? ' is-inspector-collapsed' : ''}`}>
-      {renderInspector()}
+    <div className={`record-lab-workspace-grid${workbenchMode === 'workbench' ? ' is-three-column' : ' is-focus-mode'}${contextPinned ? ' is-context-pinned' : ' is-inspector-collapsed'}`}>
+      {workbenchMode === 'workbench' ? renderRecordPanel() : null}
       <section className={`record-lab-primary-workspace${tab === 'activity' ? ' is-activity-view' : ''}`}>
-        <nav className="record-lab-tabs" aria-label="Record workspace sections">{tabs.map(([value, label]) => <button type="button" key={value} className={`${tab === value ? 'is-active' : ''}${value === 'details' ? ' record-lab-mobile-details-tab' : ''}`} onClick={() => { setComposerMode(''); setTab(value) }}>{label}</button>)}<button type="button" className="record-lab-refresh" onClick={() => load({ quiet: true })}><RefreshCw size={15} />Refresh</button></nav>
+        {error || notice ? <div className="record-lab-notices" role="status">
+          {error ? <div className="record-lab-notice is-error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={15} /></button></div> : null}
+          {notice ? <div className="record-lab-notice is-success"><CheckCircle2 size={17} /><span>{notice}</span><button type="button" onClick={() => setNotice('')}><X size={15} /></button></div> : null}
+        </div> : null}
+        {workbenchMode === 'focus' ? <div className="record-lab-focus-identity">
+          <strong title={detail.title}>{detail.id || detail.reference} · {detail.title}</strong>
+          <LabPill tone={['Resolved', 'Closed', 'Completed'].includes(detail.status) ? 'good' : 'neutral'}>{detail.status}</LabPill>
+          <button type="button" onClick={() => setTab('sla')} title="Open SLA details"><Clock3 size={14}/>{primarySlaLabel}</button>
+        </div> : null}
         <main className="record-lab-content">{tabContent}</main>
       </section>
+      {!contextPinned && inspectorDrawerOpen ? <button className="record-lab-context-scrim" type="button" aria-label="Close record context" onClick={() => setInspectorDrawerOpen(false)} /> : null}
+      {renderInspector()}
     </div>
   </div>
 }
