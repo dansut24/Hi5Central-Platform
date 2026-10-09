@@ -20,6 +20,7 @@ import {
   patchProductionServiceRequest,
   patchProductionServiceRequestTask,
 } from '../services/productionServiceRequests.js'
+import { PeekRecordRail, PeekContextRail, PeekActivity } from './ProductionWorkingPeekWorkbench.jsx'
 import './ProductionRecordWorkingPeek.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -92,8 +93,6 @@ function GenericWorkingPeek({ route }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [note, setNote] = useState('')
-  const [visibility, setVisibility] = useState('internal')
   const [attachment, setAttachment] = useState(null)
   const [taskTitle, setTaskTitle] = useState('')
   const [team, setTeam] = useState('')
@@ -140,19 +139,20 @@ function GenericWorkingPeek({ route }) {
     }
   }
 
-  async function postNote() {
-    if (!note.trim() || !detail) return
+  async function postNote({ visibility: noteVisibility, text, html }) {
+    if ((!text.trim() && !html) || !detail) return false
     setSaving(true); setError(''); setNotice('')
     try {
       const next = await apiJson(`/api/v1/itsm-lifecycle/${encodeURIComponent(route.reference)}/activity`, {
         method: 'POST',
-        body: JSON.stringify({ text: note.trim(), visibility }),
+        body: JSON.stringify({ text: text.trim() || '[Inline image]', visibility: noteVisibility, metadata: html ? {richHtml:html} : {} }),
       })
       setDetail(next)
-      setNote('')
-      setNotice(visibility === 'customer' ? 'Customer update sent' : 'Internal note added')
+      setNotice(noteVisibility === 'customer' ? 'Customer update sent' : 'Internal note added')
+      return true
     } catch (postError) {
       setError(postError.message)
+      return false
     } finally {
       setSaving(false)
     }
@@ -202,29 +202,25 @@ function GenericWorkingPeek({ route }) {
   const attachments = Array.isArray(detail.attachments) ? detail.attachments : []
   const relationships = Array.isArray(detail.relationships) ? detail.relationships : []
 
-  return <div className="hi5-working-peek">
+  return <div className="hi5-working-peek is-compact-workbench">
     <Notice error={error} notice={notice} onClear={() => { setError(''); setNotice('') }} />
-    <div className="hi5-working-peek-record-head">
-      <div><strong>{detail.id}</strong><span>{detail.status}</span><span>{detail.priority}</span></div>
-      <h2>{detail.title}</h2>
-      <div className="hi5-working-peek-core-controls">
-        <label><span>Status</span><select disabled={saving} value={detail.status} onChange={(event) => patchRecord({ status: event.target.value }, `Status changed to ${event.target.value}`)}>{(detail.allowedStatuses || []).map((status) => <option key={status}>{status}</option>)}</select></label>
-        <label><span>Team</span><select value={team} onChange={(event) => setTeam(event.target.value)}><option value="">Unassigned</option>{teams.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
-        <label><span>Assignee</span><select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option>Unassigned</option>{people.map((person) => <option value={person.name} key={person.id}>{person.name}</option>)}</select></label>
-        <button type="button" disabled={saving || (team === (detail.team || '') && assignee === (detail.assignee || 'Unassigned'))} onClick={() => patchRecord({ team, assignee }, 'Assignment saved')}><UserRoundCog size={15} />Save assignment</button>
-        <button type="button" title="Reload" onClick={() => load({ quiet: true })}><RefreshCw size={15} /></button>
-      </div>
-    </div>
-
+    <div className="hi5-working-peek-grid">
+      <PeekRecordRail detail={detail} route={route}>
+        <div className="hi5-working-peek-core-controls">
+          <label><span>Status</span><select disabled={saving} value={detail.status} onChange={(event) => patchRecord({ status: event.target.value }, `Status changed to ${event.target.value}`)}>{(detail.allowedStatuses || []).map((status) => <option key={status}>{status}</option>)}</select></label>
+          <label><span>Team</span><select disabled={saving} value={team} onChange={(event) => setTeam(event.target.value)}><option value="">Unassigned</option>{teams.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
+          <label><span>Assignee</span><select disabled={saving} value={assignee} onChange={(event) => setAssignee(event.target.value)}><option>Unassigned</option>{people.map((person) => <option value={person.name} key={person.id}>{person.name}</option>)}</select></label>
+          <button type="button" disabled={saving || (team === (detail.team || '') && assignee === (detail.assignee || 'Unassigned'))} onClick={() => patchRecord({ team, assignee }, 'Assignment saved')}><UserRoundCog size={15} />Save assignment</button>
+          <button type="button" title="Reload" onClick={() => load({ quiet: true })}><RefreshCw size={15} /> Refresh</button>
+        </div>
+      </PeekRecordRail>
+      <section className="hi5-working-peek-main" aria-label="Record activity and working tabs">
     <nav className="hi5-working-peek-tabs">
       {['activity','details','tasks','attachments'].map((item) => <button type="button" key={item} className={view === item ? 'is-active' : ''} onClick={() => setView(item)}>{item === 'activity' ? 'Activity' : item === 'details' ? 'Details' : item === 'tasks' ? `Tasks ${tasks.length}` : `Attachments ${attachments.length}`}</button>)}
     </nav>
 
     <div className="hi5-working-peek-content">
-      {view === 'activity' ? <>
-        <div className="hi5-working-peek-activity">{activities.length ? activities.map((item) => <article key={item.id}><header><strong>{item.actor || 'Hi5Central'}</strong><span>{formatDate(item.createdAt)}</span><em>{item.visibility === 'customer' ? 'Customer visible' : item.kind || 'Internal'}</em></header><p>{item.text || 'Record updated'}</p></article>) : <div className="hi5-working-peek-empty">No activity yet.</div>}</div>
-        <div className="hi5-working-peek-composer"><div><button type="button" className={visibility === 'internal' ? 'is-active' : ''} onClick={() => setVisibility('internal')}>Internal note</button><button type="button" className={visibility === 'customer' ? 'is-active' : ''} onClick={() => setVisibility('customer')}>Customer update</button></div><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={visibility === 'customer' ? 'Write a customer-visible update…' : 'Write an internal note…'} /><button type="button" disabled={saving || !note.trim()} onClick={postNote}><Send size={15} />Post update</button></div>
-      </> : null}
+      {view === 'activity' ? <PeekActivity key={route.reference} activities={activities} reference={route.reference} busy={saving} onPost={postNote} /> : null}
 
       {view === 'details' ? <div className="hi5-working-peek-facts">
         {[['Requester', detail.requester],['Email', detail.requesterEmail],['Service', detail.service],['Category', detail.category],['Impact', detail.impact],['Urgency', detail.urgency],['Assignment', `${detail.team || 'Unassigned'} / ${detail.assignee || 'Unassigned'}`],['Updated', formatDate(detail.updatedAt)]].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value || 'Not recorded'}</strong></div>)}
@@ -234,6 +230,9 @@ function GenericWorkingPeek({ route }) {
       {view === 'tasks' ? <div className="hi5-working-peek-task-view"><div className="hi5-working-peek-create-task"><input value={taskTitle} onChange={(event) => setTaskTitle(event.target.value)} placeholder="New task title" /><button type="button" disabled={saving || !taskTitle.trim()} onClick={createTask}><ClipboardList size={15} />Create task</button></div>{tasks.length ? tasks.map((task) => <article key={task.id}><div><strong>{task.title}</strong><span>{task.status}</span></div><small>{task.team || 'Unassigned'} · {task.assignee || 'Unassigned'}{task.dueAt ? ` · Due ${formatDate(task.dueAt)}` : ''}</small></article>) : <div className="hi5-working-peek-empty">No tasks on this record.</div>}</div> : null}
 
       {view === 'attachments' ? <div className="hi5-working-peek-attachments"><div className="hi5-working-peek-upload"><label><Paperclip size={16} /><span>{attachment ? `${attachment.name} · ${formatBytes(attachment.size)}` : 'Choose attachment'}</span><input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label><button type="button" disabled={saving || !attachment} onClick={uploadAttachment}><Upload size={15} />Upload</button></div>{attachments.length ? attachments.map((item) => <article key={item.id}><FileText size={17} /><span><strong>{item.fileName}</strong><small>{formatBytes(item.byteSize)} · {item.uploadedBy || 'Hi5Central'}</small></span><a href={`${API_BASE}/api/v1/itsm-lifecycle/${encodeURIComponent(detail.id)}/attachments/${encodeURIComponent(item.id)}`} target="_blank" rel="noreferrer">Open</a></article>) : <div className="hi5-working-peek-empty">No attachments on this record.</div>}</div> : null}
+    </div>
+      </section>
+      <PeekContextRail detail={detail} route={route} onDetails={() => setView('details')} />
     </div>
   </div>
 }
@@ -246,8 +245,6 @@ function ServiceRequestWorkingPeek({ route }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [note, setNote] = useState('')
-  const [visibility, setVisibility] = useState('internal')
   const [team, setTeam] = useState('')
   const [assignee, setAssignee] = useState('Unassigned')
   const [approvalNote, setApprovalNote] = useState('')
@@ -282,21 +279,26 @@ function ServiceRequestWorkingPeek({ route }) {
     } catch (saveError) { setError(saveError.message) } finally { setSaving(false) }
   }
 
-  async function postActivity(extraAttachments = []) {
-    if (!note.trim() && !extraAttachments.length) return
+  async function postActivity(extraAttachments = [], update = {}) {
+    const text = String(update.text || '').trim()
+    const html = String(update.html || '')
+    if (!text && !html && !extraAttachments.length) return false
     setSaving(true); setError(''); setNotice('')
     try {
       await addProductionServiceRequestActivity(route.reference, {
-        kind: visibility === 'customer' ? 'customer' : 'work',
-        text: note.trim(),
-        html: '',
+        kind: update.visibility === 'customer' ? 'customer' : 'work',
+        text: text || (html ? '[Inline image]' : ''),
+        html,
         attachments: extraAttachments,
       })
-      setNote('')
       setAttachment(null)
       await load({ quiet: true })
-      setNotice(extraAttachments.length ? 'Attachment added to activity' : visibility === 'customer' ? 'Customer update sent' : 'Internal note added')
-    } catch (postError) { setError(postError.message) } finally { setSaving(false) }
+      setNotice(extraAttachments.length ? 'Attachment added to activity' : update.visibility === 'customer' ? 'Customer update sent' : 'Internal note added')
+      return true
+    } catch (postError) {
+      setError(postError.message)
+      return false
+    } finally { setSaving(false) }
   }
 
   async function uploadAttachment() {
@@ -332,14 +334,22 @@ function ServiceRequestWorkingPeek({ route }) {
   const info = Array.isArray(detail.requestInformation) ? detail.requestInformation : []
   const activityAttachments = activities.flatMap((item) => Array.isArray(item.attachments) ? item.attachments : [])
 
-  return <div className="hi5-working-peek">
+  return <div className="hi5-working-peek is-compact-workbench">
     <Notice error={error} notice={notice} onClear={() => { setError(''); setNotice('') }} />
-    <div className="hi5-working-peek-record-head"><div><strong>{detail.id}</strong><span>{detail.status}</span><span>{detail.priority}</span></div><h2>{detail.title}</h2><div className="hi5-working-peek-core-controls"><label><span>Team</span><select value={team} onChange={(event) => setTeam(event.target.value)}><option value="">Unassigned</option>{teams.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label><label><span>Assignee</span><select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option>Unassigned</option>{people.map((person) => <option value={person.name} key={person.id}>{person.name}</option>)}</select></label><button type="button" disabled={saving || (team === (detail.team || '') && assignee === (detail.assignee || 'Unassigned'))} onClick={saveAssignment}><UserRoundCog size={15} />Save assignment</button><button type="button" title="Reload" onClick={() => load({ quiet: true })}><RefreshCw size={15} /></button></div></div>
-
+    <div className="hi5-working-peek-grid">
+      <PeekRecordRail detail={detail} route={route}>
+        <div className="hi5-working-peek-core-controls">
+          <label><span>Team</span><select disabled={saving} value={team} onChange={(event) => setTeam(event.target.value)}><option value="">Unassigned</option>{teams.map((item) => <option value={item.name} key={item.id}>{item.name}</option>)}</select></label>
+          <label><span>Assignee</span><select disabled={saving} value={assignee} onChange={(event) => setAssignee(event.target.value)}><option>Unassigned</option>{people.map((person) => <option value={person.name} key={person.id}>{person.name}</option>)}</select></label>
+          <button type="button" disabled={saving || (team === (detail.team || '') && assignee === (detail.assignee || 'Unassigned'))} onClick={saveAssignment}><UserRoundCog size={15} />Save assignment</button>
+          <button type="button" title="Reload" onClick={() => load({ quiet: true })}><RefreshCw size={15} /> Refresh</button>
+        </div>
+      </PeekRecordRail>
+      <section className="hi5-working-peek-main" aria-label="Service Request activity and working tabs">
     <nav className="hi5-working-peek-tabs">{['activity','details','tasks','approvals','attachments'].map((item) => <button type="button" key={item} className={view === item ? 'is-active' : ''} onClick={() => setView(item)}>{item === 'activity' ? 'Activity' : item === 'details' ? 'Request' : item === 'tasks' ? `Tasks ${tasks.length}` : item === 'approvals' ? `Approvals ${approvals.length}` : `Attachments ${activityAttachments.length}`}</button>)}</nav>
 
     <div className="hi5-working-peek-content">
-      {view === 'activity' ? <><div className="hi5-working-peek-activity">{activities.length ? activities.map((item) => <article key={item.id}><header><strong>{item.actor || 'Hi5Central'}</strong><span>{formatDate(item.createdAt)}</span><em>{item.visibility === 'customer' || item.kind === 'customer' ? 'Customer visible' : item.kind === 'work' ? 'Internal' : 'System'}</em></header><p>{item.text || 'Request updated'}</p>{Array.isArray(item.attachments) && item.attachments.length ? <small>{item.attachments.map((file) => file.name).join(', ')}</small> : null}</article>) : <div className="hi5-working-peek-empty">No activity yet.</div>}</div><div className="hi5-working-peek-composer"><div><button type="button" className={visibility === 'internal' ? 'is-active' : ''} onClick={() => setVisibility('internal')}>Internal note</button><button type="button" className={visibility === 'customer' ? 'is-active' : ''} onClick={() => setVisibility('customer')}>Customer update</button></div><textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add an update…" /><button type="button" disabled={saving || !note.trim()} onClick={() => postActivity()}><Send size={15} />Post update</button></div></> : null}
+      {view === 'activity' ? <PeekActivity key={route.reference} activities={activities} reference={route.reference} busy={saving} onPost={(update) => postActivity([], update)} /> : null}
 
       {view === 'details' ? <div className="hi5-working-peek-facts">{[['Requester', detail.requester],['Email', detail.requesterEmail],['Service', detail.service],['Catalogue item', detail.catalogueItemTitle],['Assignment', `${detail.team || 'Unassigned'} / ${detail.assignee || 'Unassigned'}`],['One-off cost', `${detail.currency || 'GBP'} ${Number(detail.oneOffCost || 0).toFixed(2)}`],['Monthly cost', `${detail.currency || 'GBP'} ${Number(detail.monthlyCost || 0).toFixed(2)}`]].map(([label,value]) => <div key={label}><span>{label}</span><strong>{value || 'Not recorded'}</strong></div>)}{info.length ? <section><h3>Submitted information</h3>{info.map((item, index) => <p key={`${item.label}-${index}`}><b>{item.label}</b> {item.value}</p>)}</section> : null}{items.length ? <section><h3>Requested items</h3>{items.map((item) => <p key={item.id || item.databaseId || item.name}><b>{item.name}</b> · Qty {item.quantity || 1}</p>)}</section> : null}</div> : null}
 
@@ -348,6 +358,9 @@ function ServiceRequestWorkingPeek({ route }) {
       {view === 'approvals' ? <div className="hi5-working-peek-approval-view"><textarea value={approvalNote} onChange={(event) => setApprovalNote(event.target.value)} placeholder="Optional approval decision note" />{approvals.length ? approvals.map((approval) => <article key={approval.id}><div><ShieldCheck size={16} /><span><strong>{approval.label}</strong><small>{approval.approver || approval.approverName || 'Approver'} · {approval.status}</small></span></div>{approval.status === 'Pending' ? <div><button type="button" disabled={saving} onClick={() => decide(approval, 'Approved')}>Approve</button><button type="button" disabled={saving} onClick={() => decide(approval, 'Rejected')}>Reject</button></div> : null}</article>) : <div className="hi5-working-peek-empty">No approvals required.</div>}</div> : null}
 
       {view === 'attachments' ? <div className="hi5-working-peek-attachments"><div className="hi5-working-peek-upload"><label><Paperclip size={16} /><span>{attachment ? `${attachment.name} · ${formatBytes(attachment.size)}` : 'Choose attachment'}</span><input type="file" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /></label><button type="button" disabled={saving || !attachment} onClick={uploadAttachment}><Upload size={15} />Add</button></div>{activityAttachments.length ? activityAttachments.map((item, index) => <article key={`${item.id || item.name}-${index}`}><FileText size={17} /><span><strong>{item.name || 'Attachment'}</strong><small>{formatBytes(item.size)} · {item.type || 'File'}</small></span></article>) : <div className="hi5-working-peek-empty">No attachments on this request.</div>}<small className="hi5-working-peek-attachment-note">Service Request attachments are currently stored against the activity entry, matching the existing request model.</small></div> : null}
+    </div>
+      </section>
+      <PeekContextRail detail={detail} route={route} onDetails={() => setView('details')} />
     </div>
   </div>
 }
