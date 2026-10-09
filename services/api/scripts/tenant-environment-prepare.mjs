@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import pg from 'pg'
 import { randomUUID } from 'node:crypto'
-import { checkProvisioningPreflight } from '../src/tenantEnvironmentOperatorChecks.js'
+import { checkProvisioningPreflight, validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
 import { suspendedTenantSeed, matchesPreparedIdentity } from '../src/tenantEnvironmentBootstrap.js'
 
 function requireEnv(key) {
@@ -75,6 +75,16 @@ async function run() {
     await Promise.all([control.connect(),target.connect()])
     await transact(control,mode==='apply');controlOpen=true
     await transact(target,mode==='apply');targetOpen=true
+    // An independently attested control plane is required: the internal
+    // single-tenant Dev database must never become a provisioning source.
+    const controlIdentity = (await control.query(
+      `SELECT deployment_mode,tenancy_mode,root_domain,instance_id,verified_by,verified_at
+         FROM managed_control_plane_identity WHERE singleton=true`,
+    )).rows[0] || null
+    const controlValidation = validateControlPlaneAttestation(controlIdentity, rootDomain)
+    if (!controlValidation.allowed) throw new Error(
+      `Control-plane identity verification failed: ${controlValidation.errors.join('; ')}`,
+    )
     const request=await controlRequest(control,requestId,mode==='apply')
     if (!request) throw new Error('Provisioning request not found.')
     const evidence=await targetEvidence(target,requestId,request.slug)
