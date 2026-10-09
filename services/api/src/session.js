@@ -2,18 +2,12 @@ import { createHash, randomBytes } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { attachAccess, effectiveAccessForUser, expandedPermissions } from './access.js'
 import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
+import { environmentSessionCookieNames } from './tenantEnvironmentHostnames.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
 
-// Environment-qualified names prevent a native UAT/Test API session from
-// being interpreted as a Production session even with legacy browser cookies.
-const SESSION_PREFIX = deployment.runtimeEnvironment === 'dev'
-  ? 'hi5central_dev'
-  : deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi'
-    && ['uat','test'].includes(deployment.runtimeEnvironment)
-    ? `hi5central_${deployment.runtimeEnvironment}` : 'hi5central'
-const COOKIE_NAME = `${SESSION_PREFIX}_session`
-const PORTAL_COOKIE_NAME = `${SESSION_PREFIX}_portal_session`
+// Environment-qualified names prevent cross-channel cookie collisions.
+const { workspace: COOKIE_NAME, portal: PORTAL_COOKIE_NAME } = environmentSessionCookieNames(deployment)
 const DEFAULT_SESSION_TTL_SECONDS = 60 * 60 * 12
 
 function hashToken(token) {
