@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {validateManagedSignupRequest} from '../src/managedSignupValidation.js'
+import {validateManagedSignupRequest,approvedManagedSignupRuntime} from '../src/managedSignupValidation.js'
 import {readFileSync} from 'node:fs'
 function request(){return {companyName:'Acme Pilot',tenantSlug:'acmepilot',
   name:'Acme Owner',email:'Owner@Example.invalid',
@@ -35,7 +35,7 @@ test('Reserved tenant names and invalid contact details are rejected',()=>{
 })
 test('Public signup queues email verification, never creates tenant/account/session',()=>{
  const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
- assert.match(src,/MANAGED_SIGNUP_REQUESTS_ENABLED/)
+ assert.match(src,/approvedManagedSignupRuntime/)
  assert.match(src,/MANAGED_SIGNUP_SMTP_APPROVED/)
  assert.match(src,/INSERT INTO managed_public_signup_requests/)
  assert.doesNotMatch(src,/INSERT INTO (?:users|tenants|tenant_memberships|sessions)/)
@@ -44,23 +44,51 @@ test('Public signup queues email verification, never creates tenant/account/sess
  assert.match(legacy,/MANAGED_LEGACY_SIGNUP_ALLOWED/)
  assert.match(legacy,/MANAGED_SIGNUP_REQUEST_REQUIRED/)
 })
-test('Signup requests are only enabled in reviewed private pilot',()=>{
+test('Production signup requires matching public hosts, mailbox allowlist and explicit opt-in',()=>{
+ const env={
+  MANAGED_SIGNUP_REQUESTS_ENABLED:'true',
+  MANAGED_SIGNUP_LIVE_APPROVED:'true',
+  MANAGED_SIGNUP_TEST_ONLY:'true',
+  MANAGED_SIGNUP_TEST_EMAIL:'approved@example.invalid',
+  DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
+ }
+ const config={runtimeEnvironment:'live',rootDomain:'hi5central.com',
+  apiUrl:'https://api.hi5central.com',adminUrl:'https://admin.hi5central.com'}
+ assert.equal(approvedManagedSignupRuntime(env,config),true)
+ for(const override of [
+  {MANAGED_SIGNUP_REQUESTS_ENABLED:'false'},
+  {MANAGED_SIGNUP_LIVE_APPROVED:'false'},
+  {MANAGED_SIGNUP_TEST_ONLY:'false'},
+  {MANAGED_SIGNUP_TEST_EMAIL:''},
+  {TENANCY_MODE:'single'},
+  {DEPLOYMENT_MODE:'self_hosted'},
+ ]){
+  assert.equal(approvedManagedSignupRuntime({...env,...override},config),false,
+   JSON.stringify(override))
+ }
+ for(const changed of [
+  {apiUrl:'https://pilot-control-api.hi5central.com'},
+  {adminUrl:'https://pilot-admin.hi5central.com'},
+  {runtimeEnvironment:'uat'},
+  {runtimeEnvironment:'test'},
+  {rootDomain:'another.example'},
+ ]){
+  assert.equal(approvedManagedSignupRuntime(env,{...config,...changed}),false,JSON.stringify(changed))
+ }
  const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
- assert.match(src,/process\.env\.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'/)
- assert.match(src,/deployment\.apiUrl===privateOrigin/)
- assert.match(src,/deployment\.apiUrl===liveOrigin/)
- assert.match(src,/MANAGED_SIGNUP_LIVE_APPROVED/)
- assert.match(src,/MANAGED_SIGNUP_TEST_ONLY/)
- assert.match(src,/MANAGED_SIGNUP_TEST_EMAIL/)
+ assert.match(src,/requested.ownerEmail!==approved/)
+ assert.match(src,/MANAGED_SIGNUP_SMTP_APPROVED!=='true'/)
+ const mailer=readFileSync(new URL('../src/mailer.js',import.meta.url),'utf8')
+ assert.match(mailer,/MANAGED_SIGNUP_LIVE_APPROVED==='true'/)
 })
 
-test('Public production signup must use the verified mail origin and approved test-only gate',()=>{
- const signup=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
- const mailer=readFileSync(new URL('../src/mailer.js',import.meta.url),'utf8')
- assert.match(signup,/liveOrigin='https:\/\/api\.hi5central\.com'/)
- assert.match(signup,/liveAdmin='https:\/\/admin\.hi5central\.com'/)
- assert.match(signup,/process\.env\.MANAGED_SIGNUP_TEST_ONLY==='true'/)
- assert.match(signup,/requested\.ownerEmail!==approved/)
- assert.match(mailer,/MANAGED_SIGNUP_LIVE_APPROVED==='true'/)
- assert.match(mailer,/MANAGED_SIGNUP_SMTP_APPROVED!=='true'/)
+test('The earlier isolated signup canary is not implicitly a public production authorisation',()=>{
+ const cfg={runtimeEnvironment:'live',rootDomain:'hi5central.com',
+  apiUrl:'https://pilot-control-api.hi5central.com',
+  adminUrl:'https://pilot-admin.hi5central.com'}
+ const env={MANAGED_SIGNUP_REQUESTS_ENABLED:'true',
+  DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi'}
+ assert.equal(approvedManagedSignupRuntime(env,cfg),true)
+ assert.equal(approvedManagedSignupRuntime(
+  {...env,MANAGED_SIGNUP_LIVE_APPROVED:'true'},cfg),false)
 })
