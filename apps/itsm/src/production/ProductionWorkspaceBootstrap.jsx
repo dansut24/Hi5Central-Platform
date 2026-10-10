@@ -914,22 +914,19 @@ export function ProductionWorkspaceBootstrap() {
     if(!['test','uat'].includes(env))return
     if(/-(test|uat)$/.test(surface.tenantSlug))return
     setEnvironmentLoginHandled(true)
-    const abort=new AbortController()
     fetch(`${API_BASE}/api/v1/release-management/environment-access`,{
       method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({environment:env}),signal:abort.signal,
+      body:JSON.stringify({environment:env}),
     }).then(async response=>{
       const payload=await response.json().catch(()=>({}))
       if(!response.ok)throw Error(payload.error||'You have not been granted access to this environment.')
       if(!payload.url)throw Error('The environment login could not be started.')
       window.location.replace(payload.url)
     }).catch(error=>{
-      if(abort.signal.aborted)return
       setEnvironmentAccessError(error.message)
       window.history.replaceState({},'', '/dashboard')
     })
-    return ()=>abort.abort()
   },[serverSession?.onboarding?.completedAt,environmentLoginHandled,surface.tenantSlug])
 
   useEffect(() => {
