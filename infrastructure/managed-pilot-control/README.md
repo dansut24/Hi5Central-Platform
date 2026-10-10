@@ -96,14 +96,19 @@ pilot resources. Only an approved operator can later run
 `docker compose --env-file runtime.env -f compose.yml up -d` on the
 authorised VPS, after a backup and rollback plan have been tested.
 
-## Platform Admin MFA is an explicit public-access blocker
+## Platform Admin MFA — completed privately, real owner still pending
 
-The current direct Platform Admin password endpoint does **not** complete a
-separate MFA challenge. Tenant workspace MFA and the signed sandbox operator
-approval flow do not automatically provide central Admin MFA. Before exposing
-pilot Admin to the public Internet, implement and test independent Admin MFA
-or a correctly verified, MFA-enforced SSO provider, including initial platform
-administrator enrolment, recovery, logout, session revocation and audit.
+Mandatory pilot-only Admin MFA now uses a separate password-stage challenge,
+encrypted TOTP enrolment, one-time recovery codes and a verified-session
+timestamp. Actual signed-in synthetic administrator integration tests PASSED
+against the running private pilot API, and the test administrator was removed.
+See [Phase 18 private Admin MFA evidence](./PHASE18_PRIVATE_ADMIN_MFA.md).
+
+**Public access remains blocked:** The first *real* pilot owner has not been
+independently verified/enrolled, the trusted invitation/bootstrap ceremony
+is not yet enabled, exact-host browser and SMTP tests have not passed, and
+two-person operator/ingress approvals are still outstanding. Authentication
+code verified on a private API is not proof of public browser readiness.
 
 Do not create a test user with a published static password, copy a Dev or
 Production account/password, disable MFA, or make a public route through
