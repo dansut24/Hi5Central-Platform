@@ -8,6 +8,40 @@ no email invitation existed. The public Production stack is **different**
 from the isolated, non-public pilot control plane and has not been
 replaced by the pilot image releases.
 
+## Verified private pilot deployment — 10 October 2026
+
+CI [run 38035740708](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38035740708)
+passed the full Admin/API image build, ITSM onboarding build, unit tests, and
+disposable real-API lifecycle, including first-owner contact capture, Custom
+UAT queue-on-create, idempotent UAT request, legacy registration repair and
+blocked unauthorised owner replacement.
+
+Matching API/Admin revision
+`2d332d3e281a0048681062eab9a28d6b41721d36` was subsequently deployed
+**only** to the private `hi5central-pilot-control` stack. Database backup
+was taken first; migration 144 exited 0; API and Admin passed container health
+checks and static preflight. The new first-owner onboarding table exists,
+and the private control DB still contains **zero real users, tenants,
+owner intents and environment provisioning requests**. None of the four
+pilot containers publishes a host port; public pilot Admin/API requests
+still return HTTP 404; existing Prod, Dev and legacy UAT/Test containers
+remain healthy.
+
+Read-only public Production API database inspection found **4 tenant
+registrations, 3 owner memberships**, and **neither**
+`tenant_environment_provision_requests` nor
+`tenant_initial_owner_onboarding_intents` table. Its deployed
+`hi5central-prod-admin` and `hi5central-api` images are older than the
+new validated controller. No Prod DB migration, public ingress change,
+public API replacement or customer account mutation was performed.
+
+**Do not claim this fixes `admin.hi5central.com` already.** A Production
+migration compatibility review, encrypted off-host verified backup/restore,
+explicit public cutover authorisation, rollback test and first real
+administrator verification are still required before the new workflow can
+appear publicly. The existing four records must be mapped to their actual
+customer environments and retained throughout any cutover.
+
 ## Behaviour implemented on develop
 
 1. **New tenant** requires company name, slug, first owner full name and email,
