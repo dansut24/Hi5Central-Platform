@@ -1441,3 +1441,33 @@ body[data-hi5-surface='admin'] #root {
   min-height: 32px;
   white-space: normal;
 }
+
+/* Customer creation: one clear Managed vs Custom platform-update decision. */
+.h5a-update-policy-choices {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin:12px 0;
+}
+.h5a-update-policy-choices button {
+  background:var(--rmm-surface);
+  color:var(--rmm-text);
+  border:1px solid var(--rmm-border);
+  border-radius:12px;
+  padding:14px;
+  text-align:left;
+  cursor:pointer;
+  display:grid;
+  gap:8px;
+  min-width:0;
+}
+.h5a-update-policy-choices button strong { font-size:12px; }
+.h5a-update-policy-choices button span { color:var(--rmm-muted); font-size:11px; line-height:1.45; }
+.h5a-update-policy-choices button.is-selected {
+  border-color:var(--rmm-accent);
+  background:var(--rmm-accent-soft);
+  box-shadow:0 0 0 1px var(--rmm-accent-soft);
+}
+@media(max-width:700px) {
+  .h5a-update-policy-choices {grid-template-columns:1fr;}
+}
