@@ -162,6 +162,15 @@ async function portalContext(db, session) {
 }
 
 export function registerLiveChatRoutes(app) {
+  // The floating technician messenger must honour tenant release flags. In
+  // UAT a feature is hidden until staged; Live respects explicit opt-outs.
+  app.get('/api/v1/live-chat/feature-status', async (c) => {
+    const auth = await requireWorkspace(c)
+    if (auth.error) return auth.error
+    const enabled = await effectiveTenantLiveChatEnabled(auth.session.tenant_id, deployment.runtimeEnvironment)
+    return c.json({ enabled: enabled !== false })
+  })
+
   app.get('/api/v1/live-chat/conversations', async (c) => {
     const auth = await requireWorkspace(c)
     if (auth.error) return auth.error
