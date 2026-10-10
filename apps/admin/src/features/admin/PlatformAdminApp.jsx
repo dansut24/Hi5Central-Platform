@@ -523,7 +523,7 @@ function TenantEditor({ tenant, onSaved }) {
 }
 function Tenants({ items, refresh, query }) {
   const [creating,setCreating]=useState(false)
-  const [draft,setDraft]=useState({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
+  const [draft,setDraft]=useState({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
     t.company_name,t.slug,t.owner_name,t.owner_email,t.plan_key,t.billing_status,
@@ -532,13 +532,35 @@ function Tenants({ items, refresh, query }) {
     event.preventDefault()
     await api('/tenants',{method:'POST',body:JSON.stringify(draft)})
     setCreating(false)
-    setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
+    setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
     await refresh()
   }
   return <>
     <PageHeading view="tenants" action={<button className="rmm-primary compact" disabled={config.tenancyMode!=='multi'} title={config.tenancyMode!=='multi'?'Customer creation requires a managed multi-tenant control plane':'Create a customer tenant'} onClick={()=>setCreating(!creating)}><Plus size={14}/>New tenant</button>}/>
     {config.tenancyMode!=='multi'?<div className="h5a-notice">This installation is dedicated to the internal Dev tenant. New customer tenants and isolated UAT/Test environments will be managed from the multi-tenant control plane, not created on the Dev login/database.</div>:null}
-    {creating?<form className="rmm-card h5a-create" onSubmit={create}><input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/><label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><button className="rmm-primary compact">Create tenant</button></form>:null}
+    {creating?<form className="rmm-card h5a-create" onSubmit={create}><input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/><label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><div className="h5a-notice"><strong>Keeping Hi5Central up to date</strong><p>Choose the software release method before creating this customer. Managed customers do not need their own UAT; Custom customers require UAT before manually approving Production updates.</p></div>
+      <div className="onboarding-choice-grid" role="group" aria-label="Platform update management">
+        <button type="button" className={draft.updateMode==='hi5_managed'?'is-selected':''}
+          onClick={()=>setDraft({...draft,updateMode:'hi5_managed'})}>
+          <strong>Managed (recommended)</strong><span>Hi5Central verifies stable web releases internally, then updates your Production at your scheduled time. Customer UAT optional.</span>
+        </button>
+        <button type="button" className={draft.updateMode==='admin_controlled'?'is-selected':''}
+          onClick={()=>setDraft({...draft,updateMode:'admin_controlled',customerUatOptIn:true})}>
+          <strong>Custom / manual promotion</strong><span>Your UAT environment is required to test each release before you approve UAT → Production.</span>
+        </button>
+      </div>
+      {draft.updateMode==='hi5_managed'?<div className="h5a-tenant-edit-grid">
+        <label>Deployment day<select value={draft.deploymentDay} onChange={e=>setDraft({...draft,deploymentDay:e.target.value})}>
+          {['mon','tue','wed','thu','fri','sat','sun'].map((day,i)=><option value={day} key={day}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}</option>)}
+        </select></label>
+        <label>Deployment time<input type="time" value={draft.deploymentTime} onChange={e=>setDraft({...draft,deploymentTime:e.target.value})}/></label>
+        <label>Timezone<select value={draft.deploymentTimezone} onChange={e=>setDraft({...draft,deploymentTimezone:e.target.value})}>
+          {['Europe/London','Europe/Dublin','UTC','Europe/Paris','Europe/Berlin','America/New_York','America/Chicago','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Australia/Sydney'].map(zone=><option key={zone} value={zone}>{zone}</option>)}
+        </select></label>
+        <label className="h5a-check"><input type="checkbox" checked={draft.customerUatOptIn} onChange={e=>setDraft({...draft,customerUatOptIn:e.target.checked})}/> Add an optional customer UAT later</label>
+      </div>:null}
+      {draft.updateMode==='admin_controlled'?<div className="h5a-notice">Customer UAT required. Environment setup remains an independently approved provisioning request, not an automatic deployment.</div>:null}
+      <button className="rmm-primary compact" disabled={!draft.updateMode}>Create tenant</button></form>:null}
     <div className="h5a-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} devices</p></div><StatusPill value={tenant.status}/></div><TenantEditor tenant={tenant} onSaved={refresh}/></article>)}</div>
   </>
 }
