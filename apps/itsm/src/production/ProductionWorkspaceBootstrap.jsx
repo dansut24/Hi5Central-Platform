@@ -781,6 +781,11 @@ export function ProductionWorkspaceBootstrap() {
 
     async function bootstrap() {
       const ticket = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('hi5_environment_ticket')
+      const environmentHost=/^(.+)-(test|uat)$/.exec(surface.tenantSlug)
+      if(!ticket && environmentHost && window.location.pathname==='/login'){
+        window.location.replace(`https://${environmentHost[1]}.${deploymentConfig().rootDomain}/login?environment=${environmentHost[2]}`)
+        return
+      }
       if (ticket) {
         // Fragment is never sent in HTTP requests or referrers. Exchange it
         // once with the corresponding Test/UAT API, then restore normally.
