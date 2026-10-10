@@ -553,6 +553,15 @@ function Tenants({ items, refresh, query }) {
   const [creating,setCreating]=useState(false)
   const [createError,setCreateError]=useState('')
   const [createResult,setCreateResult]=useState(null)
+  const [signupRequests,setSignupRequests]=useState([])
+  const [signupQueueError,setSignupQueueError]=useState('')
+  useEffect(()=>{
+    if(config.tenancyMode!=='multi')return
+    let active=true
+    api('/signup-requests').then(result=>{if(active)setSignupRequests(result.items||[])})
+      .catch(error=>{if(active)setSignupQueueError(error.message)})
+    return ()=>{active=false}
+  },[items])
   const [draft,setDraft]=useState({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
@@ -566,12 +575,34 @@ function Tenants({ items, refresh, query }) {
     catch(error){setCreateError(error.message);return}
     setCreateResult(result)
     setCreating(false)
-    setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
+    setDraft({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false,signupRequestId:null})
     await refresh()
   }
   return <>
     <PageHeading view="tenants" action={<button className="rmm-primary compact" disabled={config.tenancyMode!=='multi'} title={config.tenancyMode!=='multi'?'Customer creation requires a managed multi-tenant control plane':'Create a customer tenant'} onClick={()=>setCreating(!creating)}><Plus size={14}/>New tenant</button>}/>
     {config.tenancyMode!=='multi'?<div className="h5a-notice">This installation is dedicated to the internal Dev tenant. New customer tenants and isolated UAT/Test environments will be managed from the multi-tenant control plane, not created on the Dev login/database.</div>:null}
+    {signupQueueError?<div className="h5a-notice">Signup review unavailable: {signupQueueError}</div>:null}
+    {signupRequests.length?<div className="rmm-card h5a-signup-review">
+      <div className="rmm-card-heading"><div><span className="rmm-eyebrow">CUSTOMER SIGNUP REQUESTS</span><h2>Requests awaiting review</h2>
+        <p>Only email-verified requests can be converted to pending customer registrations; no workspace is live yet.</p></div></div>
+      {signupRequests.map(row=><div className="h5a-signup-review-row" key={row.id}>
+        <div><strong>{row.company_name}</strong><small>{row.tenant_slug}.hi5central.com · {row.owner_name} ({row.owner_email})</small>
+        <small>{row.update_mode==='admin_controlled'?'Custom · dedicated UAT required':'Managed · customer UAT optional'} · {row.status==='verified'?'Email verified':'Awaiting email verification'}</small></div>
+        <button type="button" className="rmm-secondary compact" disabled={row.status!=='verified'}
+          onClick={()=>{
+            setCreateResult(null);setCreateError('')
+            setDraft({companyName:row.company_name,slug:row.tenant_slug,
+              ownerName:row.owner_name,ownerEmail:row.owner_email,
+              modules:row.modules,planKey:'custom',billingStatus:'trial',billingCycle:'monthly',
+              updateMode:row.update_mode,customerUatOptIn:row.customer_uat_opt_in,
+              deploymentDay:row.maintenance_window?.days?.[0]||'sun',
+              deploymentTime:row.maintenance_window?.start||'02:00',
+              deploymentTimezone:row.maintenance_window?.timezone||'Europe/London',
+              signupRequestId:row.id})
+            setCreating(true)
+          }}>{row.status==='verified'?'Review and register':'Verification pending'}</button>
+      </div>)}
+    </div>:null}
     {createResult?<div className="h5a-notice">
       <strong>Customer registered — onboarding pending</strong>
       <p>{createResult.tenant?.company_name||createResult.tenant?.slug} is registered, but Production is not deployed.
