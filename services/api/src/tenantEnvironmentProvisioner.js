@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { readFileSync } from 'node:fs'
 import { deployment } from './deploymentConfig.js'
 import { pool } from './db.js'
 
@@ -53,7 +54,10 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
   }
   const summary = {}
   for (const env of environments) {
-    const connectionString = targets[env] || process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL`]
+    const connectionString = targets[env]
+      || (process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`]
+        ? readFileSync(process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`],'utf8').trim()
+        : process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL`])
     if (!connectionString) {
       summary[env] = { status: 'error', error: 'Sandbox database connection is not configured.' }
       await source.query(
