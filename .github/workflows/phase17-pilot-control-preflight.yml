@@ -26,6 +26,7 @@ on:
       - 'services/api/src/tenantRelease.js'
       - 'services/api/src/releaseOperator.js'
       - 'services/api/tests/customerUpdatePolicy.test.mjs'
+      - 'services/api/tests/customerOnboardingUpdateSelection.test.mjs'
       - 'services/api/migrations/platform-admin/143_customer_update_onboarding.sql'
       - 'services/api/migrations/platform-admin/144_tenant_owner_onboarding_intent.sql'
       - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
@@ -68,6 +69,7 @@ jobs:
         run: |
           node --check services/api/src/customerUpdatePolicy.js
           node --test services/api/tests/customerUpdatePolicy.test.mjs
+          node --test services/api/tests/customerOnboardingUpdateSelection.test.mjs
           node --test services/api/tests/managedPublicSignup.test.mjs
           node --check services/api/src/managedPublicSignup.js
           node --test services/api/tests/customerConfigurationPromotion.test.mjs
