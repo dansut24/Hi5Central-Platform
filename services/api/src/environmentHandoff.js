@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
-import { deployment, originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant, originMatchesPortalTenant } from './deploymentConfig.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
 import { establishEnvironmentSession } from './environmentDirectSession.js'
@@ -32,8 +32,11 @@ export function registerEnvironmentHandoffRoutes(app) {
     try {body=await c.req.json()}catch{return safeJson(c,'Invalid access request.',400)}
     const environment=String(body?.environment||'')
     if(!['test','uat'].includes(environment))return safeJson(c,'Unknown environment.',400)
+    const surface=body?.surface === 'portal' ? 'portal' : 'workspace'
+    if(surface === 'portal' && (!originMatchesPortalTenant(c.req.header('origin'),c.req.header('referer'),session.slug)
+      || !session.access?.portalAccess))return safeJson(c,'Requester Portal access required.',403)
     try{
-      const access=await establishEnvironmentSession(c,session,environment)
+      const access=await establishEnvironmentSession(c,session,environment,{surface})
       return c.json(access)
     }catch(error){
       return safeJson(c,error.message||'Environment access has not been granted.',403)
