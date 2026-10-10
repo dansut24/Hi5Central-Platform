@@ -4,6 +4,7 @@ import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
+import { establishEnvironmentSession } from './environmentDirectSession.js'
 
 const digest = token => createHash('sha256').update(String(token)).digest('hex')
 const usableSecret = () => String(process.env.ENV_IDENTITY_SHARED_SECRET_FILE
@@ -32,10 +33,8 @@ export function registerEnvironmentHandoffRoutes(app) {
     const environment=String(body?.environment||'')
     if(!['test','uat'].includes(environment))return safeJson(c,'Unknown environment.',400)
     try{
-      const url=await issueEnvironmentTicket(session.tenant_id,session.user_id,environment,{
-        verified:Boolean(session.mfa_verified_at),
-      })
-      return c.json({url})
+      const access=await establishEnvironmentSession(c,session,environment)
+      return c.json(access)
     }catch(error){
       return safeJson(c,error.message||'Environment access has not been granted.',403)
     }
