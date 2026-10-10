@@ -300,7 +300,7 @@ export function ProductionRmmBootstrap() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeToken: flow.challengeToken }),
+      body: JSON.stringify({ challengeToken: flow.challengeToken, tenantSlug: surface.tenantSlug }),
     })
     const setupPayload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(setupPayload.error || 'Could not start MFA setup.')
@@ -376,7 +376,7 @@ export function ProductionRmmBootstrap() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim() }),
+        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim(), tenantSlug: surface.tenantSlug }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'MFA verification failed.')
