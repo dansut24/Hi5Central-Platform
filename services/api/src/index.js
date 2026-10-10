@@ -49,6 +49,7 @@ import { registerReleaseOperatorRoutes } from './releaseOperator.js'
 import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseFeed.js'
 import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
+import { validExistingTenantSlug, validNewTenantSlug } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
@@ -77,10 +78,6 @@ const reservedSlugs = new Set([
 
 function normaliseEmail(value = '') { return String(value).trim().toLowerCase() }
 function normaliseSlug(value = '') { return String(value).trim().toLowerCase() }
-function validSlug(slug) {
-  return /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(slug)
-    && slug.length <= 42 && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !slug.endsWith('-test') && !slug.endsWith('-uat') && !reservedSlugs.has(slug)
-}
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 }
 
 async function hashPassword(password) {
@@ -206,7 +203,7 @@ app.get('/api/v1/system/capabilities', (c) => c.json({
 
 app.get('/api/v1/auth/tenant-slug/:slug', async (c) => {
   const slug = normaliseSlug(c.req.param('slug'))
-  if (!validSlug(slug)) return c.json({ slug, available: false, reason: 'invalid' }, 200)
+  if (!validNewTenantSlug(slug, reservedSlugs)) return c.json({ slug, available: false, reason: 'invalid' }, 200)
   if (deployment.tenancyMode === 'single' && slug !== deployment.primaryTenantSlug) return c.json({ slug, available: false, reason: 'single_tenant' }, 200)
   const result = await pool.query('SELECT 1 FROM tenants WHERE slug=$1 LIMIT 1', [slug])
   return c.json({ slug, available: result.rowCount === 0 })
@@ -214,7 +211,7 @@ app.get('/api/v1/auth/tenant-slug/:slug', async (c) => {
 
 app.get('/api/v1/auth/tenant-state/:slug', async (c) => {
   const slug = normaliseSlug(c.req.param('slug'))
-  if (!validSlug(slug)) return c.json({ managed: false, slug }, 200)
+  if (!validExistingTenantSlug(slug)) return c.json({ managed: false, slug }, 200)
   const result = await pool.query('SELECT t.slug,t.company_name,t.status FROM tenants t WHERE t.slug=$1 LIMIT 1', [slug])
   if (!result.rowCount) {
     const setupRequired = deployment.deploymentMode === 'self_hosted'
@@ -232,7 +229,7 @@ app.post('/api/v1/auth/login', async (c) => {
   const tenantSlug = normaliseSlug(body?.tenantSlug || (deployment.tenancyMode === 'single' ? deployment.primaryTenantSlug : ''))
   const email = normaliseEmail(body?.email)
   const password = String(body?.password || '')
-  if (!validSlug(tenantSlug) || !validEmail(email) || !password) return c.json({ error: 'Enter a valid email address and password.' }, 400)
+  if (!validExistingTenantSlug(tenantSlug) || !validEmail(email) || !password) return c.json({ error: 'Enter a valid email address and password.' }, 400)
 
   const origin = c.req.header('origin')
   if (process.env.NODE_ENV === 'production' && origin && !originMatchesTenant(origin, tenantSlug)) return c.json({ error: 'Tenant sign-in origin mismatch.' }, 403)
@@ -283,7 +280,7 @@ app.post('/api/v1/auth/signup', async (c) => {
   const requestedModules = Array.isArray(body?.modules) ? body.modules.map(String) : ['itsm']
   const modules = [...new Set(requestedModules.filter((item) => ['itsm','rmm'].includes(item)))]
   if (companyName.length < 2 || companyName.length > 120) return c.json({ error: 'Company name must be between 2 and 120 characters.' }, 400)
-  if (!validSlug(tenantSlug)) return c.json({ error: 'Choose a valid tenant URL using 3-48 lowercase letters, numbers or hyphens.' }, 400)
+  if (!validNewTenantSlug(tenantSlug, reservedSlugs)) return c.json({ error: 'Choose a valid tenant URL using lowercase letters, numbers or hyphens, without reserved environment suffixes.' }, 400)
   if (deployment.tenancyMode === 'single' && tenantSlug !== deployment.primaryTenantSlug) return c.json({ error: `This installation is assigned to tenant ${deployment.primaryTenantSlug}.`, field: 'tenantSlug' }, 400)
   if (name.length < 2 || name.length > 120) return c.json({ error: 'Your name must be between 2 and 120 characters.' }, 400)
   if (!validEmail(email)) return c.json({ error: 'Enter a valid email address.' }, 400)
@@ -415,7 +412,7 @@ app.post('/api/v1/auth/resend-verification', async (c) => {
   try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
   const email = normaliseEmail(body?.email)
   const tenantSlug = normaliseSlug(body?.tenantSlug || (deployment.tenancyMode === 'single' ? deployment.primaryTenantSlug : ''))
-  if (!validEmail(email) || !validSlug(tenantSlug)) return c.json({ status: 'accepted' }, 202)
+  if (!validEmail(email) || !validNewTenantSlug(tenantSlug, reservedSlugs)) return c.json({ status: 'accepted' }, 202)
 
   const lookup = await pool.query(
     `SELECT t.id AS tenant_id,t.slug,t.company_name,t.status,u.id AS user_id,u.email,u.name,ts.tenant_url
