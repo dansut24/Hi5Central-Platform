@@ -18,6 +18,7 @@ on:
       - 'services/api/src/pilotAdminRecipient.js'
       - 'services/api/tests/pilotAdminRecipient.test.mjs'
       - 'services/api/migrations/platform-admin/142_pilot_admin_bootstrap.sql'
+      - 'services/api/migrations/platform-admin/147_single_owner_pilot_admin_bootstrap.sql'
       - 'services/api/src/mailer.js'
       - 'services/api/src/index.js'
       - 'services/api/src/customerUpdatePolicy.js'
