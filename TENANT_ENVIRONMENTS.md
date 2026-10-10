@@ -490,3 +490,23 @@ end-to-end test remains pending the next green rebuilt API image.**
 No real customer or live public gateway was activated. Evidence and
 operator test commands are in
 `infrastructure/managed-sandbox/PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE.md`.
+
+## Phase 15 closure — immutable-image customer lifecycle (10 October 2026)
+
+The synthetic UAT and Test owner **and requester Portal** journeys passed against
+matching immutable API/ITSM image revision
+`10bf85b57e65b29efcebee8e5197f500ec4bebb7`. The
+[Phase 15 CI workflow](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38008097115)
+built, exercised and published those images; a second run using the same tags
+on the authorised VPS also exited 0. Both runs verified isolated invitation
+email delivery, mandatory MFA, secure Portal/workspace cookie separation,
+requester RBAC, cross-customer/environment denial and suspension/revocation.
+The VPS confirmed all disposable scratch resources were removed. The live
+Dev API remained on `3307da9`, existing Production/legacy UAT/Test containers
+remained healthy, and unapproved customer hosts continued returning HTTP 404.
+
+**This closes the synthetic Phase 15 regression only.** Phase 16 must establish
+independently authenticated operator approvals, first-owner issuance/cancel
+controls, broader role/rate-limit and real browser tests, verified private
+backups and rollout/rollback before any approved pilot route is opened. See
+`infrastructure/managed-sandbox/PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE.md`.
