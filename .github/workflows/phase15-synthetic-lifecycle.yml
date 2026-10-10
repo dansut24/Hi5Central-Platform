@@ -1,0 +1,78 @@
+name: Phase 15 Synthetic Lifecycle
+# Isolated verification only. This workflow does not deploy any service.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/phase15-synthetic-lifecycle.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: phase15-synthetic-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify UAT/Test owner and requester lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate API and synthetic test scripts
+        run: |
+          node --check services/api/src/mfa.js
+          node --check services/api/src/session.js
+          node --check infrastructure/managed-sandbox/synthetic-runtime-smoke.mjs
+          node --check infrastructure/managed-sandbox/synthetic-customer-lifecycle.mjs
+      - name: Verify Portal/staff cookie routing unit tests
+        run: |
+          cd services/api
+          npm ci --omit=dev
+          node --test tests/secureLoginSurface.test.mjs tests/sessionCookieSurface.test.mjs
+      - name: Build matching disposable API and ITSM images
+        run: |
+          set -euo pipefail
+          docker buildx use default
+          docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag ghcr.io/dansut24/hi5central-platform-api:dev services/api
+          docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag ghcr.io/dansut24/hi5central-platform-itsm:dev apps/itsm
+          docker pull public.ecr.aws/docker/library/postgres:17-alpine
+          docker pull redis:8-alpine
+      - name: Exercise disposable private UAT/Test lifecycle with real images
+        run: |
+          HI5_PHASE14_SMOKE=1 HI5_PHASE15_SMOKE=1 node \
+            infrastructure/managed-sandbox/synthetic-runtime-smoke.mjs \
+            --run --confirm EPHEMERAL_SYNTHETIC_ONLY
+      - name: Verify no disposable resources survived
+        if: always()
+        run: |
+          set -eu
+          containers="$(docker ps -a --format '{{.Names}}' | grep '^hi5-p14-' || true)"
+          networks="$(docker network ls --format '{{.Name}}' | grep '^hi5-p14-' || true)"
+          if [ -n "$containers" ] || [ -n "$networks" ]; then
+            echo "Phase 15 cleanup violation"
+            printf '%s\n%s\n' "$containers" "$networks"
+            exit 1
+          fi
+          echo "No Phase 15 scratch resources remain."
+      - uses: docker/login-action@v3
+        if: success()
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable verified image pair
+        if: success()
+        run: |
+          set -euo pipefail
+          for app in api itsm; do
+            image="ghcr.io/dansut24/hi5central-platform-${app}"
+            docker tag "${image}:dev" "${image}:sha-${GITHUB_SHA}"
+            docker push "${image}:sha-${GITHUB_SHA}"
+          done
+          echo "Phase 15 verified image pair: ${GITHUB_SHA}"
