@@ -942,12 +942,3 @@
   }
 }
 
-/* Secure customer signup — request only; an environment is never active on submit. */
-.marketing-signup-updates{margin:18px 0;padding:16px;border:1px solid var(--marketing-border,#dae2ec);border-radius:14px}
-.marketing-signup-updates>p{font-size:12px;line-height:1.55;color:var(--marketing-muted,#66758c)}
-.marketing-update-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
-.marketing-update-choice{border:1px solid #d7e1eb;background:#f9fbfd;color:#15283d;border-radius:12px;padding:14px;display:grid;gap:8px;text-align:left;cursor:pointer;min-width:0}
-.marketing-update-choice strong{font-size:13px}
-.marketing-update-choice span{font-size:11px;line-height:1.5;color:#5b6980}
-.marketing-update-choice.is-selected{border-color:#d98800;background:#fff8e9;box-shadow:0 0 0 1px #d98800}
-@media(max-width:620px){.marketing-update-choice-grid{grid-template-columns:1fr}}
