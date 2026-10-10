@@ -72,3 +72,15 @@ export function verifyPilotBootstrapPair(actorRaw,reviewerRaw,trust,expected,now
     || actor.sha256===reviewer.sha256)denied()
   return {actor,reviewer}
 }
+
+/**
+ * Private single-owner start-up policy. This authorises only issuing
+ * a time-limited, hashed invitation to the separately approved recipient.
+ * The emailed one-time token verifies mailbox control; redemption creates
+ * no authenticated session, and first sign-in still requires TOTP MFA.
+ */
+export function pilotSingleOwnerBootstrapEnabled(env=process.env){
+  return pilotBootstrapEnabled(env)
+    && env.PILOT_ADMIN_APPROVAL_MODE==='single_owner'
+    && env.PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED==='true'
+}
