@@ -1,0 +1,57 @@
+name: Tenant Feature Release Tracking
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/tenantFeatureRollouts.js'
+      - 'services/api/migrations/platform-admin/143_tenant_feature_release_tracking.sql'
+      - 'services/api/test/tenant-feature-release-tracking.mjs'
+      - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
+      - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
+      - 'apps/itsm/src/runtime/WorkspaceRuntime.jsx'
+      - '.github/workflows/tenant-live-chat-promotion.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  tenant-release:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_release_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_release_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_ci
+      TENANT_UAT_DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_uat_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    defaults:
+      run: {working-directory: services/api}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - name: Check API source syntax
+        run: node --check src/tenantFeatureRollouts.js && node --check src/index.js
+      - name: Create isolated UAT DB
+        env: {PGPASSWORD: ci_only_password}
+        run: psql -h localhost -U hi5_ci -d hi5_release_ci -c 'CREATE DATABASE hi5_release_uat_ci'
+      - name: Migrate independent Live and UAT
+        run: |
+          npm run migrate
+          DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
+      - name: Test staged rollout, acceptance, promotion, tenant isolation
+        run: node test/tenant-feature-release-tracking.mjs
