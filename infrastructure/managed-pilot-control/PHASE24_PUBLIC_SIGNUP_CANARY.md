@@ -98,6 +98,36 @@ docker network rm hi5central-signup-preview
 This does not remove or alter any customer database or the distinct
 private pilot control-plane containers.
 
+## First pilot Admin recipient authorised (10 October 2026)
+
+The user confirmed the first Admin recipient mailbox. The exact address
+is stored **only** in a mode-0600, operator-private file on the VPS at
+`/workspace/phase17-pilot-control/pilot-first-admin-recipient.json`,
+alongside the existing dedicated pilot database scope UUID.
+
+The staged request has status
+`recipient_authorized_identity_and_signer_approvals_pending`; the
+file itself **is not evidence that its mailbox has been verified**.
+
+The first Admin issuer has been hardened to require
+`PILOT_ADMIN_RECIPIENT_FILE` on `--issue`. The issuer validates
+that the file is a regular owner-only file, that it has not already
+been used to issue an invitation, and that its recipient and scope UUID
+exactly match the signed operator/reviewer assertions. An independent
+human operator and reviewer must still authorise it using separate
+approved Ed25519 credentials and a separate pilot-scoped SMTP relay.
+
+**No invitation email has been sent; no user or session was created.**
+The isolated control database remains at zero users, zero tenants,
+zero Admins, zero invitations, and zero control-plane identities. Existing
+Production credentials or users are not copied to the pilot.
+
+For an approved offline issuance, the first Admin command requires:
+`PILOT_ADMIN_RECIPIENT_FILE=/workspace/phase17-pilot-control/pilot-first-admin-recipient.json`
+alongside the existing `PILOT_OPERATOR_TRUST_FILE`, actor/reviewer
+assertions, exact `INITIAL_ADMIN_NAME`, `INITIAL_ADMIN_EMAIL`,
+`PILOT_CONTROL_DATABASE_URL` and a verified pilot SMTP relay.
+
 ## Blockers to full, real-browser signup and Admin acceptance
 
 1. Enrol a named first **human** Platform Admin on the isolated pilot
