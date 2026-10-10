@@ -113,7 +113,9 @@ async function applyManagedTenantFeatureActivation(db, environment, changeIds) {
   if (!featureRows.rowCount) return
   const tenants = await db.query(
     `SELECT tenant_id FROM tenant_release_preferences
-      WHERE update_mode='hi5_managed'`,
+      WHERE update_mode='hi5_managed'
+        AND ($1::text <> 'uat' OR customer_uat_opt_in=true)`,
+    [environment],
   )
   for (const tenant of tenants.rows) {
     for (const change of featureRows.rows) {
