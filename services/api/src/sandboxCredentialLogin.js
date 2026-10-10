@@ -1,4 +1,4 @@
-import { deployment, originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant, portalRequestFromHeaders, originMatchesPortalTenant } from './deploymentConfig.js'
 
 const ALLOWED_FLOWS = Object.freeze({
   login: '/api/v1/auth/login-secure',
@@ -47,8 +47,9 @@ async function sendLive(path, body, liveOrigin, extraHeaders = {}) {
   }
 }
 
-function loginCookie(header) {
-  return String(header || '').match(/(?:^|[,;]\s*)(hi5central_session)=([^; ,]+)/i)
+function loginCookie(header, surface = 'workspace') {
+  const name = surface === 'portal' ? 'hi5central_portal_session' : 'hi5central_session'
+  return String(header || '').match(new RegExp(`(?:^|[,;]\\s*)(${name})=([^; ,]+)`, 'i'))
 }
 
 export function trustedSandboxLoginOrigin(origin,sandboxSlug) {
@@ -78,10 +79,14 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
     if (!tenant) return c.json({error:'The environment login must be restarted.'},400)
   }
   const userOrigin = c.req.header('origin') || ''
-  if (!trustedSandboxLoginOrigin(userOrigin,tenant.sandboxSlug)) {
+  const surface=portalRequestFromHeaders(userOrigin,c.req.header('referer') || '') ? 'portal' : 'workspace'
+  const allowedOrigin=surface === 'portal'
+    ? originMatchesPortalTenant(userOrigin,c.req.header('referer'),tenant.sandboxSlug)
+    : trustedSandboxLoginOrigin(userOrigin,tenant.sandboxSlug)
+  if (!allowedOrigin) {
     return c.json({error:'Environment sign-in origin mismatch.'},403)
   }
-  const liveOrigin = `https://${tenant.liveSlug}.${deployment.rootDomain}`
+  const liveOrigin = `https://${tenant.liveSlug}${surface === 'portal' ? '-portal' : ''}.${deployment.rootDomain}`
 
   try {
     const livePayload = flow==='login'
@@ -101,12 +106,12 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
       if(flow==='verify')return c.json({error:'Central MFA verification did not complete.'},401)
       return c.json(upstream.payload)
     }
-    const liveCookie = loginCookie(upstream.cookie)
+    const liveCookie = loginCookie(upstream.cookie,surface)
     if(!liveCookie) return c.json({error:'Central identity did not issue a valid sign-in session.'},503)
 
     const access = await sendLive(
       '/api/v1/auth/environment-access',
-      {environment:tenant.environment},
+      {environment:tenant.environment,surface},
       liveOrigin,
       {cookie:`${liveCookie[1]}=${liveCookie[2]}`},
     )
@@ -114,7 +119,7 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
       return c.json({error:access.payload.error || 'This account is not allowed to access the environment.'},
         access.status>=400 && access.status<500 ? access.status : 503)
     }
-    const expectedName = `hi5central_${tenant.environment}_session`
+    const expectedName = `hi5central_${tenant.environment}_${surface === 'portal' ? 'portal_session' : 'session'}`
     if (!new RegExp(`(?:^|[,;]\\s*)${expectedName}=[^; ,]+`).test(access.cookie)) {
       return c.json({error:'The environment session could not be established.'},503)
     }
