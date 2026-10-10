@@ -1,0 +1,65 @@
+name: Phase 17 Pilot Control Plane Preflight
+# Static checks ONLY. This workflow must never deploy or expose a customer.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - '.github/workflows/phase17-pilot-control-preflight.yml'
+      - 'infrastructure/managed-pilot-control/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate private pilot model syntax and adversarial constraints
+        run: |
+          node --check infrastructure/managed-pilot-control/preflight.mjs
+          node --check infrastructure/managed-pilot-control/validate.mjs
+          node --test infrastructure/managed-pilot-control/validate.test.mjs
+      - name: Render disposable pilot control topology (no Docker containers started)
+        working-directory: infrastructure/managed-pilot-control
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs'
+          const replacements={
+            POSTGRES_USER:'pilot_user_a',POSTGRES_DB:'pilot_control_db',
+            POSTGRES_PASSWORD:'a'.repeat(40),
+            REDIS_PASSWORD:'b'.repeat(40),
+            MFA_ENCRYPTION_KEY:'c'.repeat(64),
+            DATABASE_URL:'postgresql://pilot_user_a:'+ 'a'.repeat(40) +'@postgres:5432/pilot_control_db',
+            REDIS_URL:'redis://:'+ 'b'.repeat(40) +'@redis:6379/0',
+          }
+          for(const key of ['POSTGRES_IMAGE','REDIS_IMAGE','API_IMAGE','ADMIN_IMAGE']){
+            const prefix=key==='POSTGRES_IMAGE'?'mirror.gcr.io/library/postgres':
+              key==='REDIS_IMAGE'?'mirror.gcr.io/library/redis':
+              key==='API_IMAGE'?'ghcr.io/dansut24/hi5central-platform-api':
+              'ghcr.io/dansut24/hi5central-platform-admin'
+            replacements[key]=prefix+'@sha256:'+'a'.repeat(64)
+          }
+          const content=readFileSync('runtime.env.example','utf8').split('\n')
+            .map(line=>{
+              const key=line.match(/^([A-Z][A-Z0-9_]*)=/)?.[1]
+              return key&&Object.hasOwn(replacements,key)?key+'='+replacements[key]:line
+            }).join('\n')
+          writeFileSync('runtime.env',content,{mode:0o600})
+          NODE
+          trap 'rm -f runtime.env' EXIT
+          node preflight.mjs --check
+          if docker compose --env-file runtime.env -f compose.yml config --format json \
+             | node -e '
+                 let s="";process.stdin.on("data",x=>s+=x).on("end",()=>{
+                   const m=JSON.parse(s);
+                   if(Object.values(m.services||{}).some(v=>v.ports?.length))process.exit(1);
+                   console.log("Rendered five isolated, no-host-port pilot control services");
+                 })'; then
+            echo "Pilot topology render passed; no resources deployed"
+          else
+            echo "Pilot Compose static render rejected"
+            exit 1
+          fi
