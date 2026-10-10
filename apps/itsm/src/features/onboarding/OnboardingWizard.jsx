@@ -67,6 +67,7 @@ const stepMeta = {
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
+  updates: { label: 'Hi5Central updates', icon: MonitorCog, description: 'Select how your organisation receives Hi5Central application releases.' },
   itsm: { label: 'ITSM setup', icon: Wrench, description: 'Configure records, service desk defaults, portal and notifications.' },
   rmm: { label: 'RMM setup', icon: MonitorCog, description: 'Set the first device-management defaults.' },
   finish: { label: 'Review', icon: Sparkles, description: 'Review the tenant before opening Hi5Central.' },
@@ -80,6 +81,7 @@ function sequenceFor(modules = {}) {
     'groups',
     'permissions',
     'security',
+    'updates',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
     'finish',
@@ -139,6 +141,7 @@ function defaultData(step, session) {
       passwordPolicy: 'strong',
       auditRetention: '365',
     },
+    updates: { updateMode: 'admin_controlled', liveDelayHours: 24, allowEmergencySecurityUpdates: true },
     itsm: {
       numberingMode: 'default',
       recordPrefixes: { ...defaultPrefixes },
@@ -686,6 +689,24 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 </div>
               </Section>
             </>
+          ) : null}
+
+          {viewStep === 'updates' ? (
+            <Section title="Hi5Central web updates" description="Choose how new Hi5Central platform releases are deployed, independently of device and software patching.">
+              <div className="onboarding-segmented" role="group" aria-label="Release management">
+                <button type="button" className={data.updateMode === 'hi5_managed' ? 'is-selected' : ''} onClick={() => update('updateMode', 'hi5_managed')}>Hi5Central managed</button>
+                <button type="button" className={data.updateMode !== 'hi5_managed' ? 'is-selected' : ''} onClick={() => update('updateMode', 'admin_controlled')}>Custom / admin controlled</button>
+              </div>
+              <p>{data.updateMode === 'hi5_managed'
+                ? 'Hi5Central stages releases through Test and UAT before scheduled promotion to Live.'
+                : 'Your administrators control when updates are staged and promoted to Live.'}</p>
+              {data.updateMode === 'hi5_managed' ? (
+                <Field label="Live release delay (hours)" hint="0 to 720 hours after an eligible staged release.">
+                  <input type="number" min="0" max="720" value={data.liveDelayHours ?? 24} onChange={(event) => update('liveDelayHours', Number(event.target.value))} />
+                </Field>
+              ) : null}
+              <Toggle checked={data.allowEmergencySecurityUpdates !== false} onChange={(value) => update('allowEmergencySecurityUpdates', value)} title="Allow emergency security updates" description="Permit critical Hi5Central security fixes outside the normal rollout window." />
+            </Section>
           ) : null}
 
           {viewStep === 'itsm' ? (
