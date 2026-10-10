@@ -1,3 +1,59 @@
+# Phase 25 correction — update strategy only during onboarding
+
+**Verified 10 October 2026.** The customer asked for Managed/Custom/UAT
+choices to appear **only after sign-in, in the onboarding wizard**.
+
+- The public signup page is now **company, requested URL, owner
+  name/email and product selection only**. There is no Managed/Custom
+  selector, deployment schedule or customer UAT checkbox.
+- The public signup API explicitly rejects early update or UAT fields
+  (HTTP 400), rather than implicitly assigning an option.
+- Platform Admin review of the verified signup also **does not choose
+  update mode**. New tenants have
+  `tenant_release_preferences.onboarding_selection_pending=true`,
+  no automatic Production rollout and no customer UAT queue.
+- Authenticated onboarding **Keeping up to date** offers Managed with
+  optional customer UAT and chosen deployment window, or Custom with
+  mandatory customer UAT and manual UAT → Production approval.
+- That authenticated choice clears the pending flag and queues or
+  cancels an *unclaimed* UAT provisioning request as appropriate.
+  It does not automatically deploy or promote anything.
+- A fail-closed customer promotion check prevents treating the
+  placeholder legacy Custom value as an approved onboarding choice.
+
+**Public visual preview:** https://hi5central.com/signup?preview=1,
+updated with the verified marketing image from
+`9c8f813a420d0ff670b6dacf0cde4a05db5924fe`.
+The active / restart Caddy configs now map this exact preview query to
+the healthy, non-public `hi5central-signup-ui-onboarding` container,
+with hashed assets `index-BEUOsuX4.js` and
+`index-B6l0SA_Q.css`. Existing ordinary /signup, Prod Admin/API and
+RMM remain on their prior routes. Old hashed preview assets remain
+reachable for cached clients.
+
+**Private pilot API/Admin:** updated to matching verified revision
+`c45e46ee3db18acd5be913b74b5e2f7ab03a64ad`.
+Migration 146 succeeded, both services healthy, SMTP remained blocked
+and pilot databases have zero real admins/users/tenants.
+No pilot public ports were opened.
+
+**Smoke checks:** the no-policy request got HTTP 503 because SMTP is
+deliberately unapproved; explicit premature `updateMode` and
+`customerUatOptIn` each got HTTP 400. Real Production still has
+four tenants, nine users and 124 schema migrations.
+
+[Phase 25 green integration run](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38041291893).
+
+**Rollback:** restore both active and restart Caddyfiles from the
+`before-phase25-onboarding-preview-20261010` backups, validate and
+reload Caddy, then stop the new preview container. This does not affect
+normal signup or customer data. The pilot runtime image pins were
+backed up to `runtime.env.before-phase25` in its restricted
+operator directory, with a private PostgreSQL snapshot under
+`backup/pre-phase25-deferred-updates-20261010.dump`.
+
+---
+
 # Phase 24 — public-host signup visual canary (10 October 2026)
 
 ## Status: Visual preview on the real HTTPS host — NOT open signup
