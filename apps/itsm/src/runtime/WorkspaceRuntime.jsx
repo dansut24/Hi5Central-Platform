@@ -419,6 +419,24 @@ function WorkspaceRuntime() {
   const [calendarEvents, setCalendarEvents] = useState(initialCalendarEvents)
   const [liveChatConversations, setLiveChatConversations] = useState(initialLiveChatConversations)
   const [liveChatPreferences, setLiveChatPreferences] = useState(initialLiveChatPreferences)
+  const [tenantLiveChatAllowed, setTenantLiveChatAllowed] = useState(null)
+  const effectiveLiveChatEnabled = tenantLiveChatAllowed !== false && effectiveLiveChatEnabled
+  useEffect(() => {
+    if (!session || isPortalSurface || isRmmSurface) return undefined
+    const abort=new AbortController()
+    fetch(`${window.__HI5_API_BASE__}/api/v1/workspace-features`,{
+      credentials:'include',headers:{Origin:window.location.origin},signal:abort.signal,
+    }).then(async response=>{
+      if(!response.ok)throw new Error('Could not load this tenant feature policy')
+      return response.json()
+    }).then(payload=>{
+      const allowed=typeof payload.liveChatEnabled==='boolean'?payload.liveChatEnabled:null
+      setTenantLiveChatAllowed(allowed)
+      if(allowed===true)setLiveChatPreferences(current=>current.enabled?current:{...current,enabled:true})
+    }).catch(error=>{if(!abort.signal.aborted)console.warn('Tenant features unavailable',error.message)})
+    return ()=>abort.abort()
+  },[Boolean(session),tenantSurface.tenantSlug,isPortalSurface,isRmmSurface])
+
   const [selectedLiveChatId, setSelectedLiveChatId] = useState(() => initialLiveChatConversations.find((conversation) => conversation.status !== 'Closed')?.id || initialLiveChatConversations[0]?.id || '')
   const [tabs, setTabs] = useState(initialTabs)
   const [activeTabKey, setActiveTabKey] = useState(initialActiveTab.key)
@@ -811,8 +829,8 @@ function WorkspaceRuntime() {
 
   useEffect(() => {
     if (session?.role !== 'analyst') return
-    setTabs((currentTabs) => syncLiveChatFixedTab(currentTabs, liveChatPreferences.enabled))
-  }, [liveChatPreferences.enabled, session?.role])
+    setTabs((currentTabs) => syncLiveChatFixedTab(currentTabs, effectiveLiveChatEnabled))
+  }, [effectiveLiveChatEnabled, session?.role])
 
   useEffect(() => {
     if (isRmmSurface) return undefined
@@ -828,7 +846,7 @@ function WorkspaceRuntime() {
       return
     }
 
-    if (session.role === 'analyst' && currentRoute.viewId === 'livechat' && !liveChatPreferences.enabled) {
+    if (session.role === 'analyst' && currentRoute.viewId === 'livechat' && !effectiveLiveChatEnabled) {
       writeRoute('/dashboard', { replace: true })
       return
     }
@@ -837,7 +855,7 @@ function WorkspaceRuntime() {
     if (resolvedRoute.path !== currentRoute.path) {
       writeRoute(isPortalSurface ? portalHomePath(tenantSurface) : resolvedRoute.path, { replace: true })
     }
-  }, [isPortalSurface, isRmmSurface, liveChatPreferences.enabled, session])
+  }, [isPortalSurface, isRmmSurface, effectiveLiveChatEnabled, session])
 
   useEffect(() => {
     if (isRmmSurface) return undefined
@@ -852,7 +870,7 @@ function WorkspaceRuntime() {
       }
       const route = resolveRouteForRole(currentRoute, session.role)
 
-      if (session.role === 'analyst' && route.viewId === 'livechat' && !liveChatPreferences.enabled) {
+      if (session.role === 'analyst' && route.viewId === 'livechat' && !effectiveLiveChatEnabled) {
         const fallback = tabs.find((tab) => tab.key === 'home') || tabs.find((tab) => tab.key !== LIVE_CHAT_TAB_KEY)
         if (fallback) {
           setActiveTabKey(fallback.key)
@@ -904,7 +922,7 @@ function WorkspaceRuntime() {
 
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [activeTabKey, isPortalSurface, isRmmSurface, liveChatPreferences.enabled, session, tabs, ticketDraft, tickets])
+  }, [activeTabKey, isPortalSurface, isRmmSurface, effectiveLiveChatEnabled, session, tabs, ticketDraft, tickets])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -1510,6 +1528,10 @@ function WorkspaceRuntime() {
   }
 
   function setLiveChatEnabled(enabled) {
+    if(enabled && tenantLiveChatAllowed===false) {
+      setToast('Live Chat is not enabled in this tenant environment yet.')
+      return
+    }
     setLiveChatPreferences((current) => ({ ...current, enabled }))
     setTabs((currentTabs) => syncLiveChatFixedTab(currentTabs, enabled))
 
@@ -2730,7 +2752,7 @@ function WorkspaceRuntime() {
 
     if (target?.type === 'livechat') {
       const conversation = liveChatConversations.find((item) => item.id === target.conversationId)
-      if (conversation && liveChatPreferences.enabled) {
+      if (conversation && effectiveLiveChatEnabled) {
         setSelectedLiveChatId(conversation.id)
         markLiveChatConversationRead(conversation.id)
         closeHeaderOverlays()
@@ -2738,7 +2760,7 @@ function WorkspaceRuntime() {
         return
       }
       closeHeaderOverlays()
-      setToast(liveChatPreferences.enabled ? 'That conversation is no longer available' : 'Enable Live Chat to open this conversation')
+      setToast(effectiveLiveChatEnabled ? 'That conversation is no longer available' : 'Enable Live Chat to open this conversation')
       return
     }
 
