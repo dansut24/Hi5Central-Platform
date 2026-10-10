@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/phase17-pilot-control-preflight.yml'
       - 'infrastructure/managed-pilot-control/**'
+      - 'infrastructure/production/**'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/src/platformAdminMfa.js'
       - 'services/api/tests/platformAdminMfa.test.mjs'
@@ -234,4 +235,9 @@ jobs:
           docker tag "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}" \
             "ghcr.io/dansut24/hi5central-platform-admin:pilot-signup-preview-${GITHUB_SHA}"
           docker push "ghcr.io/dansut24/hi5central-platform-admin:pilot-signup-preview-${GITHUB_SHA}"
+          # Separate public acceptance image tag; this is static marketing UI
+          # only and does not modify the Admin default tag.
+          docker tag "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}" \
+            "ghcr.io/dansut24/hi5central-platform-admin:live-signup-${GITHUB_SHA}"
+          docker push "ghcr.io/dansut24/hi5central-platform-admin:live-signup-${GITHUB_SHA}"
           echo "Matched private-pilot API/Admin and no-public-route signup-preview revision ${GITHUB_SHA}"
