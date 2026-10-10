@@ -123,6 +123,7 @@ assert.equal(call('POST','/api/platform/v1/tenants',{
 },cookie).status,400)
 const managed=call('POST','/api/platform/v1/tenants',{
   companyName:'Synthetic Managed Customer',slug:'pilotmanagedci',
+  ownerName:'Managed First Owner',ownerEmail:'managed-owner@example.invalid',
   updateMode:'hi5_managed',deploymentDay:'wed',
   deploymentTime:'21:30',deploymentTimezone:'Europe/London',
   customerUatOptIn:false,modules:{itsm:true,selfService:true,rmm:false},
@@ -130,6 +131,7 @@ const managed=call('POST','/api/platform/v1/tenants',{
 assert.equal(managed.status,201,JSON.stringify(managed.data))
 const custom=call('POST','/api/platform/v1/tenants',{
   companyName:'Synthetic Custom Customer',slug:'pilotcustomci',
+  ownerName:'Custom First Owner',ownerEmail:'custom-owner@example.invalid',
   updateMode:'admin_controlled',customerUatOptIn:false,
   modules:{itsm:true,selfService:true,rmm:false},
 },cookie)
@@ -140,14 +142,29 @@ const modes=sql(`SELECT t.slug,p.update_mode,p.customer_uat_opt_in,
   WHERE t.slug IN('pilotmanagedci','pilotcustomci') ORDER BY t.slug`)
 assert.match(modes,/pilotcustomci\\|admin_controlled\\|t\\|f\\|02:00/)
 assert.match(modes,/pilotmanagedci\\|hi5_managed\\|f\\|t\\|21:30/)
-assert.equal(sql('SELECT COUNT(*) FROM tenant_environment_provision_requests').split('\\n').at(-1),'0',
-  'No automatic UAT request for Managed customer')
+assert.equal(sql('SELECT COUNT(*) FROM tenant_environment_provision_requests').split('\\n').at(-1),'1',
+  'Only the Custom customer must have an automatically queued UAT request')
+assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
+  JOIN tenants t ON t.id=q.tenant_id WHERE t.slug='pilotmanagedci'`).split('\\n').at(-1),'0',
+  'Managed customer must not be queued for customer UAT without opt-in')
+assert.equal(sql(`SELECT count(*) FROM tenant_initial_owner_onboarding_intents`).split('\\n').at(-1),'2',
+  'Both tenants must preserve a pending first-owner contact')
+assert.equal(sql(`SELECT count(*) FROM tenant_memberships`).split('\\n').at(-1),'0',
+  'Recording owner contact must never create membership')
+assert.equal(sql(`SELECT provisioning_status FROM tenant_environment_instances e
+  JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotcustomci'
+  AND e.environment='live'`).split('\\n').at(-1),'pending',
+  'New Production reservation must never appear ready without provisioning')
 const reservations=sql(`SELECT e.provisioning_status FROM tenant_environment_instances e
  JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotmanagedci'
  AND e.environment='uat'`)
 assert.ok(!reservations.split('\\n').includes('ready'),
   'Managed customer UAT must not silently become a provisioned runtime')
-console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, zero UAT queues)')
+console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, one Custom-only UAT queue)')
+assert.equal(custom.onboarding.uatQueued,true)
+assert.equal(custom.onboarding.productionActivated,false)
+assert.equal(custom.onboarding.invitationSent,false)
+assert.equal(managed.onboarding.uatQueued,false)
 const customId=custom.data.tenant.id
 const noUatPush=call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
   {keys:['theme']},cookie)
@@ -158,9 +175,9 @@ assert.match(noUatPush.data.blockers.join(' '),/UAT/)
 assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
   {keys:['credentials']},cookie).status,409,'Never push secrets')
 const request=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
-assert.equal(request.status,202,JSON.stringify(request.data))
-assert.equal(request.data.provisioningStarted,false,
-  'UAT request may not create tenant infrastructure without signed operator approval')
+assert.equal(request.status,200,JSON.stringify(request.data))
+assert.equal(request.data.alreadyQueued,true,
+  'New Custom tenant must automatically queue UAT once, not duplicate provisioning')
 const repeated=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
 assert.equal(repeated.status,200)
 assert.equal(repeated.data.alreadyQueued,true)
@@ -183,7 +200,7 @@ const visibleCustom=state.data.items.find(t=>t.slug==='pilotcustomci')
 assert.ok(visibleCustom)
 assert.equal(visibleCustom.update_mode,'admin_controlled')
 assert.equal(visibleCustom.customer_uat_opt_in,true)
-console.log('PHASE21_CUSTOM_TENANT_UAT_REQUEST: PASS (Admin-created tenant, signed operator queue, no premature UAT)')
+console.log('PHASE21_CUSTOM_TENANT_UAT_REQUEST: PASS (Admin-created tenant and owner contact, UAT automatically queued, no premature UAT)')
 console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Live config write, secrets denied)')
 
 assert.equal(call('POST','/api/platform/v1/auth/logout',{},cookie).status,200)
