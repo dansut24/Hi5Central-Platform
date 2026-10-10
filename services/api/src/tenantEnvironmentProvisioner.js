@@ -139,6 +139,37 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
   return summary
 }
 
+/**
+ * One-time rollout reconciler for existing, already-onboarded organisations.
+ * Feature-flagged so only an explicitly approved Live deployment starts it.
+ * A failed environment remains 'error' and may be retried by its owner.
+ */
+export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
+  if (deployment.runtimeEnvironment !== 'live') return { skipped: true }
+  const result = await source.query(
+    `SELECT t.id
+       FROM tenants t
+       JOIN tenant_settings ts ON ts.tenant_id=t.id
+       JOIN tenant_environment_state te ON te.tenant_id=t.id
+      WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL
+        AND te.environment IN ('test','uat') AND te.status<>'ready'
+      GROUP BY t.id ORDER BY t.id LIMIT 100`,
+  )
+  let ready = 0
+  let failed = 0
+  for (const row of result.rows) {
+    try {
+      const status = await provisionTenantSandboxes(row.id, { source })
+      for (const env of ['test','uat']) status[env]?.status === 'ready' ? ready++ : failed++
+    } catch (error) {
+      failed++
+      console.error('Backfill environment provisioning failed', {tenantId:row.id,code:error.code || 'UNKNOWN'})
+    }
+  }
+  console.log('Tenant sandbox backfill finished', { tenants:result.rowCount,ready,failed })
+  return {tenants:result.rowCount,ready,failed}
+}
+
 export function tenantSandboxUrl(slug, env) {
   if (!environments.includes(env) || slug.length > 42 || !/^[a-z0-9][a-z0-9-]+[a-z0-9]$/.test(slug)) return null
   return targetUrl(slug,env)
