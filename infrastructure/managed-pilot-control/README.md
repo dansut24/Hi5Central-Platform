@@ -1,5 +1,49 @@
 # Hi5Central — separately hosted managed customer pilot control plane
 
+## VPS private staging evidence — 10 October 2026
+
+**Private pilot control runtime has been deployed and verified.** This is a
+non-public engineering staging result, **not** a customer-enabled pilot.
+The authorised VPS has a dedicated `/workspace/phase17-pilot-control`
+work directory, protected mode-0600 `runtime.env` (never in Git), and
+mode-0700 backup directory. The uniquely named project is
+`hi5central-pilot-control`; its private edge
+`hi5central-pilot-control-edge` is Docker-internal and is attached only
+to pilot API and Admin, **not any public Caddy gateway**.
+
+Four private services — pilot PostgreSQL, Redis, API and Admin — are
+**healthy**. The one-shot migration job exited 0 and applied all migrations
+through `140_managed_operator_evidence.sql`. The API/Admin images are
+immutable, matching revision `49de889b259d27ae6c39be2847ec843230ae9436`;
+their on-host digest pins were checked before deployment. The first API
+boot failed safely without the required Connect HMAC key; a fresh unique
+pilot-only key was generated, enforced by preflight and the API then
+became healthy. RMM/Connect is **not** routed publicly.
+
+A custom-format backup of the fresh, empty control database was restored to
+a temporary scratch database; schema checks passed and that scratch
+database was dropped. The initial pilot control database contains
+**0 customer tenants, 0 Platform Admin users and 0 control-plane approval
+identities**. No customer invitations or public routes were created.
+A VPS ingress check returned **404** for both prospective pilot-control
+hosts, both pilot UAT/Test API hosts and unapproved example customer hosts.
+The pre-existing Dev, Production and legacy UAT/Test services were still
+healthy. Test-only scratch containers/networks were absent.
+
+CI evidence:
+- [Phase 16 full four-role API-image lifecycle](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38010660004): pass
+- [Phase 17 static preflight, initial matched API/Admin image build](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38010969096): pass
+- [Phase 17 private Connect HMAC configuration gate](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38011196779): pass
+
+**Next release blocker:** enrol a real named Platform Admin with independent
+MFA, verify browser login and off-host backups, and complete human-verified
+operator identity before connecting any approved public gateway. The
+first-admin enrolment is not silently performed here: there is no
+authorised operator email or authenticated owner to bootstrap against.
+A separate operator approval is still required before actual customer
+environment activation.
+
+
 **Current state: PRIVATE PILOT STAGING, not public customer onboarding.**
 Do not open a new customer route merely because this Compose stack is healthy.
 The single-tenant `dev.hi5central.com` must remain unchanged.
