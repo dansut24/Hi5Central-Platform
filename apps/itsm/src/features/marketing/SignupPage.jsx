@@ -8,6 +8,9 @@ const DEPLOYMENT = deploymentConfig()
 const SINGLE_TENANT = DEPLOYMENT.tenancyMode === 'single'
 const MANAGED_SIGNUP = DEPLOYMENT.deploymentMode === 'managed' && !SINGLE_TENANT
 const SELF_HOST_SINGLE = DEPLOYMENT.deploymentMode === 'self_hosted' && SINGLE_TENANT
+const PILOT_SIGNUP_PREVIEW = MANAGED_SIGNUP
+  && window.location.origin === 'https://hi5central.com'
+  && new URLSearchParams(window.location.search).get('preview') === '1'
 
 function slugFromCompany(value = '') {
   return String(value)
@@ -119,20 +122,25 @@ export function SignupPage() {
 
     setSubmitting(true)
     try {
-      const response = await fetch(`${API_BASE}${MANAGED_SIGNUP?'/api/v1/public/signup-requests':'/api/v1/auth/signup'}`, {
+      const signupBase = PILOT_SIGNUP_PREVIEW ? window.location.origin : API_BASE
+      const payload = {
+        companyName: form.companyName,
+        tenantSlug: form.tenantSlug,
+        name: form.name,
+        email: form.email,
+        ...(MANAGED_SIGNUP
+          ? {modules:{itsm:form.itsm,rmm:form.rmm}}
+          : {
+              password:form.password,
+              modules:[form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
+              setupToken:SELF_HOST_SINGLE ? setupToken : undefined,
+            }),
+      }
+      const response = await fetch(`${signupBase}${MANAGED_SIGNUP?'/api/v1/public/signup-requests':'/api/v1/auth/signup'}`, {
         method: 'POST',
-        credentials: 'include',
+        credentials: MANAGED_SIGNUP ? 'omit' : 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyName: form.companyName,
-          tenantSlug: form.tenantSlug,
-          name: form.name,
-          email: form.email,
-          password: form.password,
-          modules: MANAGED_SIGNUP?undefined:[form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
-          setupToken: SELF_HOST_SINGLE ? setupToken : undefined,
-          modules: MANAGED_SIGNUP?{itsm:form.itsm,rmm:form.rmm}:undefined,
-        }),
+        body: JSON.stringify(payload),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'We could not create your workspace.')
@@ -192,7 +200,7 @@ export function SignupPage() {
               {pendingManaged
                 ? created.status==='verified'
                   ? 'We have your verified request. An approved operator will prepare your customer environment and send your secure owner invitation when it is ready.'
-                  : 'A verification link has been sent to your email address. Following verification, our team will review your requested customer URL and update options.'
+                  : 'A verification link has been sent to your email address. Following verification, our team will review your requested customer URL and contact details.'
                 :delivered
                 ? `A one-time verification link has been sent to ${created.admin?.email}. It expires in 24 hours.`
                 : 'Your tenant was created, but the verification email could not be delivered. Check SMTP configuration and resend.'}
