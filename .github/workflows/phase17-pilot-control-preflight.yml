@@ -33,6 +33,7 @@ jobs:
             POSTGRES_PASSWORD:'a'.repeat(40),
             REDIS_PASSWORD:'b'.repeat(40),
             MFA_ENCRYPTION_KEY:'c'.repeat(64),
+            CONNECT_CODE_HMAC_KEY:'d'.repeat(64),
             DATABASE_URL:'postgresql://pilot_user_a:'+ 'a'.repeat(40) +'@postgres:5432/pilot_control_db',
             REDIS_URL:'redis://:'+ 'b'.repeat(40) +'@redis:6379/0',
           }
