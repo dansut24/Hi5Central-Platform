@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  GitBranch,
   ShieldCheck,
   SlidersHorizontal,
   UserRound,
@@ -1102,7 +1103,7 @@ function WorkspaceRuntime() {
         && (session?.role !== 'requester' || ticket.requester === session.name || (ticket.requesterEmail && ticket.requesterEmail === session.username))
       ))
     : undefined
-  const canViewSettings = sessionHasPermission(session, 'settings.view')
+  const canViewSettings = sessionHasPermission(session, 'settings.view') || ['owner','admin'].includes(session?.tenantRole)
   const visibleNavIds = analystNavIds.filter((id) => id !== 'settings' || canViewSettings)
   const navItems = visibleNavIds.map((id) => viewMeta[id])
   const navGroups = analystNavGroups
@@ -3092,6 +3093,21 @@ function WorkspaceRuntime() {
         </div>
 
         <nav className="nav-stack rmm-nav">
+          {['uat','test'].includes(platform.runtimeEnvironment) && ['owner','admin'].includes(session?.tenantRole) ? (
+            <div className="nav-group rmm-nav-section" data-hi5-sandbox-release-navigation>
+              <span className="nav-group-label">Environment</span>
+              <button className="nav-item" type="button" title="Releases & environments"
+                onClick={() => {
+                  window.history.pushState({}, '', '/settings/platform/releases')
+                  window.dispatchEvent(new Event('hi5-routechange'))
+                  setMobileNavOpen(false)
+                }}>
+                <GitBranch size={18} aria-hidden="true" />
+                <span>Releases</span>
+              </button>
+            </div>
+          ) : null}
+
           {navGroups.map((group) => {
             const groupIsActive = group.items.some(({ id }) => id === activeNavId)
 
