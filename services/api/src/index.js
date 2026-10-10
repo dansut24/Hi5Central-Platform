@@ -14,6 +14,7 @@ import { featureEntitled, registerLicensingRoutes, startLicensingRefreshSchedule
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import { provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
+import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
@@ -703,6 +704,7 @@ registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
+registerEnvironmentHandoffRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
 registerCmdbRoutes(app)
