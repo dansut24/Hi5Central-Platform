@@ -6,6 +6,7 @@ import { provisionRequestEligibility } from './tenantEnvironmentProvisioning.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword,hashPassword,passwordPolicyResult } from './password.js'
 import { pilotBootstrapEnabled,bootstrapHash,validatePilotAdminIdentity } from './pilotAdminBootstrap.js'
+import {parseCustomerUpdatePolicy,customerUpdateWriteParams,CUSTOMER_UPDATE_UPSERT} from './customerUpdatePolicy.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
@@ -427,6 +428,8 @@ function tenantReleasePreferencePayload(row) {
     companyName: row.company_name,
     updateMode: row.update_mode || 'admin_controlled',
     managedByHi5Central: row.update_mode === 'hi5_managed',
+    customerUatRequired: row.update_mode === 'admin_controlled',
+    customerUatOptIn: row.update_mode === 'admin_controlled' || Boolean(row.customer_uat_opt_in),
     testAutoSync: row.test_auto_sync == null ? true : Boolean(row.test_auto_sync),
     uatAutoStage: Boolean(row.uat_auto_stage),
     liveAutoPromote: Boolean(row.live_auto_promote),
@@ -1382,6 +1385,9 @@ export function registerPlatformAdminRoutes(app) {
               COALESCE(cs.plan_key,'custom') AS plan_key,COALESCE(cs.billing_status,'trial') AS billing_status,
               COALESCE(cs.billing_cycle,'monthly') AS billing_cycle,COALESCE(cs.currency,'GBP') AS currency,
               cs.monthly_price_pence,cs.trial_ends_at,cs.renewal_at,COALESCE(cs.notes,'') AS billing_notes,
+              COALESCE(rp.update_mode,'admin_controlled') AS update_mode,
+              COALESCE(rp.customer_uat_opt_in,false) AS customer_uat_opt_in,
+              COALESCE(rp.maintenance_window,'{}'::jsonb) AS update_window,
               owner.user_id AS owner_user_id,owner.name AS owner_name,owner.email AS owner_email,
               transfer.id AS owner_transfer_id,transfer.proposed_owner_email,
               transfer.proposed_owner_name,transfer.created_at AS owner_transfer_requested_at,
@@ -1401,6 +1407,7 @@ export function registerPlatformAdminRoutes(app) {
          FROM tenants t
          JOIN tenant_settings ts ON ts.tenant_id=t.id
          LEFT JOIN tenant_commercial_settings cs ON cs.tenant_id=t.id
+         LEFT JOIN tenant_release_preferences rp ON rp.tenant_id=t.id
          LEFT JOIN LATERAL (
            SELECT u.id AS user_id,u.name,u.email
              FROM tenant_memberships m
@@ -1527,6 +1534,9 @@ export function registerPlatformAdminRoutes(app) {
     if (companyName.length < 2 || !validSlug(slug) || (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) {
       return c.json({ error: 'Company name and a valid tenant slug are required.' }, 400)
     }
+    let updatePolicy
+    try { updatePolicy=parseCustomerUpdatePolicy(body) }
+    catch(error){ return c.json({error:error.message},400) }
     const itsm = body?.modules?.itsm !== false
     const selfService = itsm
     const rmm = body?.modules?.rmm === true
@@ -1545,6 +1555,7 @@ export function registerPlatformAdminRoutes(app) {
            VALUES ($1,$2::jsonb,'company',$3,$4,$5)`,
           [row.id, JSON.stringify({ itsm, selfService, rmm }), urls.tenantUrl, itsm ? urls.portalUrl : null, urls.rmmUrl],
         )
+        await db.query(CUSTOMER_UPDATE_UPSERT,customerUpdateWriteParams(row.id,updatePolicy,auth.session.user_id))
         await db.query(
           `INSERT INTO tenant_commercial_settings (tenant_id,plan_key,billing_status,billing_cycle)
            VALUES ($1,$2,$3,$4)`,
@@ -1552,7 +1563,9 @@ export function registerPlatformAdminRoutes(app) {
             ['trial','active','past_due','suspended','cancelled'].includes(body?.billingStatus) ? body.billingStatus : 'trial',
             ['monthly','annual','custom'].includes(body?.billingCycle) ? body.billingCycle : 'monthly'],
         )
-        await audit(c, auth.session, 'tenant.created', 'tenant', row.id, { slug, companyName, modules: { itsm, selfService, rmm } }, db)
+        await audit(c, auth.session, 'tenant.created', 'tenant', row.id, { slug, companyName, modules: { itsm, selfService, rmm },
+            updates:{mode:updatePolicy.updateMode,customerUatOptIn:updatePolicy.customerUatOptIn,
+              maintenanceWindow:updatePolicy.maintenanceWindow} }, db)
         return row
       })
       return c.json({ tenant }, 201)
