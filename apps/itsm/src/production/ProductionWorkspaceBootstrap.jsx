@@ -700,8 +700,17 @@ function ProductionProfileLayer({ session }) {
   return createPortal(<ProductionProfileWorkspace session={session} />, target)
 }
 
-export function ProductionWorkspaceBootstrap() {
+export function ProductionWorkspaceBootstrap({onWorkspaceAuthenticatedChange}) {
   const surface = useMemo(() => resolveTenantSurface(), [])
+  const initialSandboxLogin = useMemo(() => {
+    // Show a real, same-environment sign-in on the initial paint. No waiting
+    // for workspace observers, session restoration or browser storage.
+    const environment = /-(?:test|uat)$/.test(surface.tenantSlug)
+    const parameters = new URLSearchParams(window.location.search)
+    const hasHandoff = new URLSearchParams(window.location.hash.replace(/^#/, '')).has('hi5_environment_ticket')
+    return environment && !hasHandoff && parameters.get('environment_sso') !== '1'
+      && (window.location.pathname === '/login' || !hasMatchingEnvironmentSession(surface.tenantSlug))
+  },[surface.tenantSlug])
   const cachedOnboarding = useMemo(() => readOnboardingSnapshot(surface.tenantSlug), [surface.tenantSlug])
   const [serverSession, setServerSession] = useState(() => cachedOnboarding)
   const [tenantState, setTenantState] = useState(() => cachedOnboarding ? {
@@ -709,8 +718,11 @@ export function ProductionWorkspaceBootstrap() {
     slug: cachedOnboarding.tenant.slug,
     companyName: cachedOnboarding.tenant.companyName,
     status: 'active',
+  } : initialSandboxLogin ? {
+    managed:true,slug:surface.tenantSlug,
+    companyName:surface.tenantName,status:'active',
   } : null)
-  const [loading, setLoading] = useState(() => !cachedOnboarding)
+  const [loading, setLoading] = useState(() => !cachedOnboarding && !initialSandboxLogin)
   const [bootstrapError, setBootstrapError] = useState('')
   const [environmentLoginHandled,setEnvironmentLoginHandled]=useState(false)
   const [environmentAccessError,setEnvironmentAccessError]=useState('')
@@ -718,6 +730,12 @@ export function ProductionWorkspaceBootstrap() {
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
   const onboardingRoute = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/')
+  useEffect(()=>{
+    // Mount workspace-only enhancers only after the server accepted the
+    // session AND initial setup is complete. No unauthenticated DOM observers.
+    onWorkspaceAuthenticatedChange?.(Boolean(serverSession?.onboarding?.completedAt
+      && serverSession?.userExperience?.firstLoginCompletedAt))
+  },[Boolean(serverSession?.onboarding?.completedAt),Boolean(serverSession?.userExperience?.firstLoginCompletedAt),onWorkspaceAuthenticatedChange])
 
   useEffect(() => {
     if (!loading) return undefined
