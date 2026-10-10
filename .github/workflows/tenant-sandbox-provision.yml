@@ -1,0 +1,59 @@
+name: Tenant Sandbox Auto Provisioning
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/tenantEnvironmentProvisioner.js'
+      - 'services/api/src/index.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/test/tenant-environment-provisioning.mjs'
+      - '.github/workflows/tenant-sandbox-provision.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tenant-sandboxes:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: hi5_prod
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_prod"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_password@localhost:5432/hi5_prod
+      TENANT_TEST_DATABASE_URL: postgresql://hi5_ci:ci_password@localhost:5432/hi5_test
+      TENANT_UAT_DATABASE_URL: postgresql://hi5_ci:ci_password@localhost:5432/hi5_uat
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/tenantEnvironmentProvisioner.js && node --check src/index.js
+      - name: Create independent Test and UAT logical databases
+        env: {PGPASSWORD: ci_password}
+        run: |
+          psql -h localhost -U hi5_ci -d hi5_prod -c 'CREATE DATABASE hi5_test'
+          psql -h localhost -U hi5_ci -d hi5_prod -c 'CREATE DATABASE hi5_uat'
+      - name: Migrate all three isolated databases
+        run: |
+          npm run migrate
+          DATABASE_URL="$TENANT_TEST_DATABASE_URL" npm run migrate
+          DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
+      - name: End-to-end isolated tenant provisioning
+        run: node test/tenant-environment-provisioning.mjs
