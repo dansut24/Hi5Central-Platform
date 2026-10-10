@@ -107,6 +107,7 @@ export function registerEnvironmentHandoffRoutes(app) {
 }
 
 export async function issueEnvironmentTicket(tenantId,userId,environment,{source=pool,verified=false}={}) {
+  if (deployment.runtimeEnvironment !== 'live') throw Error('Environment links are issued from Live.')
   if (!['test','uat'].includes(environment)) throw Error('Unknown environment')
   const item = await source.query(
     `SELECT t.slug FROM tenants t JOIN tenant_environment_state e ON e.tenant_id=t.id
