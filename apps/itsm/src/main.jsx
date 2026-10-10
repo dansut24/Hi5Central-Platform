@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import { MarketingApp } from './features/marketing/MarketingApp.jsx'
@@ -105,42 +105,51 @@ if (initialSurface.kind === 'marketing') {
 if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
 
-createRoot(rootElement).render(
-  <StrictMode>
+function AppWithWorkspaceBoundaries() {
+  // Only the authentication bootstrap and environment banner are allowed to
+  // mount before a valid server session. Previously every workspace observer
+  // ran on /login and could stall Safari before the login form appeared.
+  const [workspaceAuthenticated,setWorkspaceAuthenticated]=useState(false)
+  const productionWorkspaceReady=productionWorkspace && workspaceAuthenticated && !productionOnboarding
+  return (
+    <>
     <EnvironmentBanner />
-    <RootApp />
+    <RootApp onWorkspaceAuthenticatedChange={setWorkspaceAuthenticated} />
     {initialSurface.kind === 'workspace' && !productionOnboarding && !productionWorkspace ? <KnowledgeContextEnhancer /> : null}
-    {initialSurface.kind === 'workspace' && !productionOnboarding ? <OrganisationSitesEnhancer /> : null}
-    {initialSurface.kind === 'workspace' && !productionOnboarding ? <ServiceCatalogueSettingsEnhancer /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionAccessGuard /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionSessionBoundary /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionAccessControl /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionOrganisationWriteThrough /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionItsmWorkspace /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionAssignmentExperience /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionFinalTaskCompletionPrompt /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionCmdb /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionLiveChatBadgeBridge /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionLiveChatWorkspace /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionLiveChatOperations /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionLiveChatCompactTools /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionRecordDetailRouter /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionRecordWorkspace /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionRecordExportEnhancer /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionRecordListInteractionEnhancer /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionWorkflowExperience /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionNotificationCenter /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceRefinement /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionNavigationDockPreferences /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceTabPersistence /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionWorkspaceLiveChatMenu /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionPremiumWorkspaceExperience /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionPortalThemeBridge /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionUniversalPeekV2 /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionFirstLoginRouteBridge /> : null}
-    {productionWorkspace && !productionOnboarding ? <OnboardingMfaEnhancer /> : null}
-    {productionWorkspace && !productionOnboarding ? <ProductionPasswordRecoveryEnhancer /> : null}
+    {productionWorkspaceReady ? <OrganisationSitesEnhancer /> : null}
+    {productionWorkspaceReady ? <ServiceCatalogueSettingsEnhancer /> : null}
+    {productionWorkspaceReady ? <ProductionAccessGuard /> : null}
+    {productionWorkspaceReady ? <ProductionSessionBoundary /> : null}
+    {productionWorkspaceReady ? <ProductionAccessControl /> : null}
+    {productionWorkspaceReady ? <ProductionOrganisationWriteThrough /> : null}
+    {productionWorkspaceReady ? <ProductionItsmWorkspace /> : null}
+    {productionWorkspaceReady ? <ProductionAssignmentExperience /> : null}
+    {productionWorkspaceReady ? <ProductionFinalTaskCompletionPrompt /> : null}
+    {productionWorkspaceReady ? <ProductionCmdb /> : null}
+    {productionWorkspaceReady ? <ProductionLiveChatBadgeBridge /> : null}
+    {productionWorkspaceReady ? <ProductionLiveChatWorkspace /> : null}
+    {productionWorkspaceReady ? <ProductionLiveChatOperations /> : null}
+    {productionWorkspaceReady ? <ProductionLiveChatCompactTools /> : null}
+    {productionWorkspaceReady ? <ProductionRecordDetailRouter /> : null}
+    {productionWorkspaceReady ? <ProductionRecordWorkspace /> : null}
+    {productionWorkspaceReady ? <ProductionRecordExportEnhancer /> : null}
+    {productionWorkspaceReady ? <ProductionRecordListInteractionEnhancer /> : null}
+    {productionWorkspaceReady ? <ProductionWorkflowExperience /> : null}
+    {productionWorkspaceReady ? <ProductionNotificationCenter /> : null}
+    {productionWorkspaceReady ? <ProductionWorkspaceRefinement /> : null}
+    {productionWorkspaceReady ? <ProductionNavigationDockPreferences /> : null}
+    {productionWorkspaceReady ? <ProductionWorkspaceTabPersistence /> : null}
+    {productionWorkspaceReady ? <ProductionWorkspaceLiveChatMenu /> : null}
+    {productionWorkspaceReady ? <ProductionPremiumWorkspaceExperience /> : null}
+    {productionWorkspaceReady ? <ProductionPortalThemeBridge /> : null}
+    {productionWorkspaceReady ? <ProductionUniversalPeekV2 /> : null}
+    {productionWorkspaceReady ? <ProductionFirstLoginRouteBridge /> : null}
+    {productionWorkspaceReady ? <OnboardingMfaEnhancer /> : null}
+    {productionWorkspaceReady ? <ProductionPasswordRecoveryEnhancer /> : null}
     {productionPortal ? <ProductionPortalKnowledgeChat /> : null}
     {productionPortal ? <ProductionPortalLiveChatOperations /> : null}
-  </StrictMode>,
-)
+    </>
+  )
+}
+
+createRoot(rootElement).render(<StrictMode><AppWithWorkspaceBoundaries /></StrictMode>)
