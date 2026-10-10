@@ -6,6 +6,7 @@ import { registerEnvironmentHandoffRoutes, issueEnvironmentTicket } from '../src
 import { hashPassword } from '../src/password.js'
 import { pool } from '../src/db.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
+import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -92,6 +93,40 @@ try {
     body:redeemBody,
   })
   assert.equal(replay.status,401,'single-use ticket must reject replay')
+
+  // The Live identity is authoritative. Owners have implicit access; a new
+  // user has none until the administrator grants it in People.
+  assert.equal(await permittedTenantEnvironment(tenantId,userId,'test'),true)
+  assert.equal(await permittedTenantEnvironment(tenantId,userId,'uat'),true)
+  const extraEmail='member-'+suffix+'@example.invalid'
+  const extra=await source.query(
+    "INSERT INTO users(email,name,password_hash,email_verified_at) VALUES($1,$2,'ci-central-only',now()) RETURNING id",
+    [extraEmail,'Additional Member'],
+  )
+  const memberId=extra.rows[0].id
+  await source.query("INSERT INTO tenant_memberships(tenant_id,user_id,role,status) VALUES($1,$2,'admin','active')",[tenantId,memberId])
+  assert.equal(await permittedTenantEnvironment(tenantId,memberId,'uat'),false)
+  assert.equal(await permittedTenantEnvironment(tenantId,memberId,'test'),false)
+  await assert.rejects(()=>issueEnvironmentTicket(tenantId,memberId,'uat',{source,verified:true}),/not been granted/)
+  await assignEnvironmentPermissions(tenantId,memberId,{test:false,uat:true},userId)
+  assert.equal(await permittedTenantEnvironment(tenantId,memberId,'uat'),true)
+  assert.equal(await permittedTenantEnvironment(tenantId,memberId,'test'),false)
+  const grants=await environmentMembers(tenantId)
+  assert(grants.some(m=>m.userId===memberId&&m.uat===true&&m.test===false))
+  const localMember=await clients[1].query("SELECT role FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2",[tenantId,memberId])
+  assert.equal(localMember.rows[0]?.role,'admin','new UAT user must be synced with Live role')
+  const uatTokenHash='revoke-test-'+suffix
+  await clients[1].query(
+    "INSERT INTO auth_sessions(tenant_id,user_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval '1 hour')",
+    [tenantId,memberId,uatTokenHash],
+  )
+  await assignEnvironmentPermissions(tenantId,memberId,{test:false,uat:false},userId)
+  assert.equal(await permittedTenantEnvironment(tenantId,memberId,'uat'),false)
+  const revoked=await clients[1].query('SELECT revoked_at IS NOT NULL AS revoked FROM auth_sessions WHERE token_hash=$1',[uatTokenHash])
+  assert.equal(revoked.rows[0]?.revoked,true,'revoking UAT access must revoke existing UAT sessions')
+  await assert.rejects(()=>issueEnvironmentTicket(tenantId,memberId,'uat',{source,verified:true}),/not been granted/)
+  await assert.rejects(()=>assignEnvironmentPermissions(tenantId,userId,{test:false,uat:true},userId),/owners must retain/)
+  console.log('PASS: central owner defaults, People UAT grant, denial before grant, and instant session revocation')
 
   // No customer data: source has not been copied wholesale into either sandbox.
   const unrelated=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,'Unrelated company','active') RETURNING id",['unrelated-'+suffix])
