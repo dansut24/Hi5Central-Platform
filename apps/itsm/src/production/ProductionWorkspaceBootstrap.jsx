@@ -778,6 +778,27 @@ export function ProductionWorkspaceBootstrap() {
     }
 
     async function bootstrap() {
+      const ticket = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('hi5_environment_ticket')
+      if (ticket) {
+        // Fragment is never sent in HTTP requests or referrers. Exchange it
+        // once with the corresponding Test/UAT API, then restore normally.
+        window.history.replaceState(null, '', window.location.pathname + window.location.search)
+        try {
+          const {response,payload}=await fetchJsonWithTimeout(`${API_BASE}/api/v1/auth/environment-handoff`,{
+            method:'POST',
+            credentials:'include',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ticket}),
+          })
+          if (!response.ok) throw new Error(payload?.error || 'Environment login link could not be used.')
+        } catch(error) {
+          if(active){
+            setBootstrapError(error?.message || 'Please reopen this environment from Release Management.')
+            setLoading(false)
+          }
+          return
+        }
+      }
       setLoading(!cachedOnboarding)
       setBootstrapError('')
       setBootstrapDelayed(false)

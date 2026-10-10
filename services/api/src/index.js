@@ -13,6 +13,8 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
+import { provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
+import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
@@ -77,7 +79,7 @@ function normaliseEmail(value = '') { return String(value).trim().toLowerCase() 
 function normaliseSlug(value = '') { return String(value).trim().toLowerCase() }
 function validSlug(slug) {
   return /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(slug)
-    && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !reservedSlugs.has(slug)
+    && slug.length <= 42 && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !slug.endsWith('-test') && !slug.endsWith('-uat') && !reservedSlugs.has(slug)
 }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 }
 
@@ -675,7 +677,12 @@ app.post('/api/v1/onboarding/complete', async (c) => {
   }
 
   const refreshed = await resolveSession(c)
-  return c.json(sessionPayload(refreshed))
+  const environments = await provisionTenantSandboxes(session.tenant_id)
+    .catch(error => {
+      console.error('Onboarding environment setup failed', {tenantId:session.tenant_id, code:error.code || 'UNKNOWN'})
+      return { test:{status:'error'}, uat:{status:'error'} }
+    })
+  return c.json({ ...sessionPayload(refreshed), environments })
 })
 
 app.use('/api/platform/v1/*', async (c, next) => {
@@ -697,6 +704,7 @@ registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
+registerEnvironmentHandoffRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
 registerCmdbRoutes(app)
