@@ -385,7 +385,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeToken: flow.challengeToken }),
+      body: JSON.stringify({ challengeToken: flow.challengeToken, tenantSlug: tenant.slug }),
     })
     const setupPayload = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(setupPayload.error || 'Could not start MFA setup.')
@@ -413,7 +413,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok || !payload?.authenticated || payload.tenant?.slug !== tenant.slug) {
-      throw new Error('Sign-in succeeded, but the browser did not retain the secure session. Allow cookies for the Hi5Central Dev API and sign in again.')
+      throw new Error('Sign-in succeeded, but the browser did not retain the secure session. Allow cookies for the Hi5Central API and sign in again.')
     }
     return payload
   }
@@ -485,7 +485,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim() }),
+        body: JSON.stringify({ challengeToken: mfaFlow.challengeToken, code: mfaCode.trim(), tenantSlug: tenant.slug }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'MFA verification failed.')
@@ -797,14 +797,24 @@ export function ProductionWorkspaceBootstrap() {
       const centralLoginUrl = environmentHost
         ? `https://${environmentHost[1]}.${deploymentConfig().rootDomain}/login?environment=${environmentHost[2]}`
         : ''
-      // First-time Test/UAT visitors have no sandbox session. Do not wait for
-      // cross-origin auth/session or page hydration before starting central
-      // Live login, especially on mobile Safari. Only the server-issued
-      // one-time handoff or a previously authenticated local session skips it.
+      // Each environment owns its login screen. UAT/Test authenticate the
+      // supplied credentials and MFA with Production *server-to-server*.
+      // Never route an unauthenticated browser through the Live login page.
       if(!ticket && !directSso && environmentHost
           && (window.location.pathname === '/login'
             || !hasMatchingEnvironmentSession(surface.tenantSlug))){
-        window.location.replace(centralLoginUrl)
+        clearOnboardingSnapshot()
+        clearProductionSession()
+        setServerSession(null)
+        setTenantState({
+          managed:true,
+          slug:surface.tenantSlug,
+          companyName:surface.tenantName,
+          status:'active',
+        })
+        setBootstrapError('')
+        setBootstrapDelayed(false)
+        setLoading(false)
         return
       }
       if (ticket) {
@@ -900,28 +910,20 @@ export function ProductionWorkspaceBootstrap() {
           return
         }
 
-        if(statePayload?.managed && !onboardingRoute){
-          const match=/^(.+)-(test|uat)$/.exec(surface.tenantSlug)
-          if(match){
-            // Direct UAT/Test login delegates to the original Live account.
-            // Live performs the existing password, Microsoft SSO and MFA flows.
-            // There is no separate sandbox password and no redirect parameter
-            // capable of selecting another organisation.
-            const root=deploymentConfig().rootDomain
-            window.location.replace(`https://${match[1]}.${root}/login?environment=${match[2]}`)
-            return
-          }
-        }
+
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
 
         if (environmentHost && !ticket && !directSso){
-          // A stale Test/UAT cookie or slow Safari cross-origin request
-          // should recover through the central identity provider rather than
-          // leaving the customer on an indefinite restoration screen.
+          // Session loss must always recover to the *same environment's*
+          // login page; never redirect to Live or lock the screen.
+          clearOnboardingSnapshot()
           clearProductionSession()
-          window.location.replace(centralLoginUrl)
+          setServerSession(null)
+          setTenantState({managed:true,slug:surface.tenantSlug,
+            companyName:surface.tenantName,status:'active'})
+          setBootstrapError('')
           return
         }
 
