@@ -792,6 +792,7 @@ export function ProductionWorkspaceBootstrap() {
 
     async function bootstrap() {
       const ticket = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('hi5_environment_ticket')
+      const directSso = new URLSearchParams(window.location.search).get('environment_sso') === '1'
       const environmentHost=/^(.+)-(test|uat)$/.exec(surface.tenantSlug)
       const centralLoginUrl = environmentHost
         ? `https://${environmentHost[1]}.${deploymentConfig().rootDomain}/login?environment=${environmentHost[2]}`
@@ -800,7 +801,7 @@ export function ProductionWorkspaceBootstrap() {
       // cross-origin auth/session or page hydration before starting central
       // Live login, especially on mobile Safari. Only the server-issued
       // one-time handoff or a previously authenticated local session skips it.
-      if(!ticket && environmentHost
+      if(!ticket && !directSso && environmentHost
           && (window.location.pathname === '/login'
             || !hasMatchingEnvironmentSession(surface.tenantSlug))){
         window.location.replace(centralLoginUrl)
@@ -863,7 +864,15 @@ export function ProductionWorkspaceBootstrap() {
           cache: 'no-store',
         }, environmentHost ? SANDBOX_SESSION_RESTORE_TIMEOUT_MS : SESSION_BOOTSTRAP_TIMEOUT_MS)
 
-        if (response.ok && acceptBootstrapPayload(payload)) return
+        if (response.ok && acceptBootstrapPayload(payload)) {
+          if (directSso) {
+            window.history.replaceState(null, '',window.location.pathname)
+          }
+          return
+        }
+        if(directSso && environmentHost){
+          throw new Error('Safari did not establish the environment session. Reopen it from your Live workspace.')
+        }
 
         if (ticket && environmentHost){
           // A completed one-time exchange must establish a real sandbox
@@ -907,7 +916,7 @@ export function ProductionWorkspaceBootstrap() {
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
 
-        if (environmentHost && !ticket){
+        if (environmentHost && !ticket && !directSso){
           // A stale Test/UAT cookie or slow Safari cross-origin request
           // should recover through the central identity provider rather than
           // leaving the customer on an indefinite restoration screen.
@@ -924,7 +933,7 @@ export function ProductionWorkspaceBootstrap() {
           setBootstrapError(
             error?.message === 'REQUEST_TIMEOUT'
               ? 'Hi5Central could not restore the session within the allowed time.'
-              : (error?.message?.includes('environment sign-in')
+              : (directSso || error?.message?.includes('environment sign-in')
                 ? error.message
                 : 'Hi5Central could not restore this session.'),
           )
