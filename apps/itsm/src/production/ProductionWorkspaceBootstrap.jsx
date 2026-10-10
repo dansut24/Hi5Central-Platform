@@ -919,7 +919,7 @@ export function ProductionWorkspaceBootstrap() {
     if(!['test','uat'].includes(env))return
     if(/-(test|uat)$/.test(surface.tenantSlug))return
     setEnvironmentLoginHandled(true)
-    fetch(`${API_BASE}/api/v1/release-management/environment-access`,{
+    fetch(`${API_BASE}/api/v1/auth/environment-access`,{
       method:'POST',credentials:'include',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({environment:env}),
