@@ -13,6 +13,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
+import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
@@ -701,6 +702,7 @@ registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
+registerTenantFeatureRoutes(app)
 registerEnvironmentHandoffRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
