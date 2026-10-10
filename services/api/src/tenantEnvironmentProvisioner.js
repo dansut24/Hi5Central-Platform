@@ -1,4 +1,5 @@
 import pg from 'pg'
+import { deployment } from './deploymentConfig.js'
 import { pool } from './db.js'
 
 const { Client } = pg
@@ -21,6 +22,7 @@ const targetUrl = (slug, env, kind = 'workspace') => {
  */
 export async function provisionTenantSandboxes(tenantId, { source = pool, targets = {} } = {}) {
   if (!isId(tenantId)) throw new Error('A valid tenant ID is required.')
+  if (deployment.runtimeEnvironment !== 'live') throw new Error('Only the Live control plane can provision customer sandboxes.')
   const row = await source.query(
     `SELECT t.id,t.slug,t.company_name,t.status,
             ts.modules,ts.onboarding_data,ts.configuration,ts.onboarding_completed_at,
@@ -134,6 +136,6 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
 }
 
 export function tenantSandboxUrl(slug, env) {
-  if (!environments.includes(env) || !/^[a-z0-9][a-z0-9-]{1,41}[a-z0-9]$/.test(slug)) return null
+  if (!environments.includes(env) || slug.length > 42 || !/^[a-z0-9][a-z0-9-]+[a-z0-9]$/.test(slug)) return null
   return targetUrl(slug,env)
 }
