@@ -1391,6 +1391,7 @@ export function registerPlatformAdminRoutes(app) {
               COALESCE(cs.billing_cycle,'monthly') AS billing_cycle,COALESCE(cs.currency,'GBP') AS currency,
               cs.monthly_price_pence,cs.trial_ends_at,cs.renewal_at,COALESCE(cs.notes,'') AS billing_notes,
               COALESCE(rp.update_mode,'admin_controlled') AS update_mode,
+              COALESCE(rp.onboarding_selection_pending,false) AS update_selection_pending,
               COALESCE(rp.customer_uat_opt_in,false) AS customer_uat_opt_in,
               COALESCE(rp.maintenance_window,'{}'::jsonb) AS update_window,
               onboard.owner_email AS onboarding_owner_email,
@@ -1595,7 +1596,7 @@ export function registerPlatformAdminRoutes(app) {
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
     const result=await pool.query(`SELECT id,tenant_slug,company_name,owner_name,owner_email,
-      modules,update_mode,customer_uat_opt_in,maintenance_window,status,
+      modules,status,
       verified_at,requested_at
       FROM managed_public_signup_requests
       WHERE status IN('awaiting_email','verified')
@@ -1621,9 +1622,10 @@ export function registerPlatformAdminRoutes(app) {
     if (companyName.length < 2 || !validSlug(slug) || (deployment.deploymentMode === 'managed' && deployment.tenancyMode === 'multi' && !isValidCustomerSlug(slug))) {
       return c.json({ error: 'Company name and a valid tenant slug are required.' }, 400)
     }
-    let updatePolicy
-    try { updatePolicy=parseCustomerUpdatePolicy(body) }
-    catch(error){ return c.json({error:error.message},400) }
+    // Update mode, maintenance window and customer UAT are selected by the
+    // authenticated first owner in onboarding, never at public signup or here.
+    if(['updateMode','customerUatOptIn','deploymentDay','deploymentTime','deploymentTimezone'].some(key=>Object.hasOwn(body||{},key)))
+      return c.json({error:'Choose platform updates during customer onboarding, not at registration.'},400)
     const initialOwnerEmail=normaliseEmail(body?.ownerEmail)
     const initialOwnerName=clean(body?.ownerName,120)
     if(!validEmail(initialOwnerEmail)||initialOwnerName.length<2)
@@ -1647,15 +1649,8 @@ export function registerPlatformAdminRoutes(app) {
             && verifiedSignup.company_name===companyName
             && verifiedSignup.owner_email===initialOwnerEmail
             && verifiedSignup.owner_name===initialOwnerName
-            && verifiedSignup.update_mode===updatePolicy.updateMode
-            && verifiedSignup.customer_uat_opt_in===updatePolicy.customerUatOptIn
             && Boolean(verifiedSignup.modules?.itsm)===itsm
             && Boolean(verifiedSignup.modules?.rmm)===rmm
-            && verifiedSignup.maintenance_window?.timezone===updatePolicy.maintenanceWindow.timezone
-            && verifiedSignup.maintenance_window?.start===updatePolicy.maintenanceWindow.start
-            && verifiedSignup.maintenance_window?.end===updatePolicy.maintenanceWindow.end
-            && Array.isArray(verifiedSignup.maintenance_window?.days)
-            && verifiedSignup.maintenance_window.days.join(',')===updatePolicy.maintenanceWindow.days.join(',')
           if(!matching)
             throw Object.assign(new Error('Customer details differ from the verified signup request.'),{httpStatus:409})
         }
@@ -1670,7 +1665,9 @@ export function registerPlatformAdminRoutes(app) {
            VALUES ($1,$2::jsonb,'company',$3,$4,$5)`,
           [row.id, JSON.stringify({ itsm, selfService, rmm }), urls.tenantUrl, itsm ? urls.portalUrl : null, urls.rmmUrl],
         )
-        await db.query(CUSTOMER_UPDATE_UPSERT,customerUpdateWriteParams(row.id,updatePolicy,auth.session.user_id))
+        await db.query(`UPDATE tenant_release_preferences
+          SET onboarding_selection_pending=true,uat_auto_stage=false,live_auto_promote=false,
+              customer_uat_opt_in=false,updated_at=now() WHERE tenant_id=$1`,[row.id])
         // A new control-plane tenant is a reservation, NOT a deployed
         // Production host. Independent environment activation stays mandatory.
         await db.query(`UPDATE tenant_environment_instances
@@ -1680,14 +1677,6 @@ export function registerPlatformAdminRoutes(app) {
           (tenant_id,owner_email,owner_name,requested_by)
           VALUES($1,$2,$3,$4)`,
           [row.id,initialOwnerEmail,initialOwnerName,auth.session.user_id])
-        // The customer explicitly chose UAT with Custom, or opted in with
-        // Managed. Queue the operator review instead of silently creating it.
-        if(updatePolicy.customerUatOptIn) {
-          await db.query(`INSERT INTO tenant_environment_provision_requests
-            (tenant_id,environment,requested_by)
-            VALUES($1,'uat',$2)`,
-            [row.id,auth.session.user_id])
-        }
         await db.query(
           `INSERT INTO tenant_commercial_settings (tenant_id,plan_key,billing_status,billing_cycle)
            VALUES ($1,$2,$3,$4)`,
@@ -1703,19 +1692,16 @@ export function registerPlatformAdminRoutes(app) {
              VALUES($1,'converted',$2)`,[verifiedSignup.id,'platform-admin:'+auth.session.user_id])
         }
         await audit(c, auth.session, 'tenant.created', 'tenant', row.id, { slug, companyName, modules: { itsm, selfService, rmm },
-            updates:{mode:updatePolicy.updateMode,customerUatOptIn:updatePolicy.customerUatOptIn,
-              maintenanceWindow:updatePolicy.maintenanceWindow},
+            updates:{status:'awaiting_onboarding',selectionPending:true},
             onboarding:{ownerEmail:initialOwnerEmail,ownerName:initialOwnerName,
-              invitationSent:false,productionActivated:false,uatQueued:updatePolicy.customerUatOptIn} }, db)
+              invitationSent:false,productionActivated:false,uatQueued:false} }, db)
         return row
       })
       return c.json({tenant,onboarding:{
         status:'awaiting_environment',ownerEmail:initialOwnerEmail,
         ownerName:initialOwnerName,invitationSent:false,
-        productionActivated:false,uatQueued:updatePolicy.customerUatOptIn,
-        nextStep:updatePolicy.customerUatOptIn
-          ?'Independent operator approval and isolated customer UAT activation are required before invitation delivery.'
-          :'Independent Production environment provisioning and owner invitation are required.'
+        productionActivated:false,uatQueued:false,updateChoicePending:true,
+        nextStep:'Approve Production provisioning and send the owner invitation; the customer chooses Managed or Custom and optional UAT during onboarding.'
       }},201)
     } catch (error) {
       if(error?.httpStatus)return c.json({error:error.message},error.httpStatus)
