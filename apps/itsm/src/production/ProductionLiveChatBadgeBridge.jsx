@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowUpRight, Bell, Check, CheckCheck, ChevronDown, CircleDot, FilePlus2, Link2, Maximize2, MessageCircle, Minimize2, Paperclip, Send, WifiOff, X } from 'lucide-react'
 import './ProductionLiveChatBadgeBridge.css'
-import './ProductionFloatingTechnicianChat.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const TAB_SELECTOR = '.workspace-tab-livechat, .workspace-tab[data-tab-module="livechat"]'
