@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { createSession, setSessionCookie } from './session.js'
+import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
 
 const digest = token => createHash('sha256').update(String(token)).digest('hex')
 const usableSecret = () => String(process.env.ENV_IDENTITY_SHARED_SECRET_FILE
@@ -45,6 +46,9 @@ export function registerEnvironmentHandoffRoutes(app) {
       )
       if (!result.rowCount) return safeJson(c,'Handoff invalid or expired.',401)
       const item = result.rows[0]
+      if(!await permittedTenantEnvironment(item.tenant_id,item.user_id,environment,{db:client})){
+        return safeJson(c,'Environment access has not been granted.',403)
+      }
       await client.query('UPDATE tenant_environment_handoffs SET used_at=now() WHERE id=$1',[item.id])
       return c.json({
         tenantId:item.tenant_id,
@@ -118,6 +122,7 @@ export async function issueEnvironmentTicket(tenantId,userId,environment,{source
     [tenantId,environment],
   )
   if (!item.rowCount) throw Error('The environment is not ready.')
+  if(!await permittedTenantEnvironment(tenantId,userId,environment,{db:source})) throw Error('Environment access has not been granted. Ask your organisation administrator.')
   const secret = usableSecret()
   if (secret.length < 32) throw Error('Environment authentication is not configured.')
   const ticket=randomBytes(40).toString('base64url')
