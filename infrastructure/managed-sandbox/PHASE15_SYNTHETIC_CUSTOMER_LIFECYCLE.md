@@ -1,8 +1,10 @@
 # Phase 15 — Synthetic customer lifecycle testing
 
-**Status: isolated owner lifecycle PASSED on rebuilt Phase 14 images; requester
-Portal MFA bug identified and fixed on `develop`, pending a new image build and
-full rerun. This does NOT constitute customer pilot approval.**
+**Status: Phase 15 synthetic owner and requester Portal lifecycle PASSED in
+both disposable UAT and Test environments on immutable published API/ITSM
+revision `10bf85b57e65b29efcebee8e5197f500ec4bebb7`. Verified in GitHub
+Actions and repeated on the authorised VPS on 10 October 2026. This does NOT
+constitute approval to activate a real customer pilot.**
 
 ## What was executed
 
@@ -68,8 +70,32 @@ Source fixes on `develop`:
 - New pure regression tests cover origin-based session selection and
   invitation destinations. **Five passed locally.**
 
-**The requester Portal journey is NOT marked fully passed yet.** It requires
-the next matching green API/ITSM release and a new complete scratch run.
+**Retest result (10 October 2026): PASSED.** The original published image
+was missing a Portal session cookie after successful requester MFA. The fix now
+issues a surface-appropriate, secure host-only Portal cookie for Portal-origin
+login and TOTP verification. New unit coverage checks correct Portal and staff
+cookie separation.
+
+The dedicated [Phase 15 CI run](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38008097115)
+built matching API/ITSM images, passed the complete real-image owner and
+requester synthetic lifecycle, verified scratch cleanup and published immutable
+images tagged `sha-10bf85b57e65b29efcebee8e5197f500ec4bebb7`.
+
+The same two immutable image tags were pulled onto the authorised VPS and
+exercised against independently created internal UAT and Test PostgreSQL, Redis,
+API, frontend and SMTP containers, without using compatibility overrides or
+published ports. Both environments passed actual one-time invitation delivery,
+MFA challenge and TOTP setup, requester Portal sessions, no staff access or
+invite permission, cross-environment cookie denial, approval revocation and
+tenant suspension. Both harnesses printed
+`PHASE15_SYNTHETIC_CUSTOMER_LIFECYCLE: PASS` and
+`PHASE14_SYNTHETIC_RUNTIME_SMOKE: PASS`, exiting 0.
+
+Post-run verification found no `hi5-p14-*` or `hi5-p15-*` containers or
+networks. The live Dev API remained on `3307da9`; Production and legacy UAT/Test
+containers stayed healthy. Four representative unapproved customer/API
+hostnames continued returning HTTP 404. Test email delivery was to isolated
+disposable SMTP only, not an external customer inbox.
 
 ## Repeat commands (authorised test host only)
 
