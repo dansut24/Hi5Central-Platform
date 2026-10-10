@@ -16,7 +16,7 @@ const goodEnv={
   API_URL:'https://pilot-control-api.hi5central.com',
   POSTGRES_USER:'pilot_user_a',POSTGRES_DB:'pilot_control_db',
   POSTGRES_PASSWORD:secret('a'),REDIS_PASSWORD:secret('b'),
-  MFA_ENCRYPTION_KEY:secret('c'),POSTGRES_IMAGE:image('postgres'),
+  MFA_ENCRYPTION_KEY:secret('c'),CONNECT_CODE_HMAC_KEY:secret('d'),POSTGRES_IMAGE:image('postgres'),
   REDIS_IMAGE:image('redis'),API_IMAGE:apiImage,
   ADMIN_IMAGE:'ghcr.io/dansut24/hi5central-platform-admin@sha256:'+digest,
   DATABASE_URL:'postgresql://pilot_user_a:'+secret('a')+'@postgres:5432/pilot_control_db',
@@ -48,6 +48,7 @@ test('cannot target Dev/Live data, use broad cookie or reuse same secrets',()=>{
     {REDIS_URL:'redis://:'+secret('b')+'@legacy-redis:6379/0'},
     {REDIS_PASSWORD:secret('a')},
     {MFA_ENCRYPTION_KEY:'REPLACE_MFA_SECRET'},
+    {CONNECT_CODE_HMAC_KEY:''},
     {API_IMAGE:'ghcr.io/dansut24/hi5central-platform-api:dev'},
   ]
   for(const override of scenarios){
