@@ -161,10 +161,10 @@ const reservations=sql(`SELECT e.provisioning_status FROM tenant_environment_ins
 assert.ok(!reservations.split('\\n').includes('ready'),
   'Managed customer UAT must not silently become a provisioned runtime')
 console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, one Custom-only UAT queue)')
-assert.equal(custom.onboarding.uatQueued,true)
-assert.equal(custom.onboarding.productionActivated,false)
-assert.equal(custom.onboarding.invitationSent,false)
-assert.equal(managed.onboarding.uatQueued,false)
+assert.equal(custom.data.onboarding.uatQueued,true)
+assert.equal(custom.data.onboarding.productionActivated,false)
+assert.equal(custom.data.onboarding.invitationSent,false)
+assert.equal(managed.data.onboarding.uatQueued,false)
 const customId=custom.data.tenant.id
 assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`,
   {email:'not-an-email',name:'Owner'},cookie).status,400,
