@@ -1,4 +1,7 @@
 import { originMatchesPortalTenant, originMatchesTenant } from './deploymentConfig.js'
+import { hasPermission } from './access.js'
+import { deployment } from './deploymentConfig.js'
+import { effectiveTenantLiveChatEnabled } from './tenantFeatureRollouts.js'
 import { pool } from './db.js'
 import { liveChatServiceWindow } from './liveChatServiceWindow.js'
 import { resolveSession } from './session.js'
@@ -26,7 +29,9 @@ async function requirePortal(c) {
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
   if (!portalOrigin(c, session)) return { error: c.json({ error: 'Portal session mismatch.' }, 403) }
-  if (session.tenant_role !== 'requester') return { error: c.json({ error: 'Requester Portal access is required.' }, 403) }
+  if (!hasPermission(session.access, 'portal.access')) return { error: c.json({ error: 'Requester Portal access is required.' }, 403) }
+  const enabled = await effectiveTenantLiveChatEnabled(session.tenant_id, deployment.runtimeEnvironment)
+  if (enabled === false) return { error: c.json({ error: 'Live Chat is not enabled for this environment.' }, 403) }
   return { session }
 }
 
@@ -200,7 +205,8 @@ export function registerLiveChatPresenceRoutes(app) {
   app.get('/api/v1/portal/live-chat-presence', async (c) => {
     const auth = await requirePortal(c)
     if (auth.error) return auth.error
-    const enabled = await portalLiveChatEnabled(pool, auth.session.tenant_id, auth.session.user_id)
+    const enabled = auth.session.tenant_role === 'owner'
+      || await portalLiveChatEnabled(pool, auth.session.tenant_id, auth.session.user_id)
     if (!enabled) return c.json({ enabled: false, status: 'Offline', online: 0, away: 0, offline: 0, available: false })
     const support = await liveChatSupportAvailability(pool, auth.session.tenant_id)
     return c.json({ enabled: true, ...support })
@@ -210,7 +216,8 @@ export function registerLiveChatPresenceRoutes(app) {
     if (c.req.method !== 'POST') return next()
     const auth = await requirePortal(c)
     if (auth.error) return auth.error
-    const enabled = await portalLiveChatEnabled(pool, auth.session.tenant_id, auth.session.user_id)
+    const enabled = auth.session.tenant_role === 'owner'
+      || await portalLiveChatEnabled(pool, auth.session.tenant_id, auth.session.user_id)
     if (!enabled) return next()
     const support = await liveChatSupportAvailability(pool, auth.session.tenant_id)
     if (!support.available) {
