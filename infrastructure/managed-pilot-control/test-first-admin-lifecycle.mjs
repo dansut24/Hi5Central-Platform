@@ -166,6 +166,23 @@ assert.equal(custom.onboarding.productionActivated,false)
 assert.equal(custom.onboarding.invitationSent,false)
 assert.equal(managed.onboarding.uatQueued,false)
 const customId=custom.data.tenant.id
+assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`,
+  {email:'not-an-email',name:'Owner'},cookie).status,400,
+  'Invalid first-owner contacts must be rejected')
+sql(`DELETE FROM tenant_initial_owner_onboarding_intents WHERE tenant_id='${customId}'`)
+const restored=call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`,
+  {email:'repaired-owner@example.invalid',name:'Repaired Customer Owner'},cookie)
+assert.equal(restored.status,200,JSON.stringify(restored.data))
+assert.equal(restored.data.invitationSent,false)
+assert.equal(restored.data.accessGranted,false)
+assert.equal(sql(`SELECT owner_email FROM tenant_initial_owner_onboarding_intents
+ WHERE tenant_id='${customId}'`).split('\\n').at(-1),'repaired-owner@example.invalid')
+sql(`UPDATE tenant_initial_owner_onboarding_intents
+ SET status='invitation_sent' WHERE tenant_id='${customId}'`)
+assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`,
+ {email:'attacker@example.invalid',name:'Attacker'},cookie).status,409,
+ 'Once invited the owner cannot be silently replaced')
+
 const noUatPush=call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
   {keys:['theme']},cookie)
 assert.equal(noUatPush.status,409,
