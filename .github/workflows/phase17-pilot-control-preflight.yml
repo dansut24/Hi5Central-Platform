@@ -150,7 +150,13 @@ jobs:
             admin:
               image: ghcr.io/dansut24/hi5central-platform-admin:sha-${GITHUB_SHA}
           EOF
-          docker compose --env-file runtime.env -f compose.yml -f ci.override.yml up -d --wait --wait-timeout 180
+          if ! docker compose --env-file runtime.env -f compose.yml -f ci.override.yml up -d --wait --wait-timeout 180; then
+            echo 'Disposable first-admin integration startup failed. Safe migration diagnostic lines:'
+            docker logs hi5central-pilot-control-migrate-1 2>&1 \
+              | grep -Ei 'Applying migration|error|failure|syntax|constraint|duplicate|invalid|refus' \
+              | tail -35 | cut -c1-220 || true
+            exit 1
+          fi
           GITHUB_ACTIONS=true HI5_PILOT_DISPOSABLE_CI=1 node test-first-admin-lifecycle.mjs --run --confirm CI_ONLY_FAKE_APPROVALS
           echo 'The first-admin synthetic pilot project will now be removed including volumes.'
       - uses: docker/login-action@v3
