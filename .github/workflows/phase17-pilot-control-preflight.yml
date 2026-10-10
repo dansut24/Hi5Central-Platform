@@ -25,6 +25,7 @@ on:
       - 'services/api/src/releaseOperator.js'
       - 'services/api/tests/customerUpdatePolicy.test.mjs'
       - 'services/api/migrations/platform-admin/143_customer_update_onboarding.sql'
+      - 'services/api/migrations/platform-admin/144_tenant_owner_onboarding_intent.sql'
       - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
       - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.css'
