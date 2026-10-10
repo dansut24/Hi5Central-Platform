@@ -276,7 +276,7 @@ assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE id='${
 assert.equal(call('POST','/api/platform/v1/tenants',draft,cookie).status,409)
 assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
   JOIN tenants t ON t.id=q.tenant_id WHERE t.slug='${requestedSlug}'
-  AND q.environment='uat'`).split('\\n').at(-1),'1')
+  AND q.environment='uat'`).split('\\n').at(-1),'0')
 assert.equal(sql(`SELECT count(*) FROM tenant_memberships m
   JOIN tenants t ON t.id=m.tenant_id WHERE t.slug='${requestedSlug}'`).split('\\n').at(-1),'0')
 console.log('PHASE25_SIGNUP_TO_ADMIN_REVIEW: PASS (verified identity, one-time pending tenant, no early UAT or update policy)')
