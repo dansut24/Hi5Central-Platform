@@ -60,8 +60,13 @@ function SandboxReleaseOverview() {
   const slug=window.location.hostname.split('.')[0].replace(/-(uat|test)$/, '')
   const liveUrl=`https://${slug}.${config.rootDomain}/settings/platform/releases`
   const [state,setState]=useState({loading:true,error:'',releaseRef:'',lastDeployedAt:null})
+  const [uatLiveChatEnabled,setUatLiveChatEnabled]=useState(null)
   useEffect(()=>{
     let active=true
+    fetch(`${API_BASE}/api/v1/workspace-features`,{credentials:'include',cache:'no-store'})
+      .then(async response=>response.ok?response.json():null)
+      .then(payload=>{if(active)setUatLiveChatEnabled(payload?.liveChatEnabled===true)})
+      .catch(()=>{if(active)setUatLiveChatEnabled(null)})
     tenantReleaseApi().then(payload=>{
       if(!active)return
       const matching=(payload.environments||[]).find(item=>item.environment===environment)
@@ -94,6 +99,12 @@ function SandboxReleaseOverview() {
               : 'No tenant-specific release reference has been recorded here yet.'}</p>
             <small>{state.lastDeployedAt?'Last recorded deployment: '+new Date(state.lastDeployedAt).toLocaleString():'No deployment timestamp recorded'}</small>
           </article>
+        </div>
+        <div className="hi5-release-sandbox-guidance">
+          <strong>Tenant feature validation</strong>
+          <p><strong>Live Chat:</strong> {uatLiveChatEnabled===null?'Checking environment policy…':
+            uatLiveChatEnabled?'Enabled for this environment':'Not enabled by this organisation’s release policy'}</p>
+          <small>Feature access is separate from the application version displayed above. Test changes in this environment; approve promotion from Live.</small>
         </div>
         {state.error?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{state.error}</p>:null}
         <div className="hi5-release-sandbox-guidance">
