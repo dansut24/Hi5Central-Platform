@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {generateKeyPairSync,randomBytes,sign} from 'node:crypto'
 import {
-  pilotBootstrapEnabled,validatePilotAdminIdentity,verifyPilotBootstrapPair,
+  pilotBootstrapEnabled,pilotSingleOwnerBootstrapEnabled,
+  validatePilotAdminIdentity,verifyPilotBootstrapPair,
   bootstrapToken,bootstrapHash,
 } from '../src/pilotAdminBootstrap.js'
 const scopeId='11111111-1111-4111-8111-111111111111'
@@ -96,4 +97,36 @@ test('invitation redemption cannot create a privileged password-only session',as
   assert.match(src,/pilotBootstrapEnabled\(\)/)
   assert.match(src,/identity.instance_id!==scope.scope_id/)
   assert.match(src,/counts.users!==0\|\|counts.admins!==0\|\|counts.tenants!==0/)
+})
+
+test('single-owner pilot needs exactly scoped enablement and explicit consent, never a second person',()=>{
+ const solo={...env,PILOT_ADMIN_APPROVAL_MODE:'single_owner',
+   PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED:'true'}
+ assert.equal(pilotSingleOwnerBootstrapEnabled(solo),true)
+ for(const patch of [
+  {PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED:'false'},
+  {PILOT_ADMIN_APPROVAL_MODE:'dual_control'},
+  {PILOT_ADMIN_APPROVAL_MODE:''},
+  {PLATFORM_ADMIN_MFA_REQUIRED:'false'},
+  {RUNTIME_ENVIRONMENT:'dev'},
+  {TENANCY_MODE:'single'},
+  {API_URL:'https://api.hi5central.com'},
+  {COOKIE_DOMAIN:'.hi5central.com'},
+ ]){
+  assert.equal(pilotSingleOwnerBootstrapEnabled({...solo,...patch}),false,JSON.stringify(patch))
+ }
+})
+test('single-owner issuer still requires operator confirmation, one-time email token and scoped SMTP',async()=>{
+ const {readFileSync}=await import('node:fs')
+ const src=readFileSync(new URL('../scripts/pilot-admin-bootstrap.mjs',import.meta.url),'utf8')
+ assert.match(src,/verifyPilotAdminRecipientFile/)
+ assert.match(src,/pilotSingleOwnerBootstrapEnabled/)
+ assert.match(src,/CONFIRM_PILOT_ADMIN_BOOTSTRAP/)
+ assert.match(src,/SMTP_PASSWORD/)
+ assert.match(src,/sendPilotAdminBootstrapInvitationEmail/)
+ assert.match(src,/singleOwner\?'single_owner':'dual_control'/)
+ const api=readFileSync(new URL('../src/platformAdmin.js',import.meta.url),'utf8')
+ assert.match(api,/identity\.verified_by==='pilot-single-owner-email-link'/)
+ assert.match(api,/invitation\.approval_mode==='single_owner'/)
+ assert.match(api,/sessionCreated:false/)
 })
