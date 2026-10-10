@@ -817,7 +817,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
               {!SELF_HOSTED ? <div className="onboarding-integration-note onboarding-finish-note">
-                <CheckCircle2 size={16} />
+                <Check size={16} />
                 <span>Your Test and UAT environments will be prepared automatically when you finish onboarding. Access them securely from <strong>Settings → Releases &amp; environments</strong> in your Live workspace; your administrators control UAT-to-Live promotions when Custom updates are selected.</span>
               </div> : null}
               <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'}</span></div>
