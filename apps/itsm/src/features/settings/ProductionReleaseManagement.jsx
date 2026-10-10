@@ -56,6 +56,7 @@ function EnvironmentCard({ item, onReset, busy }) {
 export function ProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
+  const [platformAvailable,setPlatformAvailable]=useState(false)
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState('')
@@ -66,11 +67,19 @@ export function ProductionReleaseManagement() {
   async function load() {
     setError('')
     try {
-      const [payload,tenantState]=await Promise.all([releaseApi('/overview'),tenantReleaseApi()])
-      setData(payload)
+      const [platformResult,tenantResult]=await Promise.allSettled([releaseApi('/overview'),tenantReleaseApi()])
+      if(tenantResult.status!=='fulfilled') throw tenantResult.reason
+      const tenantState=tenantResult.value
       setTenantEnvironments(tenantState?.environments || [])
-      if(payload?.deploymentPolicy)setPolicy(payload.deploymentPolicy)
-      else if(tenantState?.preference)setPolicy(tenantState.preference)
+      if(platformResult.status==='fulfilled') {
+        setData(platformResult.value)
+        setPlatformAvailable(true)
+        setPolicy(platformResult.value?.deploymentPolicy || tenantState.preference)
+      } else {
+        setPlatformAvailable(false)
+        setData({environments:[],features:[],changes:[],actions:[]})
+        if(tenantState?.preference)setPolicy(tenantState.preference)
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -107,11 +116,12 @@ export function ProductionReleaseManagement() {
         allowEmergencySecurityUpdates:next.allowEmergencySecurityUpdates!==false,
         maintenanceWindow:next.maintenanceWindow||{},
       }
-      const [deploymentResult]=await Promise.all([
-        releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)}),
-        tenantReleaseApi('/preferences',{method:'PATCH',body:JSON.stringify(payload)}),
-      ])
-      if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
+      const tenantResult=await tenantReleaseApi('/preferences',{method:'PATCH',body:JSON.stringify(payload)})
+      if(tenantResult?.preference)setPolicy(tenantResult.preference)
+      if(platformAvailable) {
+        const deploymentResult=await releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)})
+        if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
+      }
     },nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.')
   }
 
@@ -210,6 +220,7 @@ export function ProductionReleaseManagement() {
       </div>
     </section>
 
+    {platformAvailable ? (
     <section className="production-settings-panel">
       <header><div><h2>Release environments</h2><p>Test everything safely, validate selected features in UAT, then explicitly promote approved changes to Live.</p></div><button className="hi5-release-refresh" onClick={load} type="button"><RefreshCw size={15}/>Refresh</button></header>
       <div className="production-settings-panel-body">
@@ -223,11 +234,14 @@ export function ProductionReleaseManagement() {
         </div>
       </div>
     </section>
+    ) : null}
 
     <section className="production-settings-panel">
       <header><div><h2>Your organisation environments</h2><p>Live, UAT and Test use tenant-isolated records. Each sandbox shares the relevant environment's application infrastructure, not a separate installation.</p></div>
         <button disabled={Boolean(busy)} onClick={provisionEnvironments} type="button"><RefreshCw size={15}/>Provision / retry</button></header>
       <div className="production-settings-panel-body">
+        {error?<div className="hi5-release-message is-error"><CircleAlert size={16}/>{error}</div>:null}
+        {message?<div className="hi5-release-message is-success"><CheckCircle2 size={16}/>{message}</div>:null}
         <div className="hi5-release-env-grid">
           {['test','uat','live'].map(name=>{
             const env=tenantEnvironments.find(item=>item.environment===name)
@@ -243,6 +257,7 @@ export function ProductionReleaseManagement() {
       </div>
     </section>
 
+    {platformAvailable ? (
     <section className="production-settings-panel">
       <header><div><h2>Feature activation</h2><p>Test is always enabled for your edition. UAT and Live switches are controlled independently.</p></div></header>
       <div className="production-settings-panel-body">
@@ -258,7 +273,9 @@ export function ProductionReleaseManagement() {
         </div>:<div className="hi5-release-empty">No feature-gated changes are currently published for this installation.</div>}
       </div>
     </section>
+    ) : null}
 
+    {platformAvailable ? (
     <section className="production-settings-panel">
       <header><div><h2>Changes</h2><p>Every change keeps independent Test and UAT evidence. Only UAT-passed items can be selected for Live.</p></div>
         <div className="hi5-release-toolbar"><button disabled={!uatSelection.length||Boolean(busy)} onClick={sendToUat} type="button"><GitBranch size={15}/>Send selected to UAT ({uatSelection.length})</button><button className="is-primary" disabled={!liveSelected.length||Boolean(busy)} onClick={pushLive} type="button"><ShieldCheck size={15}/>Push selected to Live ({liveSelected.length})</button></div>
@@ -283,7 +300,9 @@ export function ProductionReleaseManagement() {
         {!data.changes.length?<div className="hi5-release-empty">No Hi5Central release changes are waiting for validation.</div>:null}
       </div>
     </section>
+    ) : null}
 
+    {platformAvailable ? (
     <section className="production-settings-panel">
       <header><div><h2>Deployment actions</h2><p>Reset and promotion jobs are executed by the isolated Hi5Central Release Operator, not by the web application.</p></div></header>
       <div className="production-settings-panel-body">
@@ -293,5 +312,6 @@ export function ProductionReleaseManagement() {
         </div>
       </div>
     </section>
+    ) : null}
   </div>
 }
