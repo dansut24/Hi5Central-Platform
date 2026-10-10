@@ -1439,6 +1439,47 @@ export function registerPlatformAdminRoutes(app) {
     return c.json({ items: result.rows })
   })
 
+  // Existing tenant registrations may have no onboarding contact. Repair the
+  // reservation without creating a user or bypassing operator approval.
+  app.post('/api/platform/v1/tenants/:id/onboarding-owner',async(c)=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    const tenantId=clean(c.req.param('id'),80)
+    if(!/^[0-9a-f-]{36}$/i.test(tenantId))
+      return c.json({error:'Valid tenant ID required.'},400)
+    const body=await c.req.json().catch(()=>null)
+    const email=normaliseEmail(body?.email)
+    const name=clean(body?.name,120)
+    if(!validEmail(email)||name.length<2)
+      return c.json({error:'A valid first-owner email and full name are required.'},400)
+    return withTransaction(async db=>{
+      const tenant=(await db.query(
+        'SELECT id,slug,status FROM tenants WHERE id=$1 FOR UPDATE',[tenantId])).rows[0]
+      if(!tenant)return c.json({error:'Tenant not found.'},404)
+      if(tenant.status==='closed'||tenant.status==='suspended')
+        return c.json({error:'This customer is not eligible for onboarding.'},409)
+      const current=(await db.query(
+        'SELECT status FROM tenant_initial_owner_onboarding_intents WHERE tenant_id=$1 FOR UPDATE',[tenantId])).rows[0]
+      if(current && !['awaiting_environment','pending_operator_approval'].includes(current.status))
+        return c.json({error:'An owner invitation was already issued. Independent review is required.'},409)
+      const owner=await db.query(
+        "SELECT 1 FROM tenant_memberships WHERE tenant_id=$1 AND role='owner' LIMIT 1",[tenantId])
+      if(owner.rowCount)return c.json({error:'This tenant already has an owner.'},409)
+      await db.query(`INSERT INTO tenant_initial_owner_onboarding_intents
+        (tenant_id,owner_email,owner_name,status,requested_by)
+        VALUES($1,$2,$3,'awaiting_environment',$4)
+        ON CONFLICT(tenant_id) DO UPDATE SET
+          owner_email=EXCLUDED.owner_email,owner_name=EXCLUDED.owner_name,
+          status='awaiting_environment',requested_by=EXCLUDED.requested_by,
+          updated_at=now()`,
+        [tenantId,email,name,auth.session.user_id])
+      await audit(c,auth.session,'tenant.initial_owner.onboarding_requested',
+        'tenant',tenantId,{email,invitationSent:false},db)
+      return c.json({status:'awaiting_environment',email,name,
+        invitationSent:false,accessGranted:false})
+    })
+  })
+
   // Read-only, customer-scoped guard. Platform-wide release promotions are
   // NOT the same as promoting one customer's UAT configuration.
   app.post('/api/platform/v1/tenants/:id/config-promotions/preflight',async(c)=>{
