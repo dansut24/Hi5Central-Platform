@@ -236,13 +236,13 @@ sql(`INSERT INTO managed_public_signup_requests
   'verified',now())`)
 const inbox=call('GET','/api/platform/v1/signup-requests',null,cookie)
 assert.equal(inbox.status,200)
-const request=inbox.data.items.find(item=>item.tenant_slug===requestedSlug)
-assert.ok(request)
-assert.equal(request.status,'verified')
-const draft={companyName:request.company_name,slug:request.tenant_slug,
-  ownerName:request.owner_name,ownerEmail:request.owner_email,
-  modules:request.modules,updateMode:'admin_controlled',customerUatOptIn:true,
-  signupRequestId:request.id}
+const signupRequest=inbox.data.items.find(item=>item.tenant_slug===requestedSlug)
+assert.ok(signupRequest)
+assert.equal(signupRequest.status,'verified')
+const draft={companyName:signupRequest.company_name,slug:signupRequest.tenant_slug,
+  ownerName:signupRequest.owner_name,ownerEmail:signupRequest.owner_email,
+  modules:signupRequest.modules,updateMode:'admin_controlled',customerUatOptIn:true,
+  signupRequestId:signupRequest.id}
 const tampered=call('POST','/api/platform/v1/tenants',{
   ...draft,ownerEmail:'attacker@example.invalid'
 },cookie)
@@ -253,7 +253,7 @@ assert.equal(approved.status,201,JSON.stringify(approved.data))
 assert.equal(approved.data.onboarding.uatQueued,true)
 assert.equal(approved.data.onboarding.invitationSent,false)
 assert.equal(approved.data.onboarding.productionActivated,false)
-assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE id='${request.id}'`).split('\\n').at(-1),'converted')
+assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE id='${signupRequest.id}'`).split('\\n').at(-1),'converted')
 assert.equal(call('POST','/api/platform/v1/tenants',draft,cookie).status,409)
 assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
   JOIN tenants t ON t.id=q.tenant_id WHERE t.slug='${requestedSlug}'
