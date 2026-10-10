@@ -70,9 +70,9 @@ try{
       bootstrapAuthorized:false},null,2))
   }else{
     if(active)throw new Error('An unexpired owner invitation already exists; never replace it.')
-    verifyPilotAdminRecipientFile(required('PILOT_ADMIN_RECIPIENT_FILE'),
-      {email,scopeId})
     const singleOwner=process.env.PILOT_ADMIN_APPROVAL_MODE==='single_owner'
+    verifyPilotAdminRecipientFile(required('PILOT_ADMIN_RECIPIENT_FILE'),
+      {email,scopeId,approvalMode:singleOwner?'single_owner':'dual_control'})
     let approvals
     if(singleOwner){
       if(!pilotSingleOwnerBootstrapEnabled(process.env))
