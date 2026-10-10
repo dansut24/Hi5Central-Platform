@@ -1,5 +1,52 @@
 # Phase 16 — controlled customer activation gate
 
+## Increment 2 — cryptographically signed activation approvals (10 October 2026)
+
+**PASS in isolated GitHub Actions; NOT approved for real customer activation.**
+[Phase 16 signed approval CI](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38009157834)
+completed with exit 0 and verified the disposable PostgreSQL and UAT/Test
+Redis services were removed. No customer domains, running Dev deployment,
+Production, or legacy UAT/Test environments were changed.
+
+The privileged `tenant-environment-activate.mjs` mutation modes
+(`--approve`, `--activate`, `--suspend`) now require:
+- A trusted Ed25519 **public-key registry file** provisioned out-of-band via
+  `SANDBOX_OPERATOR_TRUST_FILE`. The file is versioned, not group/other
+  writable, contains distinct principal identifiers/key IDs and refuses
+  duplicated public-key fingerprints. No private signing key is held in the
+  application database or source repository.
+- Two separate signed assertions supplied as
+  `ACTIVATION_ACTOR_ATTESTATION` and
+  `ACTIVATION_REVIEWER_ATTESTATION`. The actor and reviewer must possess
+  distinct trusted signing keys. Approval actors require the `operator`
+  role; activating actors require `executor`; reviewers require `reviewer`.
+- Assertions with the fixed audience
+  `hi5central-managed-sandbox-activation`, explicit action, signer ID, role,
+  customer slug, environment, control-plane request UUID, local tenant UUID,
+  DB UUID, Redis UUID, unique nonce, issue timestamp and expiry (at most
+  five minutes). Invalid, out-of-window, modified or cross-environment
+  assertions fail closed **before a database mutation**.
+- A signed approval audit and a separate activation executor distinct
+  from both initial approvers. Legacy unsigned approval audit entries
+  **cannot** authorise new activations. Migration
+  `140_managed_operator_evidence.sql` stores only one-use SHA-256 evidence
+  digests and public key identifiers; the signed assertions and private keys
+  are not stored in tenant data.
+
+GitHub Actions generates a fresh Ed25519 key pair for each synthetic role,
+never stores private keys in Git, and verifies that missing, stale, tampered,
+wrong-role and incorrectly scoped assertions cannot approve activation. It
+also verifies valid approvals and subsequent activation/suspension.
+
+**Important remaining trust requirements:** The registry is a trusted input,
+not proof of real-world identity. Platform security must enrol and verify
+actual named operators separately (prefer hardware-backed keys / enterprise
+IdP), restrict who can modify the trusted registry and database credentials,
+retain out-of-band signed approval receipts, rotate/revoke keys, and prove
+custody and two-person separation. A caller who can substitute the trusted
+registry and hold direct database write access is outside the protections
+of this first iteration. No self-service or public pilot activation is enabled.
+
 ## Increment 1 — first-owner invitation cancellation (10 October 2026)
 
 **PASS in isolated GitHub Actions, NOT activated for customers.**
