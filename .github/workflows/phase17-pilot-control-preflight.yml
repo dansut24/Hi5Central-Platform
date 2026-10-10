@@ -12,6 +12,8 @@ on:
       - 'services/api/migrations/platform-admin/141_platform_admin_mfa.sql'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
       - 'services/api/src/pilotAdminBootstrap.js'
+      - 'services/api/Dockerfile'
+      - 'services/api/package.json'
       - 'services/api/scripts/pilot-admin-bootstrap.mjs'
       - 'services/api/scripts/pilot-admin-bootstrap-sign.mjs'
       - 'services/api/tests/pilotAdminBootstrap.test.mjs'
@@ -139,6 +141,10 @@ jobs:
             docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
               --tag "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}" "$context"
           done
+          docker run --rm --network none \
+            --entrypoint node "ghcr.io/dansut24/hi5central-platform-api:sha-${GITHUB_SHA}" \
+            --check dist/pilot-admin-bootstrap.mjs
+          echo "Pilot issuer packaged and syntax checked without contacting live databases"
       - name: Disposable real-API first Admin invite and MFA lifecycle
         working-directory: infrastructure/managed-pilot-control
         shell: bash
