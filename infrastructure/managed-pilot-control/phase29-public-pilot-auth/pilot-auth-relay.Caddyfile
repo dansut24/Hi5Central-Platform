@@ -1,0 +1,55 @@
+{
+  admin off
+}
+
+# Private pilot relay: no published ports, no public DNS, no direct
+# Production networks. Used only behind a separately reviewed HTTPS gateway.
+:8080 {
+  encode zstd gzip
+  reverse_proxy hi5-pilot-control-admin:80
+  header {
+    Cache-Control "no-store"
+    Referrer-Policy "no-referrer"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    -Server
+  }
+}
+
+# Narrowly scoped pilot API. No customer CRUD, device, agent, private
+# provisioning, public signup, or internal control-plane routes.
+:8081 {
+  @firstAdminAuth {
+    path /api/platform/v1/auth/*
+    method GET POST OPTIONS
+  }
+  handle @firstAdminAuth {
+    reverse_proxy hi5-pilot-control-api:3001
+  }
+
+  @signupReview {
+    path /api/platform/v1/signup-requests
+    method GET OPTIONS
+  }
+  handle @signupReview {
+    reverse_proxy hi5-pilot-control-api:3001
+  }
+
+  @tenantReadOnly {
+    path /api/platform/v1/tenants
+    method GET OPTIONS
+  }
+  handle @tenantReadOnly {
+    reverse_proxy hi5-pilot-control-api:3001
+  }
+
+  handle {
+    respond "Not found" 404
+  }
+  header {
+    Cache-Control "no-store"
+    Referrer-Policy "no-referrer"
+    X-Content-Type-Options "nosniff"
+    -Server
+  }
+}
