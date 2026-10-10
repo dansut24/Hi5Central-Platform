@@ -1107,7 +1107,7 @@ export function ProductionWorkspaceBootstrap() {
           <div role="alert" className="production-auth-environment-error">
             {environmentAccessError} Ask your organisation administrator to enable UAT/Test in People.
           </div>
-        ) : null
+        ) : null}
         <ProductionIdentityBridge session={serverSession} />
         {settingsOpen ? (
           <ProductionSettingsLayer
