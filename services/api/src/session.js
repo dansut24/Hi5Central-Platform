@@ -171,6 +171,8 @@ function deleteNamedCookie(c, name) { deleteCookie(c, name, cookieOptions()) }
 
 export function setSessionCookie(c, token, maxAge = DEFAULT_SESSION_TTL_SECONDS) { writeCookie(c, COOKIE_NAME, token, maxAge) }
 export function setPortalSessionCookie(c, token, maxAge = DEFAULT_SESSION_TTL_SECONDS) { writeCookie(c, PORTAL_COOKIE_NAME, token, maxAge) }
+// Login, MFA and session resolution must use the same request-surface cookie.
+export function setRequestSessionCookie(c, token, maxAge = DEFAULT_SESSION_TTL_SECONDS) { writeCookie(c, requestCookieName(c), token, maxAge) }
 export function clearSessionCookie(c) { deleteNamedCookie(c, COOKIE_NAME) }
 export function clearPortalSessionCookie(c) { deleteNamedCookie(c, PORTAL_COOKIE_NAME) }
 
