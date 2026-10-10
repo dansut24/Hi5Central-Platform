@@ -59,6 +59,12 @@ jobs:
       - name: Compile the ITSM customer onboarding wizard
         run: |
           docker build --tag hi5central-itsm-onboarding-syntax:${GITHUB_SHA} apps/itsm
+      - name: Syntax-check disposable Production shadow rehearsal (never executed in CI)
+        run: |
+          sh -n infrastructure/managed-pilot-control/phase22-shadow/phase22-env.sh
+          sh -n infrastructure/managed-pilot-control/phase22-shadow/phase22-shadow-rehearsal.sh
+          sh -n infrastructure/managed-pilot-control/phase22-shadow/phase22-api-rehearsal.sh
+          node --check infrastructure/managed-pilot-control/phase22-shadow/phase22-shadow-readonly.mjs
       - name: Render disposable pilot control topology (no Docker containers started)
         working-directory: infrastructure/managed-pilot-control
         shell: bash
