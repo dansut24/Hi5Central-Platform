@@ -67,6 +67,7 @@ const stepMeta = {
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
+  updates: { label: 'Hi5Central updates', icon: MonitorCog, description: 'Select how your organisation receives Hi5Central application releases.' },
   itsm: { label: 'ITSM setup', icon: Wrench, description: 'Configure records, service desk defaults, portal and notifications.' },
   rmm: { label: 'RMM setup', icon: MonitorCog, description: 'Set the first device-management defaults.' },
   finish: { label: 'Review', icon: Sparkles, description: 'Review the tenant before opening Hi5Central.' },
@@ -80,6 +81,7 @@ function sequenceFor(modules = {}) {
     'groups',
     'permissions',
     'security',
+    'updates',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
     'finish',
@@ -139,6 +141,7 @@ function defaultData(step, session) {
       passwordPolicy: 'strong',
       auditRetention: '365',
     },
+    updates: { updateMode: SELF_HOSTED ? 'admin_controlled' : 'hi5_managed', liveDelayHours: 24, allowEmergencySecurityUpdates: true },
     itsm: {
       numberingMode: 'default',
       recordPrefixes: { ...defaultPrefixes },
@@ -445,6 +448,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
+  const savedUpdates = session?.onboarding?.data?.updates || {}
   const defaultWorkspaceAddress = session?.tenant?.tenantUrl
     || DEPLOYMENT.appUrl
     || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
@@ -688,6 +692,24 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
+          {viewStep === 'updates' ? (
+            <Section title="Hi5Central web updates" description="Choose how new Hi5Central platform releases are deployed, independently of device and software patching.">
+              <div className="onboarding-segmented" role="group" aria-label="Release management">
+                <button type="button" className={data.updateMode === 'hi5_managed' ? 'is-selected' : ''} onClick={() => update('updateMode', 'hi5_managed')}>Hi5Central managed</button>
+                <button type="button" className={data.updateMode !== 'hi5_managed' ? 'is-selected' : ''} onClick={() => update('updateMode', 'admin_controlled')}>Custom / admin controlled</button>
+              </div>
+              <p>{data.updateMode === 'hi5_managed'
+                ? 'Hi5Central stages releases through Test and UAT before scheduled promotion to Live.'
+                : 'Your administrators control when updates are staged and promoted to Live.'}</p>
+              {data.updateMode === 'hi5_managed' ? (
+                <Field label="Live release delay (hours)" hint="0 to 720 hours after an eligible staged release.">
+                  <input type="number" min="0" max="720" value={data.liveDelayHours ?? 24} onChange={(event) => update('liveDelayHours', Number(event.target.value))} />
+                </Field>
+              ) : null}
+              <Toggle checked={data.allowEmergencySecurityUpdates !== false} onChange={(value) => update('allowEmergencySecurityUpdates', value)} title="Allow emergency security updates" description="Permit critical Hi5Central security fixes outside the normal rollout window." />
+            </Section>
+          ) : null}
+
           {viewStep === 'itsm' ? (
             <>
               <Section title="Record numbering" description="Use Hi5Central defaults or choose your own prefixes for records created in this tenant.">
@@ -783,6 +805,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <div className="onboarding-summary onboarding-summary-expanded">
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
+                <div><span>Hi5Central updates</span><strong>{savedUpdates.updateMode === 'hi5_managed' ? 'Hi5Central managed' : 'Custom / admin controlled'}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
                 <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
                 <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
@@ -809,7 +832,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 onClick={viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
                 type="button"
               >
-                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Continue'}
+                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Next'}
                 {!saving ? <ArrowRight size={17} /> : null}
               </button>
             </div>

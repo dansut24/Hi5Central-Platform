@@ -60,6 +60,49 @@ async function ensurePreference(tenantId) {
   )
 }
 
+export async function persistOnboardingUpdatePreference(client, { tenantId, userId, data }) {
+  const updateMode = String(data?.updateMode || '').toLowerCase()
+  if (!['admin_controlled', 'hi5_managed'].includes(updateMode)) {
+    const error = new Error('Choose Hi5Central managed or customer-controlled updates.')
+    error.status = 400
+    throw error
+  }
+  if (updateMode === 'hi5_managed' && deployment.deploymentMode === 'self_hosted'
+    && !String(process.env.RELEASE_SIGNING_PUBLIC_KEY_PEM || process.env.LICENSING_PUBLIC_KEY_PEM || '').trim()) {
+    const error = new Error('A trusted Hi5Central release-signing key is required before managed updates can be enabled.')
+    error.status = 409
+    throw error
+  }
+  const liveDelayHours = data?.liveDelayHours == null ? 24 : Number(data.liveDelayHours)
+  if (!Number.isInteger(liveDelayHours) || liveDelayHours < 0 || liveDelayHours > 720) {
+    const error = new Error('Choose a Live release delay between 0 and 720 hours.')
+    error.status = 400
+    throw error
+  }
+  const managed = updateMode === 'hi5_managed'
+  await client.query(
+    `INSERT INTO tenant_release_preferences
+       (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,live_delay_hours,allow_emergency_security_updates,updated_by,updated_at)
+     VALUES ($1,$2,true,$3,$4,$5,$6,$7,now())
+     ON CONFLICT (tenant_id) DO UPDATE SET
+       update_mode=excluded.update_mode,
+       test_auto_sync=excluded.test_auto_sync,
+       uat_auto_stage=excluded.uat_auto_stage,
+       live_auto_promote=excluded.live_auto_promote,
+       live_delay_hours=excluded.live_delay_hours,
+       allow_emergency_security_updates=excluded.allow_emergency_security_updates,
+       updated_by=excluded.updated_by,
+       updated_at=now()`,
+    [tenantId, updateMode, managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+  )
+  await client.query(
+    `INSERT INTO tenant_environment_state (tenant_id,environment,status)
+     VALUES ($1,'test','available'),($1,'uat','available'),($1,'live','ready')
+     ON CONFLICT (tenant_id,environment) DO NOTHING`,
+    [tenantId],
+  )
+}
+
 export async function tenantReleaseState(tenantId) {
   await ensurePreference(tenantId)
   const [preference, environments] = await Promise.all([

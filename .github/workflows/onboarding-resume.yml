@@ -1,0 +1,75 @@
+name: Onboarding Resume and Release Management
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/**'
+      - 'services/api/test/onboarding-resume-release.mjs'
+      - 'apps/itsm/src/features/onboarding/**'
+      - 'apps/itsm/src/production/ProductionWorkspaceBootstrap.jsx'
+      - '.github/workflows/onboarding-resume.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hi5_onboard_ci
+          POSTGRES_USER: hi5_onboard_ci
+          POSTGRES_PASSWORD: ci_only_password
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_onboard_ci -d hi5_onboard_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+      redis:
+        image: redis:8-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping | grep -q PONG"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_onboard_ci:ci_only_password@localhost:5432/hi5_onboard_ci
+      REDIS_URL: redis://localhost:6379/0
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      MARKETING_URL: https://hi5central.com
+      NODE_ENV: test
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: '1'
+      SMTP_USER: ci-test@example.invalid
+      SMTP_PASSWORD: ci-only-placeholder
+      MFA_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      RMM_RECOVERY_KEY_ENCRYPTION_KEY: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+      TENANT_INSTALLER_HMAC_KEY: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/index.js && node --check src/tenantRelease.js
+      - run: npm run migrate
+      - name: Start API with no background workers
+        run: |
+          node src/index.js >/tmp/hi5-onboarding-api.log 2>&1 &
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3001/live >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          tail -50 /tmp/hi5-onboarding-api.log
+          exit 1
+      - name: Verify persisted onboarding release selection
+        run: node test/onboarding-resume-release.mjs
+      - name: Show startup logs on error
+        if: failure()
+        run: tail -80 /tmp/hi5-onboarding-api.log 2>/dev/null || true
