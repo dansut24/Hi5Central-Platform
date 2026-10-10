@@ -527,10 +527,12 @@ function TenantEditor({ tenant, onSaved }) {
           })}
         </div>}
     <div className="h5a-notice">
-      <strong>Platform updates: {tenant.update_mode==='hi5_managed'?'Managed':'Custom / manual'}</strong>
-      <p>{tenant.update_mode==='hi5_managed'
-        ? 'Hi5Central schedules verified web releases for your selected window. Your own customer UAT is optional.'
-        : 'A separate UAT is required to test and approve each UAT → Production release manually.'}</p>
+      <strong>Platform updates: {tenant.update_selection_pending?'Choose during onboarding':tenant.update_mode==='hi5_managed'?'Managed':'Custom / manual'}</strong>
+      <p>{tenant.update_selection_pending
+        ? 'No update mode or UAT has been selected. The first owner makes this choice during onboarding.'
+        : tenant.update_mode==='hi5_managed'
+          ? 'Hi5Central schedules verified web releases for your selected window. Your own customer UAT is optional.'
+          : 'A separate UAT is required to test and approve each UAT → Production release manually.'}</p>
       {tenant.update_mode==='hi5_managed'&&tenant.update_window?.start
         ? <small>Scheduled {tenant.update_window?.days?.join(', ')||'weekly'} at {tenant.update_window.start} ({tenant.update_window.timezone||'Europe/London'})</small>:null}
     </div>
@@ -562,7 +564,7 @@ function Tenants({ items, refresh, query }) {
       .catch(error=>{if(active)setSignupQueueError(error.message)})
     return ()=>{active=false}
   },[items])
-  const [draft,setDraft]=useState({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
+  const [draft,setDraft]=useState({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
     t.company_name,t.slug,t.owner_name,t.owner_email,t.plan_key,t.billing_status,
@@ -575,7 +577,7 @@ function Tenants({ items, refresh, query }) {
     catch(error){setCreateError(error.message);return}
     setCreateResult(result)
     setCreating(false)
-    setDraft({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false,signupRequestId:null})
+    setDraft({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',signupRequestId:null})
     await refresh()
   }
   return <>
@@ -587,17 +589,13 @@ function Tenants({ items, refresh, query }) {
         <p>Only email-verified requests can be converted to pending customer registrations; no workspace is live yet.</p></div></div>
       {signupRequests.map(row=><div className="h5a-signup-review-row" key={row.id}>
         <div><strong>{row.company_name}</strong><small>{row.tenant_slug}.hi5central.com · {row.owner_name} ({row.owner_email})</small>
-        <small>{row.update_mode==='admin_controlled'?'Custom · dedicated UAT required':'Managed · customer UAT optional'} · {row.status==='verified'?'Email verified':'Awaiting email verification'}</small></div>
+        <small>{row.status==='verified'?'Email verified':'Awaiting email verification'} · Update method chosen during onboarding</small></div>
         <button type="button" className="rmm-secondary compact" disabled={row.status!=='verified'}
           onClick={()=>{
             setCreateResult(null);setCreateError('')
             setDraft({companyName:row.company_name,slug:row.tenant_slug,
               ownerName:row.owner_name,ownerEmail:row.owner_email,
               modules:row.modules,planKey:'custom',billingStatus:'trial',billingCycle:'monthly',
-              updateMode:row.update_mode,customerUatOptIn:row.customer_uat_opt_in,
-              deploymentDay:row.maintenance_window?.days?.[0]||'sun',
-              deploymentTime:row.maintenance_window?.start||'02:00',
-              deploymentTimezone:row.maintenance_window?.timezone||'Europe/London',
               signupRequestId:row.id})
             setCreating(true)
           }}>{row.status==='verified'?'Review and register':'Verification pending'}</button>
@@ -606,7 +604,7 @@ function Tenants({ items, refresh, query }) {
     {createResult?<div className="h5a-notice">
       <strong>Customer registered — onboarding pending</strong>
       <p>{createResult.tenant?.company_name||createResult.tenant?.slug} is registered, but Production is not deployed.
-      {createResult.onboarding?.uatQueued?' Custom/selected UAT has been queued for independent operator setup.':''}
+      The customer selects Managed or Custom updates during onboarding; UAT is requested only after that choice.
       The first owner will be invited only after isolation and environment activation are approved.</p>
     </div>:null}
     {creating?<form className="rmm-card h5a-create" onSubmit={create}>
@@ -614,29 +612,8 @@ function Tenants({ items, refresh, query }) {
       <input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/>
       <input placeholder="First owner full name" value={draft.ownerName} onChange={e=>setDraft({...draft,ownerName:e.target.value})} required minLength={2}/>
       <input type="email" placeholder="First owner email address" value={draft.ownerEmail} onChange={e=>setDraft({...draft,ownerEmail:e.target.value})} required/>
-      <label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><div className="h5a-notice"><strong>Keeping Hi5Central up to date</strong><p>Choose the software release method before creating this customer. Managed customers do not need their own UAT; Custom customers require UAT before manually approving Production updates.</p></div>
-      <div className="h5a-update-policy-choices" role="group" aria-label="Platform update management">
-        <button type="button" className={draft.updateMode==='hi5_managed'?'is-selected':''}
-          onClick={()=>setDraft({...draft,updateMode:'hi5_managed'})}>
-          <strong>Managed (recommended)</strong><span>Hi5Central verifies stable web releases internally, then updates your Production at your scheduled time. Customer UAT optional.</span>
-        </button>
-        <button type="button" className={draft.updateMode==='admin_controlled'?'is-selected':''}
-          onClick={()=>setDraft({...draft,updateMode:'admin_controlled',customerUatOptIn:true})}>
-          <strong>Custom / manual promotion</strong><span>Your UAT environment is required to test each release before you approve UAT → Production.</span>
-        </button>
-      </div>
-      {draft.updateMode==='hi5_managed'?<div className="h5a-tenant-edit-grid">
-        <label>Deployment day<select value={draft.deploymentDay} onChange={e=>setDraft({...draft,deploymentDay:e.target.value})}>
-          {['mon','tue','wed','thu','fri','sat','sun'].map((day,i)=><option value={day} key={day}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}</option>)}
-        </select></label>
-        <label>Deployment time<input type="time" value={draft.deploymentTime} onChange={e=>setDraft({...draft,deploymentTime:e.target.value})}/></label>
-        <label>Timezone<select value={draft.deploymentTimezone} onChange={e=>setDraft({...draft,deploymentTimezone:e.target.value})}>
-          {['Europe/London','Europe/Dublin','UTC','Europe/Paris','Europe/Berlin','America/New_York','America/Chicago','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Australia/Sydney'].map(zone=><option key={zone} value={zone}>{zone}</option>)}
-        </select></label>
-        <label className="h5a-check"><input type="checkbox" checked={draft.customerUatOptIn} onChange={e=>setDraft({...draft,customerUatOptIn:e.target.checked})}/> Add an optional customer UAT later</label>
-      </div>:null}
-      {draft.updateMode==='admin_controlled'?<div className="h5a-notice">Customer UAT required. Environment setup remains an independently approved provisioning request, not an automatic deployment.</div>:null}
-      <button className="rmm-primary compact" disabled={!draft.updateMode||!draft.ownerName.trim()||!draft.ownerEmail.trim()}>Register tenant and request setup</button></form>:null}
+      <label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><div className="h5a-notice">The customer chooses their update method and whether a dedicated UAT is needed during onboarding.</div>
+      <button className="rmm-primary compact" disabled={!draft.ownerName.trim()||!draft.ownerEmail.trim()}>Register tenant and request setup</button></form>:null}
     <div className="h5a-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} devices</p></div><StatusPill value={tenant.status}/></div><TenantEditor tenant={tenant} onSaved={refresh}/></article>)}</div>
   </>
 }
