@@ -141,7 +141,7 @@ function defaultData(step, session) {
       passwordPolicy: 'strong',
       auditRetention: '365',
     },
-    updates: { updateMode: 'admin_controlled', liveDelayHours: 24, allowEmergencySecurityUpdates: true },
+    updates: { updateMode: SELF_HOSTED ? 'admin_controlled' : 'hi5_managed', liveDelayHours: 24, allowEmergencySecurityUpdates: true },
     itsm: {
       numberingMode: 'default',
       recordPrefixes: { ...defaultPrefixes },
@@ -448,6 +448,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
+  const savedUpdates = session?.onboarding?.data?.updates || {}
   const defaultWorkspaceAddress = session?.tenant?.tenantUrl
     || DEPLOYMENT.appUrl
     || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
@@ -804,6 +805,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <div className="onboarding-summary onboarding-summary-expanded">
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
+                <div><span>Hi5Central updates</span><strong>{savedUpdates.updateMode === 'hi5_managed' ? 'Hi5Central managed' : 'Custom / admin controlled'}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
                 <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
                 <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
@@ -830,7 +832,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 onClick={viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
                 type="button"
               >
-                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Continue'}
+                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Next'}
                 {!saving ? <ArrowRight size={17} /> : null}
               </button>
             </div>
