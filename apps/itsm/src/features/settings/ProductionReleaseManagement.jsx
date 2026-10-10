@@ -60,8 +60,13 @@ function SandboxReleaseOverview() {
   const slug=window.location.hostname.split('.')[0].replace(/-(uat|test)$/, '')
   const liveUrl=`https://${slug}.${config.rootDomain}/settings/platform/releases`
   const [state,setState]=useState({loading:true,error:'',releaseRef:'',lastDeployedAt:null})
+  const [uatLiveChatEnabled,setUatLiveChatEnabled]=useState(null)
   useEffect(()=>{
     let active=true
+    fetch(`${API_BASE}/api/v1/workspace-features`,{credentials:'include',cache:'no-store'})
+      .then(async response=>response.ok?response.json():null)
+      .then(payload=>{if(active)setUatLiveChatEnabled(payload?.liveChatEnabled===true)})
+      .catch(()=>{if(active)setUatLiveChatEnabled(null)})
     tenantReleaseApi().then(payload=>{
       if(!active)return
       const matching=(payload.environments||[]).find(item=>item.environment===environment)
@@ -95,6 +100,12 @@ function SandboxReleaseOverview() {
             <small>{state.lastDeployedAt?'Last recorded deployment: '+new Date(state.lastDeployedAt).toLocaleString():'No deployment timestamp recorded'}</small>
           </article>
         </div>
+        <div className="hi5-release-sandbox-guidance">
+          <strong>Tenant feature validation</strong>
+          <p><strong>Live Chat:</strong> {uatLiveChatEnabled===null?'Checking environment policy…':
+            uatLiveChatEnabled?'Enabled for this environment':'Not enabled by this organisation’s release policy'}</p>
+          <small>Feature access is separate from the application version displayed above. Test changes in this environment; approve promotion from Live.</small>
+        </div>
         {state.error?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{state.error}</p>:null}
         <div className="hi5-release-sandbox-guidance">
           <strong>{isUat?'How to validate a release':'How Test fits into releases'}</strong>
@@ -121,6 +132,8 @@ export function ProductionReleaseManagement() {
 function LiveProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
+  const [liveChatRelease,setLiveChatRelease]=useState(null)
+  const [uatEvidence,setUatEvidence]=useState('')
   const [platformAvailable,setPlatformAvailable]=useState(false)
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
@@ -136,6 +149,11 @@ function LiveProductionReleaseManagement() {
       if(tenantResult.status!=='fulfilled') throw tenantResult.reason
       const tenantState=tenantResult.value
       setTenantEnvironments(tenantState?.environments || [])
+      if(tenantState?.preference?.updateMode==='admin_controlled') {
+        // Only tenant owners/admins see this release ledger in their Live workspace.
+        const feature=await tenantReleaseApi('/feature-rollouts/live-chat')
+        setLiveChatRelease(feature)
+      } else setLiveChatRelease(null)
       if(platformResult.status==='fulfilled') {
         setData(platformResult.value)
         setPlatformAvailable(true)
@@ -207,6 +225,23 @@ function LiveProductionReleaseManagement() {
 
   async function provisionEnvironments() {
     await action('provision',()=>tenantReleaseApi('/provision',{method:'POST',body:'{}'}),'Test and UAT provisioning checked.')
+  }
+
+  async function manageLiveChat(actionName) {
+    if (actionName==='confirm-uat' && uatEvidence.trim().length<10) {
+      setError('Record what you tested in UAT (at least 10 characters).')
+      return
+    }
+    if (actionName==='promote-live' &&
+      !window.confirm('Promote the UAT-approved Live Chat feature to this organisation’s Production workspace?')) return
+    await action('live-chat-'+actionName,()=>tenantReleaseApi('/feature-rollouts/live-chat/'+actionName,{
+      method:'POST',
+      body:JSON.stringify({notes:actionName==='confirm-uat'?uatEvidence:
+        actionName==='stage-uat'?'UAT staging requested from customer release centre':'Customer approval to promote UAT-passed Live Chat'}),
+    }), actionName==='stage-uat'?'Live Chat enabled in UAT, not Live.':
+      actionName==='confirm-uat'?'UAT acceptance and evidence recorded.':
+      'Live Chat enabled for this tenant in Live.')
+    if(actionName==='confirm-uat')setUatEvidence('')
   }
 
   async function resetTest() {
@@ -300,6 +335,65 @@ function LiveProductionReleaseManagement() {
       </div>
     </section>
     ) : null}
+
+    {policy.updateMode==='admin_controlled' ? (
+      <section className="production-settings-panel" data-hi5-tenant-feature-releases>
+        <header><div>
+          <h2>Customer feature releases</h2>
+          <p>Stage and test individual features for this organisation. Live changes only after recorded UAT acceptance and administrator approval; this does not deploy a new application binary.</p>
+        </div></header>
+        <div className="production-settings-panel-body">
+          <div className="hi5-release-env-grid">
+            <article className="hi5-release-env-card">
+              <header><div><span>LIVE CHAT · UAT</span><strong>{liveChatRelease?.releaseRef || 'Not staged'}</strong></div>
+                <ResultPill value={liveChatRelease?.uatEnabled?'ready':'available'}/></header>
+              <p>{liveChatRelease?.uatEnabled?'Enabled for this organisation in UAT. Test it at your UAT URL.':'Stage Live Chat for this tenant in UAT without changing Live.'}</p>
+              <button type="button" disabled={Boolean(busy)||!liveChatRelease||
+                !tenantEnvironments.some(item=>item.environment==='uat'&&item.status==='ready')}
+                onClick={()=>manageLiveChat('stage-uat')}>
+                <GitBranch size={15}/>{liveChatRelease?.state==='promoted'?'Stage a new UAT test':'Enable Live Chat in UAT'}
+              </button>
+              {liveChatRelease?.state==='staged' ? <>
+                <label className="hi5-release-uat-evidence-label" htmlFor="hi5-uat-livechat-evidence">
+                  UAT test evidence (required for approval)
+                </label>
+                <textarea id="hi5-uat-livechat-evidence" rows={3} maxLength={2000}
+                  value={uatEvidence} onChange={event=>setUatEvidence(event.target.value)}
+                  placeholder="Describe the Live Chat actions checked in UAT and whether they worked."/>
+                <button type="button" disabled={Boolean(busy)||uatEvidence.trim().length<10}
+                  onClick={()=>manageLiveChat('confirm-uat')}>
+                  <CheckCircle2 size={15}/>Mark UAT passed
+                </button>
+              </>:null}
+              {liveChatRelease?.state==='uat_passed'?<small>UAT evidence accepted. Ready for administrator promotion.</small>:null}
+            </article>
+            <article className="hi5-release-env-card">
+              <header><div><span>LIVE CHAT · LIVE</span><strong>{liveChatRelease?.liveEnabled?'Enabled':'Not enabled by this release'}</strong></div>
+                <ResultPill value={liveChatRelease?.liveEnabled?'ready':'available'}/></header>
+              <p>Production remains unchanged until a tenant administrator explicitly promotes a UAT-passed change.</p>
+              <button type="button" disabled={Boolean(busy)||liveChatRelease?.state!=='uat_passed'}
+                onClick={()=>manageLiveChat('promote-live')}>
+                <CheckCircle2 size={15}/>Promote approved UAT change to Live
+              </button>
+              <small>Each decision is recorded against a unique release reference.</small>
+            </article>
+          </div>
+          <div className="hi5-release-sandbox-guidance">
+            <strong>Release history · Live Chat</strong>
+            {(liveChatRelease?.history||[]).length ? (
+              <div className="hi5-release-history">
+                {liveChatRelease.history.map(entry=><div className="hi5-release-history-row" key={entry.id}>
+                  <strong>{entry.action==='staged_uat'?'Enabled in UAT':
+                    entry.action==='uat_passed'?'UAT passed':'Promoted to Live'}</strong>
+                  <span>{entry.releaseRef} · {entry.actorName} · {new Date(entry.recordedAt).toLocaleString()}</span>
+                  {entry.notes?<p>{entry.notes}</p>:null}
+                </div>)}
+              </div>
+            ):<p>No customer feature releases have been recorded yet. Application deployments are tracked separately.</p>}
+          </div>
+        </div>
+      </section>
+    ):null}
 
     <section className="production-settings-panel">
       <header><div><h2>Your organisation environments</h2><p>Live, UAT and Test use tenant-isolated records. Each sandbox shares the relevant environment's application infrastructure, not a separate installation.</p></div>

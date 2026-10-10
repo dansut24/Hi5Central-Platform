@@ -122,3 +122,34 @@
   [data-hi5-sandbox-releases] .hi5-release-env-card {overflow-wrap:anywhere}
   [data-hi5-sandbox-releases] .hi5-release-open-live {width:100%;box-sizing:border-box}
 }
+
+/* Customer-owned staged feature changes and preserved UAT test evidence. */
+[data-hi5-tenant-feature-releases] .hi5-release-env-card button {
+  display:inline-flex;align-items:center;gap:8px;justify-content:center;
+  min-height:38px;max-width:100%;
+}
+[data-hi5-tenant-feature-releases] .hi5-release-uat-evidence-label {
+  display:block;margin-top:12px;font-size:12px;font-weight:700;
+}
+[data-hi5-tenant-feature-releases] textarea {
+  display:block;width:100%;box-sizing:border-box;resize:vertical;
+  min-height:84px;padding:11px;margin:7px 0 12px;
+  border:1px solid var(--line,#ced8e5);border-radius:10px;
+  color:var(--ink,#15243c);background:var(--surface,#fff);font:inherit;font-size:13px;
+}
+[data-hi5-tenant-feature-releases] .hi5-release-history {
+  display:grid;gap:8px;width:100%;
+}
+[data-hi5-tenant-feature-releases] .hi5-release-history-row {
+  display:grid;gap:4px;padding:12px;border:1px solid var(--line,#d6dfea);
+  border-radius:9px;background:var(--surface,#fff);overflow-wrap:anywhere;
+}
+[data-hi5-tenant-feature-releases] .hi5-release-history-row > strong {font-size:12px}
+[data-hi5-tenant-feature-releases] .hi5-release-history-row > span {font-size:11px;color:var(--muted,#68778c)}
+[data-hi5-tenant-feature-releases] .hi5-release-history-row > p {
+  margin:0;font-size:12px;line-height:1.5;white-space:pre-wrap;
+}
+@media(max-width:660px){
+  [data-hi5-tenant-feature-releases] .hi5-release-env-grid {grid-template-columns:minmax(0,1fr)}
+  [data-hi5-tenant-feature-releases] .hi5-release-env-card button {width:100%}
+}
