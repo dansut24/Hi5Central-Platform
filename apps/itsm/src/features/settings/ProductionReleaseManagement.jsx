@@ -95,7 +95,7 @@ export function ProductionReleaseManagement() {
 
 
   async function savePolicy(nextMode = policy.updateMode) {
-    const next={...policy,updateMode:nextMode}
+    const next={...policy,updateMode:nextMode,customerUatOptIn:nextMode==='admin_controlled'?true:Boolean(policy.customerUatOptIn)}
     setPolicy(next)
     await action('policy',async()=>{
       const payload={
@@ -104,6 +104,7 @@ export function ProductionReleaseManagement() {
         liveDelayHours:Number(next.liveDelayHours||0),
         allowEmergencySecurityUpdates:next.allowEmergencySecurityUpdates!==false,
         maintenanceWindow:next.maintenanceWindow||{},
+        customerUatOptIn:next.customerUatOptIn,
       }
       const [deploymentResult]=await Promise.all([
         releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)}),
@@ -164,12 +165,17 @@ export function ProductionReleaseManagement() {
       <div className="production-settings-panel-body">
         <div className="hi5-release-policy-grid">
           <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('admin_controlled')} type="button">
-            <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>Hi5Central publishes the update to Test, but your admin chooses what enters UAT and exactly what is promoted to Production.</small></span>
+            <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>A dedicated customer UAT is required. Your admin reviews each release there, then explicitly approves UAT → Production.</small></span>
           </button>
           <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('hi5_managed')} type="button">
-            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>The local release operator follows Hi5Central's signed release feed, stages UAT automatically and promotes approved releases inside your update window.</small></span>
+            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>Hi5Central validates each build in its own Test and UAT environments, then schedules your Production deployment. Your own UAT is optional.</small></span>
           </button>
         </div>
+        {policy.updateMode==='hi5_managed'?<p className="hi5-release-policy-note">Managed mode uses Hi5Central's internal UAT release gates, not a mandatory customer UAT environment. Customer-specific workflow and configuration changes are not automatically copied into Production.</p>:null}
+        {policy.updateMode==='hi5_managed'?<label className="hi5-release-policy-check">
+          <input type="checkbox" checked={policy.customerUatOptIn===true} onChange={e=>setPolicy({...policy,customerUatOptIn:e.target.checked})}/>
+          <span><strong>Use a customer UAT too (optional)</strong><small>Enable a separate UAT to test your own workflows without changing the managed web-update schedule.</small></span>
+        </label>:null}
         <div className="hi5-release-policy-fields">
           <label>Production delay after UAT
             <div><input type="number" min="0" max="720" value={policy.liveDelayHours??24} onChange={e=>setPolicy({...policy,liveDelayHours:e.target.value})}/><span>hours</span></div>
