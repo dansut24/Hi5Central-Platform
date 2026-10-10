@@ -68,13 +68,14 @@ const token=randomBytes(32).toString('base64url')
 const digest=createHash('sha256').update(token).digest('hex')
 sql(`INSERT INTO managed_control_plane_identity
   (singleton,deployment_mode,tenancy_mode,root_domain,instance_id,verified_by)
-  VALUES(true,'managed','multi','hi5central.com','${scopeId}','ci-operator/ci-reviewer');
+  VALUES(true,'managed','multi','hi5central.com','${scopeId}','pilot-single-owner-email-link');
   INSERT INTO pilot_admin_bootstrap_invitations
   (scope_id,email,display_name,token_hash,issued_by,reviewed_by,
-   actor_evidence_sha256,reviewer_evidence_sha256,expires_at)
+   actor_evidence_sha256,reviewer_evidence_sha256,expires_at,approval_mode)
   VALUES('${scopeId}','${email}','Synthetic Pilot Owner','${digest}',
-    'ci-operator','ci-reviewer','${randomBytes(32).toString('hex')}',
-    '${randomBytes(32).toString('hex')}',now()+interval '24 hours');`)
+    'pilot-single-owner-operator',NULL,'${randomBytes(32).toString('hex')}',
+    NULL,now()+interval '24 hours','single_owner');`)
+assert.equal(sql("SELECT approval_mode FROM pilot_admin_bootstrap_invitations").split('\\n').at(-1),'single_owner')
 assert.equal(call('GET','/api/platform/v1/auth/session',null).status,401)
 const password='Phase19-Synthetic-Owner-Strong-Password-1!'
 assert.equal(call('POST','/api/platform/v1/auth/bootstrap/accept',
