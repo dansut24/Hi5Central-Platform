@@ -8,6 +8,8 @@ on:
       - 'services/api/scripts/tenant-environment-owner-invite.mjs'
       - 'services/api/scripts/tenant-environment-activate.mjs'
       - 'services/api/src/managedOperatorEvidence.js'
+      - 'services/api/scripts/tenant-environment-sign-attestation.mjs'
+      - 'services/api/tests/managedOperatorEvidence.test.mjs'
       - 'services/api/migrations/platform-admin/140_managed_operator_evidence.sql'
       - 'services/api/scripts/test-tenant-environment-prepare-integration.mjs'
       - 'services/api/scripts/test-sandbox-lifecycle-http.mjs'
@@ -33,8 +35,11 @@ jobs:
           node --check services/api/scripts/tenant-environment-owner-invite.mjs
           node --check services/api/scripts/tenant-environment-activate.mjs
           node --check services/api/src/managedOperatorEvidence.js
+          node --check services/api/scripts/tenant-environment-sign-attestation.mjs
           node --check services/api/scripts/test-tenant-environment-prepare-integration.mjs
           node --check services/api/scripts/test-sandbox-lifecycle-http.mjs
+      - name: Verify offline signed evidence and tamper resistance
+        run: node --test services/api/tests/managedOperatorEvidence.test.mjs
       - name: Start strictly disposable PostgreSQL and Redis
         shell: bash
         run: |
