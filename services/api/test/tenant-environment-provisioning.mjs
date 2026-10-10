@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import pg from 'pg'
+import { Hono } from 'hono'
+import { registerEnvironmentHandoffRoutes, issueEnvironmentTicket } from '../src/environmentHandoff.js'
 import { hashPassword } from '../src/password.js'
 import { pool } from '../src/db.js'
 import { provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
@@ -57,6 +59,40 @@ try {
   assert.deepEqual(statuses.rows.sort((a,b)=>a.environment.localeCompare(b.environment)),[
     {environment:'live',status:'ready'}, {environment:'test',status:'ready'}, {environment:'uat',status:'ready'},
   ])
+  // Only trusted service calls may redeem a ticket, and a ticket can be
+  // used once for exactly one environment. The URL fragment never reaches
+  // the static site/server in an HTTP request.
+  process.env.ENV_IDENTITY_SHARED_SECRET='test-ci-identity-secret-longer-than-thirty-two-chars'
+  const app=new Hono()
+  registerEnvironmentHandoffRoutes(app)
+  const issued=await issueEnvironmentTicket(tenantId,userId,'test',{source,verified:true})
+  assert(issued.startsWith('https://'+slug+'-test.hi5central.com/#hi5_environment_ticket='))
+  const ticket=new URLSearchParams(issued.split('#')[1]).get('hi5_environment_ticket')
+  const redeemBody=JSON.stringify({ticket,environment:'test'})
+  const unauthorised=await app.request('/api/v1/internal/environment-handoff/redeem',{
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer invalid'},body:redeemBody,
+  })
+  assert.equal(unauthorised.status,401)
+  const wrongEnv=await app.request('/api/v1/internal/environment-handoff/redeem',{
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+process.env.ENV_IDENTITY_SHARED_SECRET},
+    body:JSON.stringify({ticket,environment:'uat'}),
+  })
+  assert.equal(wrongEnv.status,401)
+  const authorised=await app.request('/api/v1/internal/environment-handoff/redeem',{
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+process.env.ENV_IDENTITY_SHARED_SECRET},
+    body:redeemBody,
+  })
+  assert.equal(authorised.status,200) 
+  const redeemed=await authorised.json()
+  assert.equal(redeemed.tenantSlug,slug+'-test')
+  assert.equal(redeemed.userId,userId)
+  assert.equal(redeemed.mfaVerified,true)
+  const replay=await app.request('/api/v1/internal/environment-handoff/redeem',{
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+process.env.ENV_IDENTITY_SHARED_SECRET},
+    body:redeemBody,
+  })
+  assert.equal(replay.status,401,'single-use ticket must reject replay')
+
   // No customer data: source has not been copied wholesale into either sandbox.
   const unrelated=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,'Unrelated company','active') RETURNING id",['unrelated-'+suffix])
   for(const db of clients){
