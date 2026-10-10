@@ -44,7 +44,7 @@ try {
     assert.equal(member.rows[0].status,'active')
     const identity=await db.query('SELECT email,password_hash FROM users WHERE id=$1',[userId])
     assert.equal(identity.rows[0].email,userEmail)
-    assert.equal(identity.rows[0].password_hash,u.rows[0].password_hash, 'credentials must match original verified identity')
+    assert.equal(identity.rows[0].password_hash,'environment-sso-only','environment users must use the central one-time identity handoff')
   }
   // Test-only configuration is modified, then a retry must not overwrite sandbox data.
   await clients[0].query(`UPDATE tenant_settings SET configuration='{"sandbox":"customised"}'::jsonb WHERE tenant_id=$1`,[tenantId])
