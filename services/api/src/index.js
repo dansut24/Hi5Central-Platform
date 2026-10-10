@@ -13,7 +13,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
-import {parseCustomerUpdatePolicy,customerUpdateWriteParams,CUSTOMER_UPDATE_UPSERT} from './customerUpdatePolicy.js'
+import {parseCustomerUpdatePolicy,saveOnboardingUpdatePolicy} from './customerUpdatePolicy.js'
 import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
@@ -654,8 +654,8 @@ app.post('/api/v1/onboarding/save', async (c) => {
        WHERE tenant_id=$1`,
       [session.tenant_id,step,JSON.stringify(data)],
     )
-    if(updatePolicy)await db.query(CUSTOMER_UPDATE_UPSERT,
-      customerUpdateWriteParams(session.tenant_id,updatePolicy,session.user_id))
+    if(updatePolicy)await saveOnboardingUpdatePolicy(db,
+      session.tenant_id,updatePolicy,session.user_id)
   })
 
   const nextSession = {
@@ -695,8 +695,8 @@ app.post('/api/v1/onboarding/step', async (c) => {
       `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
       [session.tenant_id,step,JSON.stringify(data),nextStep],
     )
-    if(updatePolicy)await db.query(CUSTOMER_UPDATE_UPSERT,
-      customerUpdateWriteParams(session.tenant_id,updatePolicy,session.user_id))
+    if(updatePolicy)await saveOnboardingUpdatePolicy(db,
+      session.tenant_id,updatePolicy,session.user_id)
   })
   const nextSession = {
     ...session,
