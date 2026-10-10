@@ -7,6 +7,7 @@ import { hashPassword } from '../src/password.js'
 import { pool } from '../src/db.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
 import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
+import { establishEnvironmentSession } from '../src/environmentDirectSession.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -127,6 +128,45 @@ try {
   await assert.rejects(()=>issueEnvironmentTicket(tenantId,memberId,'uat',{source,verified:true}),/not been granted/)
   await assert.rejects(()=>assignEnvironmentPermissions(tenantId,userId,{test:false,uat:true},userId),/owners must retain/)
   console.log('PASS: central owner defaults, People UAT grant, denial before grant, and instant session revocation')
+
+  // Browser-side UAT ticket exchanges are no longer required for normal
+  // sign-in: Live creates a fully scoped session in the UAT database and
+  // issues an HttpOnly parent-domain cookie without exposing the token in URL.
+  const directApp=new Hono()
+  const directSourceSession={
+    tenant_id:tenantId,user_id:userId,slug,mfa_verified_at:new Date(),
+  }
+  directApp.post('/direct',async c=>c.json(
+    await establishEnvironmentSession(c,directSourceSession,'uat',{source,targets:{uat:uatDb}}),
+  ))
+  const direct=await directApp.request('/direct',{method:'POST'})
+  assert.equal(direct.status,200)
+  const directPayload=await direct.json()
+  assert.equal(directPayload.url,'https://'+slug+'-uat.hi5central.com/dashboard?environment_sso=1')
+  assert(!directPayload.url.includes('ticket'),'URL must not carry secret tokens')
+  const setCookie=direct.headers.get('set-cookie')||''
+  assert.match(setCookie,/hi5central_uat_session=/)
+  assert.match(setCookie,/httponly/i)
+  assert.match(setCookie,/secure/i)
+  assert.match(setCookie,/domain=\\?.hi5central.com/i)
+  const token=setCookie.match(/hi5central_uat_session=([^;]+)/)?.[1]
+  assert(token)
+  const tokenDigest=(await import('node:crypto')).createHash('sha256').update(token).digest('hex')
+  const child=await clients[1].query(
+    'SELECT tenant_id,user_id,mfa_verified_at IS NOT NULL AS mfa FROM auth_sessions WHERE token_hash=$1',
+    [tokenDigest],
+  )
+  assert.equal(child.rows[0]?.tenant_id,tenantId)
+  assert.equal(child.rows[0]?.user_id,userId)
+  assert.equal(child.rows[0]?.mfa,true)
+  const noGrantSession={...directSourceSession,user_id:memberId}
+  await assert.rejects(
+    ()=>establishEnvironmentSession({
+      header:()=>{},req:{header:()=>''}
+    },noGrantSession,'uat',{source,targets:{uat:uatDb}}),
+    /not been granted/,
+  )
+  console.log('PASS: Live signs UAT session directly, parent-domain HttpOnly cookie, MFA, no URL tokens, no-grant denial')
 
   // No customer data: source has not been copied wholesale into either sandbox.
   const unrelated=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,'Unrelated company','active') RETURNING id",['unrelated-'+suffix])
