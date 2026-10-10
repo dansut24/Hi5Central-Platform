@@ -1,5 +1,4 @@
 import {isValidCustomerSlug} from './tenantEnvironmentHostnames.js'
-import {parseCustomerUpdatePolicy} from './customerUpdatePolicy.js'
 const MAX_NAME=120
 const emailValue=value=>String(value||'').trim().toLowerCase()
 const emailValid=value=>value.length<=254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
@@ -15,7 +14,9 @@ export function validateManagedSignupRequest(body){
   const modules={itsm:body?.modules?.itsm!==false,selfService:body?.modules?.itsm!==false,
     rmm:body?.modules?.rmm===true}
   if(!modules.itsm&&!modules.rmm)throw new Error('Select at least one product.')
-  const policy=parseCustomerUpdatePolicy(body)
+  for(const key of ['updateMode','customerUatOptIn','deploymentDay','deploymentTime','deploymentTimezone','maintenanceWindow']){
+    if(Object.hasOwn(body||{},key))throw new Error('Update management is selected during customer onboarding, not signup.')
+  }
   if(String(body?.website||''))throw new Error('Invalid request.')
-  return {slug,companyName,ownerName,ownerEmail,modules,policy}
+  return {slug,companyName,ownerName,ownerEmail,modules}
 }
