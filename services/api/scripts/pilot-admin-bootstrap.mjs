@@ -27,9 +27,9 @@ try{
   if(!pilotBootstrapEnabled(process.env))
     throw new Error('Private managed pilot bootstrap requires exact MFA, API, Admin and deployment scope.')
   if(!process.env.PILOT_CONTROL_DATABASE_URL)throw new Error('Separate pilot DB URL required.')
-  const email=required('INITIAL_ADMIN_EMAIL').toLowerCase()
-  const displayName=required('INITIAL_ADMIN_NAME')
-  if(!validatePilotAdminIdentity({email,displayName}))
+  const email=mode==='--check' ? String(process.env.INITIAL_ADMIN_EMAIL||'').trim().toLowerCase() : required('INITIAL_ADMIN_EMAIL').toLowerCase()
+  const displayName=mode==='--check' ? String(process.env.INITIAL_ADMIN_NAME||'').trim() : required('INITIAL_ADMIN_NAME')
+  if((mode==='--issue'||email||displayName) && !validatePilotAdminIdentity({email,displayName}))
     throw new Error('A valid first-administrator name and verified email are required.')
   await client.connect();connected=true
   await client.query('BEGIN');inTransaction=true
