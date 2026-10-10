@@ -19,6 +19,8 @@ on:
       - 'services/api/src/mailer.js'
       - 'services/api/src/index.js'
       - 'services/api/src/customerUpdatePolicy.js'
+      - 'services/api/src/customerConfigurationPromotion.js'
+      - 'services/api/tests/customerConfigurationPromotion.test.mjs'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/src/releaseOperator.js'
       - 'services/api/tests/customerUpdatePolicy.test.mjs'
@@ -52,6 +54,7 @@ jobs:
         run: |
           node --check services/api/src/customerUpdatePolicy.js
           node --test services/api/tests/customerUpdatePolicy.test.mjs
+          node --test services/api/tests/customerConfigurationPromotion.test.mjs
       - name: Compile the ITSM customer onboarding wizard
         run: |
           docker build --tag hi5central-itsm-onboarding-syntax:${GITHUB_SHA} apps/itsm
