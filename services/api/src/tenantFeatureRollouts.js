@@ -46,6 +46,19 @@ async function featureState(database, tenantId, environment) {
   return r.rowCount ? Boolean(r.rows[0].enabled) : null
 }
 
+/**
+ * Effective customer feature availability for each environment.
+ * UAT must fail closed unless a tenant administrator explicitly stages it.
+ * Test is the all-features sandbox. An absent Live override remains legacy
+ * behaviour until the customer's first controlled release is registered.
+ */
+export async function effectiveTenantLiveChatEnabled(tenantId, environment, {source=pool}={}) {
+  if(environment==='test')return true
+  if(!['uat','live'].includes(environment))return null
+  const explicit=await featureState(source,tenantId,environment)
+  return environment==='uat' && explicit===null ? false : explicit
+}
+
 async function setFeature(database, tenantId, userId, environment, enabled) {
   const result=await database.query(
     `INSERT INTO tenant_environment_feature_overrides
@@ -194,8 +207,7 @@ export function registerTenantFeatureRoutes(app) {
     const environment=deployment.runtimeEnvironment
     if(!['live','uat','test'].includes(environment))
       return c.json({liveChatEnabled:null,environment})
-    if(environment==='test')return c.json({liveChatEnabled:true,environment})
-    return c.json({liveChatEnabled:await featureState(pool,session.tenant_id,environment),environment})
+    return c.json({liveChatEnabled:await effectiveTenantLiveChatEnabled(session.tenant_id,environment),environment})
   })
 
   app.get('/api/v1/release-management/feature-rollouts/live-chat',async c=>{
