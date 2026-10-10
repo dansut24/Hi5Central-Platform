@@ -13,6 +13,10 @@
   }
 
   handle {
+    # Login/session navigation must never keep an obsolete SPA bootstrap in
+    # Safari after the central identity fix or a future deployment.
+    @htmlNavigation header Accept *text/html*
+    header @htmlNavigation Cache-Control "no-store, max-age=0"
     encode zstd gzip
     root * /srv
     try_files {path} /index.html

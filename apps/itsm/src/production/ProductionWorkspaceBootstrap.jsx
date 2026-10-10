@@ -25,6 +25,17 @@ const API_BASE = window.__HI5_API_BASE__
 const PRODUCTION_SESSION_KEY = 'hi5central-production-session-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
+const SANDBOX_SESSION_RESTORE_TIMEOUT_MS = 3500
+
+function hasMatchingEnvironmentSession(tenantSlug) {
+  try {
+    const session = JSON.parse(window.localStorage.getItem(PRODUCTION_SESSION_KEY) || 'null')
+    return session?.source === 'production' && session.tenantSlug === tenantSlug
+  } catch {
+    return false
+  }
+}
+
 const ONBOARDING_SNAPSHOT_KEY = 'hi5central-onboarding-snapshot-v1'
 const ONBOARDING_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000
 const FIRST_LOGIN_HANDOFF_KEY = 'hi5central-first-login-required-v1'
@@ -782,8 +793,17 @@ export function ProductionWorkspaceBootstrap() {
     async function bootstrap() {
       const ticket = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('hi5_environment_ticket')
       const environmentHost=/^(.+)-(test|uat)$/.exec(surface.tenantSlug)
-      if(!ticket && environmentHost && window.location.pathname==='/login'){
-        window.location.replace(`https://${environmentHost[1]}.${deploymentConfig().rootDomain}/login?environment=${environmentHost[2]}`)
+      const centralLoginUrl = environmentHost
+        ? `https://${environmentHost[1]}.${deploymentConfig().rootDomain}/login?environment=${environmentHost[2]}`
+        : ''
+      // First-time Test/UAT visitors have no sandbox session. Do not wait for
+      // cross-origin auth/session or page hydration before starting central
+      // Live login, especially on mobile Safari. Only the server-issued
+      // one-time handoff or a previously authenticated local session skips it.
+      if(!ticket && environmentHost
+          && (window.location.pathname === '/login'
+            || !hasMatchingEnvironmentSession(surface.tenantSlug))){
+        window.location.replace(centralLoginUrl)
         return
       }
       if (ticket) {
@@ -800,7 +820,11 @@ export function ProductionWorkspaceBootstrap() {
           if (!response.ok) throw new Error(payload?.error || 'Environment login link could not be used.')
         } catch(error) {
           if(active){
-            setBootstrapError(error?.message || 'Please reopen this environment from Release Management.')
+            setBootstrapError(error?.message || 'Please reopen this environment from your Live workspace.')
+            setTenantState({
+              managed:true,slug:surface.tenantSlug,companyName:surface.tenantName,
+              status:'active',unavailable:true,
+            })
             setLoading(false)
           }
           return
@@ -837,9 +861,16 @@ export function ProductionWorkspaceBootstrap() {
         const { response, payload } = await fetchJsonWithTimeout(sessionEndpoint, {
           credentials: 'include',
           cache: 'no-store',
-        })
+        }, environmentHost ? SANDBOX_SESSION_RESTORE_TIMEOUT_MS : SESSION_BOOTSTRAP_TIMEOUT_MS)
 
         if (response.ok && acceptBootstrapPayload(payload)) return
+
+        if (ticket && environmentHost){
+          // A completed one-time exchange must establish a real sandbox
+          // session. Never silently loop back through central login when the
+          // browser did not retain the environment cookie.
+          throw new Error('The environment sign-in did not establish a session. Please reopen UAT/Test from your Live workspace.')
+        }
 
         if (cachedOnboarding && (response.status === 401 || response.status === 403)) {
           clearOnboardingSnapshot()
@@ -876,6 +907,15 @@ export function ProductionWorkspaceBootstrap() {
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
 
+        if (environmentHost && !ticket){
+          // A stale Test/UAT cookie or slow Safari cross-origin request
+          // should recover through the central identity provider rather than
+          // leaving the customer on an indefinite restoration screen.
+          clearProductionSession()
+          window.location.replace(centralLoginUrl)
+          return
+        }
+
         if (!cachedOnboarding) {
           clearProductionSession()
         }
@@ -883,8 +923,10 @@ export function ProductionWorkspaceBootstrap() {
         if (active) {
           setBootstrapError(
             error?.message === 'REQUEST_TIMEOUT'
-              ? 'Hi5Central could not restore the session within 8 seconds.'
-              : 'Hi5Central could not restore this session.',
+              ? 'Hi5Central could not restore the session within the allowed time.'
+              : (error?.message?.includes('environment sign-in')
+                ? error.message
+                : 'Hi5Central could not restore this session.'),
           )
 
           if (!cachedOnboarding) {
