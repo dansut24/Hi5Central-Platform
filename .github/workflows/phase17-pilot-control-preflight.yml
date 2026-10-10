@@ -214,4 +214,11 @@ jobs:
             docker push "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}"
           done
           docker push "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}"
-          echo "Matched private-pilot API/Admin and unpublished-on-web signup-preview revision ${GITHUB_SHA}"
+          # The newly created signup-preview package is private until GitHub
+          # package access is explicitly granted. Publish a TEMPORARY
+          # pilot-only tag in the existing, publicly pullable Admin package,
+          # without replacing any Admin image tag or touching production.
+          docker tag "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}" \
+            "ghcr.io/dansut24/hi5central-platform-admin:pilot-signup-preview-${GITHUB_SHA}"
+          docker push "ghcr.io/dansut24/hi5central-platform-admin:pilot-signup-preview-${GITHUB_SHA}"
+          echo "Matched private-pilot API/Admin and no-public-route signup-preview revision ${GITHUB_SHA}"
