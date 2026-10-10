@@ -2,33 +2,11 @@ import {createHash,randomBytes} from 'node:crypto'
 import {pool,withTransaction} from './db.js'
 import {ensureRedisConnected} from './redis.js'
 import {deployment} from './deploymentConfig.js'
-import {validateManagedSignupRequest} from './managedSignupValidation.js'
+import {validateManagedSignupRequest,approvedManagedSignupRuntime} from './managedSignupValidation.js'
 import {sendManagedSignupRequestVerificationEmail} from './mailer.js'
 
 const hash=token=>createHash('sha256').update(token).digest('hex')
-// Explicitly approved production signup and the earlier private canary
-// are separate modes. Never permit either mode on a self-hosted or sandbox API.
-const restricted=()=>{
-  const liveOrigin='https://api.hi5central.com'
-  const liveAdmin='https://admin.hi5central.com'
-  const privateOrigin='https://pilot-control-api.hi5central.com'
-  const privateAdmin='https://pilot-admin.hi5central.com'
-  const scoped=(
-    process.env.MANAGED_SIGNUP_LIVE_APPROVED==='true'
-      && process.env.MANAGED_SIGNUP_TEST_ONLY==='true'
-      && Boolean(String(process.env.MANAGED_SIGNUP_TEST_EMAIL||'').trim())
-      && deployment.apiUrl===liveOrigin && deployment.adminUrl===liveAdmin
-    ) || (
-      process.env.MANAGED_SIGNUP_LIVE_APPROVED!=='true'
-      && deployment.apiUrl===privateOrigin && deployment.adminUrl===privateAdmin
-    )
-  return process.env.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'
-    && process.env.DEPLOYMENT_MODE==='managed'
-    && process.env.TENANCY_MODE==='multi'
-    && deployment.runtimeEnvironment==='live'
-    && deployment.rootDomain==='hi5central.com'
-    && scoped
-}
+const restricted=()=>approvedManagedSignupRuntime(process.env,deployment)
 const publicOrigin='https://hi5central.com'
 export function managedSignupRequestEnabled(){return restricted()}
 async function throttle(key,limit=4,seconds=3600) {
