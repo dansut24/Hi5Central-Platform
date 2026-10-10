@@ -17,8 +17,9 @@ import {
   resolveSession,
   sessionPayload,
   setSessionCookie,
+  setPortalSessionCookie,
 } from './session.js'
-import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount } from './deploymentConfig.js'
+import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount, portalRequestFromHeaders } from './deploymentConfig.js'
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
@@ -295,9 +296,9 @@ async function accountByIds(db, tenantId, userId) {
 
 // Match /auth/session: avoid returning a login response without the user's
 // saved first-login state, role grants or platform permissions.
-async function authenticatedLoginPayload(account) {
+async function authenticatedLoginPayload(account, surface = 'workspace') {
   const access = await effectiveAccessForUser(pool, account.tenant_id, account.user_id, account.tenant_role)
-  return sessionPayload(attachAccess(account, access, 'workspace'))
+  return sessionPayload(attachAccess(account, access, surface))
 }
 
 async function enabledMethod(db, tenantId, userId) {
@@ -471,15 +472,21 @@ export function registerMfaRoutes(app) {
     const valid = await verifyPassword(password, account.password_hash)
     if (!valid) return c.json({ error: 'Email address or password is incorrect.' }, 401)
 
+    const surface = portalRequestFromHeaders(c.req.header('origin'),c.req.header('referer')) ? 'portal' : 'workspace'
+    const access = await effectiveAccessForUser(pool,account.tenant_id,account.user_id,account.tenant_role)
+    if (surface === 'portal' && !access.portalAccess) return c.json({error:'Requester Portal access required.'},403)
+    if (surface === 'workspace' && !access.workspaceAccess) return c.json({error:'Workspace access required.'},403)
     const ttl = sessionTtlSeconds(account)
     if (!mfaRequiredFor(account)) {
       const token = await withTransaction((client) => createSession(client, {
         tenantId: account.tenant_id,
         userId: account.user_id,
         ttlSeconds: ttl,
+        surface,
       }))
-      setSessionCookie(c, token, ttl)
-      return c.json(await authenticatedLoginPayload(account))
+      if (surface === 'portal') setPortalSessionCookie(c, token, ttl)
+      else setSessionCookie(c, token, ttl)
+      return c.json(await authenticatedLoginPayload(account,surface))
     }
 
     const result = await withTransaction(async (client) => {
@@ -608,24 +615,28 @@ export function registerMfaRoutes(app) {
       await client.query('UPDATE auth_mfa_challenges SET used_at = now() WHERE id = $1', [account.challenge_id])
 
       const ttl = sessionTtlSeconds(account)
+      const surface = portalRequestFromHeaders(c.req.header('origin'),c.req.header('referer')) ? 'portal' : 'workspace'
       const token = await createSession(client, {
         tenantId: account.tenant_id,
         userId: account.user_id,
         mfaVerified: true,
         ttlSeconds: ttl,
+        surface,
       })
       return {
         ok: true,
         token,
         ttl,
+        surface,
         account: { ...account, mfa_verified_at: new Date().toISOString() },
         recoveryCodes,
       }
     })
 
     if (!result.ok) return c.json({ error: result.error }, result.status)
-    setSessionCookie(c, result.token, result.ttl)
-    return c.json({ ...await authenticatedLoginPayload(result.account), recoveryCodes: result.recoveryCodes })
+    if (result.surface === 'portal') setPortalSessionCookie(c, result.token, result.ttl)
+    else setSessionCookie(c, result.token, result.ttl)
+    return c.json({ ...await authenticatedLoginPayload(result.account,result.surface), recoveryCodes: result.recoveryCodes })
   })
 
   app.get('/api/v1/mfa/status', async (c) => {

@@ -8,9 +8,10 @@ import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
 
 const { Client } = pg
 
-export function environmentSessionCookieName(environment) {
+export function environmentSessionCookieName(environment, surface = 'workspace') {
   if (!['test', 'uat'].includes(environment)) throw Error('Unknown environment')
-  return `hi5central_${environment}_session`
+  if (!['workspace', 'portal'].includes(surface)) throw Error('Unknown authentication surface')
+  return `hi5central_${environment}_${surface === 'portal' ? 'portal_session' : 'session'}`
 }
 
 /**
@@ -24,9 +25,10 @@ export function environmentSessionCookieName(environment) {
 export async function establishEnvironmentSession(c, liveSession, environment, {
   source = pool,
   targets = {},
+  surface = 'workspace',
 } = {}) {
   if (deployment.runtimeEnvironment !== 'live') throw Error('Use your Live organisation to authenticate.')
-  const cookieName = environmentSessionCookieName(environment)
+  const cookieName = environmentSessionCookieName(environment, surface)
   const {tenant_id:tenantId,user_id:userId,slug} = liveSession
   if (!await permittedTenantEnvironment(tenantId,userId,environment,{db:source})) {
     const error = Error('Access to this environment has not been granted in People.')
@@ -74,7 +76,7 @@ export async function establishEnvironmentSession(c, liveSession, environment, {
     token=await createSession(client,{
       tenantId,userId,
       mfaVerified: Boolean(liveSession.mfa_verified_at),
-      surface:'workspace',
+      surface,
     })
     await client.query('COMMIT')
   } catch(error) {
@@ -91,6 +93,8 @@ export async function establishEnvironmentSession(c, liveSession, environment, {
     domain:`.${domain}`,path:'/',httpOnly:true,secure:true,sameSite:'Lax',
     maxAge:60*60*12,
   })
-  const url=`https://${targetSlug}.${domain}/dashboard?environment_sso=1`
+  const url=surface === 'portal'
+    ? `https://${targetSlug}-portal.${domain}/?environment_sso=1`
+    : `https://${targetSlug}.${domain}/dashboard?environment_sso=1`
   return {url,environment,sessionCreated:true}
 }
