@@ -98,7 +98,7 @@ const sections = {
   'rmm-remote': { path: '/settings/rmm/remote-access', group: 'RMM', label: 'Remote access', icon: MonitorCog, area: 'rmm' },
 
   integrations: { path: '/settings/integrations', group: 'Platform', label: 'Integrations', icon: Link2, area: 'integrations' },
-  'release-management': { path: '/settings/platform/releases', group: 'Platform', label: 'Releases & environments', icon: GitBranch, area: 'releaseControl', standardOnly: true },
+  'release-management': { path: '/settings/platform/releases', group: 'Platform', label: 'Releases & environments', icon: GitBranch, area: 'releaseControl' },
   subscription: { path: '/settings/subscription', group: 'Platform', label: 'Subscription', icon: CreditCard, area: 'billing' },
 }
 
