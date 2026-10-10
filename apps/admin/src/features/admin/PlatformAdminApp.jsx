@@ -137,31 +137,45 @@ function Login({ onLogin }) {
   const [email,setEmail]=useState('')
   const [password,setPassword]=useState('')
   const [passwordStep,setPasswordStep]=useState(false)
+  const [challenge,setChallenge]=useState('')
+  const [setup,setSetup]=useState(null)
+  const [code,setCode]=useState('')
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
-
+  function reset(){
+    setPasswordStep(false);setPassword('');setChallenge('')
+    setSetup(null);setCode('');setError('')
+  }
   async function submit(event){
     event.preventDefault()
     setError('')
-    if(!email.trim()) {
-      setError('Enter your email address to continue.')
-      return
-    }
-    if(!passwordStep) {
-      setPasswordStep(true)
-      return
-    }
+    if(!email.trim()){setError('Enter your email address to continue.');return}
+    if(!passwordStep){setPasswordStep(true);return}
     setBusy(true)
     try {
-      const result=await api('/auth/login',{method:'POST',body:JSON.stringify({email:email.trim(),password})})
+      if(challenge){
+        const result=await api('/auth/mfa/verify',{method:'POST',
+          body:JSON.stringify({challengeToken:challenge,code})})
+        setCode('');setChallenge('');setSetup(null)
+        onLogin(result)
+        return
+      }
+      const result=await api('/auth/login',{method:'POST',
+        body:JSON.stringify({email:email.trim(),password})})
+      if(result.mfaRequired){
+        setChallenge(result.challengeToken)
+        setPassword('')
+        if(result.setupRequired){
+          const enroll=await api('/auth/mfa/setup',{method:'POST',
+            body:JSON.stringify({challengeToken:result.challengeToken})})
+          setSetup(enroll)
+        }else setSetup(null)
+        return
+      }
       onLogin(result)
-    } catch(err){
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
+    }catch(err){setError(err.message)}
+    finally{setBusy(false)}
   }
-
   return (
     <main className="production-auth-shell">
       <div className="production-auth-layout">
@@ -169,26 +183,52 @@ function Login({ onLogin }) {
           <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="" />
           <span className="production-auth-kicker"><ShieldCheck size={15}/> Secure Hi5Central sign-in</span>
           <h1>Welcome back to Hi5Central.</h1>
-          <p>Sign in with an account that has access to Platform Admin. If you are already signed in to ITSM or RMM, Hi5Central will normally open Admin automatically.</p>
+          <p>Sign in with an account that has Platform Admin access. Pilot administrators must verify with an authenticator before a session is created.</p>
           <div className="production-auth-points">
-            <span><CheckCircle2 size={17}/> Shared Hi5Central identity</span>
-            <span><CheckCircle2 size={17}/> HttpOnly secure session</span>
-            <span><CheckCircle2 size={17}/> Role-gated Platform Admin access</span>
+            <span><CheckCircle2 size={17}/> Independent Platform Admin identity</span>
+            <span><CheckCircle2 size={17}/> Mandatory authenticator for the pilot</span>
+            <span><CheckCircle2 size={17}/> Role-gated, HttpOnly secure session</span>
           </div>
         </section>
-
         <form className="production-auth-card" onSubmit={submit}>
           <div className="production-auth-card-heading">
             <span className="production-auth-icon"><LockKeyhole size={19}/></span>
             <div><span>Hi5Central</span><strong>Platform Admin</strong></div>
           </div>
-          <label><span>Email address</span><input type="email" value={email} onChange={e=>{setEmail(e.target.value);if(passwordStep)setPasswordStep(false);setError('')}} autoComplete="username" required/></label>
-          {passwordStep
-            ? <label><span>Password</span><input type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" autoFocus required/></label>
-            : <p className="production-auth-method-note">Hi5Central will check your Platform Admin access before opening the control plane.</p>}
+          {!challenge?<label><span>Email address</span>
+            <input type="email" value={email} onChange={e=>{setEmail(e.target.value);reset()}}
+              autoComplete="username" required/></label>
+            :<p className="production-auth-method-note">Verifying administrator: {email}</p>}
+          {!challenge && passwordStep
+            ?<label><span>Password</span><input type="password" value={password}
+                onChange={e=>setPassword(e.target.value)} autoComplete="current-password"
+                autoFocus required/></label>:null}
+          {challenge?<>
+            {setup?<div className="production-auth-method-note">
+              <strong>Set up your authenticator</strong>
+              <p>Add this account to Microsoft Authenticator, Google Authenticator or another TOTP app. Keep the secret private.</p>
+              <p>Account: {email}</p>
+              <p>Issuer: Hi5Central Admin</p>
+              <code style={{display:'block',wordBreak:'break-all',userSelect:'all'}}>{setup.secret}</code>
+            </div>:<p className="production-auth-method-note">
+              Enter the six-digit code from your existing authenticator.
+            </p>}
+            <label><span>Authenticator code</span>
+              <input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))}
+                inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+                autoComplete="one-time-code" autoFocus required/></label>
+          </>:null}
+          {!passwordStep?<p className="production-auth-method-note">
+            Hi5Central will check your Platform Admin access before opening the control plane.
+          </p>:null}
           {error?<div className="production-auth-error">{error}</div>:null}
-          <button disabled={busy} type="submit">{busy?'Signing in…':passwordStep?'Sign in':'Continue'}{!busy?<ArrowRight size={17}/>:null}</button>
-          {passwordStep?<button className="production-auth-secondary-action" type="button" onClick={()=>{setPasswordStep(false);setPassword('');setError('')}}>Use a different email</button>:null}
+          <button disabled={busy || (challenge && code.length!==6)} type="submit">
+            {busy?'Verifying…':challenge?'Verify and sign in':passwordStep?'Continue securely':'Continue'}
+            {!busy?<ArrowRight size={17}/>:null}
+          </button>
+          {passwordStep?<button className="production-auth-secondary-action" type="button" onClick={reset}>
+            Start again with another email
+          </button>:null}
           {config.appUrl?<a href={config.appUrl}>Back to Hi5Central</a>:null}
         </form>
       </div>
