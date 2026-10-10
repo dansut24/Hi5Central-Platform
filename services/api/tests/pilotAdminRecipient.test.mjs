@@ -37,6 +37,6 @@ test('Symlinks, group/world readability and malformed JSON fail closed',()=>temp
  chmodSync(path,0o644)
  assert.throws(()=>verifyPilotAdminRecipientFile(path,{email,scopeId}),/owner-only/)
  chmodSync(path,0o600)
- writeFileSync(path,'{corrupted')
+ writeFileSync(path,'{corrupted invalid json content at least thirty bytes')
  assert.throws(()=>verifyPilotAdminRecipientFile(path,{email,scopeId}),/invalid/)
 }))
