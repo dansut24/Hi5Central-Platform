@@ -47,5 +47,20 @@ test('Public signup queues email verification, never creates tenant/account/sess
 test('Signup requests are only enabled in reviewed private pilot',()=>{
  const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
  assert.match(src,/process\.env\.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'/)
- assert.match(src,/deployment\.apiUrl==='https:\/\/pilot-control-api\.hi5central\.com'/)
+ assert.match(src,/deployment\.apiUrl===privateOrigin/)
+ assert.match(src,/deployment\.apiUrl===liveOrigin/)
+ assert.match(src,/MANAGED_SIGNUP_LIVE_APPROVED/)
+ assert.match(src,/MANAGED_SIGNUP_TEST_ONLY/)
+ assert.match(src,/MANAGED_SIGNUP_TEST_EMAIL/)
+})
+
+test('Public production signup must use the verified mail origin and approved test-only gate',()=>{
+ const signup=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
+ const mailer=readFileSync(new URL('../src/mailer.js',import.meta.url),'utf8')
+ assert.match(signup,/liveOrigin='https:\/\/api\.hi5central\.com'/)
+ assert.match(signup,/liveAdmin='https:\/\/admin\.hi5central\.com'/)
+ assert.match(signup,/process\.env\.MANAGED_SIGNUP_TEST_ONLY==='true'/)
+ assert.match(signup,/requested\.ownerEmail!==approved/)
+ assert.match(mailer,/MANAGED_SIGNUP_LIVE_APPROVED==='true'/)
+ assert.match(mailer,/MANAGED_SIGNUP_SMTP_APPROVED!=='true'/)
 })
