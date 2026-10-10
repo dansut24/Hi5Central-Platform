@@ -669,11 +669,11 @@ export function registerPlatformAdminRoutes(app) {
       const session={...user.rows[0],session_id:inserted.rows[0].id}
       await audit(c,session,'platform.auth.mfa_verified','user',challenge.user_id,
         {firstEnrollment:verified.firstEnrollment},db)
-      return {session,tokenValue}
+      return {session,tokenValue,recoveryCodes:verified.recoveryCodes}
     })
     if(result.status)return c.json({error:result.error},result.status)
     setCookie(c,COOKIE_NAME,result.tokenValue,cookieOptions({maxAge:SESSION_SECONDS}))
-    return c.json({...adminPayload(result.session),mfaVerified:true,workspaceSessionCreated:false})
+    return c.json({...adminPayload(result.session),mfaVerified:true,workspaceSessionCreated:false,recoveryCodes:result.recoveryCodes||undefined})
   })
 
   app.get('/api/platform/v1/auth/session', async (c) => {
