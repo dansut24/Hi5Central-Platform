@@ -4,6 +4,7 @@ import { resolveSession } from './session.js'
 import { recordSecurityEvent, requestIp, requestUserAgent } from './securityAudit.js'
 import { provisionTenantSandboxes, tenantSandboxUrl } from './tenantEnvironmentProvisioner.js'
 import { issueEnvironmentTicket } from './environmentHandoff.js'
+import { establishEnvironmentSession } from './environmentDirectSession.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -143,10 +144,8 @@ export function registerTenantReleaseRoutes(app) {
     const environment=String(body?.environment || '')
     if (!['test','uat'].includes(environment)) return c.json({error:'Choose Test or UAT.'},400)
     try {
-      const url=await issueEnvironmentTicket(auth.session.tenant_id,auth.session.user_id,environment,{
-        verified:Boolean(auth.session.mfa_verified_at),
-      })
-      return c.json({url})
+      const access=await establishEnvironmentSession(c,auth.session,environment)
+      return c.json(access)
     } catch(error) {
       return c.json({error:error.message || 'Cannot open this environment yet.'},409)
     }
