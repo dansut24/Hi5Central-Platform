@@ -12,6 +12,8 @@ function preferencePayload(row) {
     tenantId: row.tenant_id,
     updateMode: row.update_mode,
     managedByHi5Central: row.update_mode === 'hi5_managed',
+    customerUatRequired: row.update_mode === 'admin_controlled',
+    customerUatOptIn: row.update_mode === 'admin_controlled' || Boolean(row.customer_uat_opt_in),
     testAutoSync: Boolean(row.test_auto_sync),
     uatAutoStage: Boolean(row.uat_auto_stage),
     liveAutoPromote: Boolean(row.live_auto_promote),
@@ -112,9 +114,11 @@ export function registerTenantReleaseRoutes(app) {
     }
 
     const maintenanceWindow = object(body?.maintenanceWindow)
-    const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
-      : { uatAutoStage: false, liveAutoPromote: false }
+    const modeDefaults = {
+      uatAutoStage: false, // internal Hi5Central UAT, NOT customer-dedicated UAT
+      liveAutoPromote: updateMode === 'hi5_managed',
+    }
+    const customerUatOptIn=updateMode==='admin_controlled' || body?.customerUatOptIn===true
 
     await ensurePreference(auth.session.tenant_id)
     const result = await pool.query(
@@ -126,6 +130,7 @@ export function registerTenantReleaseRoutes(app) {
          live_delay_hours=$5,
          allow_emergency_security_updates=$6,
          maintenance_window=CASE WHEN $7::jsonb='{}'::jsonb THEN maintenance_window ELSE $7::jsonb END,
+         customer_uat_opt_in=$9,
          updated_by=$8,
          updated_at=now()
        WHERE tenant_id=$1
@@ -139,6 +144,7 @@ export function registerTenantReleaseRoutes(app) {
         body?.allowEmergencySecurityUpdates !== false,
         JSON.stringify(maintenanceWindow),
         auth.session.user_id,
+        customerUatOptIn,
       ],
     )
 
