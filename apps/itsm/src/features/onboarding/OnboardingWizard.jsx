@@ -804,6 +804,10 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <p>Open Hi5Central with the owner account and the tenant defaults you configured during onboarding.</p>
               <div className="onboarding-summary onboarding-summary-expanded">
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
+                {!SELF_HOSTED ? <>
+                  <div><span>Test workspace</span><strong>{`${session.tenant.slug}-test.${DEPLOYMENT.rootDomain}`}</strong></div>
+                  <div><span>UAT / Staging workspace</span><strong>{`${session.tenant.slug}-uat.${DEPLOYMENT.rootDomain}`}</strong></div>
+                </> : null}
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Hi5Central updates</span><strong>{savedUpdates.updateMode === 'hi5_managed' ? 'Hi5Central managed' : 'Custom / admin controlled'}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
@@ -812,6 +816,10 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
                 {modules.itsm ? <div><span>Portal</span><strong>{savedItsm.portalName || 'IT Help Centre'}</strong></div> : null}
               </div>
+              {!SELF_HOSTED ? <div className="onboarding-integration-note onboarding-finish-note">
+                <CheckCircle2 size={16} />
+                <span>Your Test and UAT environments will be prepared automatically when you finish onboarding. Access them securely from <strong>Settings → Releases &amp; environments</strong> in your Live workspace; your administrators control UAT-to-Live promotions when Custom updates are selected.</span>
+              </div> : null}
               <div className="onboarding-integration-note onboarding-finish-note"><Mail size={16} /><span>{SELF_HOSTED ? 'Your core workspace settings are saved locally. External integrations, inbound email and AI can be configured later from Settings.' : 'Your core workspace settings are saved to this tenant. Integrations, inbound email, AI and billing can be configured later from Settings.'}</span></div>
             </div>
           ) : null}
