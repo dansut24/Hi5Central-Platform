@@ -12,7 +12,7 @@ import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
-import { registerTenantReleaseRoutes } from './tenantRelease.js'
+import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
@@ -102,6 +102,7 @@ function onboardingSequence(modules = {}) {
     'groups',
     'permissions',
     'security',
+    'updates',
     modules?.itsm ? 'itsm' : null,
     modules?.rmm ? 'rmm' : null,
     'finish',
@@ -564,7 +565,7 @@ app.post('/api/v1/onboarding/delivery/test-smtp', async (c) => {
 })
 
 app.post('/api/v1/onboarding/save', async (c) => {
-  const session = await resolveSession(c)
+  const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ error: 'Authentication required.' }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   if (session.onboarding_completed_at) return c.json(sessionPayload(session))
@@ -583,13 +584,18 @@ app.post('/api/v1/onboarding/save', async (c) => {
   }
   if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
 
-  await pool.query(
-    `UPDATE tenant_settings
-     SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
-         updated_at=now()
-     WHERE tenant_id=$1`,
-    [session.tenant_id, step, JSON.stringify(data)],
-  )
+  await withTransaction(async (client) => {
+    if (step === 'updates') {
+      await persistOnboardingUpdatePreference(client, { tenantId: session.tenant_id, userId: session.user_id, data })
+    }
+    await client.query(
+      `UPDATE tenant_settings
+       SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
+           updated_at=now()
+       WHERE tenant_id=$1`,
+      [session.tenant_id, step, JSON.stringify(data)],
+    )
+  })
 
   const nextSession = {
     ...session,
@@ -602,7 +608,7 @@ app.post('/api/v1/onboarding/save', async (c) => {
 })
 
 app.post('/api/v1/onboarding/step', async (c) => {
-  const session = await resolveSession(c)
+  const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ error: 'Authentication required.' }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   if (session.onboarding_completed_at) return c.json(sessionPayload(session))
@@ -615,10 +621,15 @@ app.post('/api/v1/onboarding/step', async (c) => {
   if (currentIndex < 0 || step !== session.onboarding_step) return c.json({ error: 'This onboarding step is no longer current. Refresh and continue from the active step.' }, 409)
   const nextStep = sequence[Math.min(currentIndex + 1, sequence.length - 1)]
   if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
-  await pool.query(
-    `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
-    [session.tenant_id, step, JSON.stringify(data), nextStep],
-  )
+  await withTransaction(async (client) => {
+    if (step === 'updates') {
+      await persistOnboardingUpdatePreference(client, { tenantId: session.tenant_id, userId: session.user_id, data })
+    }
+    await client.query(
+      `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
+      [session.tenant_id, step, JSON.stringify(data), nextStep],
+    )
+  })
   const nextSession = {
     ...session,
     onboarding_step: nextStep,
@@ -631,7 +642,7 @@ app.post('/api/v1/onboarding/step', async (c) => {
 })
 
 app.post('/api/v1/onboarding/complete', async (c) => {
-  const session = await resolveSession(c)
+  const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ error: 'Authentication required.' }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
   if (session.onboarding_completed_at) return c.json(sessionPayload(session))
@@ -652,13 +663,7 @@ app.post('/api/v1/onboarding/complete', async (c) => {
       `INSERT INTO user_experience_preferences (
          user_id,preferences,first_login_completed_at,platform_guidance,platform_getting_started,updated_at
        ) VALUES ($1,'{}'::jsonb,NULL,'{}'::jsonb,'{}'::jsonb,now())
-       ON CONFLICT (user_id)
-       DO UPDATE SET
-         preferences='{}'::jsonb,
-         first_login_completed_at=NULL,
-         platform_guidance='{}'::jsonb,
-         platform_getting_started='{}'::jsonb,
-         updated_at=now()`,
+       ON CONFLICT (user_id) DO NOTHING`,
       [session.user_id],
     )
     await client.query('COMMIT')
