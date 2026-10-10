@@ -3,6 +3,7 @@ import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 import { recordSecurityEvent, requestIp, requestUserAgent } from './securityAudit.js'
 import { provisionTenantSandboxes, tenantSandboxUrl } from './tenantEnvironmentProvisioner.js'
+import { issueEnvironmentTicket } from './environmentHandoff.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -132,6 +133,23 @@ export function registerTenantReleaseRoutes(app) {
       edition: deployment.deploymentMode === 'managed' ? 'managed' : deployment.selfHostEdition,
       ...state,
     })
+  })
+
+  app.post('/api/v1/release-management/environment-access', async c => {
+    const auth = await requireTenantAdmin(c)
+    if (auth.error) return auth.error
+    let body
+    try { body=await c.req.json() } catch { return c.json({error:'Invalid environment request.'},400) }
+    const environment=String(body?.environment || '')
+    if (!['test','uat'].includes(environment)) return c.json({error:'Choose Test or UAT.'},400)
+    try {
+      const url=await issueEnvironmentTicket(auth.session.tenant_id,auth.session.user_id,environment,{
+        verified:Boolean(auth.session.mfa_verified_at),
+      })
+      return c.json({url})
+    } catch(error) {
+      return c.json({error:error.message || 'Cannot open this environment yet.'},409)
+    }
   })
 
   app.post('/api/v1/release-management/provision', async (c) => {
