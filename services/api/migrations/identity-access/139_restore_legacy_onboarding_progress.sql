@@ -22,7 +22,7 @@ SET onboarding_step = CASE
 WHERE onboarding_completed_at IS NULL
   AND onboarding_step = 'delivery'
   AND COALESCE(onboarding_data,'{}'::jsonb) ? 'users'
-  AND NOT COALESCE(onboarding_data,'{}'::jsonb) ? 'delivery'
+  AND NOT (COALESCE(onboarding_data,'{}'::jsonb) ? 'delivery')
   AND (
     COALESCE(onboarding_data,'{}'::jsonb) ? 'groups'
     OR COALESCE(onboarding_data,'{}'::jsonb) ? 'permissions'
