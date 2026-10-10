@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import pg from 'pg'
 import { createClient } from 'redis'
 import { isValidCustomerSlug } from '../src/tenantEnvironmentHostnames.js'
+import { readOperatorTrustFile, verifyOperatorPair } from '../src/managedOperatorEvidence.js'
 import { validateControlPlaneAttestation } from '../src/tenantEnvironmentOperatorChecks.js'
 import {
   validateRuntimeAttestation, validateManagedRuntimeRedisIdentity,
@@ -135,6 +136,21 @@ async function main() {
     if(required('CONFIRM_SANDBOX_ACTIVATION')!==confirmation) {
       throw new Error('Confirmation must exactly match slug:environment:requestId:action.')
     }
+    // The operator/reviewer names in environment variables are NEVER sufficient
+    // to authorize a mutation. Require independent, time-limited Ed25519
+    // assertions signed by identities in an externally provisioned trust file.
+    const trust=readOperatorTrustFile(required('SANDBOX_OPERATOR_TRUST_FILE'))
+    const evidence=verifyOperatorPair({
+      trust,
+      actorToken:required('ACTIVATION_ACTOR_ATTESTATION'),
+      reviewerToken:required('ACTIVATION_REVIEWER_ATTESTATION'),
+      expected:{
+        action:mode.slice(2),actor,reviewer,tenantSlug:slug,environment,
+        controlRequestId:request.id,localTenantId:row.id,
+        databaseInstanceId:targetIdentity.instance_id,
+        redisInstanceId:binding.redisInstanceId,
+      },
+    })
     if(mode==='--approve') {
       if(row.status!=='suspended' || row.approval_state==='approved') {
         throw new Error('Only suspended, not-yet-approved tenants may be approved.')
@@ -157,7 +173,8 @@ async function main() {
         throw new Error('Activation requires a suspended tenant and independent existing approval.')
       }
       const approvalAudit=(await target.query(
-        `SELECT operator_id,independent_reviewer_id
+        `SELECT operator_id,independent_reviewer_id,actor_evidence_sha256,reviewer_evidence_sha256,
+                actor_key_id,reviewer_key_id
            FROM managed_environment_activation_audit
           WHERE tenant_id=$1 AND bootstrap_request_id=$2 AND environment=$3
             AND action='approve'
@@ -168,7 +185,11 @@ async function main() {
       // The activating operator must be distinct from BOTH people who signed
       // the approval and must reference that durable approval audit event.
       if(!approvalAudit || approvalAudit.independent_reviewer_id!==reviewer
-        || actor===approvalAudit.operator_id || actor===approvalAudit.independent_reviewer_id) {
+        || !approvalAudit.actor_evidence_sha256 || !approvalAudit.reviewer_evidence_sha256
+        || !approvalAudit.actor_key_id || !approvalAudit.reviewer_key_id
+        || actor===approvalAudit.operator_id || actor===approvalAudit.independent_reviewer_id
+        || evidence.actor.keyId===approvalAudit.actor_key_id
+        || evidence.actor.keyId===approvalAudit.reviewer_key_id) {
         throw new Error('Activation requires a different operator from both approval participants.')
       }
       await target.query("UPDATE tenants SET status='active',updated_at=now() WHERE id=$1 AND status='suspended'",[row.id])
@@ -193,10 +214,13 @@ async function main() {
     await target.query(
       `INSERT INTO managed_environment_activation_audit
          (tenant_id,bootstrap_request_id,environment,action,operator_id,
-          independent_reviewer_id,attested_database_instance_id,attested_redis_instance_id)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          independent_reviewer_id,attested_database_instance_id,attested_redis_instance_id,
+          actor_evidence_sha256,reviewer_evidence_sha256,actor_key_id,reviewer_key_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [row.id,request.id,environment,mode.slice(2),actor,reviewer,
-        targetIdentity.instance_id,binding.redisInstanceId],
+        targetIdentity.instance_id,binding.redisInstanceId,
+        evidence.actor.digest,evidence.reviewer.digest,
+        evidence.actor.keyId,evidence.reviewer.keyId],
     )
     await target.query('COMMIT');targetTransaction=false
     await control.query('ROLLBACK');controlTransaction=false
