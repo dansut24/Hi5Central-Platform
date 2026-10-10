@@ -46,11 +46,11 @@ export function validatePilotEnvironment(env) {
     if(!/^[a-z][a-z0-9_]{7,39}$/.test(String(env[key]||'')))
       errors.push(key+' must be a unique restricted identifier')
   }
-  for(const key of ['POSTGRES_PASSWORD','REDIS_PASSWORD','MFA_ENCRYPTION_KEY']){
+  for(const key of ['POSTGRES_PASSWORD','REDIS_PASSWORD','MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY']){
     if(!strong(env[key]))errors.push(key+' missing distinct high-entropy secret')
   }
-  if([env.POSTGRES_PASSWORD,env.REDIS_PASSWORD,env.MFA_ENCRYPTION_KEY].some(
-    (v,i,a)=>a.indexOf(v)!==i))errors.push('Pilot database, Redis and MFA secrets must differ')
+  if([env.POSTGRES_PASSWORD,env.REDIS_PASSWORD,env.MFA_ENCRYPTION_KEY,env.CONNECT_CODE_HMAC_KEY].some(
+    (v,i,a)=>a.indexOf(v)!==i))errors.push('Pilot database, Redis, MFA and Connect secrets must differ')
   for(const key of ['POSTGRES_IMAGE','REDIS_IMAGE','API_IMAGE','ADMIN_IMAGE']){
     if(!digest.test(String(env[key]||'')))errors.push(key+' must use immutable OCI digest')
   }
