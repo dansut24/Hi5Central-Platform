@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {randomBytes} from 'node:crypto'
 import pg from 'pg'
 import { pool } from '../src/db.js'
-import { stageTenantLiveChat, verifyTenantLiveChatUat, promoteTenantLiveChat, tenantLiveChatState } from '../src/tenantFeatureRollouts.js'
+import { stageTenantLiveChat, verifyTenantLiveChatUat, promoteTenantLiveChat, tenantLiveChatState, effectiveTenantLiveChatEnabled } from '../src/tenantFeatureRollouts.js'
 
 const {Client}=pg
 const uatUrl=process.env.TENANT_UAT_DATABASE_URL
@@ -28,12 +28,19 @@ try{
   assert.equal(result.state,'not_staged')
   assert.equal(result.liveOverridePresent,false)
   assert.equal(result.uatOverridePresent,false)
+  // An unassigned UAT release cannot inherit a legacy local Live Chat toggle.
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'uat',{source:client}),false)
+  // Test is intentionally unrestricted, while Live has no explicit decision yet.
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'test',{source:client}),true)
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'live',{source:pool}),null)
   await assert.rejects(()=>promoteTenantLiveChat(liveTenantId,ownerId,opts),/must pass UAT/)
   result=await stageTenantLiveChat(liveTenantId,ownerId,opts)
   assert.equal(result.state,'staged')
   assert.equal(result.uatEnabled,true)
   assert.equal(result.liveEnabled,false)
   assert.equal(result.liveOverridePresent,true)
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'uat',{source:client}),true)
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'live',{source:pool}),false)
   await assert.rejects(()=>promoteTenantLiveChat(liveTenantId,ownerId,opts),/must pass UAT/)
   await assert.rejects(()=>verifyTenantLiveChatUat(liveTenantId,ownerId,opts),/Enter UAT test evidence/)
   result=await verifyTenantLiveChatUat(liveTenantId,ownerId,{...opts,notes:'Validated Live Chat opening, messages and closing in the UAT workspace.'})
@@ -46,6 +53,7 @@ try{
   assert.equal(result.state,'promoted')
   assert.equal(result.liveEnabled,true)
   assert.equal(result.uatEnabled,true)
+  assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'live',{source:pool}),true)
   assert.equal(result.history.length,3)
   assert.deepEqual(result.history.map(e=>e.action),['promoted_live','uat_passed','staged_uat'])
   assert(result.history.some(e=>e.action==='uat_passed'&&e.notes.includes('Validated Live Chat')))
