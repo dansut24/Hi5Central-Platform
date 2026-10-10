@@ -38,13 +38,13 @@ jobs:
           docker run --detach --name hi5-ephemeral-provisioning-pg \
             --publish 127.0.0.1:55437:5432 \
             --env POSTGRES_PASSWORD=hi5-ephemeral-ci-only \
-            public.ecr.aws/docker/library/postgres:17-alpine
+            mirror.gcr.io/library/postgres:17-alpine
           docker run --detach --name hi5-ephemeral-uat-redis \
             --publish 127.0.0.1:55438:6379 \
-            public.ecr.aws/docker/library/redis:8-alpine
+            mirror.gcr.io/library/redis:8-alpine
           docker run --detach --name hi5-ephemeral-test-redis \
             --publish 127.0.0.1:55439:6379 \
-            public.ecr.aws/docker/library/redis:8-alpine
+            mirror.gcr.io/library/redis:8-alpine
           for attempt in {1..40}; do
             if docker exec hi5-ephemeral-provisioning-pg pg_isready --username postgres >/dev/null 2>&1 \
               && docker exec hi5-ephemeral-uat-redis redis-cli ping | grep -qx PONG \
