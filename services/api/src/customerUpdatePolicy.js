@@ -59,5 +59,34 @@ export const CUSTOMER_UPDATE_UPSERT=`
     allow_emergency_security_updates=EXCLUDED.allow_emergency_security_updates,
     maintenance_window=EXCLUDED.maintenance_window,
     customer_uat_opt_in=EXCLUDED.customer_uat_opt_in,
+    onboarding_selection_pending=false,
     updated_by=EXCLUDED.updated_by,updated_at=now()
   RETURNING *`
+
+// Called only from the authenticated onboarding step. UAT requests are
+// operator-reviewed reservations and must NEVER provision runtime/DNS.
+export async function saveOnboardingUpdatePolicy(db,tenantId,policy,userId){
+  await db.query(CUSTOMER_UPDATE_UPSERT,
+    customerUpdateWriteParams(tenantId,policy,userId))
+  if(policy.customerUatOptIn){
+    await db.query(`INSERT INTO tenant_environment_provision_requests
+      (tenant_id,environment,requested_by)
+      SELECT $1,'uat',$2 FROM tenant_environment_instances
+      WHERE tenant_id=$1 AND environment='uat'
+      AND NOT EXISTS(
+        SELECT 1 FROM tenant_environment_provision_requests
+        WHERE tenant_id=$1 AND environment='uat'
+          AND state IN ('requested','claimed','completed'))
+      ON CONFLICT (tenant_id,environment)
+        WHERE state IN ('requested','claimed') DO NOTHING`,[tenantId,userId])
+  }else{
+    const claimed=await db.query(`SELECT 1 FROM tenant_environment_provision_requests
+      WHERE tenant_id=$1 AND environment='uat' AND state='claimed'
+      LIMIT 1 FOR UPDATE`,[tenantId])
+    if(claimed.rowCount)
+      throw new Error('An operator has already claimed the UAT request. Contact support before disabling UAT.')
+    await db.query(`UPDATE tenant_environment_provision_requests
+      SET state='cancelled',updated_at=now()
+      WHERE tenant_id=$1 AND environment='uat' AND state='requested'`,[tenantId])
+  }
+}
