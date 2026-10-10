@@ -42,6 +42,15 @@ export function validatePilotEnvironment(env) {
   for (const [key,value] of Object.entries(expected)) {
     if(env?.[key]!==value)errors.push(key+' must be exactly '+(value||'(empty)'))
   }
+  if(env?.PILOT_ADMIN_APPROVAL_MODE &&
+      !['dual_control','single_owner'].includes(env.PILOT_ADMIN_APPROVAL_MODE))
+    errors.push('PILOT_ADMIN_APPROVAL_MODE must be single_owner or dual_control')
+  if(env?.PILOT_ADMIN_APPROVAL_MODE==='single_owner' &&
+      env.PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED!=='true')
+    errors.push('Single-owner bootstrap requires explicit operator consent')
+  if(env?.PILOT_ADMIN_APPROVAL_MODE!=='single_owner' &&
+      env?.PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED==='true')
+    errors.push('Single-owner consent cannot be applied to another policy')
   for(const key of ['POSTGRES_USER','POSTGRES_DB']){
     if(!/^[a-z][a-z0-9_]{7,39}$/.test(String(env[key]||'')))
       errors.push(key+' must be a unique restricted identifier')
