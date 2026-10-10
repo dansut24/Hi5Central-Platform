@@ -16,7 +16,7 @@ import { ProductionSessionBoundary } from './production/ProductionSessionBoundar
 import { ProductionFirstLoginRouteBridge } from './production/ProductionFirstLoginRouteBridge.jsx'
 import { ProductionItsmWorkspace } from './production/ProductionItsmWorkspace.jsx'
 import { ProductionCmdb } from './production/ProductionCmdb.jsx'
-import { ProductionLiveChatBadgeBridge } from './production/ProductionLiveChatBadgeBridge.jsx'
+import { ProductionLiveChatBadgeBridge, ProductionFloatingTechnicianChat } from './production/ProductionLiveChatBadgeBridge.jsx'
 import { ProductionLiveChatOperations, ProductionPortalLiveChatOperations } from './production/ProductionLiveChatOperations.jsx'
 import { ProductionLiveChatCompactTools } from './production/ProductionLiveChatCompactTools.jsx'
 import { ProductionLiveChatWorkspace } from './production/ProductionLiveChatWorkspace.jsx'
@@ -127,6 +127,7 @@ function AppWithWorkspaceBoundaries() {
     {productionWorkspaceReady ? <ProductionFinalTaskCompletionPrompt /> : null}
     {productionWorkspaceReady ? <ProductionCmdb /> : null}
     {productionWorkspaceReady ? <ProductionLiveChatBadgeBridge /> : null}
+    {productionWorkspaceReady ? <ProductionFloatingTechnicianChat /> : null}
     {productionWorkspaceReady ? <ProductionLiveChatWorkspace /> : null}
     {productionWorkspaceReady ? <ProductionLiveChatOperations /> : null}
     {productionWorkspaceReady ? <ProductionLiveChatCompactTools /> : null}
