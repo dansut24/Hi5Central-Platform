@@ -452,6 +452,38 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.notEqual(samePeople.code,0)
     const noConfirm=operator('uat','--approve',{CONFIRM_SANDBOX_ACTIVATION:'WRONG'})
     assert.notEqual(noConfirm.code,0)
+    const missingSignature=operator('uat','--approve',{ACTIVATION_REVIEWER_ATTESTATION:''})
+    assert.notEqual(missingSignature.code,0,'Unsigned approval must be denied')
+    const missingTrust=operator('uat','--approve',{SANDBOX_OPERATOR_TRUST_FILE:''})
+    assert.notEqual(missingTrust.code,0,'Approval must not trust arbitrary public keys')
+    const wrongEnvironment=operator('uat','--approve',{
+      ACTIVATION_REVIEWER_ATTESTATION:signedEvidence('test','approve','reviewer','reviewer-one'),
+    })
+    assert.notEqual(wrongEnvironment.code,0,'Test signature must never approve UAT')
+    const wrongDatabase=operator('uat','--approve',{
+      ACTIVATION_REVIEWER_ATTESTATION:signedEvidence('uat','approve','reviewer','reviewer-one',
+        {databaseInstanceId:instanceIds.test}),
+    })
+    assert.notEqual(wrongDatabase.code,0,'Wrong database signature must be denied')
+    const expiredSignature=operator('uat','--approve',{
+      ACTIVATION_REVIEWER_ATTESTATION:signedEvidence('uat','approve','reviewer','reviewer-one',
+        {issuedAt:new Date(Date.now()-600000).toISOString(),
+         expiresAt:new Date(Date.now()-540000).toISOString()}),
+    })
+    assert.notEqual(expiredSignature.code,0,'Expired signatures must be rejected')
+    const swappedRole=operator('uat','--approve',{
+      ACTIVATION_REVIEWER_ATTESTATION:signedEvidence('uat','approve','reviewer','operator-one'),
+    })
+    assert.notEqual(swappedRole.code,0,'An operator key cannot sign as reviewer')
+    const tamperedEnvelope=JSON.parse(signedEvidence('uat','approve','reviewer','reviewer-one'))
+    tamperedEnvelope.signature='A'+tamperedEnvelope.signature.slice(1)
+    const tampered=operator('uat','--approve',{
+      ACTIVATION_REVIEWER_ATTESTATION:JSON.stringify(tamperedEnvelope),
+    })
+    assert.notEqual(tampered.code,0,'Tampered signature must fail closed')
+    assert.equal((await query('uat',
+      'SELECT count(*)::int AS c FROM managed_environment_activation_audit')).rows[0].c,0,
+      'Failed signed approvals must not persist state')
     const approved=operator('uat','--approve',{
       ACTIVATION_OPERATOR:'operator-one',INDEPENDENT_REVIEWER:'reviewer-one',
     })
@@ -471,6 +503,14 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.equal((await query('test','SELECT status FROM tenants WHERE slug=\'bravo\'')).rows[0].status,'suspended')
     const audits=await query('uat','SELECT action,operator_id,independent_reviewer_id FROM managed_environment_activation_audit ORDER BY created_at')
     assert.deepEqual(audits.rows.map(x=>x.action),['approve','activate'])
+    const signedRows=await query('uat',
+      'SELECT actor_evidence_sha256,reviewer_evidence_sha256,actor_key_id,reviewer_key_id FROM managed_environment_activation_audit ORDER BY created_at')
+    assert.equal(signedRows.rowCount,2)
+    for(const evidence of signedRows.rows){
+      assert.match(evidence.actor_evidence_sha256,/^[0-9a-f]{64}$/)
+      assert.match(evidence.reviewer_evidence_sha256,/^[0-9a-f]{64}$/)
+      assert.notEqual(evidence.actor_key_id,evidence.reviewer_key_id)
+    }
     const control=await query('control',`SELECT q.state,e.provisioning_status FROM tenant_environment_provision_requests q
       JOIN tenant_environment_instances e ON e.tenant_id=q.tenant_id AND e.environment=q.environment WHERE q.id=$1`,[requestIds.uat])
     assert.deepEqual(control.rows[0],{state:'claimed',provisioning_status:'provisioning'})
