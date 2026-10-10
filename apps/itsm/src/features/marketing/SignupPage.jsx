@@ -47,11 +47,6 @@ export function SignupPage() {
     email: '',
     password: '',
     confirmPassword: '',
-    updateMode: '',
-    deploymentDay: 'sun',
-    deploymentTime: '02:00',
-    deploymentTimezone: 'Europe/London',
-    customerUatOptIn: false,
     itsm: true,
     rmm: Boolean(DEPLOYMENT.rmmUrl),
   })
@@ -119,8 +114,6 @@ export function SignupPage() {
     event.preventDefault()
     setError('')
     if (!MANAGED_SIGNUP && form.password !== form.confirmPassword) return setError('Your passwords do not match.')
-    if (MANAGED_SIGNUP && !['hi5_managed','admin_controlled'].includes(form.updateMode))
-      return setError('Select Managed or Custom updates before continuing.')
     if (!form.itsm && !form.rmm) return setError('Select at least one Hi5Central product.')
     if (SELF_HOST_SINGLE && !setupToken) return setError('Enter the initial setup code shown by the Hi5Central installer.')
 
@@ -138,11 +131,6 @@ export function SignupPage() {
           password: form.password,
           modules: MANAGED_SIGNUP?undefined:[form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
           setupToken: SELF_HOST_SINGLE ? setupToken : undefined,
-          updateMode: MANAGED_SIGNUP?form.updateMode:undefined,
-          deploymentDay: MANAGED_SIGNUP?form.deploymentDay:undefined,
-          deploymentTime: MANAGED_SIGNUP?form.deploymentTime:undefined,
-          deploymentTimezone: MANAGED_SIGNUP?form.deploymentTimezone:undefined,
-          customerUatOptIn: MANAGED_SIGNUP?form.customerUatOptIn:undefined,
           modules: MANAGED_SIGNUP?{itsm:form.itsm,rmm:form.rmm}:undefined,
         }),
       })
@@ -283,32 +271,6 @@ export function SignupPage() {
             <label className={`marketing-product-choice ${form.rmm ? 'is-selected' : ''}`}><input type="checkbox" checked={form.rmm} onChange={(event) => updateField('rmm', event.target.checked)} /><MonitorCog size={19} /><span><strong>RMM</strong><small>Endpoint management</small></span></label>
           </div>
 
-          {MANAGED_SIGNUP?<section className="marketing-signup-updates">
-            <div className="marketing-product-choice-heading">Keeping Hi5Central up to date</div>
-            <p>Choose how approved web-platform releases reach your Production. Customer-specific settings and records are never automatically copied across environments.</p>
-            <div className="marketing-update-choice-grid" role="group" aria-label="Update management">
-              <button type="button" className={`marketing-update-choice ${form.updateMode==='hi5_managed'?'is-selected':''}`}
-                onClick={()=>updateField('updateMode','hi5_managed')}>
-                <strong>Managed (recommended)</strong><span>Hi5Central updates Production in your selected window. Your own UAT is optional.</span>
-              </button>
-              <button type="button" className={`marketing-update-choice ${form.updateMode==='admin_controlled'?'is-selected':''}`}
-                onClick={()=>updateField('updateMode','admin_controlled')}>
-                <strong>Custom — manual approval</strong><span>Use your own UAT to review each release and approve UAT → Production.</span>
-              </button>
-            </div>
-            {form.updateMode==='hi5_managed'?<div className="marketing-form-grid">
-              <label><span>Update day</span><select value={form.deploymentDay} onChange={e=>updateField('deploymentDay',e.target.value)}>
-                {['mon','tue','wed','thu','fri','sat','sun'].map((day,i)=><option value={day} key={day}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}</option>)}
-              </select></label>
-              <label><span>Start time</span><input type="time" value={form.deploymentTime} onChange={e=>updateField('deploymentTime',e.target.value)}/></label>
-              <label><span>Timezone</span><select value={form.deploymentTimezone} onChange={e=>updateField('deploymentTimezone',e.target.value)}>
-                {['Europe/London','Europe/Dublin','UTC','Europe/Paris','Europe/Berlin','America/New_York','America/Chicago','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Australia/Sydney'].map(zone=><option key={zone} value={zone}>{zone}</option>)}
-              </select></label>
-              <label><span>Optional customer UAT</span><input type="checkbox" checked={form.customerUatOptIn} onChange={e=>updateField('customerUatOptIn',e.target.checked)}/> I want a dedicated UAT too</label>
-            </div>:null}
-            {form.updateMode==='admin_controlled'?<div className="marketing-notice">A dedicated customer UAT is required. Promotion to Production needs manual approval.</div>:null}
-          </section>:null}
-
           <div className="marketing-form-grid">
             <label><span>Your name</span><input value={form.name} onChange={(event) => updateField('name', event.target.value)} required autoComplete="name" /></label>
             <label><span>Email</span><input type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} required autoComplete="email" /></label>
@@ -319,7 +281,7 @@ export function SignupPage() {
           </div>:null}
 
           {error ? <div className="marketing-form-error">{error}</div> : null}
-          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable' || (MANAGED_SIGNUP&&!form.updateMode)}>
+          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable'}>
             {submitting ? 'Submitting…' : SELF_HOST_SINGLE ? 'Create administrator' : MANAGED_SIGNUP?'Request customer workspace':'Create workspace'}
             {!submitting ? <ArrowRight size={18} /> : null}
           </button>
