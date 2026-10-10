@@ -128,11 +128,11 @@ jobs:
               :'ghcr.io/dansut24/hi5central-platform-admin'
             replacements[key]=name+'@sha256:'+'a'.repeat(64)
           }
-          const lines=readFileSync('runtime.env.example','utf8').split('\\n').map(line=>{
+          const lines=readFileSync('runtime.env.example','utf8').split('\n').map(line=>{
             const name=line.match(/^([A-Z][A-Z0-9_]*)=/)?.[1]
             return name&&Object.hasOwn(replacements,name)?name+'='+replacements[name]:line
           })
-          writeFileSync('runtime.env',lines.join('\\n'),{mode:0o600})
+          writeFileSync('runtime.env',lines.join('\n'),{mode:0o600})
           NODE
           docker network create --internal --driver bridge hi5central-pilot-control-edge >/dev/null
           docker pull mirror.gcr.io/library/postgres:17-alpine
