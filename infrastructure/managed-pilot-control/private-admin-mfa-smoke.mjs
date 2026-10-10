@@ -54,7 +54,7 @@ const httpDriver=`
  if(data.cookie)headers.Cookie=data.cookie
  const res=await fetch('http://127.0.0.1:3001'+data.path,{
    method:data.method||'GET',headers,
-   body:data.body===undefined?undefined:JSON.stringify(data.body),
+   body:data.method==='GET'||data.body===undefined?undefined:JSON.stringify(data.body),
    redirect:'manual',signal:AbortSignal.timeout(6000),
  })
  const parsed=await res.json().catch(()=>({}))
@@ -102,10 +102,12 @@ try {
   const setup=http('/api/platform/v1/auth/mfa/setup',{challengeToken})
   assert.equal(setup.status,200)
   assert.match(setup.body.secret,/^[A-Z2-7]{32}$/)
-  const wrong=http('/api/platform/v1/auth/mfa/verify',{challengeToken,code:'000000'})
+  const validCode=totp(setup.body.secret)
+  const invalidCode=validCode==='000000'?'000001':'000000'
+  const wrong=http('/api/platform/v1/auth/mfa/verify',{challengeToken,code:invalidCode})
   assert.equal(wrong.status,401)
   const verified=http('/api/platform/v1/auth/mfa/verify',{
-    challengeToken,code:totp(setup.body.secret)})
+    challengeToken,code:validCode})
   assert.equal(verified.status,200,'Correct TOTP must establish Admin session')
   assert.equal(verified.body.mfaVerified,true)
   assert.equal(verified.body.recoveryCodes.length,10)
