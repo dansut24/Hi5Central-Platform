@@ -14,7 +14,7 @@ import {
   createSession,
   resolveSession,
   sessionPayload,
-  setSessionCookie,
+  setRequestSessionCookie,
 } from './session.js'
 import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTenantAccount, deployment } from './deploymentConfig.js'
 import { sandboxTenantAccess } from './managedSandboxAccess.js'
@@ -478,7 +478,7 @@ export function registerMfaRoutes(app) {
         ttlSeconds: ttl,
         surface: secureLoginSurface(c.req.header('origin'), c.req.header('referer')),
       }))
-      setSessionCookie(c, token, ttl)
+      setRequestSessionCookie(c, token, ttl)
       return c.json(await authenticatedLoginPayload(account, secureLoginSurface(c.req.header('origin'), c.req.header('referer'))))
     }
 
@@ -617,7 +617,7 @@ export function registerMfaRoutes(app) {
     })
 
     if (!result.ok) return c.json({ error: result.error }, result.status)
-    setSessionCookie(c, result.token, result.ttl)
+    setRequestSessionCookie(c, result.token, result.ttl)
     return c.json({ ...await authenticatedLoginPayload(result.account, secureLoginSurface(c.req.header('origin'), c.req.header('referer'))), recoveryCodes: result.recoveryCodes })
   })
 
