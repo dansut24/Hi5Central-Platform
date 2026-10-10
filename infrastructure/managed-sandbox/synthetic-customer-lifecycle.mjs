@@ -240,6 +240,12 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
       body:{challengeToken:requesterChallenge,code:totp(requesterSetup.data.secret)},
       origin:requesterPortalOrigin})
     expect(requesterVerified,200,e.env+' requester MFA completed')
+    if(!requesterVerified.cookie.startsWith('hi5central_'+e.env+'_portal_session=')
+      || !requesterVerified.cookie.includes('HttpOnly')
+      || !requesterVerified.cookie.includes('Secure')
+      || /Domain=/i.test(requesterVerified.cookie)) {
+      throw new Error(e.env+' requester MFA did not issue a secure host-only Portal cookie')
+    }
     e.requesterCookie=requesterVerified.cookie.split(';')[0]
     if(!e.requesterCookie)throw new Error(e.env+' requester session missing')
     expect(request(e,{path:sessionPath,cookie:e.requesterCookie,origin:requesterPortalOrigin}),200,
