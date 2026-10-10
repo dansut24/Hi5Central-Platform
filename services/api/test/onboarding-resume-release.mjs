@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { randomBytes, createHash } from 'node:crypto'
 import pg from 'pg'
 import { hashPassword } from '../src/password.js'
@@ -84,6 +85,29 @@ try {
   assert.equal(previous.data.onboarding.step,'itsm','editing a past step must not erase progress')
   const wrongSlug = await db.query('SELECT count(*)::int n FROM tenant_release_preferences WHERE tenant_id<>$1',[tenantId])
   assert.equal(wrongSlug.rows[0].n,0,'onboarding must not modify other tenant policies')
+  // Model a legacy tenant moved back to Domain & email by migration 119.
+  await db.query('BEGIN')
+  try {
+    const legacySlug = slug + '-legacy'
+    const legacyTenant = await db.query("INSERT INTO tenants (slug,company_name,status) VALUES ($1,$2,'active') RETURNING id",
+      [legacySlug, 'Previously saved legacy onboarding'])
+    const legacyId = legacyTenant.rows[0].id
+    await db.query(
+      "INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,onboarding_data,tenant_url,portal_url,rmm_url) VALUES ($1,$2::jsonb,'delivery',$3::jsonb,$4,$5,$6)",
+      [legacyId, JSON.stringify({ itsm: true, rmm: true }), JSON.stringify(initial),
+       'https://' + legacySlug + '.hi5central.com', 'https://' + legacySlug + '-portal.hi5central.com', 'https://' + legacySlug + '-rmm.hi5central.com'],
+    )
+    const migration = readFileSync(new URL('../migrations/identity-access/139_restore_legacy_onboarding_progress.sql', import.meta.url),'utf8')
+    await db.query(migration)
+    let result = await db.query('SELECT onboarding_step,onboarding_data FROM tenant_settings WHERE tenant_id=$1',[legacyId])
+    assert.equal(result.rows[0].onboarding_step,'security','legacy progress should resume at Security')
+    assert.deepEqual(result.rows[0].onboarding_data,initial,'legacy saved answers must be unchanged')
+    await db.query(migration)
+    result = await db.query('SELECT onboarding_step FROM tenant_settings WHERE tenant_id=$1',[legacyId])
+    assert.equal(result.rows[0].onboarding_step,'security','migration must be idempotent')
+  } finally {
+    await db.query('ROLLBACK')
+  }
   console.log('PASS: saved steps preserved; Security -> Updates -> ITSM; refresh resume; Previous edit; invalid input and skipped steps blocked; managed release preferences persisted')
 } finally {
   await db.end()
