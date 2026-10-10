@@ -79,7 +79,7 @@ function normaliseEmail(value = '') { return String(value).trim().toLowerCase() 
 function normaliseSlug(value = '') { return String(value).trim().toLowerCase() }
 function validSlug(slug) {
   return /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(slug)
-    && slug.length <= 42 && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !slug.endsWith('-test') && !slug.endsWith('-uat') && !reservedSlugs.has(slug)
+    && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !reservedSlugs.has(slug)
 }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 }
 
@@ -277,6 +277,7 @@ app.post('/api/v1/auth/signup', async (c) => {
 
   const companyName = String(body?.companyName || '').trim()
   const tenantSlug = normaliseSlug(body?.tenantSlug || (deployment.tenancyMode === 'single' ? deployment.primaryTenantSlug : ''))
+  if (tenantSlug.length > 42 || tenantSlug.endsWith('-test') || tenantSlug.endsWith('-uat')) return c.json({ error: 'This tenant URL is reserved for environment workspaces.', field: 'tenantSlug' }, 400)
   const name = String(body?.name || '').trim()
   const email = normaliseEmail(body?.email)
   const password = String(body?.password || '')
