@@ -289,7 +289,7 @@ app.post('/api/v1/auth/signup', async (c) => {
 
   const [slugExists, emailExists, tenantCount] = await Promise.all([
     pool.query('SELECT 1 FROM tenants WHERE slug=$1 LIMIT 1', [tenantSlug]),
-    pool.query('SELECT 1 FROM users WHERE email=$1 LIMIT 1', [email]),
+    pool.query('SELECT id,password_hash FROM users WHERE email=$1 LIMIT 1', [email]),
     deployment.tenancyMode === 'single' ? pool.query('SELECT count(*)::int AS count FROM tenants') : Promise.resolve({ rows: [{ count: 0 }] }),
   ])
   const tenantCountValue = Number(tenantCount.rows[0]?.count || 0)
@@ -308,9 +308,10 @@ app.post('/api/v1/auth/signup', async (c) => {
   }
 
   if (slugExists.rowCount) return c.json({ error: 'That tenant URL is already in use.', field: 'tenantSlug' }, 409)
-  if (emailExists.rowCount) return c.json({ error: 'An account already exists for that email address.', field: 'email' }, 409)
+  if (emailExists.rowCount && !await verifyPassword(password, emailExists.rows[0].password_hash)) return c.json({ error: 'Email address or password is incorrect.' }, 401)
 
-  const passwordHash = await hashPassword(password)
+  // Existing email addresses reuse the same identity/password across tenant memberships.
+  const passwordHash = emailExists.rowCount ? null : await hashPassword(password)
   const verificationToken = firstSelfHostSetup ? '' : randomBytes(32).toString('base64url')
   const verificationTokenHash = verificationToken ? hashToken(verificationToken) : ''
   const generatedUrls = tenantUrls(tenantSlug, { rmm: modules.includes('rmm') })
@@ -350,8 +351,21 @@ app.post('/api/v1/auth/signup', async (c) => {
 
       const tenantResult = await client.query('INSERT INTO tenants (slug,company_name) VALUES ($1,$2) RETURNING id,slug,company_name,status', [tenantSlug, companyName])
       const tenant = tenantResult.rows[0]
-      const userResult = await client.query('INSERT INTO users (email,name,password_hash) VALUES ($1,$2,$3) RETURNING id,email,name', [email, name, passwordHash])
-      const user = userResult.rows[0]
+      let user
+      if (emailExists.rowCount) {
+        // Lock the identity during membership creation; never reset its password,
+        // overwrite its name, or grant access to any other tenant.
+        const existing = await client.query('SELECT id,email,name,password_hash FROM users WHERE email=$1 FOR UPDATE', [email])
+        if (!existing.rowCount || !await verifyPassword(password, existing.rows[0].password_hash)) {
+          const error = new Error('Existing account changed during signup.')
+          error.code = 'EXISTING_IDENTITY_CHANGED'
+          throw error
+        }
+        user = existing.rows[0]
+      } else {
+        const userResult = await client.query('INSERT INTO users (email,name,password_hash) VALUES ($1,$2,$3) RETURNING id,email,name', [email, name, passwordHash])
+        user = userResult.rows[0]
+      }
       await client.query("INSERT INTO tenant_memberships (tenant_id,user_id,role) VALUES ($1,$2,'owner')", [tenant.id, user.id])
       await client.query(
         `INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,tenant_url,portal_url,rmm_url)
@@ -384,6 +398,7 @@ app.post('/api/v1/auth/signup', async (c) => {
       admin: { name: result.user.name, email: result.user.email },
     }, 201)
   } catch (error) {
+    if (error?.code === 'EXISTING_IDENTITY_CHANGED') return c.json({ error: 'Account details changed while signing up. Please try again.' }, 409)
     if (error?.code === '23505') return c.json({ error: 'That tenant URL or email address is already registered.' }, 409)
     throw error
   }
