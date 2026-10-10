@@ -69,6 +69,17 @@ async function main(){
     console.log(JSON.stringify({revoked:true,sessionInvalidated:true,loginDenied:true}))
     return
   }
+  if(process.argv[2]==='--cancelled'){
+    const denied=await call('/api/v1/auth/sandbox-invitations/accept',{
+      tenantSlug:slug,token:process.env.HI5_TEST_INVITE_TOKEN,password,
+    })
+    assert.equal(denied.status,401,'A cancelled invitation must be invalid immediately.')
+    const membership=await pool.query(
+      "SELECT count(*)::int AS c FROM tenant_memberships")
+    assert.equal(membership.rows[0].c,0,'Cancelled first-owner link must never create a membership.')
+    console.log(JSON.stringify({cancelledInvitationRejected:true,noMemberCreated:true}))
+    return
+  }
   if(process.argv[2]!=='--accept-mfa') throw new Error('Unsupported sandbox test action.')
   const token=process.env.HI5_TEST_INVITE_TOKEN
   const accepted=await call('/api/v1/auth/sandbox-invitations/accept',{tenantSlug:slug,token,password})
