@@ -114,6 +114,40 @@ assert.doesNotMatch(verified.cookie,/Domain=/)
 const cookie=verified.cookie.split(';')[0]
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/tenants',null,cookie).status,200)
+assert.equal(call('POST','/api/platform/v1/tenants',{
+  companyName:'Missing policy',slug:'missingpolicy',modules:{itsm:true}
+},cookie).status,400,'Creating a tenant must require an explicit update choice')
+assert.equal(call('POST','/api/platform/v1/tenants',{
+  companyName:'Invalid time',slug:'invalidtime',updateMode:'hi5_managed',
+  deploymentDay:'wed',deploymentTime:'25:00',deploymentTimezone:'Europe/London'
+},cookie).status,400)
+const managed=call('POST','/api/platform/v1/tenants',{
+  companyName:'Synthetic Managed Customer',slug:'pilotmanagedci',
+  updateMode:'hi5_managed',deploymentDay:'wed',
+  deploymentTime:'21:30',deploymentTimezone:'Europe/London',
+  customerUatOptIn:false,modules:{itsm:true,selfService:true,rmm:false},
+},cookie)
+assert.equal(managed.status,201,JSON.stringify(managed.data))
+const custom=call('POST','/api/platform/v1/tenants',{
+  companyName:'Synthetic Custom Customer',slug:'pilotcustomci',
+  updateMode:'admin_controlled',customerUatOptIn:false,
+  modules:{itsm:true,selfService:true,rmm:false},
+},cookie)
+assert.equal(custom.status,201,JSON.stringify(custom.data))
+const modes=sql(`SELECT t.slug,p.update_mode,p.customer_uat_opt_in,
+  p.live_auto_promote,p.maintenance_window->>'start'
+  FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id
+  WHERE t.slug IN('pilotmanagedci','pilotcustomci') ORDER BY t.slug`)
+assert.match(modes,/pilotcustomci\\|admin_controlled\\|t\\|f\\|02:00/)
+assert.match(modes,/pilotmanagedci\\|hi5_managed\\|f\\|t\\|21:30/)
+assert.equal(sql('SELECT COUNT(*) FROM tenant_environment_provision_requests').split('\\n').at(-1),'0',
+  'No automatic UAT request for Managed customer')
+const reservations=sql(`SELECT e.provisioning_status FROM tenant_environment_instances e
+ JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotmanagedci'
+ AND e.environment='uat'`)
+assert.ok(!reservations.split('\\n').includes('ready'),
+  'Managed customer UAT must not silently become a provisioned runtime')
+console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, zero UAT queues)')
 assert.equal(call('POST','/api/platform/v1/auth/logout',{},cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,401)
 console.log('PHASE19_DISPOSABLE_FIRST_ADMIN_INVITE_MFA: PASS')
