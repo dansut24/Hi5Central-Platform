@@ -6,6 +6,7 @@ import {
   Check,
   LockKeyhole,
   Mail,
+  RefreshCw,
   MonitorCog,
   Palette,
   ShieldCheck,
@@ -67,6 +68,7 @@ const stepMeta = {
   groups: { label: 'Teams & groups', icon: Users, description: 'Create the first organisational and assignment structure.' },
   permissions: { label: 'Permissions', icon: LockKeyhole, description: 'Choose a safe starting RBAC model.' },
   security: { label: 'Security', icon: ShieldCheck, description: 'Set tenant-wide authentication and session defaults.' },
+  updates: { label: 'Keeping up to date', icon: RefreshCw, description: 'Choose scheduled Hi5Central web updates or your own UAT-to-Production approvals.' },
   itsm: { label: 'ITSM setup', icon: Wrench, description: 'Configure records, service desk defaults, portal and notifications.' },
   rmm: { label: 'RMM setup', icon: MonitorCog, description: 'Set the first device-management defaults.' },
   finish: { label: 'Review', icon: Sparkles, description: 'Review the tenant before opening Hi5Central.' },
@@ -80,6 +82,7 @@ function sequenceFor(modules = {}) {
     'groups',
     'permissions',
     'security',
+    'updates',
     modules.itsm ? 'itsm' : null,
     modules.rmm ? 'rmm' : null,
     'finish',
@@ -138,6 +141,13 @@ function defaultData(step, session) {
       sessionHours: '12',
       passwordPolicy: 'strong',
       auditRetention: '365',
+    },
+    updates: {
+      updateMode: '',
+      deploymentDay: 'sun',
+      deploymentTime: '02:00',
+      deploymentTimezone: 'Europe/London',
+      customerUatOptIn: false,
     },
     itsm: {
       numberingMode: 'default',
@@ -445,6 +455,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
 
   const savedDelivery = session?.onboarding?.data?.delivery || {}
   const savedItsm = session?.onboarding?.data?.itsm || {}
+  const savedUpdates = session?.onboarding?.data?.updates || {}
   const defaultWorkspaceAddress = session?.tenant?.tenantUrl
     || DEPLOYMENT.appUrl
     || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
@@ -688,6 +699,52 @@ export function OnboardingWizard({ session, onSessionChange }) {
             </>
           ) : null}
 
+          {viewStep === 'updates' ? (
+            <>
+              <Section title="How should Hi5Central stay up to date?" description="This applies to Hi5Central's web platform releases, not your device patching policies or changes to your organisation's configuration.">
+                <div className="onboarding-choice-grid">
+                  <button type="button" className={data.updateMode==='hi5_managed'?'is-selected':''}
+                    onClick={()=>{update('updateMode','hi5_managed')}}>
+                    <strong>Managed updates (recommended)</strong>
+                    <span>Hi5Central tests each stable build in its own internal environments, then schedules your Production update automatically at your chosen time. A customer UAT environment is not required.</span>
+                  </button>
+                  <button type="button" className={data.updateMode==='admin_controlled'?'is-selected':''}
+                    onClick={()=>{update('updateMode','admin_controlled')}}>
+                    <strong>Custom — approve each release</strong>
+                    <span>Keep your own customer UAT environment. Review and test each release there, then manually approve UAT → Production. No automatic Production promotions.</span>
+                  </button>
+                </div>
+              </Section>
+              {data.updateMode==='hi5_managed'?(
+                <>
+                  <Section title="Your Production update window" description="Choose when approved stable web releases may be deployed. Scheduling never automatically copies your UAT or Test settings and data into Production.">
+                    <div className="onboarding-form-grid">
+                      <Field label="Deployment day"><select value={data.deploymentDay||'sun'} onChange={event=>update('deploymentDay',event.target.value)}>
+                        {['mon','tue','wed','thu','fri','sat','sun'].map((day,index)=><option key={day} value={day}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][index]}</option>)}
+                      </select></Field>
+                      <Field label="Deployment start time"><input type="time" value={data.deploymentTime||'02:00'} onChange={event=>update('deploymentTime',event.target.value)}/></Field>
+                      <Field label="Timezone"><select value={data.deploymentTimezone||'Europe/London'} onChange={event=>update('deploymentTimezone',event.target.value)}>
+                        {['Europe/London','Europe/Dublin','UTC','Europe/Paris','Europe/Berlin','America/New_York','America/Chicago','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Australia/Sydney'].map(zone=><option key={zone} value={zone}>{zone}</option>)}
+                      </select></Field>
+                    </div>
+                  </Section>
+                  <Section title="Customer UAT (optional)" description="Hi5Central's internal UAT is always required before a stable release. You only need your own UAT if you want to test changes against your specific workflows.">
+                    <Toggle checked={data.customerUatOptIn===true} onChange={value=>update('customerUatOptIn',value)}
+                      title="I also want a customer UAT environment"
+                      description="Keep a separate UAT for my organisation. This is optional and does not change the managed update schedule."/>
+                  </Section>
+                </>
+              ):null}
+              {data.updateMode==='admin_controlled'?(
+                <Section title="Your approval process" description="Custom updates use an independent customer UAT environment. No application release is sent to your Production until an authorised administrator explicitly approves the promotion.">
+                  <div className="onboarding-integration-note">
+                    <ShieldCheck size={17}/><span>Customer UAT required. Test the release, review the impact, then use Releases &amp; environments to approve UAT → Production. Emergency updates follow a separately audited security policy.</span>
+                  </div>
+                </Section>
+              ):null}
+            </>
+          ):null}
+
           {viewStep === 'itsm' ? (
             <>
               <Section title="Record numbering" description="Use Hi5Central defaults or choose your own prefixes for records created in this tenant.">
@@ -784,6 +841,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
+                <div><span>Platform updates</span><strong>{savedUpdates.updateMode==='hi5_managed'?`Managed · ${savedUpdates.deploymentDay||'sun'} ${savedUpdates.deploymentTime||'02:00'} (${savedUpdates.deploymentTimezone||'Europe/London'})`:savedUpdates.updateMode==='admin_controlled'?'Custom · UAT → Production manual approval':'Not selected'}</strong></div>
+                <div><span>Customer UAT</span><strong>{savedUpdates.updateMode==='hi5_managed'&&!savedUpdates.customerUatOptIn?'Not required': 'Required / requested'}</strong></div>
                 <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
                 <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
                 {modules.itsm ? <div><span>Record IDs</span><strong>{Object.values(savedItsm.recordPrefixes || defaultPrefixes).join(' · ')}</strong></div> : null}
