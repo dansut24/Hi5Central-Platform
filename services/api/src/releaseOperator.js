@@ -114,6 +114,7 @@ async function applyManagedTenantFeatureActivation(db, environment, changeIds) {
   const tenants = await db.query(
     `SELECT tenant_id FROM tenant_release_preferences
       WHERE update_mode='hi5_managed'
+        AND onboarding_selection_pending=false
         AND ($1::text <> 'uat' OR customer_uat_opt_in=true)`,
     [environment],
   )
