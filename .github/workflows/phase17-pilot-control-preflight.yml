@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  packages: write
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -63,3 +64,28 @@ jobs:
             echo "Pilot Compose static render rejected"
             exit 1
           fi
+      - name: Build immutable matching private-pilot API and Admin images
+        run: |
+          set -euo pipefail
+          for service in api admin; do
+            case "$service" in
+              api) context=services/api ;;
+              admin) context=apps/admin ;;
+            esac
+            docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+              --tag "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}" "$context"
+          done
+      - uses: docker/login-action@v3
+        if: success()
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable private-pilot control image pair
+        if: success()
+        run: |
+          set -euo pipefail
+          for service in api admin; do
+            docker push "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}"
+          done
+          echo "Matched private-pilot API/Admin revision ${GITHUB_SHA}"
