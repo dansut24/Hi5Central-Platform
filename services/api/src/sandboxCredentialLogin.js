@@ -6,7 +6,6 @@ const ALLOWED_FLOWS = Object.freeze({
   verify: '/api/v1/auth/mfa/verify',
 })
 const ENVIRONMENTS = new Set(['test','uat'])
-const MAX_PAYLOAD_SIZE = 4096
 
 function sandboxTenant(body) {
   const environment = deployment.runtimeEnvironment
@@ -23,7 +22,7 @@ function liveEndpoint() {
   const base = String(process.env.ENV_IDENTITY_API_URL || '').trim()
   if (!base || !/^https:\/\//i.test(base)) throw Error('The central identity service is not configured.')
   const url = new URL(base)
-  if (url.pathname !== '/' || url.search || url.hash || !url.hostname.startsWith('api.')) {
+  if (url.pathname !== '/' || url.search || url.hash || url.hostname !== `api.${deployment.rootDomain}`) {
     throw Error('The central identity endpoint is invalid.')
   }
   return url.origin
