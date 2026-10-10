@@ -22,6 +22,7 @@ import {
   setSoftwareQualificationPriority,
 } from './rmmSoftwareQualification.js'
 import { ensureDefaultRoles } from './access.js'
+import { platformAdminMfaRequired,createAdminMfaChallenge,lockAdminMfaChallenge,setupAdminMfa,checkAdminMfaCode } from './platformAdminMfa.js'
 import { sendTenantOwnerTransferApprovalEmail } from './mailer.js'
 import { issueMspLicense } from './licenseAuthority.js'
 import { wingetRepositorySearch } from './rmmWingetFallback.js'
@@ -174,7 +175,7 @@ async function resolveAdminSession(c) {
   const token = getCookie(c, COOKIE_NAME)
   if (!token) return null
   const result = await pool.query(
-    `SELECT s.id AS session_id,s.user_id,s.expires_at,u.email,u.name,
+    `SELECT s.id AS session_id,s.user_id,s.expires_at,s.mfa_verified_at,u.email,u.name,
             m.role AS platform_role,m.status AS platform_status
        FROM platform_admin_sessions s
        JOIN users u ON u.id=s.user_id
@@ -184,7 +185,7 @@ async function resolveAdminSession(c) {
     [hash(token)],
   )
   const row = result.rows[0]
-  if (!row) return null
+  if (!row || (platformAdminMfaRequired && !row.mfa_verified_at)) return null
 
   const explicitRole = row.platform_status === 'active' && ADMIN_ROLES.has(row.platform_role)
     ? row.platform_role
@@ -244,6 +245,7 @@ async function seedTenantWorkspaceSession(c, userId) {
 }
 
 async function tenantAdminSsoSession(c, suppliedTenantSession = null) {
+  if(platformAdminMfaRequired) return null // Platform MFA must never be bypassed via tenant SSO.
   const tenantSession = suppliedTenantSession || await resolveSession(c)
   if (!tenantSession) return null
 
@@ -290,6 +292,10 @@ async function tenantAdminSsoSession(c, suppliedTenantSession = null) {
 }
 
 async function resolveAdminOrTenantSso(c) {
+  if(platformAdminMfaRequired) {
+    const verified=await resolveAdminSession(c)
+    return verified?{session:verified,tenantSession:null}:null
+  }
   const tenantSession = await resolveSession(c)
   const existing = await resolveAdminSession(c)
   if (existing) return { session: existing, tenantSession }
@@ -593,6 +599,16 @@ export function registerPlatformAdminRoutes(app) {
     }
 
     if (!role) return c.json({ error: 'This account does not have Platform Admin access.' }, 403)
+    if(platformAdminMfaRequired) {
+      const result=await withTransaction(async db=>{
+        const challenge=await createAdminMfaChallenge(db,account.user_id)
+        const method=await db.query(
+          'SELECT enabled FROM platform_admin_mfa_methods WHERE user_id=$1',
+          [account.user_id])
+        return {...challenge,setupRequired:method.rows[0]?.enabled!==true}
+      })
+      return c.json(result)
+    }
     account.role = role
     account.status = 'active'
     const token = randomBytes(32).toString('base64url')
@@ -606,6 +622,58 @@ export function registerPlatformAdminRoutes(app) {
     const workspaceSessionCreated = await seedTenantWorkspaceSession(c, account.user_id)
     await audit(c, session, 'platform.auth.login')
     return c.json({ ...adminPayload(session), workspaceSessionCreated })
+  })
+
+  // Platform Admin MFA is separate from tenant ITSM/Portal MFA.
+  // Password-stage challenges are NOT sessions and cannot use admin routes.
+  app.post('/api/platform/v1/auth/mfa/setup',async(c)=>{
+    if(!platformAdminMfaRequired) return c.json({error:'Independent Admin MFA is not enabled.'},404)
+    if(!originAllowed(c))return c.json({error:'Admin origin required.'},403)
+    const body=await c.req.json().catch(()=>({}))
+    const token=String(body?.challengeToken||'')
+    if(!token)return c.json({error:'Sign-in challenge is required.'},400)
+    const result=await withTransaction(async db=>{
+      const challenge=await lockAdminMfaChallenge(db,token)
+      if(!challenge)return {status:401,error:'Invalid or expired MFA challenge.'}
+      if(challenge.enabled)return {status:409,error:'Authenticator is already enrolled.'}
+      const setup=await setupAdminMfa(db,challenge)
+      const user=await db.query('SELECT email FROM users WHERE id=$1',[challenge.user_id])
+      return {...setup,
+        otpauthUri:`otpauth://totp/${encodeURIComponent('Hi5Central Admin:'+user.rows[0].email)}?secret=${setup.secret}&issuer=Hi5Central%20Admin&algorithm=SHA1&digits=6&period=30`}
+    })
+    if(result.status)return c.json({error:result.error},result.status)
+    return c.json(result)
+  })
+  app.post('/api/platform/v1/auth/mfa/verify',async(c)=>{
+    if(!platformAdminMfaRequired)return c.json({error:'Independent Admin MFA is not enabled.'},404)
+    if(!originAllowed(c))return c.json({error:'Admin origin required.'},403)
+    const body=await c.req.json().catch(()=>({}))
+    const token=String(body?.challengeToken||'')
+    const code=String(body?.code||'').trim()
+    if(!token||!code)return c.json({error:'MFA challenge and authenticator code required.'},400)
+    const result=await withTransaction(async db=>{
+      const challenge=await lockAdminMfaChallenge(db,token)
+      if(!challenge)return {status:401,error:'Invalid or expired MFA challenge.'}
+      const verified=await checkAdminMfaCode(db,challenge,code)
+      if(!verified.ok)return {status:401,error:'Invalid authenticator code.'}
+      const tokenValue=randomBytes(32).toString('base64url')
+      const inserted=await db.query(
+        `INSERT INTO platform_admin_sessions(user_id,token_hash,expires_at,mfa_verified_at)
+          VALUES ($1,$2,now()+make_interval(secs=>$3::int),now()) RETURNING id`,
+        [challenge.user_id,hash(tokenValue),SESSION_SECONDS])
+      const user=await db.query(
+        `SELECT u.id AS user_id,u.email,u.name,m.role FROM users u
+           JOIN platform_admin_members m ON m.user_id=u.id AND m.status='active'
+           WHERE u.id=$1`,[challenge.user_id])
+      if(user.rowCount!==1)throw new Error('Platform Admin access was revoked.')
+      const session={...user.rows[0],session_id:inserted.rows[0].id}
+      await audit(c,session,'platform.auth.mfa_verified','user',challenge.user_id,
+        {firstEnrollment:verified.firstEnrollment},db)
+      return {session,tokenValue}
+    })
+    if(result.status)return c.json({error:result.error},result.status)
+    setCookie(c,COOKIE_NAME,result.tokenValue,cookieOptions({maxAge:SESSION_SECONDS}))
+    return c.json({...adminPayload(result.session),mfaVerified:true,workspaceSessionCreated:false})
   })
 
   app.get('/api/platform/v1/auth/session', async (c) => {
