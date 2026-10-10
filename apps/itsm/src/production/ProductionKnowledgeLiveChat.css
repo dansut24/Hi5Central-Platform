@@ -32,3 +32,115 @@
 .plc-agent-availability-actions button:disabled{opacity:.6;cursor:wait}
 .plc-agent-availability-error{margin:0;color:var(--danger,#b42318);font-size:11px;line-height:1.4}
 @media(max-width:360px){.plc-agent-availability-actions button{min-width:0;padding:7px 3px;font-size:9px}}
+
+/*
+ * Mobile Live Chat must participate in the document's normal scroll flow.
+ * The desktop full-height split view uses absolute positioning; on phones
+ * that clips the inbox beneath the availability/search/metrics controls.
+ * Scope these overrides to Live Chat so Knowledge and other workspaces retain
+ * their desktop/mobile behaviour.
+ */
+@media (max-width:720px) {
+  .content-frame.production-live-chat-mounted {
+    position:relative!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+    padding:0!important;
+  }
+  .content-frame.production-live-chat-mounted > .production-live-chat-root {
+    position:relative!important;
+    inset:auto!important;
+    display:block!important;
+    width:100%;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+    padding-bottom:calc(24px + env(safe-area-inset-bottom, 0px));
+    box-sizing:border-box;
+  }
+  .production-live-chat-root .plc-inbox,
+  .production-live-chat-root .plc-thread {
+    position:relative!important;
+    inset:auto!important;
+    width:100%;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    box-sizing:border-box;
+  }
+  .production-live-chat-root .plc-inbox {
+    display:flex;
+    flex-direction:column;
+    overflow:visible!important;
+    border-right:0;
+  }
+  .production-live-chat-root .plc-list {
+    flex:none;
+    min-height:120px;
+    max-height:none!important;
+    overflow:visible!important;
+    padding:0 10px 14px;
+  }
+  .production-live-chat-root .plc-inbox > header {
+    padding:12px 14px 10px;
+    gap:8px;
+  }
+  .production-live-chat-root .plc-inbox h2 {
+    font-size:18px;
+  }
+  .production-live-chat-root .plc-agent-availability {
+    margin:0 12px 10px;
+    padding:9px 10px;
+    gap:7px;
+  }
+  .production-live-chat-root .plc-search {
+    margin:0 12px 9px;
+    padding:8px 10px;
+  }
+  .production-live-chat-root .plc-filters {
+    padding:0 12px 10px;
+  }
+  .production-live-chat-root .plc-thread {
+    display:none!important;
+    flex-direction:column;
+    overflow:visible!important;
+    padding-bottom:0;
+  }
+  .production-live-chat-root.mobile-thread-open .plc-inbox {
+    display:none!important;
+  }
+  .production-live-chat-root.mobile-thread-open .plc-thread {
+    display:flex!important;
+  }
+  .production-live-chat-root .plc-thread-header {
+    align-items:flex-start;
+    flex-wrap:wrap;
+    padding:11px 12px;
+  }
+  .production-live-chat-root .plc-thread-header > div:nth-child(3) {
+    flex:1 1 150px;
+  }
+  .production-live-chat-root .plc-thread-actions {
+    flex-wrap:wrap;
+    justify-content:flex-end;
+    max-width:100%;
+  }
+  .production-live-chat-root .plc-thread-meta {
+    flex-wrap:wrap;
+  }
+  .production-live-chat-root .plc-messages {
+    flex:initial;
+    min-height: min(32dvh, 230px);
+    max-height:52dvh;
+    overflow-y:auto;
+    overscroll-behavior:contain;
+    padding:12px;
+    -webkit-overflow-scrolling:touch;
+  }
+  .production-live-chat-root .plc-composer {
+    padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
