@@ -416,6 +416,8 @@ function TenantEditor({ tenant, onSaved }) {
     modules:{itsm:Boolean(tenant.modules?.itsm),selfService:Boolean(tenant.modules?.itsm),rmm:Boolean(tenant.modules?.rmm)},
   }))
   const [ownerEmail,setOwnerEmail]=useState('')
+  const [initialOwnerEmail,setInitialOwnerEmail]=useState(tenant.onboarding_owner_email||'')
+  const [initialOwnerName,setInitialOwnerName]=useState(tenant.onboarding_owner_name||'')
   const [busy,setBusy]=useState('')
   const [notice,setNotice]=useState('')
   const [error,setError]=useState('')
@@ -425,6 +427,13 @@ function TenantEditor({ tenant, onSaved }) {
   }
   async function save(){
     await run('save',()=>api(`/tenants/${tenant.id}`,{method:'PATCH',body:JSON.stringify(draft)}))
+  }
+  async function requestInitialOwner(){
+    await run('first-owner',async()=>{
+      await api(`/tenants/${tenant.id}/onboarding-owner`,{method:'POST',
+        body:JSON.stringify({email:initialOwnerEmail,name:initialOwnerName})})
+      setNotice('Initial owner contact saved. The invitation will follow independent environment activation and review.')
+    })
   }
   async function requestTransfer(){
     await run('owner',async()=>{
@@ -457,16 +466,27 @@ function TenantEditor({ tenant, onSaved }) {
     {notice?<div className="h5a-notice healthy">{notice}</div>:null}
     {error?<div className="h5a-page-error">{error}</div>:null}
     <div className="h5a-tenant-facts">
-      <span><UserRound size={15}/><div><small>Tenant owner</small><strong>{tenant.owner_name||'Unassigned'}</strong><em>{tenant.owner_email||'No owner account'}</em></div></span>
+      <span><UserRound size={15}/><div><small>Tenant owner</small><strong>{tenant.owner_name||'Unassigned'}</strong><em>{tenant.owner_email||tenant.onboarding_owner_email||'Awaiting initial owner contact'}</em></div></span>
       <span><Building2 size={15}/><div><small>Usage</small><strong>{tenant.user_count} users · {tenant.device_count} devices</strong><em>Created {fmtDate(tenant.created_at)}</em></div></span>
       <span><CreditCard size={15}/><div><small>Billing</small><strong>{tenant.plan_key||'custom'} · {tenant.billing_cycle||'monthly'}</strong><em>{fmtMoney(tenant.monthly_price_pence,tenant.currency)} / month · {String(tenant.billing_status||'trial').replaceAll('_',' ')}</em></div></span>
-      <span><Activity size={15}/><div><small>Onboarding</small><strong>{tenant.onboarding_completed_at?'Completed':'In progress'}</strong><em>{tenant.onboarding_completed_at?fmtDate(tenant.onboarding_completed_at):'No completion date'}</em></div></span>
+      <span><Activity size={15}/><div><small>Onboarding</small><strong>{tenant.onboarding_completed_at?'Completed':tenant.onboarding_owner_status?'Waiting for environment':'Owner not onboarded'}</strong><em>{tenant.onboarding_completed_at?fmtDate(tenant.onboarding_completed_at):'No customer invitation sent yet'}</em></div></span>
     </div>
-    <div className="h5a-tenant-links">
-      {tenant.tenant_url?<a href={tenant.tenant_url} target="_blank" rel="noreferrer">Workspace</a>:null}
-      {tenant.modules?.itsm && tenant.portal_url?<a href={tenant.portal_url} target="_blank" rel="noreferrer">Self Service Portal</a>:null}
-      {tenant.rmm_url?<a href={tenant.rmm_url} target="_blank" rel="noreferrer">RMM</a>:null}
-    </div>
+    {!(tenant.environments||[]).some(e=>e.environment==='live'&&e.status==='ready'&&e.isolationVerified)
+      ? <div className="h5a-notice">Customer registration saved; Production has not been independently provisioned and verified. Workspace, Portal and RMM access remain unavailable until environment activation and first-owner onboarding.</div>
+      : <div className="h5a-tenant-links">
+        {tenant.tenant_url?<a href={tenant.tenant_url} target="_blank" rel="noreferrer">Workspace</a>:null}
+        {tenant.modules?.itsm && tenant.portal_url?<a href={tenant.portal_url} target="_blank" rel="noreferrer">Self Service Portal</a>:null}
+        {tenant.rmm_url?<a href={tenant.rmm_url} target="_blank" rel="noreferrer">RMM</a>:null}
+      </div>}
+    {!tenant.owner_email?<div className="h5a-owner-request">
+      <div><strong>First-owner onboarding</strong><p>Record the customer owner's details. An invitation will only be issued once their environment is independently activated; this does not grant access.</p></div>
+      <input type="text" placeholder="Owner full name" value={initialOwnerName}
+        onChange={e=>setInitialOwnerName(e.target.value)}/>
+      <input type="email" placeholder="owner@customer.com" value={initialOwnerEmail}
+        onChange={e=>setInitialOwnerEmail(e.target.value)}/>
+      <button className="rmm-secondary compact" disabled={Boolean(busy)||!initialOwnerEmail||!initialOwnerName.trim()}
+        onClick={requestInitialOwner}>{busy==='first-owner'?'Saving…':'Save owner contact'}</button>
+    </div>:null}
     {tenant.slug===config.primaryTenantSlug && config.runtimeEnvironment==='dev'
       ? <div className="h5a-tenant-environments h5a-internal-environment">
           <div className="h5a-tenant-environment">
@@ -531,14 +551,20 @@ function TenantEditor({ tenant, onSaved }) {
 }
 function Tenants({ items, refresh, query }) {
   const [creating,setCreating]=useState(false)
-  const [draft,setDraft]=useState({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
+  const [createError,setCreateError]=useState('')
+  const [createResult,setCreateResult]=useState(null)
+  const [draft,setDraft]=useState({companyName:'',slug:'',ownerName:'',ownerEmail:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
     t.company_name,t.slug,t.owner_name,t.owner_email,t.plan_key,t.billing_status,
   ].some(value=>String(value||'').toLowerCase().includes(needle))),[items,query,needle])
   async function create(event){
     event.preventDefault()
-    await api('/tenants',{method:'POST',body:JSON.stringify(draft)})
+    setCreateError('')
+    let result
+    try {result=await api('/tenants',{method:'POST',body:JSON.stringify(draft)})}
+    catch(error){setCreateError(error.message);return}
+    setCreateResult(result)
     setCreating(false)
     setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly',updateMode:'',deploymentDay:'sun',deploymentTime:'02:00',deploymentTimezone:'Europe/London',customerUatOptIn:false})
     await refresh()
@@ -546,7 +572,18 @@ function Tenants({ items, refresh, query }) {
   return <>
     <PageHeading view="tenants" action={<button className="rmm-primary compact" disabled={config.tenancyMode!=='multi'} title={config.tenancyMode!=='multi'?'Customer creation requires a managed multi-tenant control plane':'Create a customer tenant'} onClick={()=>setCreating(!creating)}><Plus size={14}/>New tenant</button>}/>
     {config.tenancyMode!=='multi'?<div className="h5a-notice">This installation is dedicated to the internal Dev tenant. New customer tenants and isolated UAT/Test environments will be managed from the multi-tenant control plane, not created on the Dev login/database.</div>:null}
-    {creating?<form className="rmm-card h5a-create" onSubmit={create}><input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/><label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><div className="h5a-notice"><strong>Keeping Hi5Central up to date</strong><p>Choose the software release method before creating this customer. Managed customers do not need their own UAT; Custom customers require UAT before manually approving Production updates.</p></div>
+    {createResult?<div className="h5a-notice">
+      <strong>Customer registered — onboarding pending</strong>
+      <p>{createResult.tenant?.company_name||createResult.tenant?.slug} is registered, but Production is not deployed.
+      {createResult.onboarding?.uatQueued?' Custom/selected UAT has been queued for independent operator setup.':''}
+      The first owner will be invited only after isolation and environment activation are approved.</p>
+    </div>:null}
+    {creating?<form className="rmm-card h5a-create" onSubmit={create}>
+      {createError?<div className="h5a-page-error">{createError}</div>:null}
+      <input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/>
+      <input placeholder="First owner full name" value={draft.ownerName} onChange={e=>setDraft({...draft,ownerName:e.target.value})} required minLength={2}/>
+      <input type="email" placeholder="First owner email address" value={draft.ownerEmail} onChange={e=>setDraft({...draft,ownerEmail:e.target.value})} required/>
+      <label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><div className="h5a-notice"><strong>Keeping Hi5Central up to date</strong><p>Choose the software release method before creating this customer. Managed customers do not need their own UAT; Custom customers require UAT before manually approving Production updates.</p></div>
       <div className="h5a-update-policy-choices" role="group" aria-label="Platform update management">
         <button type="button" className={draft.updateMode==='hi5_managed'?'is-selected':''}
           onClick={()=>setDraft({...draft,updateMode:'hi5_managed'})}>
@@ -568,7 +605,7 @@ function Tenants({ items, refresh, query }) {
         <label className="h5a-check"><input type="checkbox" checked={draft.customerUatOptIn} onChange={e=>setDraft({...draft,customerUatOptIn:e.target.checked})}/> Add an optional customer UAT later</label>
       </div>:null}
       {draft.updateMode==='admin_controlled'?<div className="h5a-notice">Customer UAT required. Environment setup remains an independently approved provisioning request, not an automatic deployment.</div>:null}
-      <button className="rmm-primary compact" disabled={!draft.updateMode}>Create tenant</button></form>:null}
+      <button className="rmm-primary compact" disabled={!draft.updateMode||!draft.ownerName.trim()||!draft.ownerEmail.trim()}>Register tenant and request setup</button></form>:null}
     <div className="h5a-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} devices</p></div><StatusPill value={tenant.status}/></div><TenantEditor tenant={tenant} onSaved={refresh}/></article>)}</div>
   </>
 }
