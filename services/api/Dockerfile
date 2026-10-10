@@ -6,6 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY src ./src
+COPY scripts ./scripts
 RUN npm run build:runtime
 
 FROM public.ecr.aws/docker/library/node:24-alpine AS runtime
