@@ -47,6 +47,40 @@ custody and two-person separation. A caller who can substitute the trusted
 registry and hold direct database write access is outside the protections
 of this first iteration. No self-service or public pilot activation is enabled.
 
+### Offline signer workflow (source-only)
+
+The offline signing tool is
+`services/api/scripts/tenant-environment-sign-attestation.mjs --sign`.
+Run it on each authorised operator's separately controlled signing workstation,
+not inside a public web or application container. It reads a mode-0600
+Ed25519 PKCS#8 private key file and writes a **new** mode-0600, short-lived
+signed-assertion file using exclusive create; it does not display private
+keys or assertion values. The signing command accepts these inputs:
+
+| Environment variable | Meaning |
+| --- | --- |
+| `SANDBOX_SIGNING_PRIVATE_KEY_FILE` | Operator's locally protected private key |
+| `SANDBOX_SIGNING_OUTPUT_FILE` | Fresh, non-existent output path |
+| `SANDBOX_SIGNING_KEY_ID`, `SANDBOX_SIGNING_OPERATOR_ID` | IDs enrolled in the separately protected trust registry |
+| `SANDBOX_SIGNING_ACTION` | `approve`, `activate`, or `suspend` |
+| `SANDBOX_SIGNING_ROLE` | `operator`, `reviewer`, or `executor` as appropriate |
+| `TENANT_SLUG`, `TARGET_ENVIRONMENT` | Exact customer and UAT/Test |
+| `PROVISION_REQUEST_ID`, `LOCAL_TENANT_ID` | Exact request and environment-local tenant |
+| `DATABASE_INSTANCE_ID`, `REDIS_INSTANCE_ID` | Exact independently attested runtime scope |
+
+A separate signing action is required for each distinct person/role and
+each individual approval/activation/suspension. The operator runner verifies
+the independently provisioned `SANDBOX_OPERATOR_TRUST_FILE`, receives the
+two signed assertion contents, and checks that each is valid and independently
+authorised. Assertions must not be committed to Git or copied into customer
+records. Real users' keys, trusted key registry and automated assertion
+handoff/approver identity enrolment are **not** provisioned by this phase.
+
+The [offline signer CI and full integration run](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38009341172)
+passed, including forged/expired evidence denial, key-file permissions,
+trust-file tampering, existing first-owner MFA, and disposal of all temporary
+databases and Redis services.
+
 ## Increment 1 — first-owner invitation cancellation (10 October 2026)
 
 **PASS in isolated GitHub Actions, NOT activated for customers.**
