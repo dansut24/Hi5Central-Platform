@@ -994,17 +994,19 @@ export function registerPlatformAdminRoutes(app) {
       return c.json({ error: 'liveDelayHours must be between 0 and 720.' }, 400)
     }
     const managed = updateMode === 'hi5_managed'
+    const customerUatOptIn=!managed || body?.customerUatOptIn===true
 
     const result = await pool.query(
       `INSERT INTO tenant_release_preferences
         (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,
-         live_delay_hours,allow_emergency_security_updates,maintenance_window,updated_by)
-       VALUES ($1,$2,true,$3,$3,$4,$5,$6::jsonb,$7)
+         live_delay_hours,allow_emergency_security_updates,maintenance_window,customer_uat_opt_in,updated_by)
+       VALUES ($1,$2,true,false,$3,$4,$5,$6::jsonb,$8,$7)
        ON CONFLICT (tenant_id) DO UPDATE SET
          update_mode=EXCLUDED.update_mode,
          test_auto_sync=true,
          uat_auto_stage=EXCLUDED.uat_auto_stage,
          live_auto_promote=EXCLUDED.live_auto_promote,
+         customer_uat_opt_in=EXCLUDED.customer_uat_opt_in,
          live_delay_hours=EXCLUDED.live_delay_hours,
          allow_emergency_security_updates=EXCLUDED.allow_emergency_security_updates,
          maintenance_window=CASE
@@ -1022,11 +1024,13 @@ export function registerPlatformAdminRoutes(app) {
         body?.allowEmergencySecurityUpdates !== false,
         JSON.stringify(object(body?.maintenanceWindow)),
         auth.session.user_id,
+        customerUatOptIn,
       ],
     )
 
     await audit(c, auth.session, 'release.tenant_preferences.updated', 'tenant', tenantId, {
       updateMode,
+      customerUatOptIn,
       liveDelayHours: delay,
       allowEmergencySecurityUpdates: body?.allowEmergencySecurityUpdates !== false,
     })
