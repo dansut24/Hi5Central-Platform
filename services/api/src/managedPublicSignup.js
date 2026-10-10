@@ -31,6 +31,13 @@ export function registerManagedPublicSignupRoutes(app) {
     let requested
     try{requested=validateManagedSignupRequest(body)}
     catch(error){return c.json({error:error.message},400)}
+    // A public route may be opened for one authorised real-mail pilot test.
+    // Fail closed if the recipient allowlist is absent or does not match.
+    if(process.env.MANAGED_SIGNUP_TEST_ONLY==='true'){
+      const approved=String(process.env.MANAGED_SIGNUP_TEST_EMAIL||'').trim().toLowerCase()
+      if(!approved||requested.ownerEmail!==approved)
+        return c.json({error:'Pilot signup is limited to the approved test email address.'},403)
+    }
     const ip=String(c.req.header('x-real-ip')||'unknown').slice(0,80)
     if(!await throttle(hash(ip),3,3600)
       ||!await throttle(hash(requested.ownerEmail),3,86400))
@@ -81,7 +88,8 @@ export function registerManagedPublicSignupRoutes(app) {
     if(!restricted())return c.json({error:'Unavailable.'},404)
     const token=String(c.req.query('token')||'')
     if(!/^[A-Za-z0-9_-]{43}$/.test(token))
-      return c.redirect(publicOrigin+'/signup?verification=invalid',302)
+      return c.redirect(publicOrigin+'/signup?'+
+        (process.env.MANAGED_SIGNUP_TEST_ONLY==='true'?'preview=1&':'')+'verification=invalid',302)
     const found=await withTransaction(async db=>{
       const rows=await db.query(`SELECT id,status FROM managed_public_signup_requests
         WHERE verification_hash=$1 AND verification_expires_at>now() FOR UPDATE`,[hash(token)])
@@ -91,6 +99,8 @@ export function registerManagedPublicSignupRoutes(app) {
       await db.query("INSERT INTO managed_public_signup_audit(request_id,action,actor_label) VALUES($1,'verified','email-link')",[id])
       return true
     })
-    return c.redirect(publicOrigin+'/signup?verification='+(found?'received':'invalid'),302)
+    const page=publicOrigin+'/signup?'+(process.env.MANAGED_SIGNUP_TEST_ONLY==='true'?'preview=1&':'')
+      +'verification='+(found?'received':'invalid')
+    return c.redirect(page,302)
   })
 }
