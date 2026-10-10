@@ -1156,7 +1156,7 @@ export function ProductionWorkspaceBootstrap({onWorkspaceAuthenticatedChange}) {
   }
 
   if (serverSession?.onboarding?.completedAt) {
-    const canViewSettings = sessionHasPermission(serverSession, 'settings.view')
+    const canViewSettings = sessionHasPermission(serverSession, 'settings.view') || ['owner','admin'].includes(serverSession?.user?.tenantRole)
     const settingsOpen = canViewSettings && (currentPath === '/settings' || currentPath.startsWith('/settings/'))
     const profileOpen = currentPath === '/profile'
     const themeKey = effectiveSettings(serverSession)?.theme || {}
