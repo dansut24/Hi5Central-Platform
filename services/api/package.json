@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build:runtime": "mkdir -p dist && esbuild src/index.js --bundle --platform=node --format=esm --packages=external --minify --legal-comments=none --outfile=dist/index.mjs && esbuild src/migrate.js --bundle --platform=node --format=esm --packages=external --minify --legal-comments=none --outfile=dist/migrate.mjs",
+    "build:runtime": "mkdir -p dist && esbuild src/index.js --bundle --platform=node --format=esm --packages=external --minify --legal-comments=none --outfile=dist/index.mjs && esbuild src/migrate.js --bundle --platform=node --format=esm --packages=external --minify --legal-comments=none --outfile=dist/migrate.mjs && esbuild scripts/pilot-admin-bootstrap.mjs --bundle --platform=node --format=esm --packages=external --minify --legal-comments=none --outfile=dist/pilot-admin-bootstrap.mjs",
     "migrate": "node src/migrate.js",
     "migrate:dist": "node dist/migrate.mjs",
     "reset:service-requests": "node scripts/reset-service-request-defaults.mjs",
