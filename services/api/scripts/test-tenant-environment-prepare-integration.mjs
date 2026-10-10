@@ -493,6 +493,14 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     const audits=await query('uat',
       'SELECT action FROM managed_owner_invitation_audit ORDER BY created_at,id')
     assert.deepEqual(audits.rows.map(row=>row.action),['issued','cancelled','issued'])
+    await assert.rejects(
+      query('uat',"UPDATE managed_owner_invitation_audit SET operator_id='changed'"),
+      /append-only/i,'Operator evidence must reject SQL updates',
+    )
+    await assert.rejects(
+      query('uat','DELETE FROM managed_owner_invitation_audit'),
+      /append-only/i,'Operator evidence must reject SQL deletes',
+    )
     const http=await httpWorker('uat','--accept-mfa',{HI5_TEST_INVITE_TOKEN:match[1]})
     assert.equal(http.code,0,http.stderr)
     const cancelAccepted=await processAsync(ownerInvitationPath,['--cancel'],
