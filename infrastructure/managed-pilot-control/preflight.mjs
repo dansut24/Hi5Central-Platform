@@ -39,7 +39,9 @@ try {
     blockers:[
       'Human verified platform administrator enrolment and MFA',
       'Protected operator key custody, backup and disaster recovery tests',
-      'Independent operator approvals and separately audited live ingress',
+      env.PILOT_ADMIN_APPROVAL_MODE==='single_owner'
+        ? 'Single owner must redeem one-time invitation and complete MFA; audited ingress review remains separate'
+        : 'Independent operator approvals and separately audited live ingress',
       'Scoped SMTP relay, exact DNS/TLS and browser tests',
     ],
   },null,2))
