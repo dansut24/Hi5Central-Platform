@@ -1393,6 +1393,9 @@ export function registerPlatformAdminRoutes(app) {
               COALESCE(rp.update_mode,'admin_controlled') AS update_mode,
               COALESCE(rp.customer_uat_opt_in,false) AS customer_uat_opt_in,
               COALESCE(rp.maintenance_window,'{}'::jsonb) AS update_window,
+              onboard.owner_email AS onboarding_owner_email,
+              onboard.owner_name AS onboarding_owner_name,
+              onboard.status AS onboarding_owner_status,
               owner.user_id AS owner_user_id,owner.name AS owner_name,owner.email AS owner_email,
               transfer.id AS owner_transfer_id,transfer.proposed_owner_email,
               transfer.proposed_owner_name,transfer.created_at AS owner_transfer_requested_at,
@@ -1413,6 +1416,7 @@ export function registerPlatformAdminRoutes(app) {
          JOIN tenant_settings ts ON ts.tenant_id=t.id
          LEFT JOIN tenant_commercial_settings cs ON cs.tenant_id=t.id
          LEFT JOIN tenant_release_preferences rp ON rp.tenant_id=t.id
+         LEFT JOIN tenant_initial_owner_onboarding_intents onboard ON onboard.tenant_id=t.id
          LEFT JOIN LATERAL (
            SELECT u.id AS user_id,u.name,u.email
              FROM tenant_memberships m
@@ -1567,6 +1571,10 @@ export function registerPlatformAdminRoutes(app) {
     let updatePolicy
     try { updatePolicy=parseCustomerUpdatePolicy(body) }
     catch(error){ return c.json({error:error.message},400) }
+    const initialOwnerEmail=normaliseEmail(body?.ownerEmail)
+    const initialOwnerName=clean(body?.ownerName,120)
+    if(!validEmail(initialOwnerEmail)||initialOwnerName.length<2)
+      return c.json({error:'Provide a verified initial owner email address and full name to begin customer onboarding.'},400)
     const itsm = body?.modules?.itsm !== false
     const selfService = itsm
     const rmm = body?.modules?.rmm === true
@@ -1586,6 +1594,23 @@ export function registerPlatformAdminRoutes(app) {
           [row.id, JSON.stringify({ itsm, selfService, rmm }), urls.tenantUrl, itsm ? urls.portalUrl : null, urls.rmmUrl],
         )
         await db.query(CUSTOMER_UPDATE_UPSERT,customerUpdateWriteParams(row.id,updatePolicy,auth.session.user_id))
+        // A new control-plane tenant is a reservation, NOT a deployed
+        // Production host. Independent environment activation stays mandatory.
+        await db.query(`UPDATE tenant_environment_instances
+          SET provisioning_status='pending' WHERE tenant_id=$1 AND environment='live'
+            AND isolation_verified_at IS NULL`,[row.id])
+        await db.query(`INSERT INTO tenant_initial_owner_onboarding_intents
+          (tenant_id,owner_email,owner_name,requested_by)
+          VALUES($1,$2,$3,$4)`,
+          [row.id,initialOwnerEmail,initialOwnerName,auth.session.user_id])
+        // The customer explicitly chose UAT with Custom, or opted in with
+        // Managed. Queue the operator review instead of silently creating it.
+        if(updatePolicy.customerUatOptIn) {
+          await db.query(`INSERT INTO tenant_environment_provision_requests
+            (tenant_id,environment,requested_by)
+            VALUES($1,'uat',$2)`,
+            [row.id,auth.session.user_id])
+        }
         await db.query(
           `INSERT INTO tenant_commercial_settings (tenant_id,plan_key,billing_status,billing_cycle)
            VALUES ($1,$2,$3,$4)`,
@@ -1595,10 +1620,19 @@ export function registerPlatformAdminRoutes(app) {
         )
         await audit(c, auth.session, 'tenant.created', 'tenant', row.id, { slug, companyName, modules: { itsm, selfService, rmm },
             updates:{mode:updatePolicy.updateMode,customerUatOptIn:updatePolicy.customerUatOptIn,
-              maintenanceWindow:updatePolicy.maintenanceWindow} }, db)
+              maintenanceWindow:updatePolicy.maintenanceWindow},
+            onboarding:{ownerEmail:initialOwnerEmail,ownerName:initialOwnerName,
+              invitationSent:false,productionActivated:false,uatQueued:updatePolicy.customerUatOptIn} }, db)
         return row
       })
-      return c.json({ tenant }, 201)
+      return c.json({tenant,onboarding:{
+        status:'awaiting_environment',ownerEmail:initialOwnerEmail,
+        ownerName:initialOwnerName,invitationSent:false,
+        productionActivated:false,uatQueued:updatePolicy.customerUatOptIn,
+        nextStep:updatePolicy.customerUatOptIn
+          ?'Independent operator approval and isolated customer UAT activation are required before invitation delivery.'
+          :'Independent Production environment provisioning and owner invitation are required.'
+      }},201)
     } catch (error) {
       if (error?.code === '23505') return c.json({ error: 'That tenant slug already exists.' }, 409)
       throw error
