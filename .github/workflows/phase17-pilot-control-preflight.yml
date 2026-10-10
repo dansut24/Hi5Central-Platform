@@ -17,6 +17,14 @@ on:
       - 'services/api/tests/pilotAdminBootstrap.test.mjs'
       - 'services/api/migrations/platform-admin/142_pilot_admin_bootstrap.sql'
       - 'services/api/src/mailer.js'
+      - 'services/api/src/index.js'
+      - 'services/api/src/customerUpdatePolicy.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/tests/customerUpdatePolicy.test.mjs'
+      - 'services/api/migrations/platform-admin/143_customer_update_onboarding.sql'
+      - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.css'
   workflow_dispatch:
 permissions:
   contents: read
@@ -39,6 +47,13 @@ jobs:
           node --check services/api/scripts/pilot-admin-bootstrap.mjs
           node --check services/api/scripts/pilot-admin-bootstrap-sign.mjs
           node --test services/api/tests/pilotAdminBootstrap.test.mjs
+      - name: Validate Managed vs Custom customer update policy and optional UAT
+        run: |
+          node --check services/api/src/customerUpdatePolicy.js
+          node --test services/api/tests/customerUpdatePolicy.test.mjs
+      - name: Compile the ITSM customer onboarding wizard
+        run: |
+          docker build --tag hi5central-itsm-onboarding-syntax:${GITHUB_SHA} apps/itsm
       - name: Render disposable pilot control topology (no Docker containers started)
         working-directory: infrastructure/managed-pilot-control
         shell: bash
