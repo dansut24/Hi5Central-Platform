@@ -55,6 +55,7 @@ function EnvironmentCard({ item, onReset, busy }) {
 
 export function ProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
+  const [tenantEnvironments,setTenantEnvironments]=useState([])
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState('')
@@ -67,6 +68,7 @@ export function ProductionReleaseManagement() {
     try {
       const [payload,tenantState]=await Promise.all([releaseApi('/overview'),tenantReleaseApi()])
       setData(payload)
+      setTenantEnvironments(tenantState?.environments || [])
       if(payload?.deploymentPolicy)setPolicy(payload.deploymentPolicy)
       else if(tenantState?.preference)setPolicy(tenantState.preference)
     } catch (err) {
@@ -111,6 +113,10 @@ export function ProductionReleaseManagement() {
       ])
       if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
     },nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.')
+  }
+
+  async function provisionEnvironments() {
+    await action('provision',()=>tenantReleaseApi('/provision',{method:'POST',body:'{}'}),'Test and UAT provisioning checked.')
   }
 
   async function resetTest() {
@@ -198,6 +204,25 @@ export function ProductionReleaseManagement() {
           {['dev','test','uat','live'].map(name=>{
             const item=data.environments.find(env=>env.environment===name)||{environment:name,featureMode:name==='dev'||name==='test'?'all_enabled':'controlled'}
             return <EnvironmentCard key={name} item={item} busy={Boolean(busy)} onReset={resetTest}/>
+          })}
+        </div>
+      </div>
+    </section>
+
+    <section className="production-settings-panel">
+      <header><div><h2>Your organisation environments</h2><p>Live, UAT and Test use tenant-isolated records. Each sandbox shares the relevant environment's application infrastructure, not a separate installation.</p></div>
+        <button disabled={Boolean(busy)} onClick={provisionEnvironments} type="button"><RefreshCw size={15}/>Provision / retry</button></header>
+      <div className="production-settings-panel-body">
+        <div className="hi5-release-env-grid">
+          {['test','uat','live'].map(name=>{
+            const env=tenantEnvironments.find(item=>item.environment===name)
+            return <article key={name} className="hi5-release-env-card">
+              <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance':name==='test'?'Sandbox':'Production'}</strong></div><ResultPill value={env?.status || 'available'} /></header>
+              <p>{name==='test'?'Isolated, disposable Test data':name==='uat'?'Tenant acceptance and release validation':'Your live tenant workspace'}</p>
+              {env?.url && env.status==='ready'
+                ? <a href={env.url} target="_blank" rel="noreferrer">Open {name.toUpperCase()} workspace ↗</a>
+                : <small>{env?.status==='error'?'Provisioning requires attention. Use retry or contact support.':'Workspace is not yet provisioned.'}</small>}
+            </article>
           })}
         </div>
       </div>
