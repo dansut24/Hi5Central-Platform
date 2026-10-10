@@ -13,6 +13,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { registerTenantReleaseRoutes } from './tenantRelease.js'
+import {parseCustomerUpdatePolicy,customerUpdateWriteParams,CUSTOMER_UPDATE_UPSERT} from './customerUpdatePolicy.js'
 import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
@@ -106,6 +107,7 @@ function onboardingSequence(modules = {}) {
     'groups',
     'permissions',
     'security',
+    'updates',
     modules?.itsm ? 'itsm' : null,
     modules?.rmm ? 'rmm' : null,
     'finish',
@@ -628,14 +630,25 @@ app.post('/api/v1/onboarding/save', async (c) => {
     return c.json({ error: 'That onboarding step cannot be edited yet.' }, 409)
   }
   if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
-
-  await pool.query(
-    `UPDATE tenant_settings
-     SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
-         updated_at=now()
-     WHERE tenant_id=$1`,
-    [session.tenant_id, step, JSON.stringify(data)],
-  )
+  let updatePolicy=null
+  if(step==='updates'){
+    try {updatePolicy=parseCustomerUpdatePolicy(data)}
+    catch(error){return c.json({error:error.message},400)}
+    if(updatePolicy.updateMode==='hi5_managed' && deployment.deploymentMode==='self_hosted'
+      && !String(process.env.RELEASE_SIGNING_PUBLIC_KEY_PEM||process.env.LICENSING_PUBLIC_KEY_PEM||'').trim())
+      return c.json({error:'Managed updates require a verified Hi5Central release-signing public key.'},409)
+  }
+  await withTransaction(async db=>{
+    await db.query(
+      `UPDATE tenant_settings
+       SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),
+           updated_at=now()
+       WHERE tenant_id=$1`,
+      [session.tenant_id,step,JSON.stringify(data)],
+    )
+    if(updatePolicy)await db.query(CUSTOMER_UPDATE_UPSERT,
+      customerUpdateWriteParams(session.tenant_id,updatePolicy,session.user_id))
+  })
 
   const nextSession = {
     ...session,
@@ -661,10 +674,22 @@ app.post('/api/v1/onboarding/step', async (c) => {
   if (currentIndex < 0 || step !== session.onboarding_step) return c.json({ error: 'This onboarding step is no longer current. Refresh and continue from the active step.' }, 409)
   const nextStep = sequence[Math.min(currentIndex + 1, sequence.length - 1)]
   if (JSON.stringify(data).length > 20_000) return c.json({ error: 'Onboarding data is too large.' }, 413)
-  await pool.query(
-    `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
-    [session.tenant_id, step, JSON.stringify(data), nextStep],
-  )
+  let updatePolicy=null
+  if(step==='updates'){
+    try {updatePolicy=parseCustomerUpdatePolicy(data)}
+    catch(error){return c.json({error:error.message},400)}
+    if(updatePolicy.updateMode==='hi5_managed' && deployment.deploymentMode==='self_hosted'
+      && !String(process.env.RELEASE_SIGNING_PUBLIC_KEY_PEM||process.env.LICENSING_PUBLIC_KEY_PEM||'').trim())
+      return c.json({error:'Managed updates require a verified Hi5Central release-signing public key.'},409)
+  }
+  await withTransaction(async db=>{
+    await db.query(
+      `UPDATE tenant_settings SET onboarding_data=COALESCE(onboarding_data,'{}'::jsonb)||jsonb_build_object($2::text,$3::jsonb),onboarding_step=$4,updated_at=now() WHERE tenant_id=$1`,
+      [session.tenant_id,step,JSON.stringify(data),nextStep],
+    )
+    if(updatePolicy)await db.query(CUSTOMER_UPDATE_UPSERT,
+      customerUpdateWriteParams(session.tenant_id,updatePolicy,session.user_id))
+  })
   const nextSession = {
     ...session,
     onboarding_step: nextStep,
