@@ -16,19 +16,24 @@ function required(name) {
 
 async function run() {
   const args=process.argv.slice(2)
-  if(args.length>1 || args.some(v=>!['--check','--apply'].includes(v))) {
-    throw new Error('Usage: node tenant-environment-owner-invite.mjs [--check|--apply]')
+  if(args.length>1 || args.some(v=>!['--check','--apply','--cancel'].includes(v))) {
+    throw new Error('Usage: node tenant-environment-owner-invite.mjs [--check|--apply|--cancel]')
   }
   const apply=args[0]==='--apply'
+  const cancel=args[0]==='--cancel'
+  const mutating=apply||cancel
+  // Operator names are audit attribution, NOT authentication or pilot approval.
+  const actor=mutating?required('OWNER_INVITATION_OPERATOR'):''
+  if(mutating && actor.length<3)throw new Error('An identified invitation operator is required.')
   const environment=required('TARGET_ENVIRONMENT').toLowerCase()
   const rootDomain=required('ROOT_DOMAIN').toLowerCase()
   const tenantSlug=required('TENANT_SLUG').toLowerCase()
   const email=required('INITIAL_OWNER_EMAIL').toLowerCase()
-  const name=required('INITIAL_OWNER_NAME')
+  const name=cancel?'':required('INITIAL_OWNER_NAME')
   const databaseUrl=required('TARGET_DATABASE_URL')
   const config={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:environment,rootDomain}
   if(!['uat','test'].includes(environment) || !isValidCustomerSlug(tenantSlug)
-    || !validInvitationEmail(email) || name.length<2 || name.length>120) {
+    || !validInvitationEmail(email) || (!cancel && (name.length<2 || name.length>120))) {
     throw new Error('Invalid sandbox environment, customer slug or invitee.')
   }
   const url=new URL(databaseUrl)
@@ -42,7 +47,7 @@ async function run() {
   let active=false
   try {
     await client.connect()
-    await client.query(apply?'BEGIN':'BEGIN READ ONLY')
+    await client.query(mutating?'BEGIN':'BEGIN READ ONLY')
     active=true
     await client.query("SET LOCAL statement_timeout='12000ms'")
     await client.query("SET LOCAL lock_timeout='4000ms'")
@@ -65,7 +70,7 @@ async function run() {
         LEFT JOIN managed_environment_tenant_bootstrap b ON b.local_tenant_id=t.id
         LEFT JOIN managed_environment_access_approvals a ON a.tenant_id=t.id
         WHERE t.slug=$1
-        ${apply?'FOR UPDATE OF t':''}`,
+        ${mutating?'FOR UPDATE OF t':''}`,
       [tenantSlug],
     )
     const row=result.rows[0]
@@ -78,6 +83,51 @@ async function run() {
       tenant_id:row.approval_tenant_id,bootstrap_request_id:row.bootstrap_request_id,
       state:row.approval_state,approved_by:row.approved_by,approved_at:row.approved_at,
     },row.modules)
+    if(cancel) {
+      // Cancellation must remain possible if the tenant is suspended or an
+      // approval has been revoked. Never relax runtime/provenance checks.
+      const baseHost=`${tenantSlug}${environment}.${rootDomain}`
+      if(row.local_tenant_id!==row.id
+        || row.database_instance_id!==identity.instance_id
+        || row.environment!==environment || row.stage!=='identity_prepared'
+        || row.expected_hostname!==baseHost
+        || row.tenant_url!==`https://${baseHost}`
+        || row.portal_url!==`https://${tenantSlug}${environment}-portal.${rootDomain}`
+        || row.rmm_url!==null) {
+        throw new Error('Cancellation rejected: tenant provenance or runtime identity mismatch.')
+      }
+      if(required('CONFIRM_SANDBOX_OWNER_CANCELLATION')
+        !==`${tenantSlug}:${environment}:${row.id}:${email}:cancel`) {
+        throw new Error('Cancellation confirmation must match slug:environment:tenant UUID:email:cancel.')
+      }
+      const pending=await client.query(
+        `SELECT id FROM managed_environment_invitations
+           WHERE tenant_id=$1 AND role='owner' AND email=$2
+             AND accepted_at IS NULL AND revoked_at IS NULL
+           FOR UPDATE`,[row.id,email],
+      )
+      if(pending.rowCount!==1) throw new Error('No outstanding owner invitation for this tenant and email.')
+      const revoked=await client.query(
+        `UPDATE managed_environment_invitations
+            SET revoked_at=now()
+          WHERE id=$1 AND tenant_id=$2 AND accepted_at IS NULL AND revoked_at IS NULL
+          RETURNING id`,[pending.rows[0].id,row.id],
+      )
+      if(revoked.rowCount!==1)throw new Error('Invitation was already accepted or revoked.')
+      await client.query(
+        `INSERT INTO managed_owner_invitation_audit
+          (tenant_id,invitation_id,environment,action,operator_id)
+          VALUES ($1,$2,$3,'cancelled',$4)`,
+        [row.id,revoked.rows[0].id,environment,actor],
+      )
+      await client.query('COMMIT');active=false
+      console.log(JSON.stringify({
+        environment,tenantSlug,tenantId:row.id,inviteeEmail:email,
+        role:'owner',mode:'cancel',result:'invitation_cancelled',
+        sessionCreated:false,dnsChanged:false,
+      },null,2))
+      return
+    }
     if(!gate.allowed) throw new Error('Tenant not approved for invitation: '+gate.reason)
 
     const owner=(await client.query(
@@ -116,6 +166,12 @@ async function run() {
        RETURNING id,expires_at`,
       [row.id,email,name,invitationHash(token),INVITATION_TTL_HOURS],
     )
+    await client.query(
+      `INSERT INTO managed_owner_invitation_audit
+        (tenant_id,invitation_id,environment,action,operator_id)
+        VALUES ($1,$2,$3,'issued',$4)`,
+      [row.id,invited.rows[0].id,environment,actor],
+    )
     await client.query('COMMIT');active=false
     try{
       await sendManagedSandboxInvitationEmail({
@@ -123,10 +179,22 @@ async function run() {
         tenantUrl:row.tenant_url,environment,
       })
     }catch(error){
-      await client.query(
-        'UPDATE managed_environment_invitations SET revoked_at=now() WHERE id=$1 AND accepted_at IS NULL',
-        [invited.rows[0].id],
-      ).catch(()=>{})
+      try{
+        await client.query('BEGIN')
+        await client.query(
+          'UPDATE managed_environment_invitations SET revoked_at=now() WHERE id=$1 AND accepted_at IS NULL',
+          [invited.rows[0].id],
+        )
+        await client.query(
+          `INSERT INTO managed_owner_invitation_audit
+            (tenant_id,invitation_id,environment,action,operator_id)
+            VALUES ($1,$2,$3,'delivery_failed',$4)`,
+          [row.id,invited.rows[0].id,environment,actor],
+        )
+        await client.query('COMMIT')
+      }catch{
+        await client.query('ROLLBACK').catch(()=>{})
+      }
       throw new Error('Initial invitation email failed; invitation revoked or requires reconciliation.',{cause:error})
     }
     // Token never appears in the CLI logs, database or response.
