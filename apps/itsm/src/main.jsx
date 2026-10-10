@@ -34,6 +34,7 @@ import { ProductionRecordListInteractionEnhancer } from './production/Production
 import { ProductionUniversalPeekV2 } from './production/ProductionUniversalPeekV2.jsx'
 import { ProductionWorkflowExperience } from './production/ProductionWorkflowExperience.jsx'
 import { ProductionWorkspaceBootstrap } from './production/ProductionWorkspaceBootstrap.jsx'
+import { EnvironmentBanner } from './production/EnvironmentBanner.jsx'
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
 import { ProductionWorkspaceTabPersistence, installWorkspaceTabSessionIsolation } from './production/ProductionWorkspaceTabPersistence.jsx'
@@ -106,6 +107,7 @@ if (productionPortal) RootApp = ProductionPortalBootstrap
 
 createRoot(rootElement).render(
   <StrictMode>
+    <EnvironmentBanner />
     <RootApp />
     {initialSurface.kind === 'workspace' && !productionOnboarding && !productionWorkspace ? <KnowledgeContextEnhancer /> : null}
     {initialSurface.kind === 'workspace' && !productionOnboarding ? <OrganisationSitesEnhancer /> : null}
