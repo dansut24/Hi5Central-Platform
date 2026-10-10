@@ -116,56 +116,43 @@ const cookie=verified.cookie.split(';')[0]
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/tenants',null,cookie).status,200)
 assert.equal(call('POST','/api/platform/v1/tenants',{
-  companyName:'Missing policy',slug:'missingpolicy',modules:{itsm:true}
-},cookie).status,400,'Creating a tenant must require an explicit update choice')
+  companyName:'Missing owner',slug:'missingowner',modules:{itsm:true}
+},cookie).status,400,'First owner is still required at registration')
 assert.equal(call('POST','/api/platform/v1/tenants',{
-  companyName:'Invalid time',slug:'invalidtime',updateMode:'hi5_managed',
-  deploymentDay:'wed',deploymentTime:'25:00',deploymentTimezone:'Europe/London'
-},cookie).status,400)
+  companyName:'Premature update setting',slug:'premature',ownerName:'Test Owner',
+  ownerEmail:'owner@example.invalid',updateMode:'hi5_managed'
+},cookie).status,400,'Admin must not pick the update method before onboarding')
 const managed=call('POST','/api/platform/v1/tenants',{
-  companyName:'Synthetic Managed Customer',slug:'pilotmanagedci',
+  companyName:'Synthetic Future Managed Customer',slug:'pilotmanagedci',
   ownerName:'Managed First Owner',ownerEmail:'managed-owner@example.invalid',
-  updateMode:'hi5_managed',deploymentDay:'wed',
-  deploymentTime:'21:30',deploymentTimezone:'Europe/London',
-  customerUatOptIn:false,modules:{itsm:true,selfService:true,rmm:false},
+  modules:{itsm:true,selfService:true,rmm:false},
 },cookie)
 assert.equal(managed.status,201,JSON.stringify(managed.data))
 const custom=call('POST','/api/platform/v1/tenants',{
-  companyName:'Synthetic Custom Customer',slug:'pilotcustomci',
+  companyName:'Synthetic Future Custom Customer',slug:'pilotcustomci',
   ownerName:'Custom First Owner',ownerEmail:'custom-owner@example.invalid',
-  updateMode:'admin_controlled',customerUatOptIn:false,
   modules:{itsm:true,selfService:true,rmm:false},
 },cookie)
 assert.equal(custom.status,201,JSON.stringify(custom.data))
-const modes=sql(`SELECT t.slug,p.update_mode,p.customer_uat_opt_in,
-  p.live_auto_promote,p.maintenance_window->>'start'
+const undecided=sql(`SELECT t.slug,p.onboarding_selection_pending,
+  p.live_auto_promote,p.customer_uat_opt_in
   FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id
   WHERE t.slug IN('pilotmanagedci','pilotcustomci') ORDER BY t.slug`)
-assert.match(modes,/pilotcustomci\\|admin_controlled\\|t\\|f\\|02:00/)
-assert.match(modes,/pilotmanagedci\\|hi5_managed\\|f\\|t\\|21:30/)
-assert.equal(sql('SELECT COUNT(*) FROM tenant_environment_provision_requests').split('\\n').at(-1),'1',
-  'Only the Custom customer must have an automatically queued UAT request')
-assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
-  JOIN tenants t ON t.id=q.tenant_id WHERE t.slug='pilotmanagedci'`).split('\\n').at(-1),'0',
-  'Managed customer must not be queued for customer UAT without opt-in')
-assert.equal(sql(`SELECT count(*) FROM tenant_initial_owner_onboarding_intents`).split('\\n').at(-1),'2',
-  'Both tenants must preserve a pending first-owner contact')
-assert.equal(sql(`SELECT count(*) FROM tenant_memberships`).split('\\n').at(-1),'0',
-  'Recording owner contact must never create membership')
+assert.match(undecided,/pilotcustomci\\|t\\|f\\|f/)
+assert.match(undecided,/pilotmanagedci\\|t\\|f\\|f/)
+assert.equal(sql('SELECT COUNT(*) FROM tenant_environment_provision_requests').split('\\n').at(-1),'0',
+  'No customer can be assigned UAT before the onboarding choice')
+assert.equal(sql(`SELECT count(*) FROM tenant_initial_owner_onboarding_intents`).split('\\n').at(-1),'2')
+assert.equal(sql(`SELECT count(*) FROM tenant_memberships`).split('\\n').at(-1),'0')
 assert.equal(sql(`SELECT provisioning_status FROM tenant_environment_instances e
-  JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotcustomci'
-  AND e.environment='live'`).split('\\n').at(-1),'pending',
-  'New Production reservation must never appear ready without provisioning')
-const reservations=sql(`SELECT e.provisioning_status FROM tenant_environment_instances e
- JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotmanagedci'
- AND e.environment='uat'`)
-assert.ok(!reservations.split('\\n').includes('ready'),
-  'Managed customer UAT must not silently become a provisioned runtime')
-console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, one Custom-only UAT queue)')
-assert.equal(custom.data.onboarding.uatQueued,true)
-assert.equal(custom.data.onboarding.productionActivated,false)
+ JOIN tenants t ON t.id=e.tenant_id WHERE t.slug='pilotcustomci'
+ AND e.environment='live'`).split('\\n').at(-1),'pending')
+assert.equal(custom.data.onboarding.uatQueued,false)
+assert.equal(custom.data.onboarding.updateChoicePending,true)
+assert.equal(managed.data.onboarding.updateChoicePending,true)
+assert.equal(managed.data.onboarding.productionActivated,false)
 assert.equal(custom.data.onboarding.invitationSent,false)
-assert.equal(managed.data.onboarding.uatQueued,false)
+console.log('PHASE25_SIGNUP_ONLY_NO_UPDATE_CHOICE: PASS (both new tenants undecided; no UAT queue, no auto Production)')
 const customId=custom.data.tenant.id
 assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`,
   {email:'not-an-email',name:'Owner'},cookie).status,400,
@@ -187,15 +174,15 @@ assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/onboarding-owner`
 const noUatPush=call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
   {keys:['theme']},cookie)
 assert.equal(noUatPush.status,409,
-  'Custom tenant without activated UAT must not promote configuration')
+  'Unprovisioned tenant without owner update choice must not promote configuration')
 assert.equal(noUatPush.data.eligibleForExecution,false)
 assert.match(noUatPush.data.blockers.join(' '),/UAT/)
 assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
   {keys:['credentials']},cookie).status,409,'Never push secrets')
 const request=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
-assert.equal(request.status,200,JSON.stringify(request.data))
-assert.equal(request.data.alreadyQueued,true,
-  'New Custom tenant must automatically queue UAT once, not duplicate provisioning')
+assert.equal(request.status,202,JSON.stringify(request.data))
+assert.equal(request.data.provisioningStarted,false,
+  'UAT may only be requested explicitly until the authenticated owner selects a policy')
 const repeated=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
 assert.equal(repeated.status,200)
 assert.equal(repeated.data.alreadyQueued,true)
@@ -217,8 +204,9 @@ assert.equal(state.status,200)
 const visibleCustom=state.data.items.find(t=>t.slug==='pilotcustomci')
 assert.ok(visibleCustom)
 assert.equal(visibleCustom.update_mode,'admin_controlled')
-assert.equal(visibleCustom.customer_uat_opt_in,true)
-console.log('PHASE21_CUSTOM_TENANT_UAT_REQUEST: PASS (Admin-created tenant and owner contact, UAT automatically queued, no premature UAT)')
+assert.equal(visibleCustom.customer_uat_opt_in,false)
+assert.equal(visibleCustom.update_selection_pending,true)
+console.log('PHASE25_UAT_NOT_AT_REGISTRATION: PASS (independent operator queue only after explicit request; onboarding pending)')
 console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Live config write, secrets denied)')
 
 // A public request is NOT a tenant. Only a verified request can be converted
@@ -226,7 +214,7 @@ console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Liv
 const publicPost=call('POST','/api/v1/public/signup-requests',{
   tenantSlug:'synthetic-nosmtp',companyName:'Synthetic No SMTP',
   name:'No Delivery',email:'no-delivery@example.invalid',
-  modules:{itsm:true,rmm:false},updateMode:'admin_controlled'
+  modules:{itsm:true,rmm:false}
 },null,'https://hi5central.com')
 assert.equal(publicPost.status,503,'No verified SMTP means no new signup requests')
 assert.equal(sql('SELECT count(*) FROM managed_public_signup_requests').split('\\n').at(-1),'0')
@@ -234,14 +222,11 @@ const requestedSlug='pilot-signup-ci'
 const oneTimeEmailToken=randomBytes(32).toString('base64url')
 const oneTimeEmailDigest=createHash('sha256').update(oneTimeEmailToken).digest('hex')
 sql(`INSERT INTO managed_public_signup_requests
- (tenant_slug,company_name,owner_name,owner_email,modules,update_mode,
-  customer_uat_opt_in,maintenance_window,verification_hash,
+ (tenant_slug,company_name,owner_name,owner_email,modules,verification_hash,
   verification_expires_at,status,verified_at)
  VALUES('${requestedSlug}','Signup Test Customer','Signup Owner',
   'signup-owner@example.invalid',
   '{"itsm":true,"selfService":true,"rmm":false}'::jsonb,
-  'admin_controlled',true,
-  '{"timezone":"Europe/London","days":[],"start":"02:00","end":"05:00"}'::jsonb,
   '${oneTimeEmailDigest}',now()+interval '24 hours',
   'awaiting_email',null)`)
 assert.equal(sql('SELECT count(*) FROM tenants WHERE slug=\''+requestedSlug+'\'').split('\\n').at(-1),'0')
@@ -265,13 +250,12 @@ assert.ok(signupRequest)
 assert.equal(signupRequest.status,'verified')
 const draft={companyName:signupRequest.company_name,slug:signupRequest.tenant_slug,
   ownerName:signupRequest.owner_name,ownerEmail:signupRequest.owner_email,
-  modules:signupRequest.modules,updateMode:'admin_controlled',customerUatOptIn:true,
-  signupRequestId:signupRequest.id}
+  modules:signupRequest.modules,signupRequestId:signupRequest.id}
 const scheduleTampering=call('POST','/api/platform/v1/tenants',{
   ...draft,updateMode:'hi5_managed',deploymentDay:'mon',deploymentTime:'03:00'
 },cookie)
-assert.equal(scheduleTampering.status,409,
-  'Verified Custom choice must not silently become Managed')
+assert.equal(scheduleTampering.status,400,
+  'Registration must reject update preferences regardless of email verification')
 const tampered=call('POST','/api/platform/v1/tenants',{
   ...draft,ownerEmail:'attacker@example.invalid'
 },cookie)
@@ -280,11 +264,12 @@ const badMaintenance=call('POST','/api/platform/v1/tenants',{
   ...draft,updateMode:'hi5_managed',deploymentDay:'tue',
   deploymentTime:'19:30',deploymentTimezone:'Europe/Paris'
 },cookie)
-assert.equal(badMaintenance.status,409,'Cannot alter verified maintenance window')
+assert.equal(badMaintenance.status,400,'Cannot set a maintenance window before onboarding')
 assert.equal(sql(`SELECT count(*) FROM tenants WHERE slug='${requestedSlug}'`).split('\\n').at(-1),'0')
 const approved=call('POST','/api/platform/v1/tenants',draft,cookie)
 assert.equal(approved.status,201,JSON.stringify(approved.data))
-assert.equal(approved.data.onboarding.uatQueued,true)
+assert.equal(approved.data.onboarding.uatQueued,false)
+assert.equal(approved.data.onboarding.updateChoicePending,true)
 assert.equal(approved.data.onboarding.invitationSent,false)
 assert.equal(approved.data.onboarding.productionActivated,false)
 assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE id='${signupRequest.id}'`).split('\\n').at(-1),'converted')
@@ -294,7 +279,7 @@ assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
   AND q.environment='uat'`).split('\\n').at(-1),'1')
 assert.equal(sql(`SELECT count(*) FROM tenant_memberships m
   JOIN tenants t ON t.id=m.tenant_id WHERE t.slug='${requestedSlug}'`).split('\\n').at(-1),'0')
-console.log('PHASE23_SIGNUP_TO_ADMIN_REVIEW: PASS (verified request, wrong-owner rejected, one-time Custom UAT reservation, no login)')
+console.log('PHASE25_SIGNUP_TO_ADMIN_REVIEW: PASS (verified identity, one-time pending tenant, no early UAT or update policy)')
 const currentDirect=call('POST','/api/v1/auth/signup',{
   companyName:'Legacy Signup',tenantSlug:'legacypilotsignup',name:'Legacy Owner',
   email:'legacy@example.invalid',password:'VeryStrongExamplePassword345',
