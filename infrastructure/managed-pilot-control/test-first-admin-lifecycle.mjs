@@ -35,6 +35,7 @@ function call(method,path,body,cookie,origin='https://pilot-admin.hi5central.com
       })
       process.stdout.write(JSON.stringify({
         status:response.status,cookie:response.headers.get('set-cookie')||'',
+        location:response.headers.get('location')||'',
         data:await response.json().catch(()=>({}))
       }))
     })().catch(()=>{process.exitCode=2})`
@@ -222,7 +223,16 @@ console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Liv
 
 // A public request is NOT a tenant. Only a verified request can be converted
 // by the independent Admin after matching every customer and update choice.
+const publicPost=call('POST','/api/v1/public/signup-requests',{
+  tenantSlug:'synthetic-nosmtp',companyName:'Synthetic No SMTP',
+  name:'No Delivery',email:'no-delivery@example.invalid',
+  modules:{itsm:true,rmm:false},updateMode:'admin_controlled'
+},null,'https://hi5central.com')
+assert.equal(publicPost.status,503,'No verified SMTP means no new signup requests')
+assert.equal(sql('SELECT count(*) FROM managed_public_signup_requests').split('\\n').at(-1),'0')
 const requestedSlug='pilot-signup-ci'
+const oneTimeEmailToken=randomBytes(32).toString('base64url')
+const oneTimeEmailDigest=createHash('sha256').update(oneTimeEmailToken).digest('hex')
 sql(`INSERT INTO managed_public_signup_requests
  (tenant_slug,company_name,owner_name,owner_email,modules,update_mode,
   customer_uat_opt_in,maintenance_window,verification_hash,
@@ -232,8 +242,22 @@ sql(`INSERT INTO managed_public_signup_requests
   '{"itsm":true,"selfService":true,"rmm":false}'::jsonb,
   'admin_controlled',true,
   '{"timezone":"Europe/London","days":[],"start":"02:00","end":"05:00"}'::jsonb,
-  '${randomBytes(32).toString('hex')}',now()+interval '24 hours',
-  'verified',now())`)
+  '${oneTimeEmailDigest}',now()+interval '24 hours',
+  'awaiting_email',null)`)
+assert.equal(sql('SELECT count(*) FROM tenants WHERE slug=\''+requestedSlug+'\'').split('\\n').at(-1),'0')
+const verifiedLink=call('GET',
+  '/api/v1/public/signup-requests/verify?token='+oneTimeEmailToken,null,null,'https://hi5central.com')
+assert.equal(verifiedLink.status,302)
+assert.match(verifiedLink.location,/verification=received/)
+assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE tenant_slug='${requestedSlug}'`).split('\\n').at(-1),'verified')
+const replay=call('GET',
+  '/api/v1/public/signup-requests/verify?token='+oneTimeEmailToken,null,null,'https://hi5central.com')
+assert.equal(replay.status,302)
+assert.match(replay.location,/verification=invalid/)
+assert.equal(sql(`SELECT count(*) FROM managed_public_signup_audit a
+  JOIN managed_public_signup_requests r ON r.id=a.request_id
+  WHERE r.tenant_slug='${requestedSlug}' AND a.action='verified'`).split('\\n').at(-1),'1',
+  'One-time link cannot verify twice or duplicate its audit event')
 const inbox=call('GET','/api/platform/v1/signup-requests',null,cookie)
 assert.equal(inbox.status,200)
 const signupRequest=inbox.data.items.find(item=>item.tenant_slug===requestedSlug)
