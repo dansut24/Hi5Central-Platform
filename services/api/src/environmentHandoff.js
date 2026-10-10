@@ -1,10 +1,13 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { createSession, setSessionCookie } from './session.js'
 
 const digest = token => createHash('sha256').update(String(token)).digest('hex')
-const usableSecret = () => String(process.env.ENV_IDENTITY_SHARED_SECRET || '')
+const usableSecret = () => String(process.env.ENV_IDENTITY_SHARED_SECRET_FILE
+  ? readFileSync(process.env.ENV_IDENTITY_SHARED_SECRET_FILE,'utf8').trim()
+  : process.env.ENV_IDENTITY_SHARED_SECRET || '')
 function authorised(request) {
   const configured = usableSecret()
   const supplied = String(request.req.header('authorization') || '').replace(/^Bearer\s+/i,'')
