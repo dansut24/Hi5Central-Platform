@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, generateKeyPairSync, sign } from 'node:crypto'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -49,6 +52,40 @@ const httpTestPath=fileURLToPath(new URL('./test-sandbox-lifecycle-http.mjs',imp
 const redisPorts={uat:55438,test:55439}
 const redisInstanceIds={uat:'88888888-8888-4888-8888-888888888888',test:'99999999-9999-4999-8999-999999999999'}
 function redisUrl(env){return `redis://127.0.0.1:${redisPorts[env]}`}
+const localTenantIds={}
+const operatorKeys=Object.fromEntries([
+  ['operator-one',['operator']],
+  ['reviewer-one',['reviewer']],
+  ['operator-two',['operator','executor']],
+].map(([id,roles])=>{
+  const pair=generateKeyPairSync('ed25519')
+  return [id,{id,roles,keyId:'ci-'+id,privateKey:pair.privateKey,
+    publicKeyPem:pair.publicKey.export({format:'pem',type:'spki'})}]
+}))
+const operatorTrustDir=mkdtempSync(join(tmpdir(),'hi5-phase16-evidence-'))
+const operatorTrustFile=join(operatorTrustDir,'operator-public-keys.json')
+writeFileSync(operatorTrustFile,JSON.stringify({
+  version:1,principals:Object.values(operatorKeys).map(({id,keyId,roles,publicKeyPem})=>({
+    id,keyId,roles,publicKeyPem,
+  })),
+}),{mode:0o600})
+function signedEvidence(env,action,role,operatorId,overrides={}){
+  const key=operatorKeys[operatorId] || operatorKeys[role==='reviewer'?'reviewer-one':'operator-one']
+  const now=Date.now()
+  const payload={
+    version:1,audience:'hi5central-managed-sandbox-activation',
+    action,role,operatorId,tenantSlug:env==='uat'?'acme':'bravo',
+    environment:env,controlRequestId:requestIds[env],
+    localTenantId:localTenantIds[env],databaseInstanceId:instanceIds[env],
+    redisInstanceId:redisInstanceIds[env],
+    issuedAt:new Date(now-1000).toISOString(),
+    expiresAt:new Date(now+120000).toISOString(),
+    nonce:randomBytes(24).toString('hex'),...overrides,
+  }
+  const bytes=Buffer.from(JSON.stringify(payload))
+  return JSON.stringify({keyId:key.keyId,payload:bytes.toString('base64url'),
+    signature:sign(null,bytes,key.privateKey).toString('base64url')})
+}
 function operator(env,flag,extra={}) {
   const slug=env==='uat'?'acme':'bravo'
   const envs={...process.env,CONTROL_DATABASE_URL:dbUrl('control'),
@@ -57,6 +94,16 @@ function operator(env,flag,extra={}) {
     ACTIVATION_OPERATOR:'operator-two',INDEPENDENT_REVIEWER:'reviewer-one',
     CONFIRM_SANDBOX_ACTIVATION:`${slug}:${env}:${requestIds[env]}:${flag.slice(2)}`,
     ...extra,
+  }
+  if(flag!=='--check'){
+    const action=flag.slice(2)
+    const actor=envs.ACTIVATION_OPERATOR
+    const reviewer=envs.INDEPENDENT_REVIEWER
+    envs.SANDBOX_OPERATOR_TRUST_FILE=operatorTrustFile
+    envs.ACTIVATION_ACTOR_ATTESTATION=signedEvidence(env,action,
+      action==='activate'?'executor':'operator',actor)
+    envs.ACTIVATION_REVIEWER_ATTESTATION=signedEvidence(env,action,'reviewer',reviewer)
+    Object.assign(envs,extra) // Explicit malicious test overrides must win.
   }
   const result=spawnSync(process.execPath,[activationPath,flag],{
     env:envs,encoding:'utf8',timeout:20000,maxBuffer:1024*1024,
@@ -164,6 +211,7 @@ const fixtures = [
   '../migrations/platform-admin/137_managed_environment_invitations.sql',
   '../migrations/platform-admin/138_managed_environment_activation_audit.sql',
   '../migrations/platform-admin/139_managed_owner_invitation_audit.sql',
+  '../migrations/platform-admin/140_managed_operator_evidence.sql',
 ]
 
 function dbUrl(name) {
@@ -260,7 +308,7 @@ async function cleanup() {
 }
 
 test('provisioning worker prepares only isolated suspended tenants and safely retries',async t=>{
-  t.after(cleanup)
+  t.after(async()=>{try{await cleanup()}finally{rmSync(operatorTrustDir,{recursive:true,force:true})}})
   await setup()
 
   await t.test('check is read-only; unconfirmed writes fail',async()=>{
@@ -291,6 +339,7 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
          FROM tenants t JOIN tenant_settings s ON s.tenant_id=t.id
          JOIN managed_environment_tenant_bootstrap b ON b.local_tenant_id=t.id`)
     assert.equal(local.rows[0].status,'suspended')
+    localTenantIds.uat=(await query('uat',"SELECT id FROM tenants WHERE slug='acme'")).rows[0].id
     assert.equal(local.rows[0].rmm_url,null)
     assert.equal(local.rows[0].modules.rmm,false)
     assert.equal(local.rows[0].tenant_url,'https://acmeuat.hi5central.com')
@@ -379,8 +428,10 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     assert.equal(result.json.result,'identity_prepared')
     assert.equal((await counts('uat')).tenants,1)
     assert.equal((await counts('test')).tenants,1)
-    const row=await query('test','SELECT status,slug FROM tenants')
-    assert.deepEqual(row.rows[0],{status:'suspended',slug:'bravo'})
+    const row=await query('test','SELECT id,status,slug FROM tenants')
+    localTenantIds.test=row.rows[0].id
+    assert.deepEqual({status:row.rows[0].status,slug:row.rows[0].slug},
+      {status:'suspended',slug:'bravo'})
     assert.equal((await counts('test')).environment_rows,0)
   })
   await t.test('isolated Redis binding and two-person operator approve/activate; no implicit DNS',async()=>{
