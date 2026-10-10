@@ -199,7 +199,7 @@ export function SignupPage() {
               <div><span>ITSM workspace</span><strong>{created.tenant?.tenantUrl}</strong></div>
               <div><span>Self-service portal</span><strong>{created.tenant?.portalUrl}</strong></div>
               {created.tenant?.rmmUrl ? <div><span>RMM workspace</span><strong>{created.tenant.rmmUrl}</strong></div> : null}
-            </div>
+            </div>:null}
             <div className="marketing-notice">
               {pendingManaged
                 ? created.status==='verified'
