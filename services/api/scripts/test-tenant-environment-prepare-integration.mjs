@@ -476,7 +476,7 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     })
     assert.notEqual(swappedRole.code,0,'An operator key cannot sign as reviewer')
     const tamperedEnvelope=JSON.parse(signedEvidence('uat','approve','reviewer','reviewer-one'))
-    tamperedEnvelope.signature='A'+tamperedEnvelope.signature.slice(1)
+    tamperedEnvelope.signature=(tamperedEnvelope.signature[0]==='A'?'B':'A')+tamperedEnvelope.signature.slice(1)
     const tampered=operator('uat','--approve',{
       ACTIVATION_REVIEWER_ATTESTATION:JSON.stringify(tamperedEnvelope),
     })
