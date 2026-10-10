@@ -9,6 +9,7 @@ import {
   bootstrapToken,bootstrapHash,
 } from '../src/pilotAdminBootstrap.js'
 import {sendPilotAdminBootstrapInvitationEmail} from '../src/mailer.js'
+import {verifyPilotAdminRecipientFile} from '../src/pilotAdminRecipient.js'
 
 function required(name){
   const value=String(process.env[name]||'').trim()
@@ -67,6 +68,8 @@ try{
       bootstrapAuthorized:false},null,2))
   }else{
     if(active)throw new Error('An unexpired owner invitation already exists; never replace it.')
+    verifyPilotAdminRecipientFile(required('PILOT_ADMIN_RECIPIENT_FILE'),
+      {email,scopeId})
     const actorToken=required('PILOT_ADMIN_ACTOR_ASSERTION')
     const reviewerToken=required('PILOT_ADMIN_REVIEWER_ASSERTION')
     const trust=readOperatorTrustFile(required('PILOT_OPERATOR_TRUST_FILE'))
