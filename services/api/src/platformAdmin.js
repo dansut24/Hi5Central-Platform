@@ -4,7 +4,8 @@ import { pool, withTransaction } from './db.js'
 import { isValidCustomerSlug } from './tenantEnvironmentHostnames.js'
 import { provisionRequestEligibility } from './tenantEnvironmentProvisioning.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
-import { verifyPassword } from './password.js'
+import { verifyPassword,hashPassword,passwordPolicyResult } from './password.js'
+import { pilotBootstrapEnabled,bootstrapHash,validatePilotAdminIdentity } from './pilotAdminBootstrap.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
@@ -560,6 +561,71 @@ function nullablePositiveInteger(value) {
 }
 
 export function registerPlatformAdminRoutes(app) {
+  // This endpoint is only active in a separately configured, explicitly
+  // enabled managed pilot controller. Invitation redemption NEVER logs in.
+  app.post('/api/platform/v1/auth/bootstrap/accept',async(c)=>{
+    if(!pilotBootstrapEnabled())return c.json({error:'Pilot bootstrap unavailable.'},404)
+    if(c.req.header('origin')!=='https://pilot-admin.hi5central.com')
+      return c.json({error:'Pilot Admin origin required.'},403)
+    if(!await rateLimit(`pilot-admin-first-accept:${requestIp(c)}`,8,900))
+      return c.json({error:'Too many attempts.'},429)
+    const body=await c.req.json().catch(()=>({}))
+    const email=normaliseEmail(body?.email)
+    const token=String(body?.token||'').trim()
+    const password=String(body?.password||'')
+    if(!validEmail(email)||! /^[a-zA-Z0-9_-]{43}$/.test(token))
+      return c.json({error:'Invalid or expired invitation.'},401)
+    const passwordValidation=passwordPolicyResult(password)
+    if(!passwordValidation.ok)return c.json({error:passwordValidation.message},400)
+    const passwordHash=await hashPassword(password)
+    const result=await withTransaction(async db=>{
+      const scope=(await db.query(`
+        SELECT scope_id FROM pilot_admin_bootstrap_scope
+          WHERE singleton=true FOR UPDATE`)).rows[0]
+      if(!scope)return {status:423,error:'Private pilot scope is not prepared.'}
+      const identity=(await db.query(`
+        SELECT instance_id,verified_by FROM managed_control_plane_identity
+        WHERE singleton=true`)).rows[0]
+      if(!identity || identity.instance_id!==scope.scope_id
+        || !identity.verified_by || !identity.verified_by.includes('/'))
+        return {status:423,error:'Pilot operator approval is incomplete.'}
+      const counts=(await db.query(`
+        SELECT (SELECT COUNT(*)::int FROM users) AS users,
+               (SELECT COUNT(*)::int FROM platform_admin_members) AS admins,
+               (SELECT COUNT(*)::int FROM tenants) AS tenants`)).rows[0]
+      if(counts.users!==0||counts.admins!==0||counts.tenants!==0)
+        return {status:409,error:'Initial administrator was already created.'}
+      const invitation=(await db.query(`
+        SELECT id,display_name,email
+        FROM pilot_admin_bootstrap_invitations
+        WHERE scope_id=$1 AND email=$2 AND token_hash=$3 AND accepted_at IS NULL
+          AND revoked_at IS NULL AND expires_at>now()
+        FOR UPDATE`,[scope.scope_id,email,bootstrapHash(token)])).rows[0]
+      if(!invitation || !validatePilotAdminIdentity({
+        email:invitation.email,displayName:invitation.display_name}))
+        return {status:401,error:'Invalid or expired invitation.'}
+      const created=(await db.query(`
+        INSERT INTO users(email,name,password_hash,email_verified_at)
+        VALUES($1,$2,$3,now()) RETURNING id`,
+        [email,invitation.display_name,passwordHash])).rows[0]
+      await db.query(`INSERT INTO platform_admin_members(user_id,role,status)
+        VALUES($1,'owner','active')`,[created.id])
+      await db.query(`UPDATE pilot_admin_bootstrap_invitations SET
+        accepted_at=now(),accepted_user_id=$2 WHERE id=$1`,
+        [invitation.id,created.id])
+      await db.query(`INSERT INTO pilot_admin_bootstrap_audit
+        (scope_id,invitation_id,action,operator_id)
+        VALUES($1,$2,'accepted','invitation-recipient')`,
+        [scope.scope_id,invitation.id])
+      await db.query(`INSERT INTO platform_admin_audit_events
+        (actor_user_id,action,target_type,target_id,metadata)
+        VALUES($1,'platform.initial_admin.invitation_redeemed','user',$2,$3::jsonb)`,
+        [created.id,created.id,JSON.stringify({invitationId:invitation.id,scopeId:scope.scope_id})])
+      return {accepted:true,mfaRequired:true,sessionCreated:false}
+    })
+    if(result.status)return c.json({error:result.error},result.status)
+    return c.json(result,200)
+  })
   app.post('/api/platform/v1/auth/login', async (c) => {
     if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
     let body
