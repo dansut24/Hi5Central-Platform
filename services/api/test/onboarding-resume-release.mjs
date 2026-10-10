@@ -108,6 +108,19 @@ try {
   } finally {
     await db.query('ROLLBACK')
   }
+  // Sandbox suffixes are reserved for new customer registration, not for
+  // querying existing tenant hosts or authenticating an environment account.
+  for (const environment of ['test','uat']) {
+    const envSlug = slug + '-' + environment
+    await client.query("INSERT INTO tenants (slug,company_name,status) VALUES ($1,$2,'active')",[envSlug,'Sandbox Lookup '+environment])
+    const lookedUp=await fetch(base+'/api/v1/auth/tenant-state/'+envSlug,{signal:AbortSignal.timeout(9000)})
+    const payload=await lookedUp.json()
+    assert.equal(lookedUp.status,200)
+    assert.equal(payload.managed,true,'sandbox tenant state must be resolvable')
+    assert.equal(payload.slug,envSlug)
+    const reserved=await req({...body(envSlug,password),email:'reserved-'+id+environment+'@example.invalid'})
+    assert.equal(reserved.status,400,'environment suffixes must remain unavailable for customer signup')
+  }
   console.log('PASS: saved steps preserved; Security -> Updates -> ITSM; refresh resume; Previous edit; invalid input and skipped steps blocked; managed release preferences persisted')
 } finally {
   await db.end()
