@@ -37,6 +37,7 @@ on:
       - 'services/api/src/managedPublicSignup.js'
       - 'services/api/tests/managedPublicSignup.test.mjs'
       - 'services/api/migrations/platform-admin/145_managed_public_signup_requests.sql'
+      - 'services/api/migrations/platform-admin/146_defer_update_choices_to_onboarding.sql'
 
       - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.css'
