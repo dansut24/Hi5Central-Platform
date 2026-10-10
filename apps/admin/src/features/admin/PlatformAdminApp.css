@@ -1471,3 +1471,10 @@ body[data-hi5-surface='admin'] #root {
 @media(max-width:700px) {
   .h5a-update-policy-choices {grid-template-columns:1fr;}
 }
+
+.h5a-signup-review{display:grid;gap:10px;margin-bottom:18px}
+.h5a-signup-review-row{display:flex;justify-content:space-between;align-items:center;gap:16px;border-top:1px solid #dee6ee;padding:12px 0}
+.h5a-signup-review-row>div{display:grid;gap:5px;min-width:0}
+.h5a-signup-review-row strong{font-size:13px}
+.h5a-signup-review-row small{color:#66758d;font-size:11px;overflow-wrap:anywhere}
+@media(max-width:600px){.h5a-signup-review-row{flex-direction:column;align-items:stretch}}
