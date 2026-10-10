@@ -55,6 +55,22 @@ export async function establishEnvironmentSession(c, liveSession, environment, {
       error.status=403
       throw error
     }
+    // Sandbox login should not repeat the customer's already-completed
+    // Live first-login onboarding. Retain sandbox-specific preferences.
+    const liveExperience=await source.query(
+      'SELECT first_login_completed_at FROM user_experience_preferences WHERE user_id=$1',
+      [userId],
+    )
+    const completed=liveExperience.rows[0]?.first_login_completed_at
+    if(completed){
+      await client.query(
+        `INSERT INTO user_experience_preferences(user_id,first_login_completed_at)
+         VALUES($1,$2)
+         ON CONFLICT(user_id) DO UPDATE SET
+           first_login_completed_at=COALESCE(user_experience_preferences.first_login_completed_at,EXCLUDED.first_login_completed_at)`,
+        [userId,completed],
+      )
+    }
     token=await createSession(client,{
       tenantId,userId,
       mfaVerified: Boolean(liveSession.mfa_verified_at),
