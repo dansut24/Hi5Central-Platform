@@ -1,0 +1,69 @@
+# Hi5Central isolated first-Admin pilot: approved public TLS surfaces.
+# Do not map general /api/* routes from the shared Production gateway.
+# Exact upstream hostnames resolve only when the public gateway has
+# an explicitly reviewed, isolated connection to the pilot edge network.
+
+pilot-admin.hi5central.com {
+    encode zstd gzip
+    reverse_proxy hi5-pilot-control-admin:80
+
+    tls {
+        dns ionos {env.IONOS_API_TOKEN}
+    }
+
+    header {
+        Cache-Control "no-store"
+        Referrer-Policy "no-referrer"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        -Server
+    }
+}
+
+pilot-control-api.hi5central.com {
+    encode zstd gzip
+
+    # Password setup, login, authenticator enrolment and session endpoints.
+    # Backend enforces single-owner invitation expiry and MFA.
+    @pilotAuth {
+        path /api/platform/v1/auth/*
+        method GET POST OPTIONS
+    }
+    handle @pilotAuth {
+        reverse_proxy hi5-pilot-control-api:3001
+    }
+
+    # Permit only authenticated, read-only Admin request review.
+    @pilotSignupReview {
+        path /api/platform/v1/signup-requests
+        method GET OPTIONS
+    }
+    handle @pilotSignupReview {
+        reverse_proxy hi5-pilot-control-api:3001
+    }
+
+    @pilotTenantRead {
+        path /api/platform/v1/tenants
+        method GET OPTIONS
+    }
+    handle @pilotTenantRead {
+        reverse_proxy hi5-pilot-control-api:3001
+    }
+
+    handle {
+        respond "Not found" 404
+    }
+
+    tls {
+        dns ionos {env.IONOS_API_TOKEN}
+    }
+
+    header {
+        Cache-Control "no-store"
+        Referrer-Policy "no-referrer"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+}
