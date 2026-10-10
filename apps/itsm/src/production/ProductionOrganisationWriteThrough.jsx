@@ -39,7 +39,11 @@ async function fetchOrganisation() {
     cache: 'no-store',
   })
   const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(payload.error || 'Could not load the production Organisation directory.')
+  if (!response.ok) {
+    const error=new Error(payload.error || 'Could not load the production Organisation directory.')
+    if(response.status===401)error.code='AUTHENTICATION_PENDING'
+    throw error
+  }
   return payload
 }
 
@@ -64,15 +68,28 @@ export function ProductionOrganisationWriteThrough() {
   useEffect(() => {
     activeRef.current = true
 
-    fetchOrganisation()
-      .then((snapshot) => {
-        if (activeRef.current) publishSnapshot(snapshot)
-      })
-      .catch((error) => {
-        if (!activeRef.current) return
-        console.error('Production Organisation hydration failed.', error)
-        setNotice({ type: 'error', message: error?.message || 'Could not connect the People directory to PostgreSQL.' })
-      })
+    function hydrateWhenSignedIn(){
+      // This companion component mounts before the workspace login. Expected
+      // 401 responses must not display a spurious 'Authentication required'
+      // toast while the user is still being redirected to central sign-in.
+      fetchOrganisation()
+        .then((snapshot) => {
+          if (activeRef.current) {
+            setNotice(null)
+            publishSnapshot(snapshot)
+          }
+        })
+        .catch((error) => {
+          if (!activeRef.current || error.code === 'AUTHENTICATION_PENDING') return
+          console.error('Production Organisation hydration failed.', error)
+          setNotice({ type: 'error', message: error?.message || 'Could not connect the People directory to PostgreSQL.' })
+        })
+    }
+    try {
+      const cached=JSON.parse(window.localStorage.getItem('hi5central-production-session-v1')||'null')
+      if(cached?.source==='production')hydrateWhenSignedIn()
+    }catch { /* The current server session is authoritative. */ }
+    window.addEventListener('hi5-production-session-ready',hydrateWhenSignedIn)
 
     function handleSaveRequest(event) {
       const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {}
@@ -122,6 +139,7 @@ export function ProductionOrganisationWriteThrough() {
     return () => {
       activeRef.current = false
       window.removeEventListener(SAVE_EVENT, handleSaveRequest)
+      window.removeEventListener('hi5-production-session-ready',hydrateWhenSignedIn)
     }
   }, [])
 
