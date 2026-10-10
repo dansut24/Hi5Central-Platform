@@ -7,6 +7,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { verifyPassword,hashPassword,passwordPolicyResult } from './password.js'
 import { pilotBootstrapEnabled,bootstrapHash,validatePilotAdminIdentity } from './pilotAdminBootstrap.js'
 import {parseCustomerUpdatePolicy,customerUpdateWriteParams,CUSTOMER_UPDATE_UPSERT} from './customerUpdatePolicy.js'
+import {inspectCustomerConfigurationPromotion} from './customerConfigurationPromotion.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
@@ -1432,6 +1433,31 @@ export function registerPlatformAdminRoutes(app) {
         ORDER BY lower(t.company_name)`,
     )
     return c.json({ items: result.rows })
+  })
+
+  // Read-only, customer-scoped guard. Platform-wide release promotions are
+  // NOT the same as promoting one customer's UAT configuration.
+  app.post('/api/platform/v1/tenants/:id/config-promotions/preflight',async(c)=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    const tenantId=clean(c.req.param('id'),80)
+    if(!/^[0-9a-f-]{36}$/i.test(tenantId))
+      return c.json({error:'A valid customer tenant ID is required.'},400)
+    const body=await c.req.json().catch(()=>null)
+    if(!body||typeof body!=='object'||Array.isArray(body))
+      return c.json({error:'A valid JSON object is required.'},400)
+    const [preferenceResult,environmentsResult]=await Promise.all([
+      pool.query('SELECT * FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId]),
+      pool.query('SELECT environment,provisioning_status,isolation_verified_at FROM tenant_environment_instances WHERE tenant_id=$1',[tenantId]),
+    ])
+    if(!preferenceResult.rowCount)return c.json({error:'Customer tenant not found.'},404)
+    const byEnvironment=Object.fromEntries(environmentsResult.rows.map(row=>[row.environment,row]))
+    const decision=inspectCustomerConfigurationPromotion({
+      preference:preferenceResult.rows[0],
+      uat:byEnvironment.uat,live:byEnvironment.live,keys:body.keys,
+    })
+    return c.json({tenantId,fromEnvironment:'uat',toEnvironment:'live',
+      ...decision},decision.eligibleForReview?200:409)
   })
 
   // Tenant UAT/Test provisioning is a queue request only. This API never
