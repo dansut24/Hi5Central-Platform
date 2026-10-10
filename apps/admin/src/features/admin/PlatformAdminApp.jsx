@@ -140,11 +140,13 @@ function Login({ onLogin }) {
   const [challenge,setChallenge]=useState('')
   const [setup,setSetup]=useState(null)
   const [code,setCode]=useState('')
+  const [recoveryCodes,setRecoveryCodes]=useState(null)
+  const [pendingLogin,setPendingLogin]=useState(null)
   const [error,setError]=useState('')
   const [busy,setBusy]=useState(false)
   function reset(){
     setPasswordStep(false);setPassword('');setChallenge('')
-    setSetup(null);setCode('');setError('')
+    setSetup(null);setCode('');setRecoveryCodes(null);setPendingLogin(null);setError('')
   }
   async function submit(event){
     event.preventDefault()
@@ -157,7 +159,10 @@ function Login({ onLogin }) {
         const result=await api('/auth/mfa/verify',{method:'POST',
           body:JSON.stringify({challengeToken:challenge,code})})
         setCode('');setChallenge('');setSetup(null)
-        onLogin(result)
+        if(result.recoveryCodes?.length){
+          setRecoveryCodes(result.recoveryCodes)
+          setPendingLogin({...result,recoveryCodes:undefined})
+        }else onLogin(result)
         return
       }
       const result=await api('/auth/login',{method:'POST',
@@ -195,15 +200,26 @@ function Login({ onLogin }) {
             <span className="production-auth-icon"><LockKeyhole size={19}/></span>
             <div><span>Hi5Central</span><strong>Platform Admin</strong></div>
           </div>
-          {!challenge?<label><span>Email address</span>
+          {recoveryCodes?<div className="production-auth-method-note" role="status">
+            <strong>Save your one-time recovery codes</strong>
+            <p>These codes are shown only once. Store them securely, away from your
+              authenticator device. Each code can replace an authenticator code once.</p>
+            <code style={{display:'block',whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+              {recoveryCodes.join('  ')}
+            </code>
+            <button type="button" onClick={()=>{
+              if(pendingLogin){setRecoveryCodes(null);onLogin(pendingLogin)}
+            }}>I have saved my recovery codes</button>
+          </div>:null}
+          {!challenge && !recoveryCodes?<label><span>Email address</span>
             <input type="email" value={email} onChange={e=>{setEmail(e.target.value);reset()}}
               autoComplete="username" required/></label>
             :<p className="production-auth-method-note">Verifying administrator: {email}</p>}
-          {!challenge && passwordStep
+          {!challenge && !recoveryCodes && passwordStep
             ?<label><span>Password</span><input type="password" value={password}
                 onChange={e=>setPassword(e.target.value)} autoComplete="current-password"
                 autoFocus required/></label>:null}
-          {challenge?<>
+          {challenge && !recoveryCodes?<>
             {setup?<div className="production-auth-method-note">
               <strong>Set up your authenticator</strong>
               <p>Add this account to Microsoft Authenticator, Google Authenticator or another TOTP app. Keep the secret private.</p>
@@ -214,19 +230,19 @@ function Login({ onLogin }) {
               Enter the six-digit code from your existing authenticator.
             </p>}
             <label><span>Authenticator code</span>
-              <input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))}
-                inputMode="numeric" pattern="[0-9]{6}" maxLength={6}
+              <input value={code} onChange={e=>setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,25))}
+                inputMode="text" maxLength={25}
                 autoComplete="one-time-code" autoFocus required/></label>
           </>:null}
-          {!passwordStep?<p className="production-auth-method-note">
+          {!passwordStep && !recoveryCodes?<p className="production-auth-method-note">
             Hi5Central will check your Platform Admin access before opening the control plane.
           </p>:null}
           {error?<div className="production-auth-error">{error}</div>:null}
-          <button disabled={busy || (challenge && code.length!==6)} type="submit">
+          {!recoveryCodes?<button disabled={busy || (challenge && code.length<6)} type="submit">
             {busy?'Verifying…':challenge?'Verify and sign in':passwordStep?'Continue securely':'Continue'}
             {!busy?<ArrowRight size={17}/>:null}
-          </button>
-          {passwordStep?<button className="production-auth-secondary-action" type="button" onClick={reset}>
+          </button>:null}
+          {passwordStep && !recoveryCodes?<button className="production-auth-secondary-action" type="button" onClick={reset}>
             Start again with another email
           </button>:null}
           {config.appUrl?<a href={config.appUrl}>Back to Hi5Central</a>:null}
