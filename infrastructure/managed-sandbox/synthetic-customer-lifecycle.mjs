@@ -136,6 +136,50 @@ const acceptPath='/api/v1/auth/sandbox-invitations/accept'
 const loginPath='/api/v1/auth/login-secure'
 const sessionPath='/api/v1/auth/session'
 const invitationIssuePath='/api/v1/auth/sandbox-invitations/issue'
+function createSyntheticStaff(e,sql,role,issuerCookie,mailIndex){
+  const email=`phase16-${role}-${e.env}@example.invalid`
+  const password='Phase16-Role-Matrix-Strong-Passphrase!'
+  const created=request(e,{path:invitationIssuePath,method:'POST',cookie:issuerCookie,
+    body:{email,name:`Synthetic ${role}`,role}})
+  expect(created,201,e.env+' issue '+role+' invitation')
+  const mail=spawnSync('docker',['exec',e.smtp,'cat',`/tmp/phase15-mail-${mailIndex}.eml`],{
+    encoding:'utf8',timeout:9000,maxBuffer:1024*1024,
+  })
+  if(mail.status!==0 || !mail.stdout.includes(email))
+    throw new Error(e.env+' '+role+' invitation email not delivered')
+  const link=mail.stdout.replace(/=\r?\n/g,'').replace(/=3D/gi,'=')
+    .match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
+  if(!link)throw new Error(e.env+' '+role+' invitation token missing')
+  const accepted=request(e,{path:acceptPath,method:'POST',
+    body:{tenantSlug:e.customerSlug,token:link[1],password}})
+  expect(accepted,200,e.env+' '+role+' accepts invitation')
+  if(accepted.cookie)throw new Error(e.env+' '+role+' invitation bypassed MFA')
+  expect(request(e,{path:acceptPath,method:'POST',
+    body:{tenantSlug:e.customerSlug,token:link[1],password}}),401,
+    e.env+' '+role+' token replay')
+  const login=request(e,{path:loginPath,method:'POST',
+    body:{tenantSlug:e.customerSlug,email,password}})
+  expect(login,200,e.env+' '+role+' login')
+  if(!login.data?.mfaRequired || login.cookie || !login.data.challengeToken)
+    throw new Error(e.env+' '+role+' MFA challenge skipped')
+  const challengeToken=login.data.challengeToken
+  const setup=request(e,{path:'/api/v1/auth/mfa/setup',method:'POST',
+    body:{challengeToken}})
+  expect(setup,200,e.env+' '+role+' MFA setup')
+  const verified=request(e,{path:'/api/v1/auth/mfa/verify',method:'POST',
+    body:{challengeToken,code:totp(setup.data.secret)}})
+  expect(verified,200,e.env+' '+role+' MFA verification')
+  if(!verified.cookie.startsWith('hi5central_'+e.env+'_session=')
+    || !verified.cookie.includes('Secure') || !verified.cookie.includes('HttpOnly')
+    || /Domain=/i.test(verified.cookie))throw new Error(e.env+' '+role+' cookie scope invalid')
+  const cookie=verified.cookie.split(';')[0]
+  expect(request(e,{path:sessionPath,cookie}),200,e.env+' '+role+' staff session')
+  const result=sql(e,`SELECT role FROM tenant_memberships m
+    JOIN users u ON u.id=m.user_id WHERE u.email='${email}';`).trim()
+  if(result!==role)throw new Error(e.env+' '+role+' membership mismatch: '+result)
+  return {cookie,email}
+}
+
 function acceptance(e,opts={}){
   return request(e,{path:acceptPath,method:'POST',body:{
     tenantSlug:e.customerSlug,token:e.ownerToken,password:e.ownerPassword,
@@ -261,6 +305,30 @@ export async function runSyntheticCustomerLifecycle(entries,sql,report){
     expect(forbidden,403,e.env+' requester RBAC denies invite')
     if(Number(sql(e,'SELECT count(*) FROM tenant_memberships;').split('\n')[0])!==2)
       throw new Error(e.env+' requester membership count unexpected')
+    const admin=createSyntheticStaff(e,sql,'admin',e.ownerCookie,2)
+    const analyst=createSyntheticStaff(e,sql,'analyst',e.ownerCookie,3)
+    expect(request(e,{path:invitationIssuePath,method:'POST',cookie:admin.cookie,
+      body:{email:`unapproved-owner-${e.env}@example.invalid`,name:'New Owner',role:'owner'}}),
+      400,e.env+' admin cannot invite owner')
+    expect(request(e,{path:invitationIssuePath,method:'POST',cookie:analyst.cookie,
+      body:{email:`unapproved-analyst-${e.env}@example.invalid`,name:'Denied User',role:'requester'}}),
+      403,e.env+' analyst cannot invite')
+    expect(request(e,{path:invitationIssuePath,method:'POST',cookie:admin.cookie,
+      origin:`https://another${e.env}.hi5central.com`,
+      body:{email:'wrong-tenant@example.invalid',name:'Other Tenant',role:'requester'}}),
+      401,e.env+' admin cross-tenant invitation denied')
+    expect(request(e,{path:sessionPath,cookie:admin.cookie,
+      origin:`https://${e.customerSlug}${e.env}-portal.hi5central.com`}),
+      401,e.env+' staff cookie cannot access Portal session')
+    expect(request(e,{path:invitationIssuePath,method:'POST',cookie:admin.cookie,
+      body:{email:`admin-invited-${e.env}@example.invalid`,
+        name:'Admin Invited User',role:'requester'}}),
+      201,e.env+' admin may invite requester')
+    if(Number(sql(e,'SELECT count(*) FROM tenant_memberships;').split('\n')[0])!==4)
+      throw new Error(e.env+' expected owner/requester/admin/analyst memberships')
+    e.adminCookie=admin.cookie
+    e.analystCookie=analyst.cookie
+    report(e.env,'role matrix owner, admin, analyst, requester and cross-origin denial PASS')
     report(e.env,'isolated email delivery, requester MFA and RBAC denial passed')
 
     report(e.env,'synthetic invite one-time, MFA challenge and TOTP, host-only session, cross-customer denial PASS')
