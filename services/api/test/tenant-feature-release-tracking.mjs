@@ -51,13 +51,13 @@ try{
   // to enabled. The saga must restore the previous flag and leave no history.
   const faultFunction='ci_fail_release_'+suffix
   const faultTrigger='ci_fail_release_'+suffix
-  await pool.query(`CREATE FUNCTION ${faultFunction}() RETURNS trigger LANGUAGE plpgsql AS $
+  await pool.query(`CREATE FUNCTION ${faultFunction}() RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
       IF NEW.action='staged_uat' AND NEW.notes='ci-simulated-ledger-failure' THEN
         RAISE EXCEPTION 'CI simulated release ledger failure';
       END IF;
       RETURN NEW;
-    END; $`)
+    END; $$`)
   await pool.query(`CREATE TRIGGER ${faultTrigger}
     BEFORE INSERT ON tenant_feature_release_events FOR EACH ROW
     EXECUTE FUNCTION ${faultFunction}()`)
