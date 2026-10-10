@@ -2,14 +2,10 @@ import {createHash,randomBytes} from 'node:crypto'
 import {pool,withTransaction} from './db.js'
 import {ensureRedisConnected} from './redis.js'
 import {deployment} from './deploymentConfig.js'
-import {isValidCustomerSlug} from './tenantEnvironmentHostnames.js'
-import {parseCustomerUpdatePolicy} from './customerUpdatePolicy.js'
+import {validateManagedSignupRequest} from './managedSignupValidation.js'
 import {sendManagedSignupRequestVerificationEmail} from './mailer.js'
 
-const MAX_NAME=120
 const hash=token=>createHash('sha256').update(token).digest('hex')
-const emailValue=value=>String(value||'').trim().toLowerCase()
-const emailValid=value=>value.length<=254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 const restricted=()=>process.env.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'
   && process.env.DEPLOYMENT_MODE==='managed'
   && process.env.TENANCY_MODE==='multi'
@@ -23,22 +19,6 @@ async function throttle(key,limit=4,seconds=3600) {
   const count=await client.incr('managed-signup:'+key)
   if(count===1)await client.expire('managed-signup:'+key,seconds)
   return count<=limit
-}
-export function validateManagedSignupRequest(body){
-  const slug=String(body?.tenantSlug||'').trim().toLowerCase()
-  const companyName=String(body?.companyName||'').trim()
-  const ownerName=String(body?.name||'').trim()
-  const ownerEmail=emailValue(body?.email)
-  if(!isValidCustomerSlug(slug))throw new Error('Select a valid customer URL without reserved endings.')
-  if(companyName.length<2||companyName.length>MAX_NAME)throw new Error('Company name must be 2–120 characters.')
-  if(ownerName.length<2||ownerName.length>MAX_NAME)throw new Error('Enter a valid owner name.')
-  if(!emailValid(ownerEmail))throw new Error('Enter a valid owner email.')
-  const modules={itsm:body?.modules?.itsm!==false,selfService:body?.modules?.itsm!==false,
-    rmm:body?.modules?.rmm===true}
-  if(!modules.itsm&&!modules.rmm)throw new Error('Select at least one product.')
-  const policy=parseCustomerUpdatePolicy(body)
-  if(String(body?.website||''))throw new Error('Invalid request.')
-  return {slug,companyName,ownerName,ownerEmail,modules,policy}
 }
 export function registerManagedPublicSignupRoutes(app) {
   app.post('/api/v1/public/signup-requests',async(c)=>{
