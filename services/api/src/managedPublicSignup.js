@@ -48,12 +48,10 @@ export function registerManagedPublicSignupRoutes(app) {
         await db.query(`UPDATE managed_public_signup_requests SET status='expired',updated_at=now()
           WHERE tenant_slug=$1 AND status='awaiting_email' AND verification_expires_at<=now()`,[requested.slug])
         const result=await db.query(`INSERT INTO managed_public_signup_requests
-          (tenant_slug,company_name,owner_name,owner_email,modules,update_mode,
-            customer_uat_opt_in,maintenance_window,verification_hash,verification_expires_at)
-          VALUES($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb,$9,now()+interval '24 hours')
+          (tenant_slug,company_name,owner_name,owner_email,modules,verification_hash,verification_expires_at)
+          VALUES($1,$2,$3,$4,$5::jsonb,$6,now()+interval '24 hours')
           RETURNING id`,[requested.slug,requested.companyName,requested.ownerName,
-          requested.ownerEmail,JSON.stringify(requested.modules),requested.policy.updateMode,
-          requested.policy.customerUatOptIn,JSON.stringify(requested.policy.maintenanceWindow),tokenHash])
+          requested.ownerEmail,JSON.stringify(requested.modules),tokenHash])
         const id=result.rows[0].id
         await db.query(`INSERT INTO managed_public_signup_audit(request_id,action,actor_label)
           VALUES($1,'requested','public-signup')`,[id])
@@ -76,7 +74,7 @@ export function registerManagedPublicSignupRoutes(app) {
       return c.json({error:'Verification email could not be delivered. Please contact support.'},503)
     }
     return c.json({status:'awaiting_email',verificationRequired:true,
-      productionActivated:false,customerUatRequired:requested.policy.customerUatRequired,
+      productionActivated:false,updateChoicePending:true,
       message:'Check your inbox to verify your email. Your workspace is not active yet.'},202)
   })
   app.get('/api/v1/public/signup-requests/verify',async(c)=>{
