@@ -1651,6 +1651,11 @@ export function registerPlatformAdminRoutes(app) {
             && verifiedSignup.customer_uat_opt_in===updatePolicy.customerUatOptIn
             && Boolean(verifiedSignup.modules?.itsm)===itsm
             && Boolean(verifiedSignup.modules?.rmm)===rmm
+            && verifiedSignup.maintenance_window?.timezone===updatePolicy.maintenanceWindow.timezone
+            && verifiedSignup.maintenance_window?.start===updatePolicy.maintenanceWindow.start
+            && verifiedSignup.maintenance_window?.end===updatePolicy.maintenanceWindow.end
+            && Array.isArray(verifiedSignup.maintenance_window?.days)
+            && verifiedSignup.maintenance_window.days.join(',')===updatePolicy.maintenanceWindow.days.join(',')
           if(!matching)
             throw Object.assign(new Error('Customer details differ from the verified signup request.'),{httpStatus:409})
         }
