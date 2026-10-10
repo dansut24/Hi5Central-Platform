@@ -12,6 +12,8 @@ const targetUrl = (slug, env, kind = 'workspace') => {
 
 /**
  * Reuse one Test and one UAT database for all organisations.
+ * Environment users authenticate through a short-lived Production identity handoff.
+ * No Production password hashes or MFA secrets are transferred.
  * Never expose the source database credentials to browsers or copy live
  * ITSM tickets, devices, secrets, uploaded files or operational records.
  * Destination schemas are provisioned/migrated by the deployment operator.
@@ -37,7 +39,7 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
     throw new Error('The organisation URL cannot be provisioned as a Test/UAT alias.')
   }
   const members = await source.query(
-    `SELECT u.id,u.email,u.name,u.password_hash,u.email_verified_at,
+    `SELECT u.id,u.email,u.name,u.email_verified_at,
             m.role,m.status
        FROM tenant_memberships m
        JOIN users u ON u.id=m.user_id
@@ -82,9 +84,9 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
       for (const user of members.rows) {
         await client.query(
           `INSERT INTO users(id,email,name,password_hash,email_verified_at)
-           VALUES($1,$2,$3,$4,$5)
+           VALUES($1,$2,$3,'environment-sso-only',$4)
            ON CONFLICT(id) DO NOTHING`,
-          [user.id,user.email,user.name,user.password_hash,user.email_verified_at],
+          [user.id,user.email,user.name,user.email_verified_at],
         )
         const identity = await client.query('SELECT email FROM users WHERE id=$1',[user.id])
         if (!identity.rowCount || identity.rows[0].email !== user.email) {
