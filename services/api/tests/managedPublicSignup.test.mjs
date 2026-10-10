@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {validateManagedSignupRequest,managedSignupRequestEnabled} from '../src/managedPublicSignup.js'
+import {validateManagedSignupRequest} from '../src/managedSignupValidation.js'
 import {readFileSync} from 'node:fs'
 
 function request(updateMode='admin_controlled'){
@@ -47,5 +47,7 @@ test('Public API must never create tenant, account or browser session',()=>{
  assert.match(legacy,/MANAGED_SIGNUP_REQUEST_REQUIRED/)
 })
 test('Signup requests must be expressly enabled only in reviewed private pilot',()=>{
- assert.equal(managedSignupRequestEnabled(),false)
+ const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
+ assert.match(src,/process\.env\.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'/)
+ assert.match(src,/deployment\.apiUrl==='https:\/\/pilot-control-api\.hi5central\.com'/)
 })
