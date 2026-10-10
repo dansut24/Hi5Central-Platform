@@ -220,6 +220,47 @@ assert.equal(visibleCustom.customer_uat_opt_in,true)
 console.log('PHASE21_CUSTOM_TENANT_UAT_REQUEST: PASS (Admin-created tenant and owner contact, UAT automatically queued, no premature UAT)')
 console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Live config write, secrets denied)')
 
+// A public request is NOT a tenant. Only a verified request can be converted
+// by the independent Admin after matching every customer and update choice.
+const requestedSlug='pilot-signup-ci'
+sql(`INSERT INTO managed_public_signup_requests
+ (tenant_slug,company_name,owner_name,owner_email,modules,update_mode,
+  customer_uat_opt_in,maintenance_window,verification_hash,
+  verification_expires_at,status,verified_at)
+ VALUES('${requestedSlug}','Signup Test Customer','Signup Owner',
+  'signup-owner@example.invalid',
+  '{"itsm":true,"selfService":true,"rmm":false}'::jsonb,
+  'admin_controlled',true,
+  '{"timezone":"Europe/London","days":[],"start":"02:00","end":"05:00"}'::jsonb,
+  '${randomBytes(32).toString('hex')}',now()+interval '24 hours',
+  'verified',now())`)
+const inbox=call('GET','/api/platform/v1/signup-requests',null,cookie)
+assert.equal(inbox.status,200)
+const request=inbox.data.items.find(item=>item.tenant_slug===requestedSlug)
+assert.ok(request)
+assert.equal(request.status,'verified')
+const draft={companyName:request.company_name,slug:request.tenant_slug,
+  ownerName:request.owner_name,ownerEmail:request.owner_email,
+  modules:request.modules,updateMode:'admin_controlled',customerUatOptIn:true,
+  signupRequestId:request.id}
+const tampered=call('POST','/api/platform/v1/tenants',{
+  ...draft,ownerEmail:'attacker@example.invalid'
+},cookie)
+assert.equal(tampered.status,409,'Cannot substitute an unverified owner')
+assert.equal(sql(`SELECT count(*) FROM tenants WHERE slug='${requestedSlug}'`).split('\\n').at(-1),'0')
+const approved=call('POST','/api/platform/v1/tenants',draft,cookie)
+assert.equal(approved.status,201,JSON.stringify(approved.data))
+assert.equal(approved.data.onboarding.uatQueued,true)
+assert.equal(approved.data.onboarding.invitationSent,false)
+assert.equal(approved.data.onboarding.productionActivated,false)
+assert.equal(sql(`SELECT status FROM managed_public_signup_requests WHERE id='${request.id}'`).split('\\n').at(-1),'converted')
+assert.equal(call('POST','/api/platform/v1/tenants',draft,cookie).status,409)
+assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
+  JOIN tenants t ON t.id=q.tenant_id WHERE t.slug='${requestedSlug}'
+  AND q.environment='uat'`).split('\\n').at(-1),'1')
+assert.equal(sql(`SELECT count(*) FROM tenant_memberships m
+  JOIN tenants t ON t.id=m.tenant_id WHERE t.slug='${requestedSlug}'`).split('\\n').at(-1),'0')
+console.log('PHASE23_SIGNUP_TO_ADMIN_REVIEW: PASS (verified request, wrong-owner rejected, one-time Custom UAT reservation, no login)')
 assert.equal(call('POST','/api/platform/v1/auth/logout',{},cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,401)
 console.log('PHASE19_DISPOSABLE_FIRST_ADMIN_INVITE_MFA: PASS')
