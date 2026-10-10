@@ -8,6 +8,7 @@ import { ProductionIdentityBridge } from './ProductionIdentityBridge.jsx'
 import { ProductionFirstLoginExperience } from './ProductionFirstLoginExperience.jsx'
 import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
+import { deploymentConfig } from '../lib/deploymentConfig.js'
 import {
   clearProductionSession,
   normaliseAccent,
