@@ -56,6 +56,7 @@ function EnvironmentCard({ item, onReset, busy }) {
 export function ProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
+  const [liveChatRelease,setLiveChatRelease]=useState(null)
   const [platformAvailable,setPlatformAvailable]=useState(false)
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
@@ -71,6 +72,9 @@ export function ProductionReleaseManagement() {
       if(tenantResult.status!=='fulfilled') throw tenantResult.reason
       const tenantState=tenantResult.value
       setTenantEnvironments(tenantState?.environments || [])
+      if(tenantState?.preference?.updateMode==='admin_controlled'){
+        setLiveChatRelease(await tenantReleaseApi('/feature-rollouts/live-chat').catch(()=>null))
+      }else setLiveChatRelease(null)
       if(platformResult.status==='fulfilled') {
         setData(platformResult.value)
         setPlatformAvailable(true)
@@ -142,6 +146,14 @@ export function ProductionReleaseManagement() {
 
   async function provisionEnvironments() {
     await action('provision',()=>tenantReleaseApi('/provision',{method:'POST',body:'{}'}),'Test and UAT provisioning checked.')
+  }
+
+  async function manageLiveChat(actionName) {
+    if(actionName==='confirm-uat' && !window.confirm('Did you open UAT and verify Live Chat works?'))return
+    if(actionName==='promote-live' && !window.confirm('Promote this tested feature into your Live workspace?'))return
+    await action('live-chat-'+actionName,()=>tenantReleaseApi('/feature-rollouts/live-chat/'+actionName,{method:'POST',body:'{}'}),
+      actionName==='stage-uat'?'Live Chat enabled in UAT only.':
+      actionName==='confirm-uat'?'Live Chat UAT test accepted.':'Live Chat promoted to Live.')
   }
 
   async function resetTest() {
@@ -256,6 +268,28 @@ export function ProductionReleaseManagement() {
         </div>
       </div>
     </section>
+
+    {policy.updateMode==='admin_controlled' ? (
+      <section className="production-settings-panel">
+        <header><div><h2>Customer feature releases</h2><p>Stage a feature for this organisation in UAT, verify it, then approve promotion to Live. Other customers remain unchanged.</p></div></header>
+        <div className="production-settings-panel-body">
+          <div className="hi5-release-env-grid">
+            <article className="hi5-release-env-card">
+              <header><div><span>LIVE CHAT</span><strong>UAT</strong></div><ResultPill value={liveChatRelease?.uatEnabled?'ready':'available'}/></header>
+              <p>{liveChatRelease?.uatEnabled?'Live Chat is enabled in UAT for your organisation.':'Enable Live Chat in UAT without changing Live.'}</p>
+              <button type="button" disabled={Boolean(busy)||!tenantEnvironments.some(x=>x.environment==='uat'&&x.status==='ready')} onClick={()=>manageLiveChat('stage-uat')}>Enable in UAT</button>
+              {liveChatRelease?.state==='staged'?<button type="button" disabled={Boolean(busy)} onClick={()=>manageLiveChat('confirm-uat')}>Mark UAT passed</button>:null}
+            </article>
+            <article className="hi5-release-env-card">
+              <header><div><span>LIVE CHAT</span><strong>Live</strong></div><ResultPill value={liveChatRelease?.liveEnabled?'ready':'available'}/></header>
+              <p>{liveChatRelease?.liveEnabled?'Live Chat is enabled in Live.':'Live remains unchanged until promotion.'}</p>
+              <button type="button" disabled={Boolean(busy)||liveChatRelease?.state!=='uat_passed'} onClick={()=>manageLiveChat('promote-live')}>Promote UAT to Live</button>
+              <small>{liveChatRelease?.state==='uat_passed'?'UAT approved':liveChatRelease?.state==='promoted'?'Promoted to Live':'Stage and test in UAT first'}</small>
+            </article>
+          </div>
+        </div>
+      </section>
+    ) : null}
 
     {platformAvailable ? (
     <section className="production-settings-panel">
