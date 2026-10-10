@@ -115,6 +115,21 @@ export function ProductionReleaseManagement() {
     },nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.')
   }
 
+  async function openEnvironment(environment) {
+    setBusy('environment-'+environment)
+    setError('')
+    try {
+      const result=await tenantReleaseApi('/environment-access',{
+        method:'POST',body:JSON.stringify({environment}),
+      })
+      if (!result?.url) throw new Error('The environment is not ready to open.')
+      window.location.assign(result.url)
+    } catch (error) {
+      setError(error.message)
+      setBusy('')
+    }
+  }
+
   async function provisionEnvironments() {
     await action('provision',()=>tenantReleaseApi('/provision',{method:'POST',body:'{}'}),'Test and UAT provisioning checked.')
   }
@@ -220,7 +235,7 @@ export function ProductionReleaseManagement() {
               <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance':name==='test'?'Sandbox':'Production'}</strong></div><ResultPill value={env?.status || 'available'} /></header>
               <p>{name==='test'?'Isolated, disposable Test data':name==='uat'?'Tenant acceptance and release validation':'Your live tenant workspace'}</p>
               {env?.url && env.status==='ready'
-                ? <a href={env.url} target="_blank" rel="noreferrer">Open {name.toUpperCase()} workspace ↗</a>
+                ? <button type="button" disabled={Boolean(busy)} onClick={()=>openEnvironment(name)}>Open {name.toUpperCase()} workspace ↗</button>
                 : <small>{env?.status==='error'?'Provisioning requires attention. Use retry or contact support.':'Workspace is not yet provisioned.'}</small>}
             </article>
           })}
