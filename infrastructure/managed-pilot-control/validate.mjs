@@ -21,7 +21,7 @@ const strong=value=>typeof value==='string' && value.length>=24
 const expected={
   COMPOSE_PROJECT_NAME:'hi5central-pilot-control',
   DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',
-  RUNTIME_ENVIRONMENT:'live',FEATURE_MODE:'controlled',PLATFORM_ADMIN_MFA_REQUIRED:'true',
+  RUNTIME_ENVIRONMENT:'live',FEATURE_MODE:'controlled',PLATFORM_ADMIN_MFA_REQUIRED:'true',PILOT_ADMIN_BOOTSTRAP_ENABLED:'true',
   BACKGROUND_WORKERS_ENABLED:'false',
   ROOT_DOMAIN:'hi5central.com',
   COOKIE_DOMAIN:'',APP_URL:'',PORTAL_URL:'',RMM_URL:'',TURN_URL:'',
