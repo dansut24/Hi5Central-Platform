@@ -1,0 +1,98 @@
+# Dedicated pilot CONTROL PLANE, not a customer runtime.
+# No public ports, no production networks, no inherited environment volumes.
+# DO NOT attach to a public gateway before the owner MFA and approval gates pass.
+name: ${COMPOSE_PROJECT_NAME:?Set hi5central-pilot-control}
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?Pin a PostgreSQL OCI digest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+    volumes: [pilot_postgres:/var/lib/postgresql/data]
+    networks: [pilot_data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 15s
+      retries: 12
+  redis:
+    image: ${REDIS_IMAGE:?Pin a Redis OCI digest}
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+    command: ["sh","-ec","exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes: [pilot_redis:/data]
+    networks: [pilot_data]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping 2>/dev/null | grep -qx PONG"]
+      interval: 15s
+      retries: 12
+  migrate:
+    image: ${API_IMAGE:?Pin an API OCI digest}
+    env_file:
+      - path: ./runtime.env
+        required: true
+    command: ["npm","run","migrate:dist"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [pilot_data]
+  api:
+    image: ${API_IMAGE:?Pin an API OCI digest}
+    env_file:
+      - path: ./runtime.env
+        required: true
+    environment:
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      RUNTIME_ENVIRONMENT: live
+      FEATURE_MODE: controlled
+      NODE_ENV: production
+      PORT: "3001"
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    networks:
+      pilot_data: {}
+      pilot_edge: { aliases: ["hi5-pilot-control-api"] }
+    healthcheck:
+      test: ["CMD","node","-e","fetch('http://127.0.0.1:3001/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+  admin:
+    image: ${ADMIN_IMAGE:?Pin an Admin OCI digest}
+    environment:
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      RUNTIME_ENVIRONMENT: live
+      FEATURE_MODE: controlled
+      ROOT_DOMAIN: hi5central.com
+      API_URL: https://pilot-control-api.hi5central.com
+      ADMIN_URL: https://pilot-admin.hi5central.com
+      APP_URL: ""
+      PORTAL_URL: ""
+      RMM_URL: ""
+      PRIMARY_TENANT_SLUG: ""
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    networks:
+      pilot_edge: { aliases: ["hi5-pilot-control-admin"] }
+    healthcheck:
+      test: ["CMD-SHELL","wget -qO- http://127.0.0.1/healthz | grep -qx ok"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+networks:
+  pilot_data:
+    internal: true
+  pilot_edge:
+    external: true
+    name: hi5central-pilot-control-edge
+volumes:
+  pilot_postgres: {}
+  pilot_redis: {}
