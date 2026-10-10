@@ -249,3 +249,34 @@ export async function sendPilotAdminBootstrapInvitationEmail({to,name,token}) {
     }),
   })
 }
+
+export async function sendManagedSignupRequestVerificationEmail({email,name,companyName,token}){
+  if(process.env.MANAGED_SIGNUP_REQUESTS_ENABLED!=='true'
+    ||process.env.MANAGED_SIGNUP_SMTP_APPROVED!=='true'
+    ||process.env.API_URL!=='https://pilot-control-api.hi5central.com')
+    throw new Error('Scoped managed signup verification is disabled.')
+  const endpoint=new URL('/api/v1/public/signup-requests/verify',process.env.API_URL)
+  endpoint.searchParams.set('token',token)
+  const url=endpoint.toString()
+  const transporter=nodemailer.createTransport(smtpConfig())
+  return transporter.sendMail({
+    from:process.env.SMTP_FROM||process.env.SMTP_USER,to:email,
+    subject:'Verify your Hi5Central customer signup request',
+    text:[
+      `Hello ${name},`,'',
+      `We received a request to register ${companyName} for Hi5Central.`,
+      'Confirm that you control this email address:',
+      url,'',
+      'This link expires after 24 hours and works only once.',
+      'Verification places your request in review. It does not activate a tenant or issue a login.',
+      'Ignore this message if you did not request access.',
+    ].join('\\n'),
+    html:emailShell({
+      kicker:'Customer signup request — verify your address',
+      title:'Confirm your request',
+      body:`Hello ${escapeHtml(name)}. A signup request for <strong>${escapeHtml(companyName)}</strong> is awaiting your email verification. An environment will be prepared only after independent operator review; no workspace is active yet.`,
+      actionLabel:'Verify my signup request',actionUrl:url,
+      footer:'This link expires after 24 hours and can be used only once. Ignore this email if you did not request Hi5Central.',
+    }),
+  })
+}
