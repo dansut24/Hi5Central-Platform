@@ -5,6 +5,8 @@ const ALLOWED_KEYS=new Set([
 ])
 export function inspectCustomerConfigurationPromotion({preference,uat,live,keys}={}){
   const blockers=[]
+  if(preference?.onboarding_selection_pending===true)
+    blockers.push('The first owner has not selected an update method during onboarding.')
   if(preference?.update_mode!=='admin_controlled')
     blockers.push('Custom/manual update mode must be selected.')
   if(preference?.customer_uat_opt_in!==true)
