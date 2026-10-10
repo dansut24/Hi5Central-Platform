@@ -119,6 +119,7 @@ jobs:
           docker exec hi5-ephemeral-uat-redis redis-cli ping | grep -qx PONG
           docker exec hi5-ephemeral-test-redis redis-cli ping | grep -qx PONG
           (cd services/api && npm ci --omit=dev)
+          node --test services/api/tests/sessionCookieSurface.test.mjs
           HI5_PROVISIONING_TEST_SCOPE=isolated-github-actions \
           HI5_EPHEMERAL_PG_URL=postgresql://postgres:hi5-ephemeral-ci-only@127.0.0.1:55437/postgres \
             node --test services/api/scripts/test-tenant-environment-prepare-integration.mjs
