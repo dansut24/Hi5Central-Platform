@@ -2,6 +2,7 @@ import { pool } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 import { recordSecurityEvent, requestIp, requestUserAgent } from './securityAudit.js'
+import { provisionTenantSandboxes, tenantSandboxUrl } from './tenantEnvironmentProvisioner.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -22,9 +23,10 @@ function preferencePayload(row) {
   }
 }
 
-function environmentPayload(row) {
+function environmentPayload(row, slug) {
   return {
     environment: row.environment,
+    url: row.environment === 'live' ? null : tenantSandboxUrl(slug, row.environment),
     status: row.status,
     activeReleaseRef: row.active_release_ref || '',
     lastResetAt: row.last_reset_at,
@@ -103,7 +105,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
   )
 }
 
-export async function tenantReleaseState(tenantId) {
+export async function tenantReleaseState(tenantId, slug = '') {
   await ensurePreference(tenantId)
   const [preference, environments] = await Promise.all([
     pool.query('SELECT * FROM tenant_release_preferences WHERE tenant_id=$1', [tenantId]),
@@ -116,7 +118,7 @@ export async function tenantReleaseState(tenantId) {
   ])
   return {
     preference: preferencePayload(preference.rows[0]),
-    environments: environments.rows.map(environmentPayload),
+    environments: environments.rows.map(row => environmentPayload(row, slug)),
   }
 }
 
@@ -124,12 +126,22 @@ export function registerTenantReleaseRoutes(app) {
   app.get('/api/v1/release-management', async (c) => {
     const auth = await requireTenantAdmin(c)
     if (auth.error) return auth.error
-    const state = await tenantReleaseState(auth.session.tenant_id)
+    const state = await tenantReleaseState(auth.session.tenant_id, auth.session.slug)
     return c.json({
       deploymentMode: deployment.deploymentMode,
       edition: deployment.deploymentMode === 'managed' ? 'managed' : deployment.selfHostEdition,
       ...state,
     })
+  })
+
+  app.post('/api/v1/release-management/provision', async (c) => {
+    const auth = await requireTenantAdmin(c)
+    if (auth.error) return auth.error
+    if (!auth.session.onboarding_completed_at) {
+      return c.json({ error: 'Complete onboarding before preparing environment workspaces.' }, 409)
+    }
+    await provisionTenantSandboxes(auth.session.tenant_id)
+    return c.json(await tenantReleaseState(auth.session.tenant_id, auth.session.slug))
   })
 
   app.patch('/api/v1/release-management/preferences', async (c) => {
