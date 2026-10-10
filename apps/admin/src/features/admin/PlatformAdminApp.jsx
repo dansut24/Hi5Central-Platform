@@ -506,6 +506,14 @@ function TenantEditor({ tenant, onSaved }) {
             </div>
           })}
         </div>}
+    <div className="h5a-notice">
+      <strong>Platform updates: {tenant.update_mode==='hi5_managed'?'Managed':'Custom / manual'}</strong>
+      <p>{tenant.update_mode==='hi5_managed'
+        ? 'Hi5Central schedules verified web releases for your selected window. Your own customer UAT is optional.'
+        : 'A separate UAT is required to test and approve each UAT → Production release manually.'}</p>
+      {tenant.update_mode==='hi5_managed'&&tenant.update_window?.start
+        ? <small>Scheduled {tenant.update_window?.days?.join(', ')||'weekly'} at {tenant.update_window.start} ({tenant.update_window.timezone||'Europe/London'})</small>:null}
+    </div>
     <div className="h5a-tenant-edit-grid">
       <label>Company name<input value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})}/></label>
       <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value})}><option value="active">Active</option><option value="pending_verification">Pending</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></label>
