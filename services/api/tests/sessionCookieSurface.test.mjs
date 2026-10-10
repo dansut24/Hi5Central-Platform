@@ -34,7 +34,7 @@ test('requester Portal MFA receives its own secure host-only cookie', async () =
   assert.ok(cookie.startsWith(`${cookieNames.portal}=`), cookie)
   assert.match(cookie, /HttpOnly/i)
   assert.match(cookie, /Secure/i)
-  assert.doesNotMatch(cookie, /(?:^|;)\\s*Domain=/i)
+  assert.doesNotMatch(cookie, /(?:^|;)\s*Domain=/i)
   assert.ok(!cookie.startsWith(`${cookieNames.workspace}=`))
 })
 
