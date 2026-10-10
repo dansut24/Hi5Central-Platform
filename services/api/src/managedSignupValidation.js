@@ -20,3 +20,24 @@ export function validateManagedSignupRequest(body){
   if(String(body?.website||''))throw new Error('Invalid request.')
   return {slug,companyName,ownerName,ownerEmail,modules}
 }
+
+/**
+ * Fail-closed public signup scope: Production is test-recipient-only until
+ * its abuse controls are separately reviewed. The previous isolated
+ * canary is retained for backwards compatibility, never inferred.
+ */
+export function approvedManagedSignupRuntime(env={},config={}){
+  const scoped=env.MANAGED_SIGNUP_LIVE_APPROVED==='true'
+    ? env.MANAGED_SIGNUP_TEST_ONLY==='true'
+      && Boolean(String(env.MANAGED_SIGNUP_TEST_EMAIL||'').trim())
+      && config.apiUrl==='https://api.hi5central.com'
+      && config.adminUrl==='https://admin.hi5central.com'
+    : config.apiUrl==='https://pilot-control-api.hi5central.com'
+      && config.adminUrl==='https://pilot-admin.hi5central.com'
+  return env.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'
+    && env.DEPLOYMENT_MODE==='managed'
+    && env.TENANCY_MODE==='multi'
+    && config.runtimeEnvironment==='live'
+    && config.rootDomain==='hi5central.com'
+    && scoped
+}
