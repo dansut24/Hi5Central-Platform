@@ -71,7 +71,9 @@ function initialOwner(env,flag,extra={}){
     ROOT_DOMAIN:rootDomain,TENANT_SLUG:slug,
     INITIAL_OWNER_EMAIL:`first-owner-${env}@example.invalid`,
     INITIAL_OWNER_NAME:'First Sandbox Owner',
+    OWNER_INVITATION_OPERATOR:'isolated-ci-invitation-operator',
     CONFIRM_SANDBOX_OWNER_INVITATION:`${slug}:${env}:${extra.tenantId||''}`,
+    CONFIRM_SANDBOX_OWNER_CANCELLATION:`${slug}:${env}:${extra.tenantId||''}:first-owner-${env}@example.invalid:cancel`,
     SMTP_HOST:'127.0.0.1',SMTP_PORT:'55440',
     SMTP_USER:'isolated-ci@example.invalid',SMTP_PASSWORD:'isolated-ci-only',
     ...extra,
@@ -161,6 +163,7 @@ const fixtures = [
   '../migrations/platform-admin/136_isolated_tenant_hostname_trigger.sql',
   '../migrations/platform-admin/137_managed_environment_invitations.sql',
   '../migrations/platform-admin/138_managed_environment_activation_audit.sql',
+  '../migrations/platform-admin/139_managed_owner_invitation_audit.sql',
 ]
 
 function dbUrl(name) {
@@ -437,8 +440,43 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
       smtp.server.once('error',reject)
       smtp.server.listen(55440,'127.0.0.1',resolve)
     })
-    let delivered
+    let delivered,cancelledToken
     try {
+      // Issue an initial link, cancel it and prove it cannot be redeemed.
+      const first=await processAsync(ownerInvitationPath,['--apply'],
+        initialOwner('uat','--apply',{tenantId:local.id}),30000)
+      assert.equal(first.code,0,first.stderr)
+      assert.equal(first.json.result,'invitation_sent')
+      assert.equal(smtp.messages.length,1,'Initial link delivered to isolated inbox')
+      const firstMail=smtp.messages[0].replace(/=\n/g,'').replace(/=3D/gi,'=')
+      const firstMatch=firstMail.match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
+      assert.ok(firstMatch,'First invite must contain a one-time token')
+      cancelledToken=firstMatch[1]
+      assert.ok(!first.stdout.includes(cancelledToken),'Raw token must not appear in operator output')
+
+      const noConfirmation=await processAsync(ownerInvitationPath,['--cancel'],
+        initialOwner('uat','--cancel',{tenantId:local.id,CONFIRM_SANDBOX_OWNER_CANCELLATION:'wrong'}))
+      assert.notEqual(noConfirmation.code,0,'Wrong cancellation confirmation must fail')
+      const badEmail=await processAsync(ownerInvitationPath,['--cancel'],
+        initialOwner('uat','--cancel',{tenantId:local.id,
+          INITIAL_OWNER_EMAIL:'not-the-owner@example.invalid',
+          CONFIRM_SANDBOX_OWNER_CANCELLATION:`acme:uat:${local.id}:not-the-owner@example.invalid:cancel`}))
+      assert.notEqual(badEmail.code,0,'Wrong invitee email cannot cancel an invitation')
+
+      const cancelled=await processAsync(ownerInvitationPath,['--cancel'],
+        initialOwner('uat','--cancel',{tenantId:local.id}))
+      assert.equal(cancelled.code,0,cancelled.stderr)
+      assert.equal(cancelled.json.result,'invitation_cancelled')
+      assert.equal((await query('uat',
+        "SELECT count(*)::int AS c FROM managed_environment_invitations WHERE revoked_at IS NOT NULL")).rows[0].c,1)
+      const cancellationReplay=await processAsync(ownerInvitationPath,['--cancel'],
+        initialOwner('uat','--cancel',{tenantId:local.id}))
+      assert.notEqual(cancellationReplay.code,0,'Cancellation may not succeed twice')
+      const denied=await httpWorker('uat','--cancelled',{HI5_TEST_INVITE_TOKEN:cancelledToken})
+      assert.equal(denied.code,0,denied.stderr)
+      assert.equal(denied.json.cancelledInvitationRejected,true)
+
+      // A newly issued token is unique and remains redeemable after cancellation.
       delivered=await processAsync(ownerInvitationPath,['--apply'],
         initialOwner('uat','--apply',{tenantId:local.id}),30000)
     }finally{
@@ -446,13 +484,20 @@ test('provisioning worker prepares only isolated suspended tenants and safely re
     }
     assert.equal(delivered.code,0,delivered.stderr)
     assert.equal(delivered.json.result,'invitation_sent')
-    assert.equal(smtp.messages.length,1,'One invite sent to ephemeral local mailbox')
-    const emailBody=smtp.messages[0].replace(/=\n/g,'').replace(/=3D/gi,'=')
+    assert.equal(smtp.messages.length,2,'Two links delivered; first is cancelled')
+    const emailBody=smtp.messages[1].replace(/=\n/g,'').replace(/=3D/gi,'=')
     const match=emailBody.match(/accept-invitation\?token=([A-Za-z0-9_-]{43})/)
-    assert.ok(match,'Invitation token must exist in isolated mailbox, never stdout')
+    assert.ok(match,'Reissued invitation must contain its own one-time token')
+    assert.notEqual(match[1],cancelledToken,'Reissued link must use a fresh token')
     assert.ok(!delivered.stdout.includes(match[1]))
+    const audits=await query('uat',
+      'SELECT action FROM managed_owner_invitation_audit ORDER BY created_at,id')
+    assert.deepEqual(audits.rows.map(row=>row.action),['issued','cancelled','issued'])
     const http=await httpWorker('uat','--accept-mfa',{HI5_TEST_INVITE_TOKEN:match[1]})
     assert.equal(http.code,0,http.stderr)
+    const cancelAccepted=await processAsync(ownerInvitationPath,['--cancel'],
+      initialOwner('uat','--cancel',{tenantId:local.id}))
+    assert.notEqual(cancelAccepted.code,0,'Accepted owner invitations cannot be cancelled')
     assert.equal(http.json.authenticated,true)
     activeCookie=http.json.cookie
     assert.equal((await query('uat','SELECT count(*)::int AS c FROM auth_sessions WHERE revoked_at IS NULL')).rows[0].c,1)
