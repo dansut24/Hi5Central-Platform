@@ -591,8 +591,10 @@ export function registerPlatformAdminRoutes(app) {
         SELECT instance_id,verified_by FROM managed_control_plane_identity
         WHERE singleton=true`)).rows[0]
       if(!identity || identity.instance_id!==scope.scope_id
-        || !identity.verified_by || !identity.verified_by.includes('/'))
-        return {status:423,error:'Pilot operator approval is incomplete.'}
+        || !identity.verified_by
+        || !(identity.verified_by==='pilot-single-owner-email-link'
+          || identity.verified_by.includes('/')))
+        return {status:423,error:'Pilot initial owner invitation is not authorised.'}
       const counts=(await db.query(`
         SELECT (SELECT COUNT(*)::int FROM users) AS users,
                (SELECT COUNT(*)::int FROM platform_admin_members) AS admins,
@@ -600,7 +602,7 @@ export function registerPlatformAdminRoutes(app) {
       if(counts.users!==0||counts.admins!==0||counts.tenants!==0)
         return {status:409,error:'Initial administrator was already created.'}
       const invitation=(await db.query(`
-        SELECT id,display_name,email
+        SELECT id,display_name,email,approval_mode
         FROM pilot_admin_bootstrap_invitations
         WHERE scope_id=$1 AND email=$2 AND token_hash=$3 AND accepted_at IS NULL
           AND revoked_at IS NULL AND expires_at>now()
@@ -608,6 +610,14 @@ export function registerPlatformAdminRoutes(app) {
       if(!invitation || !validatePilotAdminIdentity({
         email:invitation.email,displayName:invitation.display_name}))
         return {status:401,error:'Invalid or expired invitation.'}
+      if(invitation.approval_mode==='single_owner' &&
+        identity.verified_by!=='pilot-single-owner-email-link')
+        return {status:423,error:'Single-owner bootstrap scope is not authorised.'}
+      if(invitation.approval_mode==='dual_control' &&
+        !identity.verified_by.includes('/'))
+        return {status:423,error:'Dual approval is required for this invitation.'}
+      if(!['single_owner','dual_control'].includes(invitation.approval_mode))
+        return {status:423,error:'Invitation approval policy is invalid.'}
       const created=(await db.query(`
         INSERT INTO users(email,name,password_hash,email_verified_at)
         VALUES($1,$2,$3,now()) RETURNING id`,
