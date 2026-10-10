@@ -98,14 +98,6 @@ export async function stageTenantLiveChat(tenantId,userId,opts={}) {
   const targets=opts.targets||{}
   const changeRef='LC-'+new Date().toISOString().slice(0,10).replaceAll('-','')+'-'+randomBytes(3).toString('hex').toUpperCase()
   const notes=String(opts.notes||'').trim().slice(0,1000)
-  // Establish a controlled Live baseline only when none exists. Never disable
-  // an already deployed customer feature merely because UAT is restaged.
-  await source.query(
-    `INSERT INTO tenant_environment_feature_overrides
-      (tenant_id,environment,feature_key,enabled,updated_by)
-     VALUES($1,'live',$2,false,$3)
-     ON CONFLICT(tenant_id,environment,feature_key) DO NOTHING`,
-    [tenantId,LIVE_CHAT_FEATURE,userId])
   await withUatDatabase(async db=>{
     await db.query('BEGIN')
     try {
@@ -115,20 +107,28 @@ export async function stageTenantLiveChat(tenantId,userId,opts={}) {
       await db.query('COMMIT')
     }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e}
   },targets)
-  await source.query(
-    `INSERT INTO tenant_feature_release_approvals
-      (tenant_id,feature_key,state,release_ref,staged_by,staged_at)
-     VALUES($1,$2,'staged',$3,$4,now())
-     ON CONFLICT(tenant_id,feature_key) DO UPDATE SET
-       state='staged',release_ref=excluded.release_ref,staged_by=excluded.staged_by,
-       staged_at=now(),verified_by=NULL,verified_at=NULL,
-       promoted_by=NULL,promoted_at=NULL,updated_at=now()`,
-    [tenantId,LIVE_CHAT_FEATURE,changeRef,userId])
-  await source.query(
-    `INSERT INTO tenant_feature_release_events
-       (tenant_id,feature_key,release_ref,action,actor_user_id,notes)
-     VALUES($1,$2,$3,'staged_uat',$4,$5)`,
-    [tenantId,LIVE_CHAT_FEATURE,changeRef,userId,notes])
+  await withTransaction(async db=>{
+    await db.query(
+      `INSERT INTO tenant_environment_feature_overrides
+         (tenant_id,environment,feature_key,enabled,updated_by)
+       VALUES($1,'live',$2,false,$3)
+       ON CONFLICT(tenant_id,environment,feature_key) DO NOTHING`,
+      [tenantId,LIVE_CHAT_FEATURE,userId])
+    await db.query(
+      `INSERT INTO tenant_feature_release_approvals
+         (tenant_id,feature_key,state,release_ref,staged_by,staged_at)
+       VALUES($1,$2,'staged',$3,$4,now())
+       ON CONFLICT(tenant_id,feature_key) DO UPDATE SET
+         state='staged',release_ref=excluded.release_ref,staged_by=excluded.staged_by,
+         staged_at=now(),verified_by=NULL,verified_at=NULL,
+         promoted_by=NULL,promoted_at=NULL,updated_at=now()`,
+      [tenantId,LIVE_CHAT_FEATURE,changeRef,userId])
+    await db.query(
+      `INSERT INTO tenant_feature_release_events
+        (tenant_id,feature_key,release_ref,action,actor_user_id,notes)
+       VALUES($1,$2,$3,'staged_uat',$4,$5)`,
+      [tenantId,LIVE_CHAT_FEATURE,changeRef,userId,notes])
+  },source)
   return tenantLiveChatState(tenantId,{source,targets})
 }
 
@@ -140,17 +140,19 @@ export async function verifyTenantLiveChatUat(tenantId,userId,opts={}) {
   const state=await tenantLiveChatState(tenantId,{source,targets})
   if(state.state!=='staged'||!state.uatEnabled)
     throw new Error('Stage and test Live Chat in UAT before confirming acceptance.')
-  const r=await source.query(
-    `UPDATE tenant_feature_release_approvals
+  await withTransaction(async db=>{
+    const result=await db.query(
+      `UPDATE tenant_feature_release_approvals
        SET state='uat_passed',verified_by=$3,verified_at=now(),updated_at=now()
        WHERE tenant_id=$1 AND feature_key=$2 AND state='staged' RETURNING state`,
-    [tenantId,LIVE_CHAT_FEATURE,userId])
-  if(!r.rowCount)throw new Error('Live Chat UAT acceptance could not be recorded.')
-  await source.query(
-    `INSERT INTO tenant_feature_release_events
+      [tenantId,LIVE_CHAT_FEATURE,userId])
+    if(!result.rowCount)throw new Error('Live Chat UAT acceptance could not be recorded.')
+    await db.query(
+      `INSERT INTO tenant_feature_release_events
        (tenant_id,feature_key,release_ref,action,actor_user_id,notes)
-     VALUES($1,$2,$3,'uat_passed',$4,$5)`,
-    [tenantId,LIVE_CHAT_FEATURE,state.releaseRef,userId,notes])
+       VALUES($1,$2,$3,'uat_passed',$4,$5)`,
+      [tenantId,LIVE_CHAT_FEATURE,state.releaseRef,userId,notes])
+  },source)
   return tenantLiveChatState(tenantId,{source,targets})
 }
 
