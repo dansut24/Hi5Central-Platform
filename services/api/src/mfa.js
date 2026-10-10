@@ -9,6 +9,8 @@ import {
 import { attachAccess, effectiveAccessForUser } from './access.js'
 import { pool, withTransaction } from './db.js'
 import { verifyPassword } from './password.js'
+import { deployment } from './deploymentConfig.js'
+import { sandboxCredentialLogin } from './sandboxCredentialLogin.js'
 import { ensureRedisConnected } from './redis.js'
 import {
   createSession,
@@ -442,6 +444,10 @@ export function registerMfaRoutes(app) {
       return c.json({ error: 'A valid JSON request body is required.' }, 400)
     }
 
+    if (['uat','test'].includes(deployment.runtimeEnvironment)) {
+      return sandboxCredentialLogin(c,'login',body)
+    }
+
     const tenantSlug = normaliseSlug(body?.tenantSlug)
     const email = normaliseEmail(body?.email)
     const password = String(body?.password || '')
@@ -503,6 +509,10 @@ export function registerMfaRoutes(app) {
     } catch {
       return c.json({ error: 'A valid JSON request body is required.' }, 400)
     }
+    if (['uat','test'].includes(deployment.runtimeEnvironment)) {
+      return sandboxCredentialLogin(c,'setup',body)
+    }
+
     const challengeToken = String(body?.challengeToken || '')
     if (!challengeToken) return c.json({ error: 'MFA challenge is required.' }, 400)
 
@@ -545,6 +555,10 @@ export function registerMfaRoutes(app) {
     } catch {
       return c.json({ error: 'A valid JSON request body is required.' }, 400)
     }
+    if (['uat','test'].includes(deployment.runtimeEnvironment)) {
+      return sandboxCredentialLogin(c,'verify',body)
+    }
+
     const challengeToken = String(body?.challengeToken || '')
     const code = text(body?.code, 64)
     if (!challengeToken || !code) return c.json({ error: 'Enter your authenticator or recovery code.' }, 400)
