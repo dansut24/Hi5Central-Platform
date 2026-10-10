@@ -24,7 +24,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Validate private pilot model syntax and adversarial constraints
@@ -94,6 +94,65 @@ jobs:
             docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
               --tag "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}" "$context"
           done
+      - name: Disposable real-API first Admin invite and MFA lifecycle
+        working-directory: infrastructure/managed-pilot-control
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker compose --env-file runtime.env -f compose.yml -f ci.override.yml down --volumes --remove-orphans 2>/dev/null || true
+            docker network rm hi5central-pilot-control-edge 2>/dev/null || true
+            rm -f ci.override.yml runtime.env
+            if docker ps -a --format '{{.Names}}' | grep -q '^hi5central-pilot-control-'; then
+              echo 'Disposable pilot container cleanup failed'
+              exit 1
+            fi
+          }
+          trap cleanup EXIT
+          node --input-type=module <<'NODE'
+          import {readFileSync,writeFileSync} from 'node:fs'
+          const replacements={
+            POSTGRES_USER:'pilot_user_a',
+            POSTGRES_DB:'pilot_control_db',
+            POSTGRES_PASSWORD:'a'.repeat(40),
+            REDIS_PASSWORD:'b'.repeat(40),
+            MFA_ENCRYPTION_KEY:'c'.repeat(64),
+            CONNECT_CODE_HMAC_KEY:'d'.repeat(64),
+            DATABASE_URL:'postgresql://pilot_user_a:'+ 'a'.repeat(40) +'@postgres:5432/pilot_control_db',
+            REDIS_URL:'redis://:'+ 'b'.repeat(40) +'@redis:6379/0',
+          }
+          for (const key of ['POSTGRES_IMAGE','REDIS_IMAGE','API_IMAGE','ADMIN_IMAGE']){
+            const name=key==='POSTGRES_IMAGE'?'mirror.gcr.io/library/postgres'
+              :key==='REDIS_IMAGE'?'mirror.gcr.io/library/redis'
+              :key==='API_IMAGE'?'ghcr.io/dansut24/hi5central-platform-api'
+              :'ghcr.io/dansut24/hi5central-platform-admin'
+            replacements[key]=name+'@sha256:'+'a'.repeat(64)
+          }
+          const lines=readFileSync('runtime.env.example','utf8').split('\\n').map(line=>{
+            const name=line.match(/^([A-Z][A-Z0-9_]*)=/)?.[1]
+            return name&&Object.hasOwn(replacements,name)?name+'='+replacements[name]:line
+          })
+          writeFileSync('runtime.env',lines.join('\\n'),{mode:0o600})
+          NODE
+          docker network create --internal --driver bridge hi5central-pilot-control-edge >/dev/null
+          docker pull mirror.gcr.io/library/postgres:17-alpine
+          docker pull mirror.gcr.io/library/redis:8-alpine
+          cat > ci.override.yml <<EOF
+          services:
+            postgres:
+              image: mirror.gcr.io/library/postgres:17-alpine
+            redis:
+              image: mirror.gcr.io/library/redis:8-alpine
+            migrate:
+              image: ghcr.io/dansut24/hi5central-platform-api:sha-${GITHUB_SHA}
+            api:
+              image: ghcr.io/dansut24/hi5central-platform-api:sha-${GITHUB_SHA}
+            admin:
+              image: ghcr.io/dansut24/hi5central-platform-admin:sha-${GITHUB_SHA}
+          EOF
+          docker compose --env-file runtime.env -f compose.yml -f ci.override.yml up -d --wait --wait-timeout 180
+          GITHUB_ACTIONS=true HI5_PILOT_DISPOSABLE_CI=1 node test-first-admin-lifecycle.mjs --run --confirm CI_ONLY_FAKE_APPROVALS
+          echo 'The first-admin synthetic pilot project will now be removed including volumes.'
       - uses: docker/login-action@v3
         if: success()
         with:
