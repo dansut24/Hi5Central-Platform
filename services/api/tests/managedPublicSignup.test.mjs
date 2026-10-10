@@ -2,51 +2,49 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {validateManagedSignupRequest} from '../src/managedSignupValidation.js'
 import {readFileSync} from 'node:fs'
-
-function request(updateMode='admin_controlled'){
-  return {companyName:'Acme Pilot',tenantSlug:'acmepilot',name:'Acme Owner',
-    email:'Owner@Example.invalid',modules:{itsm:true,rmm:false},updateMode,
-    deploymentDay:'fri',deploymentTime:'22:30',deploymentTimezone:'Europe/London',
-    customerUatOptIn:false}
-}
-test('Public Custom signup queues its own UAT and never accepts password',()=>{
+function request(){return {companyName:'Acme Pilot',tenantSlug:'acmepilot',
+  name:'Acme Owner',email:'Owner@Example.invalid',
+  modules:{itsm:true,rmm:false}}}
+test('Signup records only customer identity and selected products',()=>{
  const got=validateManagedSignupRequest(request())
  assert.equal(got.slug,'acmepilot')
  assert.equal(got.ownerEmail,'owner@example.invalid')
- assert.equal(got.policy.updateMode,'admin_controlled')
- assert.equal(got.policy.customerUatOptIn,true)
- assert.equal(got.policy.liveAutoPromote,false)
+ assert.deepEqual(got.modules,{itsm:true,selfService:true,rmm:false})
+ assert.equal(Object.hasOwn(got,'policy'),false)
 })
-test('Public Managed signup needs no customer UAT',()=>{
- const got=validateManagedSignupRequest(request('hi5_managed'))
- assert.equal(got.policy.customerUatOptIn,false)
- assert.equal(got.policy.liveAutoPromote,true)
- assert.deepEqual(got.policy.maintenanceWindow,{timezone:'Europe/London',
-  days:['fri'],start:'22:30',end:'00:30'})
+test('Update method, UAT and schedule are only allowed in onboarding',()=>{
+ for(const patch of [
+  {updateMode:'hi5_managed'},{updateMode:'admin_controlled'},
+  {customerUatOptIn:true},{deploymentDay:'wed'},
+  {deploymentTime:'02:00'},{deploymentTimezone:'Europe/London'},
+  {maintenanceWindow:{days:['sun'],start:'01:00'}},
+ ]){
+  assert.throws(()=>validateManagedSignupRequest({...request(),...patch}),
+    /during customer onboarding/,JSON.stringify(patch))
+ }
 })
-test('Reserved UAT/Test names, malformed schedule, bogus email and bot honeypot are rejected',()=>{
+test('Reserved tenant names and invalid contact details are rejected',()=>{
  for(const patch of [
   {tenantSlug:'acmeuat'},{tenantSlug:'acmetest'},{tenantSlug:'api'},
-  {email:'bad-email'},{updateMode:''},{updateMode:'instant'},
-  {updateMode:'hi5_managed',deploymentTime:'25:00'},
-  {website:'https://spam.invalid'},
+  {email:'bad-email'},{website:'https://spam.invalid'},
   {companyName:''},{name:''},{modules:{itsm:false,rmm:false}}
  ]){
-  assert.throws(()=>validateManagedSignupRequest({...request('hi5_managed'),...patch}),
+  assert.throws(()=>validateManagedSignupRequest({...request(),...patch}),
     Error,JSON.stringify(patch))
  }
 })
-test('Public API must never create tenant, account or browser session',()=>{
+test('Public signup queues email verification, never creates tenant/account/session',()=>{
  const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
  assert.match(src,/MANAGED_SIGNUP_REQUESTS_ENABLED/)
  assert.match(src,/MANAGED_SIGNUP_SMTP_APPROVED/)
  assert.match(src,/INSERT INTO managed_public_signup_requests/)
  assert.doesNotMatch(src,/INSERT INTO (?:users|tenants|tenant_memberships|sessions)/)
+ assert.doesNotMatch(src,/requested\.policy/)
  const legacy=readFileSync(new URL('../src/index.js',import.meta.url),'utf8')
  assert.match(legacy,/MANAGED_LEGACY_SIGNUP_ALLOWED/)
  assert.match(legacy,/MANAGED_SIGNUP_REQUEST_REQUIRED/)
 })
-test('Signup requests must be expressly enabled only in reviewed private pilot',()=>{
+test('Signup requests are only enabled in reviewed private pilot',()=>{
  const src=readFileSync(new URL('../src/managedPublicSignup.js',import.meta.url),'utf8')
  assert.match(src,/process\.env\.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'/)
  assert.match(src,/deployment\.apiUrl==='https:\/\/pilot-control-api\.hi5central\.com'/)
