@@ -40,3 +40,11 @@ test('Symlinks, group/world readability and malformed JSON fail closed',()=>temp
  writeFileSync(path,'{corrupted invalid json content at least thirty bytes')
  assert.throws(()=>verifyPilotAdminRecipientFile(path,{email,scopeId}),/invalid/)
 }))
+
+test('explicit single-owner file approval is required: dual-review file cannot be reused',()=>temp(({path})=>{
+ assert.throws(()=>verifyPilotAdminRecipientFile(path,{email,scopeId,approvalMode:'single_owner'}),/differs/)
+ writeFileSync(path,JSON.stringify({...good,
+   status:'recipient_authorized_single_owner_email_verification_pending'}),{mode:0o600})
+ assert.deepEqual(verifyPilotAdminRecipientFile(path,{email,scopeId,approvalMode:'single_owner'}),{email,scopeId})
+ assert.throws(()=>verifyPilotAdminRecipientFile(path,{email,scopeId,approvalMode:'dual_control'}),/differs/)
+}))
