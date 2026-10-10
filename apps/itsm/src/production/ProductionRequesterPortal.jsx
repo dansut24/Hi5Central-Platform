@@ -115,6 +115,10 @@ function PortalAuth({ tenant, onAuthenticated }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [microsoftAvailable, setMicrosoftAvailable] = useState(false)
+  const [challengeToken, setChallengeToken] = useState('')
+  const [mfaCode, setMfaCode] = useState('')
+  const [mfaSecret, setMfaSecret] = useState('')
+  const [recoveryCodes, setRecoveryCodes] = useState([])
 
   useEffect(() => {
     let active = true
@@ -130,17 +134,63 @@ function PortalAuth({ tenant, onAuthenticated }) {
     window.location.href = `${API_BASE}/api/v1/auth/microsoft/start?${params.toString()}`
   }
 
+  async function loadPortalSession() {
+    const { response, payload } = await api('/api/v1/portal/auth/session')
+    if (!response.ok) throw new Error(payload.error || 'Could not establish the Help Centre session.')
+    onAuthenticated(payload)
+    window.history.replaceState({}, '', '/')
+  }
+
   async function signIn(event) {
     event.preventDefault()
     setBusy(true); setError(''); setMessage('')
     try {
-      const { response, payload } = await api('/api/v1/portal/auth/login', {
+      // Live is the identity authority for UAT/Test as well as Production.
+      // The secure route enforces MFA and issues a surface-scoped Portal cookie.
+      const { response, payload } = await api('/api/v1/auth/login-secure', {
         method: 'POST',
         body: JSON.stringify({ tenantSlug: tenant.slug, email, password }),
       })
       if (!response.ok) throw new Error(payload.error || 'Could not sign in.')
-      onAuthenticated(payload)
-      window.history.replaceState({}, '', '/')
+      if (payload.mfaRequired) {
+        if (!payload.challengeToken) throw new Error('The MFA challenge was not provided.')
+        setChallengeToken(payload.challengeToken)
+        setMfaCode('')
+        setMfaSecret('')
+        setRecoveryCodes([])
+        if (payload.setupRequired) {
+          const setup = await api('/api/v1/auth/mfa/setup', {
+            method: 'POST',
+            body: JSON.stringify({ tenantSlug: tenant.slug, challengeToken: payload.challengeToken }),
+          })
+          if (!setup.response.ok) throw new Error(setup.payload.error || 'Could not set up MFA.')
+          setMfaSecret(setup.payload.secret || '')
+        }
+        setMode('mfa')
+        return
+      }
+      if (!payload.authenticated) throw new Error('The identity service did not complete sign-in.')
+      await loadPortalSession()
+    } catch (err) {
+      setError(err.message)
+    } finally { setBusy(false) }
+  }
+
+  async function verifyMfa(event) {
+    event.preventDefault()
+    setBusy(true); setError('')
+    try {
+      const { response, payload } = await api('/api/v1/auth/mfa/verify', {
+        method: 'POST',
+        body: JSON.stringify({ tenantSlug: tenant.slug, challengeToken, code: mfaCode.trim() }),
+      })
+      if (!response.ok) throw new Error(payload.error || 'The MFA code could not be verified.')
+      if (!payload.authenticated) throw new Error('MFA verification did not complete sign-in.')
+      if (Array.isArray(payload.recoveryCodes) && payload.recoveryCodes.length) {
+        setRecoveryCodes(payload.recoveryCodes)
+        return
+      }
+      await loadPortalSession()
     } catch (err) {
       setError(err.message)
     } finally { setBusy(false) }
@@ -186,7 +236,39 @@ function PortalAuth({ tenant, onAuthenticated }) {
     <main className="prp-auth">
       <section className="prp-auth-card">
         <div className="prp-brand"><img src="/hi5central-logo.png" alt="Hi5Central" /><span>{tenant.companyName}</span></div>
-        {mode === 'activate-complete' ? (
+        {mode === 'mfa' ? (
+          <>
+            <div className="prp-auth-heading">
+              <span><ShieldCheck size={18} /> Secure Help Centre sign-in</span>
+              <h1>Verify your identity</h1>
+              <p>Use the same authenticator or recovery code as your Hi5Central account.</p>
+            </div>
+            {mfaSecret ? <div className="prp-alert">
+              <strong>Set up your authenticator</strong>
+              <p>Add this secret to your authenticator app, then enter the generated code.</p>
+              <code>{mfaSecret}</code>
+            </div> : null}
+            {recoveryCodes.length ? (
+              <div className="prp-alert">
+                <strong>Save your recovery codes securely before continuing</strong>
+                <pre style={{ whiteSpace: 'pre-wrap' }}>{recoveryCodes.join('\\n')}</pre>
+                <button className="prp-primary" onClick={loadPortalSession} type="button">Continue to Help Centre</button>
+              </div>
+            ) : (
+              <form onSubmit={verifyMfa}>
+                <label>Authenticator or recovery code<input autoComplete="one-time-code"
+                  value={mfaCode} onChange={(event) => setMfaCode(event.target.value)}
+                  placeholder="Enter verification code" /></label>
+                {error ? <div className="prp-alert error">{error}</div> : null}
+                <button className="prp-primary" disabled={busy || !mfaCode.trim()} type="submit">
+                  {busy ? <RefreshCw className="is-spinning" size={17} /> : <ShieldCheck size={17} />} Verify and sign in
+                </button>
+              </form>
+            )}
+            <button className="prp-link" onClick={() => { setMode('login'); setError(''); setMfaSecret(''); setRecoveryCodes([]) }}
+              type="button">Back to sign in</button>
+          </>
+        ) : mode === 'activate-complete' ? (
           <>
             <div className="prp-auth-heading"><span><ShieldCheck size={18} /> Account activation</span><h1>Create your Help Centre access</h1><p>Choose a secure password to link this Portal account to your organisation profile.</p></div>
             <form onSubmit={completeActivation}>
