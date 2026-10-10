@@ -148,7 +148,7 @@ try {
   assert.match(setCookie,/hi5central_uat_session=/)
   assert.match(setCookie,/httponly/i)
   assert.match(setCookie,/secure/i)
-  assert.match(setCookie,/domain=\\?.hi5central\\.com/i)
+  assert(setCookie.toLowerCase().includes('domain=.hi5central.com'),'Cookie must be scoped to all first-party Hi5Central environments')
   const token=setCookie.match(/hi5central_uat_session=([^;]+)/)?.[1]
   assert(token)
   const tokenDigest=(await import('node:crypto')).createHash('sha256').update(token).digest('hex')
