@@ -313,9 +313,15 @@ function LiveProductionReleaseManagement() {
             return <article key={name} className="hi5-release-env-card">
               <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance':name==='test'?'Sandbox':'Production'}</strong></div><ResultPill value={env?.status || 'available'} /></header>
               <p>{name==='test'?'Isolated, disposable Test data':name==='uat'?'Tenant acceptance and release validation':'Your live tenant workspace'}</p>
-              {env?.url && env.status==='ready'
-                ? <button type="button" disabled={Boolean(busy)} onClick={()=>openEnvironment(name)}>Open {name.toUpperCase()} workspace ↗</button>
-                : <small>{env?.status==='error'?'Provisioning requires attention. Use retry or contact support.':'Workspace is not yet provisioned.'}</small>}
+              {name==='live' && env?.status==='ready'
+                ? <small>You are already in the Live (Production) workspace. No separate provisioning is required.</small>
+                : env?.url && env.status==='ready'
+                  ? <button type="button" disabled={Boolean(busy)} onClick={()=>openEnvironment(name)}>Open {name.toUpperCase()} workspace ↗</button>
+                  : <small>{env?.status==='error'
+                    ? 'Provisioning requires attention. Use retry or contact support.'
+                    : env?.status==='ready'
+                      ? 'Workspace is ready, but its link is not available.'
+                      : 'Workspace is not yet provisioned.'}</small>}
             </article>
           })}
         </div>
