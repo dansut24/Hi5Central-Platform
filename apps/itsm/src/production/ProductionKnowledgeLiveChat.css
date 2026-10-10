@@ -15,3 +15,20 @@
 .pkb-formatted-body th,.pkb-formatted-body td{padding:7px 9px;border:1px solid var(--line,#e2e8f0)}
 .pkb-formatted-body blockquote{border-left:3px solid var(--line,#cbd5e1);margin:14px 0;padding:6px 12px}
 .pkb-formatted-body pre{white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* Always-visible agent availability, shared by Dev and UAT Live Chat. */
+.plc-agent-availability{display:flex;flex-direction:column;gap:9px;margin:0 14px 12px;padding:11px 12px;border:1px solid var(--line,#e3e7ee);border-radius:12px;background:var(--surface-soft,#f4f6f9)}
+.plc-agent-availability-heading{display:flex;align-items:center;gap:9px;min-width:0}
+.plc-agent-availability-heading>span:last-child{display:flex;min-width:0;flex:1;flex-direction:column;gap:2px}
+.plc-agent-availability-heading strong{font-size:12px;line-height:1.35}
+.plc-agent-availability-heading small{font-size:10px;line-height:1.4;color:var(--muted,#6b7280)}
+.plc-agent-status-dot{display:block;flex:0 0 9px;width:9px;height:9px;border-radius:50%;background:#9ca3af}
+.plc-agent-status-dot.is-online{background:#16a34a}
+.plc-agent-status-dot.is-away{background:#d97706}
+.plc-agent-availability-actions{display:flex;gap:5px;flex-wrap:wrap}
+.plc-agent-availability-actions button{display:inline-flex;align-items:center;justify-content:center;gap:4px;flex:1 1 0;min-width:72px;border:1px solid var(--line,#e3e7ee);border-radius:8px;padding:7px 5px;background:var(--surface,#fff);color:var(--ink,#172033);font-size:10px;font-weight:700;white-space:nowrap;cursor:pointer}
+.plc-agent-availability-actions button.is-selected{background:rgb(var(--accent-rgb,37 99 235)/.13);border-color:rgb(var(--accent-rgb,37 99 235)/.38)}
+.plc-agent-availability-actions button:focus-visible{outline:2px solid rgb(var(--accent-rgb,37 99 235)/.65);outline-offset:2px}
+.plc-agent-availability-actions button:disabled{opacity:.6;cursor:wait}
+.plc-agent-availability-error{margin:0;color:var(--danger,#b42318);font-size:11px;line-height:1.4}
+@media(max-width:360px){.plc-agent-availability-actions button{min-width:0;padding:7px 3px;font-size:9px}}
