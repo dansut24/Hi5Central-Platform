@@ -212,6 +212,9 @@ function PersonEditor({ actor, departments, environmentGrants, onSaveEnvironment
   const [accessBusy,setAccessBusy]=useState(false)
   const [accessError,setAccessError]=useState('')
   const [environmentAccess,setEnvironmentAccess]=useState(()=>({test:Boolean(environmentGrants?.test),uat:Boolean(environmentGrants?.uat)}))
+  useEffect(()=>{
+    setEnvironmentAccess({test:Boolean(environmentGrants?.test),uat:Boolean(environmentGrants?.uat)})
+  },[person?.userId,environmentGrants?.test,environmentGrants?.uat])
   const [draft, setDraft] = useState(() => person ? {
     ...person,
     skillsText: (person.skills || []).join(', '),
