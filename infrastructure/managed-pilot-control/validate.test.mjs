@@ -79,3 +79,17 @@ test('duplicate or malformed operator config lines are forbidden',()=>{
   assert.throws(()=>parsePilotEnv('A=1\nA=2'),/Duplicate/)
   assert.throws(()=>parsePilotEnv('INVALID SETTING'),/Invalid/)
 })
+
+test('Single-owner bootstrap is allowed only with explicit policy consent in private pilot',()=>{
+ assert.deepEqual(validatePilotEnvironment({...goodEnv,
+   PILOT_ADMIN_APPROVAL_MODE:'single_owner',
+   PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED:'true'}),[])
+ for(const override of [
+  {PILOT_ADMIN_APPROVAL_MODE:'single_owner'},
+  {PILOT_ADMIN_APPROVAL_MODE:'invalid'},
+  {PILOT_ADMIN_APPROVAL_MODE:'dual_control',PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED:'true'},
+  {PILOT_ADMIN_APPROVAL_MODE:'single_owner',PILOT_BOOTSTRAP_SINGLE_OWNER_APPROVED:'false'},
+ ]){
+  assert.notDeepEqual(validatePilotEnvironment({...goodEnv,...override}),[])
+ }
+})
