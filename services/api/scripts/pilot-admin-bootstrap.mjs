@@ -1,11 +1,13 @@
 // Explicit offline first-pilot-Admin issuer. Does not create a password,
 // account or session, and NEVER displays tokens or SMTP credentials.
-// Requires independently signed operator/reviewer assertions before mutation.
+// Requires either independently signed dual approval or explicitly authorised
+// single-owner email/MFA verification. Neither path grants a login session.
 import pg from 'pg'
 import {randomUUID} from 'node:crypto'
 import {readOperatorTrustFile} from '../src/managedOperatorEvidence.js'
 import {
-  pilotBootstrapEnabled,validatePilotAdminIdentity,verifyPilotBootstrapPair,
+  pilotBootstrapEnabled,pilotSingleOwnerBootstrapEnabled,
+  validatePilotAdminIdentity,verifyPilotBootstrapPair,
   bootstrapToken,bootstrapHash,
 } from '../src/pilotAdminBootstrap.js'
 import {sendPilotAdminBootstrapInvitationEmail} from '../src/mailer.js'
@@ -70,11 +72,28 @@ try{
     if(active)throw new Error('An unexpired owner invitation already exists; never replace it.')
     verifyPilotAdminRecipientFile(required('PILOT_ADMIN_RECIPIENT_FILE'),
       {email,scopeId})
-    const actorToken=required('PILOT_ADMIN_ACTOR_ASSERTION')
-    const reviewerToken=required('PILOT_ADMIN_REVIEWER_ASSERTION')
-    const trust=readOperatorTrustFile(required('PILOT_OPERATOR_TRUST_FILE'))
-    const approvals=verifyPilotBootstrapPair(actorToken,reviewerToken,trust,
-      {scopeId,email,displayName})
+    const singleOwner=process.env.PILOT_ADMIN_APPROVAL_MODE==='single_owner'
+    let approvals
+    if(singleOwner){
+      if(!pilotSingleOwnerBootstrapEnabled(process.env))
+        throw new Error('Explicit private pilot single-owner bootstrap authorisation is required.')
+      // Recipient identity is independently bound to the protected operator
+      // file and UUID. No self-signed or fictitious second reviewer.
+      approvals={
+        actor:{operatorId:'pilot-single-owner-operator',
+          sha256:bootstrapHash('single-owner:'+scopeId+':'+email+':'+displayName+':'+randomUUID())},
+        reviewer:null,
+      }
+    }else{
+      if(process.env.PILOT_ADMIN_APPROVAL_MODE
+        && process.env.PILOT_ADMIN_APPROVAL_MODE!=='dual_control')
+        throw new Error('Unsupported bootstrap approval mode.')
+      const actorToken=required('PILOT_ADMIN_ACTOR_ASSERTION')
+      const reviewerToken=required('PILOT_ADMIN_REVIEWER_ASSERTION')
+      const trust=readOperatorTrustFile(required('PILOT_OPERATOR_TRUST_FILE'))
+      approvals=verifyPilotBootstrapPair(actorToken,reviewerToken,trust,
+        {scopeId,email,displayName})
+    }
     if(required('CONFIRM_PILOT_ADMIN_BOOTSTRAP')
       !==`${scopeId}:${email}:invite`)
       throw new Error('Confirmation must match signed scope UUID:email:invite.')
@@ -84,7 +103,9 @@ try{
       await client.query(`INSERT INTO managed_control_plane_identity
          (singleton,deployment_mode,tenancy_mode,root_domain,instance_id,verified_by)
          VALUES(true,'managed','multi','hi5central.com',$1,$2)`,
-        [scopeId,`${approvals.actor.operatorId}/${approvals.reviewer.operatorId}`])
+        [scopeId,singleOwner
+          ? 'pilot-single-owner-email-link'
+          : `${approvals.actor.operatorId}/${approvals.reviewer.operatorId}`])
     }
     for(const old of invitations.rows) {
       if(!old.accepted_at&&!old.revoked_at) {
@@ -101,11 +122,12 @@ try{
     const insert=(await client.query(`
       INSERT INTO pilot_admin_bootstrap_invitations
        (scope_id,email,display_name,token_hash,issued_by,reviewed_by,
-        actor_evidence_sha256,reviewer_evidence_sha256,expires_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '24 hours')
+        actor_evidence_sha256,reviewer_evidence_sha256,expires_at,approval_mode)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '24 hours',$9)
       RETURNING id`,[scopeId,email,displayName,bootstrapHash(token),
-        approvals.actor.operatorId,approvals.reviewer.operatorId,
-        approvals.actor.sha256,approvals.reviewer.sha256])).rows[0]
+        approvals.actor.operatorId,approvals.reviewer?.operatorId||null,
+        approvals.actor.sha256,approvals.reviewer?.sha256||null,
+        singleOwner?'single_owner':'dual_control'])).rows[0]
     await client.query(`
       INSERT INTO pilot_admin_bootstrap_audit
        (scope_id,invitation_id,action,operator_id)
@@ -126,7 +148,8 @@ try{
       throw new Error('Invitation delivery failed and token was revoked; check the scoped mail relay.')
     }
     console.log(JSON.stringify({mode:'issued',scopeId,invitationId:insert.id,
-      email,expiresInHours:24,delivery:'accepted_by_smtp_relay',
+      email,approvalMode:singleOwner?'single_owner':'dual_control',
+      expiresInHours:24,delivery:'accepted_by_smtp_relay',
       tokenPrinted:false,accountCreated:false,publicRouteApproved:false},null,2))
   }
 }catch(error){
