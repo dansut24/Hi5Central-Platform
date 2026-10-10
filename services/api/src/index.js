@@ -46,6 +46,7 @@ import { sendVerificationEmail, verifySmtpConnection } from './mailer.js'
 import { registerOrganisationRoutes } from './organisation.js'
 import { buildOpenApiDocument } from './openapi.js'
 import { registerPlatformAdminRoutes } from './platformAdmin.js'
+import {registerManagedPublicSignupRoutes} from './managedPublicSignup.js'
 import { registerReleaseOperatorRoutes } from './releaseOperator.js'
 import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseFeed.js'
 import { registerProjectRoutes } from './projects.js'
@@ -318,6 +319,13 @@ app.post('/api/v1/auth/login', async (c) => {
 })
 
 app.post('/api/v1/auth/signup', async (c) => {
+  // An unmanaged legacy form must never activate a public managed customer
+  // before independent environment provisioning and owner invitation.
+  if(deployment.deploymentMode==='managed'&&deployment.tenancyMode==='multi'
+    &&process.env.MANAGED_LEGACY_SIGNUP_ALLOWED!=='true') {
+    return c.json({error:'Managed signup now requires an email-verified signup request and operator provisioning.',
+      code:'MANAGED_SIGNUP_REQUEST_REQUIRED'},403)
+  }
   // No unsolicited organisations in the shared customer sandbox database.
   // Customer identities are prepared by the audited operator only.
   if (managedSandboxBlocksPublicSignup(deployment)) {
@@ -756,6 +764,7 @@ app.use('/api/platform/v1/*', async (c, next) => {
   return next()
 })
 
+registerManagedPublicSignupRoutes(app)
 registerPlatformAdminRoutes(app)
 registerReleaseOperatorRoutes(app)
 registerReleaseFeedRoutes(app)
