@@ -1,10 +1,12 @@
-name: Phase 15 Synthetic Lifecycle
+name: Phase 16 Four-Role Sandbox Integration
 # Isolated verification only. This workflow does not deploy any service.
 on:
   push:
     branches: [develop]
     paths:
       - '.github/workflows/phase15-synthetic-lifecycle.yml'
+      - 'infrastructure/managed-sandbox/synthetic-customer-lifecycle.mjs'
+      - 'infrastructure/managed-sandbox/synthetic-runtime-smoke.mjs'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify UAT/Test owner and requester lifecycle
+    name: Verify UAT/Test owner admin analyst requester lifecycle
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -41,8 +43,10 @@ jobs:
             --tag ghcr.io/dansut24/hi5central-platform-api:dev services/api
           docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             --tag ghcr.io/dansut24/hi5central-platform-itsm:dev apps/itsm
-          docker pull public.ecr.aws/docker/library/postgres:17-alpine
-          docker pull redis:8-alpine
+          docker pull mirror.gcr.io/library/postgres:17-alpine
+          docker pull mirror.gcr.io/library/redis:8-alpine
+          docker tag mirror.gcr.io/library/postgres:17-alpine public.ecr.aws/docker/library/postgres:17-alpine
+          docker tag mirror.gcr.io/library/redis:8-alpine redis:8-alpine
       - name: Exercise disposable private UAT/Test lifecycle with real images
         run: |
           HI5_PHASE14_SMOKE=1 HI5_PHASE15_SMOKE=1 node \
@@ -75,4 +79,4 @@ jobs:
             docker tag "${image}:dev" "${image}:sha-${GITHUB_SHA}"
             docker push "${image}:sha-${GITHUB_SHA}"
           done
-          echo "Phase 15 verified image pair: ${GITHUB_SHA}"
+          echo "Phase 16 four-role verified image pair: ${GITHUB_SHA}"
