@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
   Check,
@@ -199,7 +199,7 @@ function FieldLabel({ children, locked, sourceLabel }) {
   return <span className="org-field-label"><span>{children}</span>{locked && <small><LockKeyhole size={12} /> Managed by {sourceLabel}</small>}</span>
 }
 
-function PersonEditor({ actor, departments, onClose, onSave, person, people, teams }) {
+function PersonEditor({ actor, departments, environmentGrants, onSaveEnvironmentGrants, canManageEnvironments, onClose, onSave, person, people, teams }) {
   const creating = !person
   const source = directorySourceFor(person)
   const actorProfile = accessProfileFor(actor)
@@ -209,6 +209,9 @@ function PersonEditor({ actor, departments, onClose, onSave, person, people, tea
     access: hasPeoplePermission(actor, 'people.manage_roles'),
   } : peopleEditCapabilities(actor, person, teams)
 
+  const [accessBusy,setAccessBusy]=useState(false)
+  const [accessError,setAccessError]=useState('')
+  const [environmentAccess,setEnvironmentAccess]=useState(()=>({test:Boolean(environmentGrants?.test),uat:Boolean(environmentGrants?.uat)}))
   const [draft, setDraft] = useState(() => person ? {
     ...person,
     skillsText: (person.skills || []).join(', '),
@@ -242,10 +245,16 @@ function PersonEditor({ actor, departments, onClose, onSave, person, people, tea
     setDraft((current) => ({ ...current, [field]: value }))
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
-    const team = teams.find((item) => item.id === draft.teamId)
-    onSave({
+    setAccessError('')
+    setAccessBusy(true)
+    try {
+      if(canManageEnvironments && person?.userId && environmentGrants?.role!=='owner' && (environmentAccess.test!==Boolean(environmentGrants?.test)||environmentAccess.uat!==Boolean(environmentGrants?.uat))) {
+        await onSaveEnvironmentGrants(person.userId,environmentAccess)
+      }
+      const team = teams.find((item) => item.id === draft.teamId)
+      onSave({
       ...draft,
       id: draft.id || `USR-${Date.now()}`,
       initials: draft.initials || initialsFor(draft.name),
@@ -257,6 +266,8 @@ function PersonEditor({ actor, departments, onClose, onSave, person, people, tea
         monday: { enabled: true, start: '09:00', end: '17:00' }, tuesday: { enabled: true, start: '09:00', end: '17:00' }, wednesday: { enabled: true, start: '09:00', end: '17:00' }, thursday: { enabled: true, start: '09:00', end: '17:00' }, friday: { enabled: true, start: '09:00', end: '17:00' }, saturday: { enabled: false, start: '', end: '' }, sunday: { enabled: false, start: '', end: '' },
       },
     })
+    }catch(error){setAccessError(error.message||'Could not update this person’s environment access.')}
+    finally{setAccessBusy(false)}
   }
 
   return (
@@ -305,8 +316,25 @@ function PersonEditor({ actor, departments, onClose, onSave, person, people, tea
             <label>Access role<select value={draft.accessProfile || 'employee'} onChange={(event) => update('accessProfile', event.target.value)}>{peopleAccessProfileOptions.map((profile) => <option key={profile.id} value={profile.id}>{profile.label}</option>)}</select><small>{peopleAccessProfileOptions.find((profile) => profile.id === draft.accessProfile)?.description}</small></label>
           </>}
 
+          {capabilities.access && canManageEnvironments && person?.userId && (
+            <>
+              <div className="org-editor-section-heading"><span className="eyebrow">Environments</span><strong>Workspace access</strong></div>
+              <p>Live uses the person’s normal Hi5Central account. Test and UAT use the same account and MFA; they require an environment grant.</p>
+              <label className="org-toggle-row"><input type="checkbox" checked disabled /><span><strong>Live (Production)</strong><small>Included with an active workspace membership.</small></span></label>
+              {['uat','test'].map(env=>(
+                <label className="org-toggle-row" key={env}>
+                  <input type="checkbox" checked={Boolean(environmentAccess[env])}
+                    disabled={environmentGrants?.role==='owner'||accessBusy}
+                    onChange={event=>setEnvironmentAccess(current=>({...current,[env]:event.target.checked}))}/>
+                  <span><strong>{env==='uat'?'UAT / Staging':'Test'} access</strong><small>{environmentGrants?.role==='owner'?'Organisation owner access cannot be removed.':'The user signs in with their existing Hi5Central credentials.'}</small></span>
+                </label>
+              ))}
+              {accessError ? <p role="alert">{accessError}</p> : null}
+            </>
+          )}
+
           {capabilities.organisation && <label className="org-toggle-row"><input checked={draft.active !== false} disabled={managed('active')} onChange={(event) => update('active', event.target.checked)} type="checkbox" /><span><strong>Active person</strong><small>Inactive people remain available for historical references and administration.</small></span></label>}
-          <footer><button className="secondary-action" onClick={onClose} type="button">Cancel</button><button className="primary-action" type="submit"><Check size={17} /> Save person</button></footer>
+          <footer><button className="secondary-action" onClick={onClose} type="button">Cancel</button><button className="primary-action" disabled={accessBusy} type="submit"><Check size={17} /> {accessBusy?'Saving…':'Save person'}</button></footer>
         </form>
       </aside>
     </div>
@@ -349,6 +377,27 @@ export function PeopleView({ auditEvents = [], currentPerson, departments, onSav
   const [statusFilter, setStatusFilter] = useState('All')
   const [selectedPersonId, setSelectedPersonId] = useState('')
   const [editor, setEditor] = useState(null)
+  const [environmentMembers,setEnvironmentMembers]=useState([])
+  const [canManageEnvironments,setCanManageEnvironments]=useState(false)
+  useEffect(()=>{
+    let active=true
+    fetch(`${window.__HI5_API_BASE__}/api/v1/people/environment-access`,{credentials:'include'})
+      .then(async response=>{if(!response.ok)throw Error('Access permissions unavailable');return response.json()})
+      .then(payload=>{if(active){setCanManageEnvironments(true);setEnvironmentMembers(payload.members||[])}})
+      .catch(()=>{if(active)setCanManageEnvironments(false)})
+    return ()=>{active=false}
+  },[])
+
+  async function saveEnvironmentGrants(userId,access) {
+    const response=await fetch(`${window.__HI5_API_BASE__}/api/v1/people/environment-access/${encodeURIComponent(userId)}`,{
+      method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(access),
+    })
+    const payload=await response.json().catch(()=>({}))
+    if(!response.ok)throw Error(payload.error||'Could not update Test/UAT access.')
+    setEnvironmentMembers(current=>current.map(item=>item.userId===userId?payload.member:item))
+    return payload.member
+  }
 
   const visiblePeople = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -455,7 +504,11 @@ export function PeopleView({ auditEvents = [], currentPerson, departments, onSav
       </div>
 
       <PersonDrawer auditEvents={auditEvents} currentPerson={currentPerson} departments={departments} onClose={() => setSelectedPersonId('')} onEdit={() => setEditor({ kind: 'person', entity: selectedPerson })} person={selectedPerson} people={people} teams={teams} records={tickets} />
-      {editor?.kind === 'person' && <PersonEditor actor={currentPerson} departments={departments} onClose={() => setEditor(null)} onSave={(value) => { onSavePerson(value); setSelectedPersonId(value.id); setEditor(null) }} person={editor.entity} people={people} teams={teams} />}
+      {editor?.kind === 'person' && <PersonEditor actor={currentPerson} departments={departments}
+        environmentGrants={environmentMembers.find(item=>item.userId && item.userId===editor.entity?.userId)}
+        canManageEnvironments={canManageEnvironments}
+        onSaveEnvironmentGrants={saveEnvironmentGrants}
+        onClose={() => setEditor(null)} onSave={(value) => { onSavePerson(value); setSelectedPersonId(value.id); setEditor(null) }} person={editor.entity} people={people} teams={teams} />}
       {editor?.kind === 'team' && canManageTeam(currentPerson, editor.entity || null, teams) && <EntityEditor
         departments={accessProfile.scope === 'all' ? departments : departments.filter((department) => editableDepartmentIdsFor(currentPerson, departments, teams).includes(department.id))}
         entity={editor.entity}
