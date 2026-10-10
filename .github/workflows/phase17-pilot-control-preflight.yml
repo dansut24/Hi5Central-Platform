@@ -28,6 +28,9 @@ on:
       - 'services/api/migrations/platform-admin/144_tenant_owner_onboarding_intent.sql'
       - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
       - 'apps/itsm/src/features/marketing/SignupPage.jsx'
+      - 'apps/itsm/Dockerfile'
+      - 'apps/itsm/deployment/runtime-config-entrypoint.sh'
+      - 'services/api/src/managedSignupValidation.js'
       - 'apps/itsm/src/features/marketing/MarketingApp.css'
       - 'services/api/src/managedPublicSignup.js'
       - 'services/api/tests/managedPublicSignup.test.mjs'
@@ -66,7 +69,8 @@ jobs:
           node --test services/api/tests/customerConfigurationPromotion.test.mjs
       - name: Compile the ITSM customer onboarding wizard
         run: |
-          docker build --tag hi5central-itsm-onboarding-syntax:${GITHUB_SHA} apps/itsm
+          docker build --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}" apps/itsm
       - name: Syntax-check disposable Production shadow rehearsal (never executed in CI)
         run: |
           sh -n infrastructure/managed-pilot-control/phase22-shadow/phase22-env.sh
@@ -206,4 +210,5 @@ jobs:
           for service in api admin; do
             docker push "ghcr.io/dansut24/hi5central-platform-${service}:sha-${GITHUB_SHA}"
           done
-          echo "Matched private-pilot API/Admin revision ${GITHUB_SHA}"
+          docker push "ghcr.io/dansut24/hi5central-platform-signup-preview:sha-${GITHUB_SHA}"
+          echo "Matched private-pilot API/Admin and unpublished-on-web signup-preview revision ${GITHUB_SHA}"
