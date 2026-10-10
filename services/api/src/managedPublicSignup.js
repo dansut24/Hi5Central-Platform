@@ -15,6 +15,8 @@ const restricted=()=>{
   const privateAdmin='https://pilot-admin.hi5central.com'
   const scoped=(
     process.env.MANAGED_SIGNUP_LIVE_APPROVED==='true'
+      && process.env.MANAGED_SIGNUP_TEST_ONLY==='true'
+      && Boolean(String(process.env.MANAGED_SIGNUP_TEST_EMAIL||'').trim())
       && deployment.apiUrl===liveOrigin && deployment.adminUrl===liveAdmin
     ) || (
       process.env.MANAGED_SIGNUP_LIVE_APPROVED!=='true'
