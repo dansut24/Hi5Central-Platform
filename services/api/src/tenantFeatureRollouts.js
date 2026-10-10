@@ -105,43 +105,119 @@ export async function tenantLiveChatState(tenantId,{source=pool,targets={}}={}) 
   }
 }
 
-/** Stage first in the tenant's separate UAT database. Do not touch other tenants. */
+/**
+ * Stage UAT before writing the Live ledger. The databases cannot commit as one
+ * transaction, so keep a tenant-scoped Live advisory lock for the entire saga.
+ * If the Live ledger rejects the change, restore the exact previous UAT flag.
+ * A lost connection/ambiguous commit must be reconciled, never blindly undone.
+ */
 export async function stageTenantLiveChat(tenantId,userId,opts={}) {
   const source=opts.source||pool
   const targets=opts.targets||{}
   const changeRef='LC-'+new Date().toISOString().slice(0,10).replaceAll('-','')+'-'+randomBytes(3).toString('hex').toUpperCase()
   const notes=String(opts.notes||'').trim().slice(0,1000)
-  await withUatDatabase(async db=>{
-    await db.query('BEGIN')
+  const live=await source.connect()
+  let lockHeld=false
+  let uatCommitted=false
+  let liveCommitted=false
+  let previousUatOverride=null
+  const flagParams=[tenantId,'uat',LIVE_CHAT_FEATURE]
+
+  try {
+    // Serialise concurrent staging attempts for this tenant/feature even
+    // while the separate UAT transaction is being committed or compensated.
+    await live.query('SELECT pg_advisory_lock(hashtext($1),hashtext($2))',[tenantId,LIVE_CHAT_FEATURE])
+    lockHeld=true
+    await withUatDatabase(async db=>{
+      await db.query('BEGIN')
+      try {
+        const tenant=await db.query('SELECT 1 FROM tenants WHERE id=$1 AND status=$2',[tenantId,'active'])
+        if(!tenant.rowCount)throw new Error('UAT organisation has not been provisioned.')
+        const previous=await db.query(
+          `SELECT enabled,updated_by,updated_at
+             FROM tenant_environment_feature_overrides
+            WHERE tenant_id=$1 AND environment=$2 AND feature_key=$3 FOR UPDATE`,
+          flagParams)
+        previousUatOverride=previous.rows[0]||null
+        await setFeature(db,tenantId,userId,'uat',true)
+        await db.query('COMMIT')
+        uatCommitted=true
+      }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e}
+    },targets)
+
+    await live.query('BEGIN')
     try {
-      const tenant=await db.query('SELECT 1 FROM tenants WHERE id=$1 AND status=$2',[tenantId,'active'])
-      if(!tenant.rowCount)throw new Error('UAT organisation has not been provisioned.')
-      await setFeature(db,tenantId,userId,'uat',true)
-      await db.query('COMMIT')
-    }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e}
-  },targets)
-  await withTransaction(async db=>{
-    await db.query(
-      `INSERT INTO tenant_environment_feature_overrides
-         (tenant_id,environment,feature_key,enabled,updated_by)
-       VALUES($1,'live',$2,false,$3)
-       ON CONFLICT(tenant_id,environment,feature_key) DO NOTHING`,
-      [tenantId,LIVE_CHAT_FEATURE,userId])
-    await db.query(
-      `INSERT INTO tenant_feature_release_approvals
-         (tenant_id,feature_key,state,release_ref,staged_by,staged_at)
-       VALUES($1,$2,'staged',$3,$4,now())
-       ON CONFLICT(tenant_id,feature_key) DO UPDATE SET
-         state='staged',release_ref=excluded.release_ref,staged_by=excluded.staged_by,
-         staged_at=now(),verified_by=NULL,verified_at=NULL,
-         promoted_by=NULL,promoted_at=NULL,updated_at=now()`,
-      [tenantId,LIVE_CHAT_FEATURE,changeRef,userId])
-    await db.query(
-      `INSERT INTO tenant_feature_release_events
-        (tenant_id,feature_key,release_ref,action,actor_user_id,notes)
-       VALUES($1,$2,$3,'staged_uat',$4,$5)`,
-      [tenantId,LIVE_CHAT_FEATURE,changeRef,userId,notes])
-  },source)
+      await live.query(
+        `INSERT INTO tenant_environment_feature_overrides
+           (tenant_id,environment,feature_key,enabled,updated_by)
+         VALUES($1,'live',$2,false,$3)
+         ON CONFLICT(tenant_id,environment,feature_key) DO NOTHING`,
+        [tenantId,LIVE_CHAT_FEATURE,userId])
+      await live.query(
+        `INSERT INTO tenant_feature_release_approvals
+           (tenant_id,feature_key,state,release_ref,staged_by,staged_at)
+         VALUES($1,$2,'staged',$3,$4,now())
+         ON CONFLICT (tenant_id,feature_key) DO UPDATE SET
+           state='staged',release_ref=excluded.release_ref,staged_by=excluded.staged_by,
+           staged_at=now(),verified_by=NULL,verified_at=NULL,
+           promoted_by=NULL,promoted_at=NULL,updated_at=now()`,
+        [tenantId,LIVE_CHAT_FEATURE,changeRef,userId])
+      await live.query(
+        `INSERT INTO tenant_feature_release_events
+          (tenant_id,feature_key,release_ref,action,actor_user_id,notes)
+         VALUES($1,$2,$3,'staged_uat',$4,$5)`,
+        [tenantId,LIVE_CHAT_FEATURE,changeRef,userId,notes])
+      await live.query('COMMIT')
+      liveCommitted=true
+    }catch(e){await live.query('ROLLBACK').catch(()=>{});throw e}
+  }catch(error){
+    if(uatCommitted&&!liveCommitted){
+      let recorded
+      try {
+        const event=await live.query(
+          `SELECT 1 FROM tenant_feature_release_events
+             WHERE tenant_id=$1 AND feature_key=$2 AND release_ref=$3 AND action='staged_uat'`,
+          [tenantId,LIVE_CHAT_FEATURE,changeRef])
+        recorded=event.rowCount>0
+      }catch(checkError){
+        throw new AggregateError([error,checkError],
+          'UAT staging outcome is uncertain. Check the release ledger and UAT flag before retrying.')
+      }
+      if(!recorded) {
+        try {
+          await withUatDatabase(async db=>{
+            await db.query('BEGIN')
+            try {
+              if(previousUatOverride){
+                await db.query(
+                  `UPDATE tenant_environment_feature_overrides
+                      SET enabled=$4,updated_by=$5,updated_at=$6
+                    WHERE tenant_id=$1 AND environment=$2 AND feature_key=$3`,
+                  [...flagParams,previousUatOverride.enabled,
+                    previousUatOverride.updated_by,previousUatOverride.updated_at])
+              }else{
+                await db.query(
+                  `DELETE FROM tenant_environment_feature_overrides
+                    WHERE tenant_id=$1 AND environment=$2 AND feature_key=$3`,
+                  flagParams)
+              }
+              await db.query('COMMIT')
+            }catch(e){await db.query('ROLLBACK').catch(()=>{});throw e}
+          },targets)
+        }catch(restoreError){
+          throw new AggregateError([error,restoreError],
+            'UAT staging failed and its prior feature state could not be restored. Reconcile before retrying.')
+        }
+      }
+    }
+    throw error
+  }finally{
+    if(lockHeld){
+      await live.query('SELECT pg_advisory_unlock(hashtext($1),hashtext($2))',
+        [tenantId,LIVE_CHAT_FEATURE]).catch(e=>console.error('Release staging lock cleanup failed',e))
+    }
+    live.release()
+  }
   return tenantLiveChatState(tenantId,{source,targets})
 }
 
