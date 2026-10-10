@@ -243,10 +243,20 @@ const draft={companyName:signupRequest.company_name,slug:signupRequest.tenant_sl
   ownerName:signupRequest.owner_name,ownerEmail:signupRequest.owner_email,
   modules:signupRequest.modules,updateMode:'admin_controlled',customerUatOptIn:true,
   signupRequestId:signupRequest.id}
+const scheduleTampering=call('POST','/api/platform/v1/tenants',{
+  ...draft,updateMode:'hi5_managed',deploymentDay:'mon',deploymentTime:'03:00'
+},cookie)
+assert.equal(scheduleTampering.status,409,
+  'Verified Custom choice must not silently become Managed')
 const tampered=call('POST','/api/platform/v1/tenants',{
   ...draft,ownerEmail:'attacker@example.invalid'
 },cookie)
 assert.equal(tampered.status,409,'Cannot substitute an unverified owner')
+const badMaintenance=call('POST','/api/platform/v1/tenants',{
+  ...draft,updateMode:'hi5_managed',deploymentDay:'tue',
+  deploymentTime:'19:30',deploymentTimezone:'Europe/Paris'
+},cookie)
+assert.equal(badMaintenance.status,409,'Cannot alter verified maintenance window')
 assert.equal(sql(`SELECT count(*) FROM tenants WHERE slug='${requestedSlug}'`).split('\\n').at(-1),'0')
 const approved=call('POST','/api/platform/v1/tenants',draft,cookie)
 assert.equal(approved.status,201,JSON.stringify(approved.data))
@@ -261,6 +271,12 @@ assert.equal(sql(`SELECT count(*) FROM tenant_environment_provision_requests q
 assert.equal(sql(`SELECT count(*) FROM tenant_memberships m
   JOIN tenants t ON t.id=m.tenant_id WHERE t.slug='${requestedSlug}'`).split('\\n').at(-1),'0')
 console.log('PHASE23_SIGNUP_TO_ADMIN_REVIEW: PASS (verified request, wrong-owner rejected, one-time Custom UAT reservation, no login)')
+const currentDirect=call('POST','/api/v1/auth/signup',{
+  companyName:'Legacy Signup',tenantSlug:'legacypilotsignup',name:'Legacy Owner',
+  email:'legacy@example.invalid',password:'VeryStrongExamplePassword345',
+  modules:['itsm'],
+},null,'https://hi5central.com')
+assert.equal(currentDirect.status,403,'Legacy managed signup must be disabled in pilot')
 assert.equal(call('POST','/api/platform/v1/auth/logout',{},cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,401)
 console.log('PHASE19_DISPOSABLE_FIRST_ADMIN_INVITE_MFA: PASS')
