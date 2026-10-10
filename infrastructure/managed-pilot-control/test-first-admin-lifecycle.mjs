@@ -148,6 +148,44 @@ const reservations=sql(`SELECT e.provisioning_status FROM tenant_environment_ins
 assert.ok(!reservations.split('\\n').includes('ready'),
   'Managed customer UAT must not silently become a provisioned runtime')
 console.log('PHASE20_CUSTOMER_UPDATE_CHOICES: PASS (Managed optional UAT, Custom required, exact schedule, zero UAT queues)')
+const customId=custom.data.tenant.id
+const noUatPush=call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
+  {keys:['theme']},cookie)
+assert.equal(noUatPush.status,409,
+  'Custom tenant without activated UAT must not promote configuration')
+assert.equal(noUatPush.data.eligibleForExecution,false)
+assert.match(noUatPush.data.blockers.join(' '),/UAT/)
+assert.equal(call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
+  {keys:['credentials']},cookie).status,409,'Never push secrets')
+const request=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
+assert.equal(request.status,202,JSON.stringify(request.data))
+assert.equal(request.data.provisioningStarted,false,
+  'UAT request may not create tenant infrastructure without signed operator approval')
+const repeated=call('POST',`/api/platform/v1/tenants/${customId}/environments/uat/provision`,{},cookie)
+assert.equal(repeated.status,200)
+assert.equal(repeated.data.alreadyQueued,true)
+const requestState=sql(`SELECT q.state FROM tenant_environment_provision_requests q
+  JOIN tenants t ON t.id=q.tenant_id
+  WHERE t.slug='pilotcustomci' AND q.environment='uat'`)
+assert.equal(requestState.split('\\n').at(-1),'requested')
+const stillDenied=call('POST',`/api/platform/v1/tenants/${customId}/config-promotions/preflight`,
+  {keys:['theme','itsm']},cookie)
+assert.equal(stillDenied.status,409,
+  'Submitting a provisioning request cannot bypass actual UAT isolation validation')
+assert.equal(stillDenied.data.eligibleForExecution,false)
+const uatReservation=sql(`SELECT e.provisioning_status FROM tenant_environment_instances e
+ JOIN tenants t ON t.id=e.tenant_id
+ WHERE t.slug='pilotcustomci' AND e.environment='uat'`)
+assert.equal(uatReservation.split('\\n').at(-1),'pending')
+const state=call('GET','/api/platform/v1/tenants',null,cookie)
+assert.equal(state.status,200)
+const visibleCustom=state.data.items.find(t=>t.slug==='pilotcustomci')
+assert.ok(visibleCustom)
+assert.equal(visibleCustom.update_mode,'admin_controlled')
+assert.equal(visibleCustom.customer_uat_opt_in,true)
+console.log('PHASE21_CUSTOM_TENANT_UAT_REQUEST: PASS (Admin-created tenant, signed operator queue, no premature UAT)')
+console.log('PHASE21_CUSTOMER_PROMOTION_BLOCKED: PASS (no UAT activation, no Live config write, secrets denied)')
+
 assert.equal(call('POST','/api/platform/v1/auth/logout',{},cookie).status,200)
 assert.equal(call('GET','/api/platform/v1/auth/session',null,cookie).status,401)
 console.log('PHASE19_DISPOSABLE_FIRST_ADMIN_INVITE_MFA: PASS')
