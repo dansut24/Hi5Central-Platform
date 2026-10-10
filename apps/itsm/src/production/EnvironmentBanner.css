@@ -48,3 +48,23 @@
 @media(max-width:350px){
   .hi5-environment-banner__message {display:none}
 }
+
+/* A fixed mobile drawer uses inset:0 independently of the body padding.
+   Keep its logo, close control and scroll area BELOW the non-production banner. */
+@media (max-width: 900px) {
+  :root[data-hi5-environment="uat"] .app-shell .sidebar.rmm-sidebar.mobile-open,
+  :root[data-hi5-environment="test"] .app-shell .sidebar.rmm-sidebar.mobile-open {
+    top: var(--hi5-environment-banner-height, 36px) !important;
+    bottom: 0 !important;
+    height: calc(100dvh - var(--hi5-environment-banner-height, 36px)) !important;
+    max-height: calc(100dvh - var(--hi5-environment-banner-height, 36px));
+    box-sizing: border-box;
+  }
+  :root[data-hi5-environment="uat"] .app-shell .rmm-sidebar-backdrop.is-open,
+  :root[data-hi5-environment="test"] .app-shell .rmm-sidebar-backdrop.is-open,
+  :root[data-hi5-environment="uat"] .app-shell .mobile-nav-backdrop,
+  :root[data-hi5-environment="test"] .app-shell .mobile-nav-backdrop {
+    top: var(--hi5-environment-banner-height, 36px) !important;
+    height: calc(100dvh - var(--hi5-environment-banner-height, 36px)) !important;
+  }
+}

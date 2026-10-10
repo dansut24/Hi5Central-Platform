@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
+import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -53,7 +54,71 @@ function EnvironmentCard({ item, onReset, busy }) {
   </article>
 }
 
+function SandboxReleaseOverview() {
+  const config=deploymentConfig()
+  const environment=config.runtimeEnvironment
+  const slug=window.location.hostname.split('.')[0].replace(/-(uat|test)$/, '')
+  const liveUrl=`https://${slug}.${config.rootDomain}/settings/platform/releases`
+  const [state,setState]=useState({loading:true,error:'',releaseRef:'',lastDeployedAt:null})
+  useEffect(()=>{
+    let active=true
+    tenantReleaseApi().then(payload=>{
+      if(!active)return
+      const matching=(payload.environments||[]).find(item=>item.environment===environment)
+      setState({loading:false,error:'',releaseRef:matching?.activeReleaseRef||'',lastDeployedAt:matching?.lastDeployedAt||null})
+    }).catch(error=>{
+      if(active)setState({loading:false,error:error.message,releaseRef:'',lastDeployedAt:null})
+    })
+    return ()=>{active=false}
+  },[environment])
+  const isUat=environment==='uat'
+  return <div className="hi5-release-settings" data-hi5-sandbox-releases={environment}>
+    <section className="production-settings-panel">
+      <header><div>
+        <h2>{isUat?'UAT release validation':'Test release overview'}</h2>
+        <p>{isUat
+          ? 'This workspace is for checking staged features before they are approved for Production.'
+          : 'This disposable workspace is for testing features before they are staged in UAT.'}</p>
+      </div></header>
+      <div className="production-settings-panel-body">
+        <div className="hi5-release-env-grid">
+          <article className="hi5-release-env-card">
+            <header><div><span>ENVIRONMENT</span><strong>{isUat?'UAT / Staging':'Test'}</strong></div><ResultPill value="ready"/></header>
+            <p>{isUat?'Controlled, isolated release acceptance':'All-feature testing, isolated from Live'}</p>
+            <small>Tenant: {window.location.hostname}</small>
+          </article>
+          <article className="hi5-release-env-card">
+            <header><div><span>DEPLOYED RELEASE</span><strong>{state.loading?'Checking…':state.releaseRef||'Not assigned'}</strong></div></header>
+            <p>{state.releaseRef
+              ? 'Latest tenant-specific release reference reported by this environment.'
+              : 'No tenant-specific release reference has been recorded here yet.'}</p>
+            <small>{state.lastDeployedAt?'Last recorded deployment: '+new Date(state.lastDeployedAt).toLocaleString():'No deployment timestamp recorded'}</small>
+          </article>
+        </div>
+        {state.error?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{state.error}</p>:null}
+        <div className="hi5-release-sandbox-guidance">
+          <strong>{isUat?'How to validate a release':'How Test fits into releases'}</strong>
+          <p>{isUat
+            ? 'Use this environment to exercise the staged change and confirm it works. Your organisation’s Live release centre is where an administrator selects what enters UAT and approves the promotion to Production.'
+            : 'Test is the unrestricted sandbox. When a change has been qualified, use the Live release centre to select it for UAT acceptance.'}</p>
+          <a className="hi5-release-open-live" href={liveUrl}>
+            <GitBranch size={16}/> Open Live release management ↗
+          </a>
+          <small>Release approval and promotion are not performed from this sandbox. A feature is not promoted merely by appearing here.</small>
+        </div>
+      </div>
+    </section>
+  </div>
+}
+
 export function ProductionReleaseManagement() {
+  const environment=deploymentConfig().runtimeEnvironment
+  return environment==='uat'||environment==='test'
+    ? <SandboxReleaseOverview/>
+    : <LiveProductionReleaseManagement/>
+}
+
+function LiveProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
   const [platformAvailable,setPlatformAvailable]=useState(false)

@@ -87,3 +87,38 @@
 .hi5-release-policy-save { min-height:36px; border:1px solid var(--settings-accent); border-radius:8px; background:var(--settings-accent); color:white; font:inherit; font-size:11px; font-weight:800; cursor:pointer; }
 @media (max-width:900px) { .hi5-release-policy-fields { grid-template-columns:1fr 1fr; } .hi5-release-policy-check { grid-column:1 / -1; } }
 @media (max-width:760px) { .hi5-release-policy-grid, .hi5-release-policy-fields { grid-template-columns:1fr; } .hi5-release-policy-check { grid-column:auto; } }
+
+/* Tenant-scoped UAT/Test release status. No direct promotion controls. */
+.hi5-release-sandbox-guidance {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+.hi5-release-sandbox-guidance > strong {font-size: 13px}
+.hi5-release-sandbox-guidance > p {margin: 0; font-size: 12px; line-height: 1.55; color: var(--muted)}
+.hi5-release-sandbox-guidance > small {font-size: 11px; line-height: 1.5; color: var(--muted)}
+.hi5-release-open-live {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 9px;
+  padding: 10px 14px;
+  background: var(--settings-accent, #1469ba);
+  text-decoration: none;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+}
+.hi5-release-open-live:hover {filter:brightness(.96);color:#fff}
+@media (max-width: 660px) {
+  [data-hi5-sandbox-releases] .hi5-release-env-grid {grid-template-columns: minmax(0,1fr)}
+  [data-hi5-sandbox-releases] .hi5-release-env-card {overflow-wrap:anywhere}
+  [data-hi5-sandbox-releases] .hi5-release-open-live {width:100%;box-sizing:border-box}
+}
