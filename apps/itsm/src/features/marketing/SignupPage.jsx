@@ -316,7 +316,7 @@ export function SignupPage() {
           {!MANAGED_SIGNUP?<div className="marketing-form-grid">
             <label><span>Password</span><input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} required minLength={12} autoComplete="new-password" /><small>Use at least 12 characters.</small></label>
             <label><span>Confirm password</span><input type="password" value={form.confirmPassword} onChange={(event) => updateField('confirmPassword', event.target.value)} required minLength={12} autoComplete="new-password" /></label>
-          </div>:null
+          </div>:null}
 
           {error ? <div className="marketing-form-error">{error}</div> : null}
           <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable' || (MANAGED_SIGNUP&&!form.updateMode)}>
