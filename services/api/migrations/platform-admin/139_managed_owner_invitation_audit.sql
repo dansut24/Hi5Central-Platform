@@ -16,3 +16,19 @@ CREATE INDEX IF NOT EXISTS managed_owner_invitation_audit_lookup
 
 COMMENT ON TABLE managed_owner_invitation_audit IS
   'Operator-attributed first-owner invitation issue, cancellation and delivery failure evidence; actor identities still require independent authentication.';
+
+-- Ordinary database writers must not rewrite the operator evidence after it
+-- has been committed. Database administrators can still perform privileged
+-- maintenance, so independent custody/retention remains a pilot prerequisite.
+CREATE OR REPLACE FUNCTION reject_managed_owner_invitation_audit_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'Managed owner invitation audit is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS managed_owner_invitation_audit_immutable
+  ON managed_owner_invitation_audit;
+CREATE TRIGGER managed_owner_invitation_audit_immutable
+  BEFORE UPDATE OR DELETE ON managed_owner_invitation_audit
+  FOR EACH ROW EXECUTE FUNCTION reject_managed_owner_invitation_audit_mutation();
