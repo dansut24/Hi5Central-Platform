@@ -6,12 +6,27 @@ import {validateManagedSignupRequest} from './managedSignupValidation.js'
 import {sendManagedSignupRequestVerificationEmail} from './mailer.js'
 
 const hash=token=>createHash('sha256').update(token).digest('hex')
-const restricted=()=>process.env.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'
-  && process.env.DEPLOYMENT_MODE==='managed'
-  && process.env.TENANCY_MODE==='multi'
-  && process.env.RUNTIME_ENVIRONMENT==='live'
-  && deployment.apiUrl==='https://pilot-control-api.hi5central.com'
-  && deployment.adminUrl==='https://pilot-admin.hi5central.com'
+// Explicitly approved production signup and the earlier private canary
+// are separate modes. Never permit either mode on a self-hosted or sandbox API.
+const restricted=()=>{
+  const liveOrigin='https://api.hi5central.com'
+  const liveAdmin='https://admin.hi5central.com'
+  const privateOrigin='https://pilot-control-api.hi5central.com'
+  const privateAdmin='https://pilot-admin.hi5central.com'
+  const scoped=(
+    process.env.MANAGED_SIGNUP_LIVE_APPROVED==='true'
+      && deployment.apiUrl===liveOrigin && deployment.adminUrl===liveAdmin
+    ) || (
+      process.env.MANAGED_SIGNUP_LIVE_APPROVED!=='true'
+      && deployment.apiUrl===privateOrigin && deployment.adminUrl===privateAdmin
+    )
+  return process.env.MANAGED_SIGNUP_REQUESTS_ENABLED==='true'
+    && process.env.DEPLOYMENT_MODE==='managed'
+    && process.env.TENANCY_MODE==='multi'
+    && deployment.runtimeEnvironment==='live'
+    && deployment.rootDomain==='hi5central.com'
+    && scoped
+}
 const publicOrigin='https://hi5central.com'
 export function managedSignupRequestEnabled(){return restricted()}
 async function throttle(key,limit=4,seconds=3600) {
@@ -38,7 +53,11 @@ export function registerManagedPublicSignupRoutes(app) {
       if(!approved||requested.ownerEmail!==approved)
         return c.json({error:'Pilot signup is limited to the approved test email address.'},403)
     }
-    const ip=String(c.req.header('x-real-ip')||'unknown').slice(0,80)
+    // Never trust a caller-controlled X-Real-IP header. The runtime peer
+    // identifier is intentionally coarse; recipient/slug limits still apply.
+    // Deployers must set a trusted-proxy real-IP policy before opening beyond
+    // the single-address acceptance test.
+    const ip='managed-signup-acceptance'
     if(!await throttle(hash(ip),3,3600)
       ||!await throttle(hash(requested.ownerEmail),3,86400))
       return c.json({error:'Please try again later.'},429)
