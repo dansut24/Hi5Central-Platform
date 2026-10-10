@@ -2,7 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
-import { createSession, setSessionCookie } from './session.js'
+import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
 
 const digest = token => createHash('sha256').update(String(token)).digest('hex')
@@ -18,6 +18,30 @@ function authorised(request) {
 function safeJson(c, message, code) { return c.json({ error: message }, code) }
 
 export function registerEnvironmentHandoffRoutes(app) {
+  // Any active workspace member with a centrally granted Test/UAT entitlement
+  // may authenticate there. Platform Admin is NOT required to use an
+  // environment; only organisation owners/admins can change grants.
+  app.post('/api/v1/auth/environment-access',async c=>{
+    if(deployment.runtimeEnvironment!=='live')return safeJson(c,'Use your Live tenant to sign in.',403)
+    const session=await resolveSession(c)
+    if(!session)return safeJson(c,'Authentication required.',401)
+    if(!originMatchesTenant(c.req.header('origin'),session.slug))
+      return safeJson(c,'Tenant session mismatch.',403)
+    let body
+    try {body=await c.req.json()}catch{return safeJson(c,'Invalid access request.',400)}
+    const environment=String(body?.environment||'')
+    if(!['test','uat'].includes(environment))return safeJson(c,'Unknown environment.',400)
+    try{
+      const url=await issueEnvironmentTicket(session.tenant_id,session.user_id,environment,{
+        verified:Boolean(session.mfa_verified_at),
+      })
+      return c.json({url})
+    }catch(error){
+      return safeJson(c,error.message||'Environment access has not been granted.',403)
+    }
+  })
+
+
   // Only the central Live API can redeem tickets, and only from an
   // environment API bearing a long random deployment-held shared secret.
   app.post('/api/v1/internal/environment-handoff/redeem', async c => {
