@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { registerEnvironmentHandoffRoutes, issueEnvironmentTicket } from '../src/environmentHandoff.js'
 import { hashPassword } from '../src/password.js'
 import { pool } from '../src/db.js'
-import { provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
+import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -99,6 +99,24 @@ try {
     const r=await db.query('SELECT count(*)::int AS n FROM tenants WHERE id=$1',[unrelated.rows[0].id])
     assert.equal(r.rows[0].n,0)
   }
+  // Existing customers that completed onboarding before release should be
+  // provisioned by the explicit one-time backfill, but unfinished tenants not.
+  const legacySlug=slug+'-old'
+  const legacyTenant=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,$2,'active') RETURNING id",[legacySlug,'Already onboarded'])
+  const legacyId=legacyTenant.rows[0].id
+  await source.query("INSERT INTO tenant_memberships(tenant_id,user_id,role,status) VALUES($1,$2,'owner','active')",[legacyId,userId])
+  await source.query(`INSERT INTO tenant_settings(tenant_id,modules,onboarding_step,onboarding_completed_at,onboarding_data,configuration,tenant_url,portal_url,rmm_url)
+    VALUES($1,'{"itsm":true,"rmm":false}'::jsonb,'complete',now(),'{}','{}',$2,$3,NULL)`,
+    [legacyId,'https://'+legacySlug+'.hi5central.com','https://'+legacySlug+'-portal.hi5central.com'])
+  await source.query("INSERT INTO tenant_release_preferences(tenant_id,update_mode) VALUES($1,'admin_controlled') ON CONFLICT(tenant_id) DO NOTHING",[legacyId])
+  const backfilled=await backfillCompletedTenantSandboxes({source})
+  assert.equal(backfilled.tenants,1,'only the additional completed tenant needs reconciliation')
+  for(const [i,env] of ['test','uat'].entries()) {
+    const result=await clients[i].query('SELECT slug FROM tenants WHERE id=$1',[legacyId])
+    assert.equal(result.rows[0]?.slug,legacySlug+'-'+env)
+  }
+  const repeatBackfill=await backfillCompletedTenantSandboxes({source})
+  assert.equal(repeatBackfill.tenants,0,'reconciliation must not create duplicate work')
   console.log('PASS: 2 environment DBs, separate tenant data, owner login identity, correct URLs, retry preservation, no unrelated tenant copy')
 }finally {
   for(const c of clients)await c.end().catch(()=>{})

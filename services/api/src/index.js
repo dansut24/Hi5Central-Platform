@@ -13,7 +13,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
-import { provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
+import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
@@ -763,6 +763,11 @@ attachRmmViewerWebSocket(server)
 attachRmmConnectWebSockets(server)
 attachRmmDeviceToolWebSocket(server)
 console.log(`Hi5Central API listening on port ${port}`)
+if (deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
+  void backfillCompletedTenantSandboxes().catch(error => {
+    console.error('Tenant sandbox rollout backfill failed', {code:error.code || 'UNKNOWN'})
+  })
+}
 
 async function shutdown(signal) {
   console.log(`Received ${signal}; shutting down`)
