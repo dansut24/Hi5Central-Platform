@@ -185,6 +185,9 @@ jobs:
               image: ghcr.io/dansut24/hi5central-platform-api:sha-${GITHUB_SHA}
             api:
               image: ghcr.io/dansut24/hi5central-platform-api:sha-${GITHUB_SHA}
+              environment:
+                MANAGED_SIGNUP_REQUESTS_ENABLED: "true"
+                MANAGED_SIGNUP_SMTP_APPROVED: "false"
             admin:
               image: ghcr.io/dansut24/hi5central-platform-admin:sha-${GITHUB_SHA}
           EOF
