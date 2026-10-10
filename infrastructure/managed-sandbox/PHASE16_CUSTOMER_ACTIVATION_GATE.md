@@ -1,5 +1,40 @@
 # Phase 16 — controlled customer activation gate
 
+## Increment 1 — first-owner invitation cancellation (10 October 2026)
+
+**PASS in isolated GitHub Actions, NOT activated for customers.**
+[Phase 16 owner-invitation CI](https://github.com/dansut24/Hi5Central-Platform/actions/runs/38008858567)
+successfully completed on `develop` with a disposable PostgreSQL 17 database,
+separate UAT/Test Redis instances and the existing isolated provisioning
+harness. All temporary service containers were removed.
+
+- The initial-owner operator CLI now accepts `--check`, `--apply`, and
+  `--cancel`. The cancellation action targets precisely a single pending,
+  unaccepted `owner` invitation by tenant, environment and invitee email,
+  refuses a bad confirmation or another email, and cannot be replayed.
+- Cancellation still works when customer approval is withdrawn or the tenant
+  becomes suspended, but it refuses a mismatched database identity, bootstrap
+  or customer hostname. This is a privileged database operator action, NOT
+  a user-facing cancellation API.
+- Both issuance and cancellation require an attributed
+  `OWNER_INVITATION_OPERATOR` identifier and create operator-audit rows.
+  Delivery failure revokes the pending invitation and records an audit
+  outcome where the database remains available.
+- Migration `139_managed_owner_invitation_audit.sql` creates a distinct
+  scoped audit table with an UPDATE/DELETE rejection trigger. CI verifies
+  ordinary SQL writes cannot modify committed audit records.
+- CI sent first-owner invitations into its **local ephemeral SMTP sink**,
+  cancelled the first link, proved the one-time token could no longer create
+  a user, reissued a distinct invitation, and completed first-owner MFA.
+  It also denied cancelling an already redeemed invitation.
+
+**Remaining before pilot:** Operator identifiers are still supplied as
+privileged environment variables, not bound to independently authenticated
+people. Immutable database-level audit entries are not a substitute for
+off-host evidence custody, production mail validation, browser E2E,
+independently attested operators or operator-approved DNS/TLS activation.
+
+
 **State: NOT APPROVED FOR REAL CUSTOMER ACTIVATION.** Phase 15's disposable
 owner/requester real-image tests passed, but a synthetic fixture is not an
 authenticated operator approval or a production pilot. No customer DNS/TLS,
