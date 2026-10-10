@@ -9,7 +9,7 @@ const secret=(letter)=>letter.repeat(40)
 const goodEnv={
   COMPOSE_PROJECT_NAME:'hi5central-pilot-control',
   DEPLOYMENT_MODE:'managed',TENANCY_MODE:'multi',RUNTIME_ENVIRONMENT:'live',
-  FEATURE_MODE:'controlled',PLATFORM_ADMIN_MFA_REQUIRED:'true',BACKGROUND_WORKERS_ENABLED:'false',
+  FEATURE_MODE:'controlled',PLATFORM_ADMIN_MFA_REQUIRED:'true',PILOT_ADMIN_BOOTSTRAP_ENABLED:'true',BACKGROUND_WORKERS_ENABLED:'false',
   ROOT_DOMAIN:'hi5central.com',PRIMARY_TENANT_SLUG:'',COOKIE_DOMAIN:'',
   APP_URL:'',PORTAL_URL:'',RMM_URL:'',TURN_URL:'',
   ADMIN_URL:'https://pilot-admin.hi5central.com',
@@ -41,6 +41,7 @@ test('cannot target Dev/Live data, use broad cookie or reuse same secrets',()=>{
   const scenarios=[
     {TENANCY_MODE:'single'},
     {PLATFORM_ADMIN_MFA_REQUIRED:'false'},
+    {PILOT_ADMIN_BOOTSTRAP_ENABLED:'false'},
     {ROOT_DOMAIN:'other.example.com'},
     {COOKIE_DOMAIN:'.hi5central.com'},
     {BACKGROUND_WORKERS_ENABLED:'true'},
