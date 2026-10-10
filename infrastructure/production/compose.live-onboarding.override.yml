@@ -1,0 +1,42 @@
+# Operator-reviewed public cutover overlay. This file does not deploy
+# anything by itself. Use only with the existing Production Compose project
+# after completing API/RMM regression and a tested database backup.
+services:
+  api:
+    image: ${HI5_LIVE_API_IMAGE:?Set verified immutable API digest}
+    # The immutable release image ships dist/, not src/.
+    # The one-shot migration must run separately before switching traffic.
+    command: ["node", "dist/index.mjs"]
+    environment:
+      RUNTIME_ENVIRONMENT: "live"
+      FEATURE_MODE: "controlled"
+      MANAGED_SIGNUP_REQUESTS_ENABLED: "true"
+      MANAGED_SIGNUP_LIVE_APPROVED: "true"
+      MANAGED_SIGNUP_TEST_ONLY: "true"
+      MANAGED_SIGNUP_TEST_EMAIL: ${HI5_SIGNUP_TEST_EMAIL:?Set reviewed tester}
+      MANAGED_SIGNUP_SMTP_APPROVED: "true"
+      MANAGED_LEGACY_SIGNUP_ALLOWED: "false"
+      PLATFORM_ADMIN_MFA_REQUIRED: "true"
+      PILOT_ADMIN_BOOTSTRAP_ENABLED: "false"
+  admin:
+    image: ${HI5_LIVE_ADMIN_IMAGE:?Set matching Admin digest}
+    environment:
+      RUNTIME_ENVIRONMENT: "live"
+      FEATURE_MODE: "controlled"
+      API_URL: "https://api.hi5central.com"
+      ADMIN_URL: "https://admin.hi5central.com"
+  signup:
+    image: ${HI5_LIVE_SIGNUP_IMAGE:?Set matching marketing digest}
+    container_name: hi5central-prod-signup
+    restart: unless-stopped
+    environment:
+      DEPLOYMENT_MODE: "managed"
+      TENANCY_MODE: "multi"
+      RUNTIME_ENVIRONMENT: "live"
+      FEATURE_MODE: "controlled"
+      ROOT_DOMAIN: "hi5central.com"
+      API_URL: "https://api.hi5central.com"
+      ADMIN_URL: "https://admin.hi5central.com"
+      MARKETING_URL: "https://hi5central.com"
+    networks:
+      - hi5central
