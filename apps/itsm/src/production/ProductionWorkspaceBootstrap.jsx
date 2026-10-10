@@ -701,6 +701,8 @@ export function ProductionWorkspaceBootstrap() {
   } : null)
   const [loading, setLoading] = useState(() => !cachedOnboarding)
   const [bootstrapError, setBootstrapError] = useState('')
+  const [environmentLoginHandled,setEnvironmentLoginHandled]=useState(false)
+  const [environmentAccessError,setEnvironmentAccessError]=useState('')
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0)
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
@@ -853,6 +855,18 @@ export function ProductionWorkspaceBootstrap() {
           return
         }
 
+        if(statePayload?.managed && !onboardingRoute){
+          const match=/^(.+)-(test|uat)$/.exec(surface.tenantSlug)
+          if(match){
+            // Direct UAT/Test login delegates to the original Live account.
+            // Live performs the existing password, Microsoft SSO and MFA flows.
+            // There is no separate sandbox password and no redirect parameter
+            // capable of selecting another organisation.
+            const root=deploymentConfig().rootDomain
+            window.location.replace(`https://${match[1]}.${root}/login?environment=${match[2]}`)
+            return
+          }
+        }
         if (active) setTenantState(statePayload)
       } catch (error) {
         console.error('Production session bootstrap failed.', error)
@@ -893,6 +907,30 @@ export function ProductionWorkspaceBootstrap() {
       window.clearTimeout(delayedTimer)
     }
   }, [bootstrapAttempt, cachedOnboarding, onboardingRoute, surface.tenantName, surface.tenantSlug])
+
+  useEffect(()=>{
+    if (!serverSession?.onboarding?.completedAt||environmentLoginHandled)return
+    const env=new URLSearchParams(window.location.search).get('environment')
+    if(!['test','uat'].includes(env))return
+    if(/-(test|uat)$/.test(surface.tenantSlug))return
+    setEnvironmentLoginHandled(true)
+    const abort=new AbortController()
+    fetch(`${API_BASE}/api/v1/release-management/environment-access`,{
+      method:'POST',credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({environment:env}),signal:abort.signal,
+    }).then(async response=>{
+      const payload=await response.json().catch(()=>({}))
+      if(!response.ok)throw Error(payload.error||'You have not been granted access to this environment.')
+      if(!payload.url)throw Error('The environment login could not be started.')
+      window.location.replace(payload.url)
+    }).catch(error=>{
+      if(abort.signal.aborted)return
+      setEnvironmentAccessError(error.message)
+      window.history.replaceState({},'', '/dashboard')
+    })
+    return ()=>abort.abort()
+  },[serverSession?.onboarding?.completedAt,environmentLoginHandled,surface.tenantSlug])
 
   useEffect(() => {
     if (!serverSession) return
@@ -1063,6 +1101,11 @@ export function ProductionWorkspaceBootstrap() {
     return (
       <>
         <WorkspaceRuntime key={workspaceKey} />
+        {environmentAccessError ? (
+          <div role="alert" className="production-auth-environment-error">
+            {environmentAccessError} Ask your organisation administrator to enable UAT/Test in People.
+          </div>
+        ) : null
         <ProductionIdentityBridge session={serverSession} />
         {settingsOpen ? (
           <ProductionSettingsLayer
