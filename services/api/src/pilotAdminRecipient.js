@@ -14,9 +14,12 @@ export function verifyPilotAdminRecipientFile(path,expected){
   let data
   try{data=JSON.parse(readFileSync(target,'utf8'))}
   catch{throw new Error('The protected first-Admin recipient file is invalid.')}
+  const requiredStatus=expected.approvalMode==='single_owner'
+    ? 'recipient_authorized_single_owner_email_verification_pending'
+    : 'recipient_authorized_identity_and_signer_approvals_pending'
   if(!data||typeof data!=='object'||Array.isArray(data)
     ||data.version!==1||data.type!=='first-platform-admin-recipient'
-    ||data.status!=='recipient_authorized_identity_and_signer_approvals_pending'
+    ||data.status!==requiredStatus
     ||data.invitationIssued!==false
     ||typeof data.email!=='string'||data.email!==expected.email
     ||typeof data.scopeId!=='string'||data.scopeId!==expected.scopeId)
