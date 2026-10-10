@@ -79,7 +79,7 @@ function normaliseEmail(value = '') { return String(value).trim().toLowerCase() 
 function normaliseSlug(value = '') { return String(value).trim().toLowerCase() }
 function validSlug(slug) {
   return /^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$/.test(slug)
-    && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !reservedSlugs.has(slug)
+    && slug.length <= 42 && !slug.includes('--') && !slug.endsWith('-portal') && !slug.endsWith('-rmm') && !slug.endsWith('-test') && !slug.endsWith('-uat') && !reservedSlugs.has(slug)
 }
 function validEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254 }
 
