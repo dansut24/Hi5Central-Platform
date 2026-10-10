@@ -31,8 +31,8 @@ try {
     [tenantId, userId],
   )
   await db.query(
-    "INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,onboarding_data,tenant_url) VALUES ($1,$2::jsonb,'security',$3::jsonb,$4)",
-    [tenantId, JSON.stringify({ itsm: true, rmm: true }), JSON.stringify(initial), 'https://' + slug + '.hi5central.com'],
+    "INSERT INTO tenant_settings (tenant_id,modules,onboarding_step,onboarding_data,tenant_url,portal_url,rmm_url) VALUES ($1,$2::jsonb,'security',$3::jsonb,$4,$5,$6)",
+    [tenantId, JSON.stringify({ itsm: true, rmm: true }), JSON.stringify(initial), 'https://' + slug + '.hi5central.com', 'https://' + slug + '-portal.hi5central.com', 'https://' + slug + '-rmm.hi5central.com'],
   )
   token = await createSession(db, { tenantId, userId, surface: 'workspace' })
   const opts = {headers:{origin:'https://'+slug+'.hi5central.com',
