@@ -251,9 +251,14 @@ export async function sendPilotAdminBootstrapInvitationEmail({to,name,token}) {
 }
 
 export async function sendManagedSignupRequestVerificationEmail({email,name,companyName,token}){
+  const pilot=process.env.API_URL==='https://pilot-control-api.hi5central.com'
+    && process.env.MANAGED_SIGNUP_LIVE_APPROVED!=='true'
+  const publicLive=process.env.API_URL==='https://api.hi5central.com'
+    && process.env.ADMIN_URL==='https://admin.hi5central.com'
+    && process.env.MANAGED_SIGNUP_LIVE_APPROVED==='true'
   if(process.env.MANAGED_SIGNUP_REQUESTS_ENABLED!=='true'
     ||process.env.MANAGED_SIGNUP_SMTP_APPROVED!=='true'
-    ||process.env.API_URL!=='https://pilot-control-api.hi5central.com')
+    ||(!pilot&&!publicLive))
     throw new Error('Scoped managed signup verification is disabled.')
   // In the single-recipient signup pilot, only the reviewed public
   // verification path is exposed; the control-plane hostname stays private.
