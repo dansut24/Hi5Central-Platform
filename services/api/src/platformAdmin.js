@@ -1591,6 +1591,18 @@ export function registerPlatformAdminRoutes(app) {
     })
   })
 
+  app.get('/api/platform/v1/signup-requests',async(c)=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    const result=await pool.query(`SELECT id,tenant_slug,company_name,owner_name,owner_email,
+      modules,update_mode,customer_uat_opt_in,maintenance_window,status,
+      verified_at,requested_at
+      FROM managed_public_signup_requests
+      WHERE status IN('awaiting_email','verified')
+      ORDER BY requested_at DESC LIMIT 100`)
+    return c.json({items:result.rows})
+  })
+
   app.post('/api/platform/v1/tenants', async (c) => {
     const auth = await requireAdmin(c, WRITE_ROLES)
     if (auth.error) return auth.error
@@ -1623,6 +1635,25 @@ export function registerPlatformAdminRoutes(app) {
     const urls = tenantUrls(slug, { rmm })
     try {
       const tenant = await withTransaction(async (db) => {
+        let verifiedSignup=null
+        if(body?.signupRequestId){
+          if(!/^[a-f0-9-]{36}$/i.test(String(body.signupRequestId)))
+            throw Object.assign(new Error('Invalid signup request ID.'),{httpStatus:400})
+          verifiedSignup=(await db.query(`SELECT * FROM managed_public_signup_requests
+            WHERE id=$1 AND status='verified' AND verified_at IS NOT NULL
+            FOR UPDATE`,[body.signupRequestId])).rows[0]
+          if(!verifiedSignup)throw Object.assign(new Error('Signup request is not verified or already consumed.'),{httpStatus:409})
+          const matching=verifiedSignup.tenant_slug===slug
+            && verifiedSignup.company_name===companyName
+            && verifiedSignup.owner_email===initialOwnerEmail
+            && verifiedSignup.owner_name===initialOwnerName
+            && verifiedSignup.update_mode===updatePolicy.updateMode
+            && verifiedSignup.customer_uat_opt_in===updatePolicy.customerUatOptIn
+            && Boolean(verifiedSignup.modules?.itsm)===itsm
+            && Boolean(verifiedSignup.modules?.rmm)===rmm
+          if(!matching)
+            throw Object.assign(new Error('Customer details differ from the verified signup request.'),{httpStatus:409})
+        }
         const inserted = await db.query(
           `INSERT INTO tenants (slug,company_name,status) VALUES ($1,$2,$3)
            RETURNING id,slug,company_name,status,created_at`,
@@ -1659,6 +1690,13 @@ export function registerPlatformAdminRoutes(app) {
             ['trial','active','past_due','suspended','cancelled'].includes(body?.billingStatus) ? body.billingStatus : 'trial',
             ['monthly','annual','custom'].includes(body?.billingCycle) ? body.billingCycle : 'monthly'],
         )
+        if(verifiedSignup){
+          await db.query(`UPDATE managed_public_signup_requests
+             SET status='converted',converted_tenant_id=$2,updated_at=now()
+             WHERE id=$1 AND status='verified'`,[verifiedSignup.id,row.id])
+          await db.query(`INSERT INTO managed_public_signup_audit(request_id,action,actor_label)
+             VALUES($1,'converted',$2)`,[verifiedSignup.id,'platform-admin:'+auth.session.user_id])
+        }
         await audit(c, auth.session, 'tenant.created', 'tenant', row.id, { slug, companyName, modules: { itsm, selfService, rmm },
             updates:{mode:updatePolicy.updateMode,customerUatOptIn:updatePolicy.customerUatOptIn,
               maintenanceWindow:updatePolicy.maintenanceWindow},
@@ -1675,6 +1713,7 @@ export function registerPlatformAdminRoutes(app) {
           :'Independent Production environment provisioning and owner invitation are required.'
       }},201)
     } catch (error) {
+      if(error?.httpStatus)return c.json({error:error.message},error.httpStatus)
       if (error?.code === '23505') return c.json({ error: 'That tenant slug already exists.' }, 409)
       throw error
     }
