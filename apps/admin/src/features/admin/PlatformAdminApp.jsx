@@ -252,6 +252,62 @@ function Login({ onLogin }) {
   )
 }
 
+function FirstAdminInvitation({ onFinished }) {
+  const params=new URLSearchParams(window.location.search)
+  const [email]=useState(params.get('email')||'')
+  const [token]=useState(params.get('token')||'')
+  const [password,setPassword]=useState('')
+  const [confirm,setConfirm]=useState('')
+  const [error,setError]=useState('')
+  const [busy,setBusy]=useState(false)
+  async function accept(event){
+    event.preventDefault()
+    setError('')
+    if(password!==confirm){setError('The passwords do not match.');return}
+    if(!token||!email){setError('The invitation link is incomplete.');return}
+    setBusy(true)
+    try {
+      const result=await api('/auth/bootstrap/accept',{method:'POST',
+        body:JSON.stringify({email,token,password})})
+      if(!result.accepted||!result.mfaRequired||result.sessionCreated!==false)
+        throw new Error('Administrator enrolment could not be verified.')
+      // Remove the token from browser history immediately after redemption.
+      window.history.replaceState({},'',window.location.origin+'/')
+      setPassword('');setConfirm('')
+      onFinished()
+    }catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
+  return <main className="production-auth-shell">
+    <div className="production-auth-layout">
+      <section className="production-auth-copy">
+        <img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt=""/>
+        <span className="production-auth-kicker"><ShieldCheck size={15}/> Verified pilot invitation</span>
+        <h1>Set up Platform Admin.</h1>
+        <p>This invitation belongs to the separate Hi5Central pilot. After setting your password, sign in and enrol an authenticator before accessing any platform settings.</p>
+      </section>
+      <form className="production-auth-card" onSubmit={accept}>
+        <div className="production-auth-card-heading">
+          <span className="production-auth-icon"><LockKeyhole size={19}/></span>
+          <div><span>First administrator</span><strong>Pilot account setup</strong></div>
+        </div>
+        <p className="production-auth-method-note">Invited email: {email}</p>
+        <label><span>Create a strong password</span>
+          <input type="password" value={password} onChange={e=>setPassword(e.target.value)}
+            autoComplete="new-password" minLength={12} maxLength={256} required/>
+        </label>
+        <label><span>Confirm password</span>
+          <input type="password" value={confirm} onChange={e=>setConfirm(e.target.value)}
+            autoComplete="new-password" minLength={12} maxLength={256} required/>
+        </label>
+        <p className="production-auth-method-note">Use at least 12 characters including uppercase and lowercase letters and a number. Your invitation is single-use and expires after 24 hours.</p>
+        {error?<div className="production-auth-error">{error}</div>:null}
+        <button type="submit" disabled={busy}>{busy?'Checking invitation…':'Create account securely'}<ArrowRight size={17}/></button>
+      </form>
+    </div>
+  </main>
+}
+
 function AdminSidebar({ activeView, canItsm = false, canRmm = false, collapsed = false, mobileOpen, navigate, onClose, onToggleCollapse, user }) {
   const sections=[...new Set(navigation.map(item=>item.section))]
   return <>
@@ -1364,6 +1420,9 @@ export function PlatformAdminApp() {
   useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
   if(loading)return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
+  if(!user && window.location.pathname==='/accept-admin-invitation'){
+    return <FirstAdminInvitation onFinished={()=>window.location.reload()}/>
+  }
   if(!user)return <Login onLogin={()=>window.location.reload()}/>
   function navigate(next,options={}){
     if(!options.skipTab&&next!=='profile'){
