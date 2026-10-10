@@ -15,6 +15,15 @@ test('New Custom tenant cannot push from unprovisioned UAT',()=>{
   assert.match(d.blockers.join(' '),/UAT/)
   assert.match(d.blockers.join(' '),/Production/)
 })
+test('Undecided onboarding update method is not an implicit Custom approval',()=>{
+  const d=inspectCustomerConfigurationPromotion({
+    preference:{update_mode:'admin_controlled',onboarding_selection_pending:true,
+      customer_uat_opt_in:true},
+    uat:ready('uat'),live:ready('live'),keys:['theme']})
+  assert.equal(d.eligibleForReview,false)
+  assert.equal(d.eligibleForExecution,false)
+  assert.match(d.blockers.join(' '),/not selected/)
+})
 test('Managed tenant is denied customer-specific manual configuration promotion',()=>{
   const d=inspectCustomerConfigurationPromotion({
     preference:{update_mode:'hi5_managed',customer_uat_opt_in:true},
