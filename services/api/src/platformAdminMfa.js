@@ -97,19 +97,42 @@ export async function setupAdminMfa(db,challenge) {
     ON CONFLICT(user_id) DO NOTHING`,[challenge.user_id,encryptAdminTotp(secret)])
   return {secret,setupRequired:true,issuer:'Hi5Central Platform Admin'}
 }
+export function makeAdminRecoveryCodes(){
+  return Array.from({length:10},()=>{
+    const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const bytes=randomBytes(16)
+    const raw=Array.from(bytes,b=>chars[b%chars.length]).join('')
+    return raw.match(/.{1,4}/g).join('-')
+  })
+}
+const recoveryHash=value=>createHash('sha256')
+  .update(String(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'')).digest('hex')
+
 export async function checkAdminMfaCode(db,challenge,code) {
   if(!challenge.encrypted_secret)return {ok:false}
+  const provided=String(code||'').trim()
   const secret=decryptAdminTotp(challenge.encrypted_secret)
-  const step=verifyAdminTotp(secret,code,challenge.last_used_step)
-  if(step===null) {
+  const step=verifyAdminTotp(secret,provided,challenge.last_used_step)
+  const hashes=Array.isArray(challenge.recovery_code_hashes)
+    ?challenge.recovery_code_hashes:[]
+  const hash=recoveryHash(provided)
+  const recoveryIndex=challenge.enabled && /^[A-Z0-9-]{16,25}$/i.test(provided)
+    ?hashes.indexOf(hash):-1
+  if(step===null && recoveryIndex<0) {
     await db.query('UPDATE platform_admin_mfa_challenges SET attempts=attempts+1 WHERE id=$1',[challenge.id])
     return {ok:false}
   }
+  const recoveryCodes=!challenge.enabled?makeAdminRecoveryCodes():null
+  const newHashes=recoveryCodes?recoveryCodes.map(recoveryHash)
+    :recoveryIndex>=0?hashes.filter((_,i)=>i!==recoveryIndex):hashes
   const updated=await db.query(`UPDATE platform_admin_mfa_methods SET
-    enabled=true,last_used_step=$2,enrolled_at=COALESCE(enrolled_at,now()),
-    updated_at=now() WHERE user_id=$1 AND (last_used_step IS NULL OR last_used_step<$2)
-    RETURNING user_id`,[challenge.user_id,step])
+    enabled=true,last_used_step=COALESCE($2,last_used_step),
+    recovery_code_hashes=$3::jsonb,
+    enrolled_at=COALESCE(enrolled_at,now()),updated_at=now()
+    WHERE user_id=$1 AND ($2::bigint IS NULL OR last_used_step IS NULL OR last_used_step<$2)
+      AND recovery_code_hashes=$4::jsonb RETURNING user_id`,
+    [challenge.user_id,step,JSON.stringify(newHashes),JSON.stringify(hashes)])
   if(updated.rowCount!==1)return {ok:false}
   await db.query('UPDATE platform_admin_mfa_challenges SET used_at=now() WHERE id=$1',[challenge.id])
-  return {ok:true,firstEnrollment:!challenge.enabled}
+  return {ok:true,firstEnrollment:!challenge.enabled,recoveryCodes}
 }
