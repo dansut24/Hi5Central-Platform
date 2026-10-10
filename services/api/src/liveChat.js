@@ -1,3 +1,6 @@
+import { hasPermission } from './access.js'
+import { deployment } from './deploymentConfig.js'
+import { effectiveTenantLiveChatEnabled } from './tenantFeatureRollouts.js'
 import { pool, withTransaction } from './db.js'
 import { originMatchesPortalTenant, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
@@ -29,7 +32,9 @@ async function requirePortal(c) {
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
   if (!portalOrigin(c, session)) return { error: c.json({ error: 'Portal session mismatch.' }, 403) }
-  if (session.tenant_role !== 'requester') return { error: c.json({ error: 'Requester Portal access is required.' }, 403) }
+  if (!hasPermission(session.access, 'portal.access')) return { error: c.json({ error: 'Requester Portal access is required.' }, 403) }
+  const enabled = await effectiveTenantLiveChatEnabled(session.tenant_id, deployment.runtimeEnvironment)
+  if (enabled === false) return { error: c.json({ error: 'Live Chat is not enabled for this environment.' }, 403) }
   return { session }
 }
 
@@ -151,7 +156,9 @@ async function loadConversation(db, tenantId, reference, perspective = 'agent') 
 async function portalContext(db, session) {
   const person = await personForUser(db, session.tenant_id, session.user_id)
   if (!person) return { person: null, enabled: false }
-  return { person, enabled: await entitlementForPerson(db, session.tenant_id, person.id) }
+  const enabled = session.tenant_role === 'owner'
+    || await entitlementForPerson(db, session.tenant_id, person.id)
+  return { person, enabled }
 }
 
 export function registerLiveChatRoutes(app) {

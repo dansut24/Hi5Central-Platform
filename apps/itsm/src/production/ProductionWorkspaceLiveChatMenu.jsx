@@ -37,7 +37,8 @@ function selectedPersonEmail() {
 }
 
 function liveChatWorkspaceEnabled() {
-  return document.querySelector(LIVE_CHAT_TAB_SELECTOR) instanceof HTMLElement
+  return window.location.pathname === '/live-chat'
+    || document.querySelector(LIVE_CHAT_TAB_SELECTOR) instanceof HTMLElement
 }
 
 function ensureMenuAnchor(menu) {
@@ -240,6 +241,7 @@ export function ProductionWorkspaceLiveChatMenu() {
         body: JSON.stringify({ status }),
       })
       setPresence(next)
+      window.dispatchEvent(new CustomEvent('hi5-livechat-presence-updated'))
     } catch (nextError) {
       setError(nextError.message)
     } finally {

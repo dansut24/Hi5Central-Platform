@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, CheckCheck, MessageCircle, RefreshCw, Search, Send, UserRoundCheck, X } from 'lucide-react'
+import { ArrowLeft, Check, CheckCheck, Clock3, MessageCircle, RefreshCw, Search, Send, UserRoundCheck, WifiOff, X } from 'lucide-react'
 import './ProductionKnowledgeLiveChat.css'
 
 const API_BASE = window.__HI5_API_BASE__
+const PRESENCE_HEARTBEAT_MS = 25_000
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -41,9 +42,70 @@ export function ProductionLiveChatWorkspace() {
   const [mobileThread, setMobileThread] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [presence, setPresence] = useState({ status: 'Offline', desiredStatus: 'Offline', support: null })
+  const [presenceBusy, setPresenceBusy] = useState(false)
+  const [presenceError, setPresenceError] = useState('')
   const selectedRefRef = useRef('')
+  const desiredPresenceRef = useRef('Offline')
 
   useEffect(() => { selectedRefRef.current = selectedRef }, [selectedRef])
+  useEffect(() => { desiredPresenceRef.current = presence.desiredStatus }, [presence.desiredStatus])
+
+  // Server presence expires when this client stops heartbeating.
+  useEffect(() => {
+    if (!active) return undefined
+    let mounted = true
+    const refreshPresence = async (heartbeat = false) => {
+      try {
+        const next = await api(heartbeat
+          ? '/api/v1/live-chat/presence/heartbeat'
+          : '/api/v1/live-chat/presence', heartbeat ? { method: 'POST' } : {})
+        if (mounted) {
+          setPresence(next)
+          desiredPresenceRef.current = next.desiredStatus
+          setPresenceError('')
+        }
+      } catch (nextError) {
+        if (mounted) setPresenceError(nextError.message)
+      }
+    }
+    refreshPresence()
+    const timer = window.setInterval(() => {
+      refreshPresence(desiredPresenceRef.current === 'Online' || desiredPresenceRef.current === 'Away')
+    }, PRESENCE_HEARTBEAT_MS)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible')
+        refreshPresence(desiredPresenceRef.current === 'Online' || desiredPresenceRef.current === 'Away')
+    }
+    const onUpdated = () => refreshPresence()
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('hi5-livechat-presence-updated', onUpdated)
+    return () => {
+      mounted = false
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('hi5-livechat-presence-updated', onUpdated)
+    }
+  }, [active])
+
+  async function updateAvailability(status) {
+    if (presenceBusy) return
+    setPresenceBusy(true)
+    setPresenceError('')
+    try {
+      const next = await api('/api/v1/live-chat/presence', {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      })
+      desiredPresenceRef.current = next.desiredStatus
+      setPresence(next)
+      window.dispatchEvent(new CustomEvent('hi5-livechat-presence-updated'))
+    } catch (nextError) {
+      setPresenceError(nextError.message)
+    } finally {
+      setPresenceBusy(false)
+    }
+  }
 
   useEffect(() => {
     const sync = () => setActive(window.location.pathname === '/live-chat')
@@ -143,6 +205,30 @@ export function ProductionLiveChatWorkspace() {
     <div className={`production-live-chat-root ${mobileThread ? 'mobile-thread-open' : ''}`}>
       <aside className="plc-inbox">
         <header><div><small>Support messenger</small><h2>Live Chat</h2></div><button className="plc-icon" onClick={() => loadList()} title="Refresh"><RefreshCw size={17} /></button></header>
+        <div className="plc-agent-availability" role="group" aria-label="My Live Chat availability">
+          <div className="plc-agent-availability-heading">
+            <span className={'plc-agent-status-dot is-' + presence.status.toLowerCase()} aria-hidden="true" />
+            <span><strong>My availability: {presence.status === 'Online' ? 'Available' : presence.status}</strong>
+              <small>{presence.status === 'Online' && presence.support?.available === false
+                ? 'Service Desk hours may prevent new chats'
+                : presence.status === 'Online' ? 'Requesters can start a chat with you'
+                  : presence.status === 'Away' ? 'New chat requests are paused'
+                    : 'Go Available to accept new chats'}</small>
+            </span>
+          </div>
+          <div className="plc-agent-availability-actions">
+            <button type="button" disabled={presenceBusy} aria-pressed={presence.status === 'Online'}
+              className={presence.status === 'Online' ? 'is-selected' : ''}
+              onClick={() => updateAvailability('Online')}><Check size={14} /> Go Available</button>
+            <button type="button" disabled={presenceBusy} aria-pressed={presence.status === 'Away'}
+              className={presence.status === 'Away' ? 'is-selected' : ''}
+              onClick={() => updateAvailability('Away')}><Clock3 size={14} /> Away</button>
+            <button type="button" disabled={presenceBusy} aria-pressed={presence.desiredStatus === 'Offline'}
+              className={presence.desiredStatus === 'Offline' ? 'is-selected' : ''}
+              onClick={() => updateAvailability('Offline')}><WifiOff size={14} /> Offline</button>
+          </div>
+          {presenceError ? <p className="plc-agent-availability-error" role="alert">{presenceError}</p> : null}
+        </div>
         <label className="plc-search"><Search size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search real conversations…" /></label>
         <div className="plc-filters">{['All','Waiting','Open','Closed'].map((item) => <button className={filter === item ? 'active' : ''} key={item} onClick={() => setFilter(item)}><span>{item}</span><strong>{counts[item]}</strong></button>)}</div>
         <div className="plc-list">{filtered.map((item) => <button className={`${selectedRef === item.reference ? 'active' : ''} ${item.unread ? 'unread' : ''}`} key={item.reference} onClick={() => select(item)}><span className="plc-avatar">{initials(item.participant?.name)}</span><span className="plc-copy"><span><strong>{item.participant?.name}</strong><small>{formatTime(item.updatedAt)}</small></span><b>{item.subject}</b><em>{item.lastMessage || 'Conversation started'}</em><small>{item.reference} · {item.status}{item.assignedTo ? ` · ${item.assignedTo}` : ''}</small></span>{item.unread ? <i>{item.unread > 99 ? '99+' : item.unread}</i> : null}</button>)}{!filtered.length ? <div className="plc-empty"><MessageCircle size={28} /><strong>No conversations</strong><span>Real portal chats will appear here when entitled users start one.</span></div> : null}</div>
