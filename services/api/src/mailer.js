@@ -212,3 +212,40 @@ export async function sendManagedSandboxInvitationEmail({ to, name, companyName,
     }),
   })
 }
+
+/**
+ * Pilot ONLY. No owner gets a password or session from this message. The
+ * independently signed offline bootstrap operator must authorize delivery.
+ */
+export async function sendPilotAdminBootstrapInvitationEmail({to,name,token}) {
+  if(process.env.PILOT_ADMIN_BOOTSTRAP_ENABLED!=='true'
+    || process.env.PLATFORM_ADMIN_MFA_REQUIRED!=='true'
+    || process.env.ADMIN_URL!=='https://pilot-admin.hi5central.com'
+    || !process.env.SMTP_HOST) {
+    throw new Error('Private pilot scoped SMTP and mandatory MFA must be approved before delivery.')
+  }
+  const invitationUrl=new URL('/accept-admin-invitation','https://pilot-admin.hi5central.com')
+  invitationUrl.searchParams.set('email',to)
+  invitationUrl.searchParams.set('token',token)
+  const transporter=nodemailer.createTransport(smtpConfig())
+  const actionUrl=invitationUrl.toString()
+  return transporter.sendMail({
+    from:process.env.SMTP_FROM||process.env.SMTP_USER,to,
+    subject:'Your Hi5Central pilot Platform Admin invitation',
+    text:[
+      `Hello ${name},`,'',
+      'You have been invited as the first Hi5Central pilot Platform Administrator.',
+      'This is the separately isolated pilot, NOT a Production administrator account.',
+      `Set your password using your one-time invitation: ${actionUrl}`,'',
+      'The link expires in 24 hours. After acceptance, you must enrol an authenticator.',
+      'No Admin access is granted until password login and MFA verification complete.',
+    ].join('\\n'),
+    html:emailShell({
+      kicker:'Isolated pilot • First Platform Administrator',
+      title:'Set up your pilot administrator account',
+      body:`Hello ${escapeHtml(name)}, you have been invited to the separate Hi5Central pilot management environment. Create your password using the one-time link, then sign in and enrol multi-factor authentication. This is <strong>not</strong> access to Production.`,
+      actionLabel:'Accept pilot administrator invitation',actionUrl,
+      footer:'Expires after 24 hours. This link can be used once. Do not forward it.',
+    }),
+  })
+}
