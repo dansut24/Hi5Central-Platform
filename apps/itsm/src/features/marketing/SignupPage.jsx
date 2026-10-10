@@ -6,6 +6,7 @@ import './MarketingApp.css'
 const API_BASE = window.__HI5_API_BASE__
 const DEPLOYMENT = deploymentConfig()
 const SINGLE_TENANT = DEPLOYMENT.tenancyMode === 'single'
+const MANAGED_SIGNUP = DEPLOYMENT.deploymentMode === 'managed' && !SINGLE_TENANT
 const SELF_HOST_SINGLE = DEPLOYMENT.deploymentMode === 'self_hosted' && SINGLE_TENANT
 
 function slugFromCompany(value = '') {
@@ -46,6 +47,11 @@ export function SignupPage() {
     email: '',
     password: '',
     confirmPassword: '',
+    updateMode: '',
+    deploymentDay: 'sun',
+    deploymentTime: '02:00',
+    deploymentTimezone: 'Europe/London',
+    customerUatOptIn: false,
     itsm: true,
     rmm: Boolean(DEPLOYMENT.rmmUrl),
   })
@@ -59,6 +65,9 @@ export function SignupPage() {
   useEffect(() => {
     document.title = SELF_HOST_SINGLE ? 'Set up Hi5Central' : 'Create your Hi5Central workspace'
     const params = new URLSearchParams(window.location.search)
+    if (params.get('verification') === 'received') {
+      setCreated({status:'verified',verificationRequired:true})
+    }
     if (params.get('verification') === 'invalid') {
       setError('That verification link is invalid, expired or has already been used.')
     }
@@ -109,13 +118,15 @@ export function SignupPage() {
   async function submit(event) {
     event.preventDefault()
     setError('')
-    if (form.password !== form.confirmPassword) return setError('Your passwords do not match.')
+    if (!MANAGED_SIGNUP && form.password !== form.confirmPassword) return setError('Your passwords do not match.')
+    if (MANAGED_SIGNUP && !['hi5_managed','admin_controlled'].includes(form.updateMode))
+      return setError('Select Managed or Custom updates before continuing.')
     if (!form.itsm && !form.rmm) return setError('Select at least one Hi5Central product.')
     if (SELF_HOST_SINGLE && !setupToken) return setError('Enter the initial setup code shown by the Hi5Central installer.')
 
     setSubmitting(true)
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/signup`, {
+      const response = await fetch(`${API_BASE}${MANAGED_SIGNUP?'/api/v1/public/signup-requests':'/api/v1/auth/signup'}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -125,14 +136,20 @@ export function SignupPage() {
           name: form.name,
           email: form.email,
           password: form.password,
-          modules: [form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
+          modules: MANAGED_SIGNUP?undefined:[form.itsm ? 'itsm' : null, form.rmm ? 'rmm' : null].filter(Boolean),
           setupToken: SELF_HOST_SINGLE ? setupToken : undefined,
+          updateMode: MANAGED_SIGNUP?form.updateMode:undefined,
+          deploymentDay: MANAGED_SIGNUP?form.deploymentDay:undefined,
+          deploymentTime: MANAGED_SIGNUP?form.deploymentTime:undefined,
+          deploymentTimezone: MANAGED_SIGNUP?form.deploymentTimezone:undefined,
+          customerUatOptIn: MANAGED_SIGNUP?form.customerUatOptIn:undefined,
+          modules: MANAGED_SIGNUP?{itsm:form.itsm,rmm:form.rmm}:undefined,
         }),
       })
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || 'We could not create your workspace.')
 
-      if (data.verificationRequired === false && data.status === 'active') {
+      if (!MANAGED_SIGNUP && data.verificationRequired === false && data.status === 'active') {
         window.location.replace('/onboarding')
         return
       }
@@ -165,32 +182,38 @@ export function SignupPage() {
 
   if (created) {
     const delivered = created.verificationDelivery === 'sent'
+    const pendingManaged = MANAGED_SIGNUP
     return (
       <div className="marketing-site marketing-signup-site">
         <Header />
         <main className="marketing-signup-wrap">
           <section className="marketing-signup-success">
             <div className="marketing-success-icon"><CheckCircle2 size={28} /></div>
-            <span className="marketing-eyebrow">Workspace created</span>
-            <h1>Check your email to activate Hi5Central.</h1>
-            <p>
-              We created <strong>{created.tenant?.companyName}</strong> and reserved <strong>{created.tenant?.tenantUrl || tenantPreview}</strong> for you.
+            <span className="marketing-eyebrow">{pendingManaged?'Customer signup':'Workspace created'}</span>
+            <h1>{pendingManaged?(created.status==='verified'?'Email verified — request received.':'Check your email to verify your request.'):'Check your email to activate Hi5Central.'}</h1>
+            <p>{pendingManaged
+              ? 'Your request is being reviewed. No Production or UAT environment has been activated, and you do not have a workspace login yet.'
+              : <>We created <strong>{created.tenant?.companyName}</strong> and reserved <strong>{created.tenant?.tenantUrl || tenantPreview}</strong> for you.</>}
             </p>
-            <div className="marketing-created-urls">
+            {!pendingManaged?<div className="marketing-created-urls">
               <div><span>ITSM workspace</span><strong>{created.tenant?.tenantUrl}</strong></div>
               <div><span>Self-service portal</span><strong>{created.tenant?.portalUrl}</strong></div>
               {created.tenant?.rmmUrl ? <div><span>RMM workspace</span><strong>{created.tenant.rmmUrl}</strong></div> : null}
             </div>
             <div className="marketing-notice">
-              {delivered
+              {pendingManaged
+                ? created.status==='verified'
+                  ? 'We have your verified request. An approved operator will prepare your customer environment and send your secure owner invitation when it is ready.'
+                  : 'A verification link has been sent to your email address. Following verification, our team will review your requested customer URL and update options.'
+                :delivered
                 ? `A one-time verification link has been sent to ${created.admin?.email}. It expires in 24 hours.`
                 : 'Your tenant was created, but the verification email could not be delivered. Check SMTP configuration and resend.'}
             </div>
             {resendState === 'sent' ? <div className="marketing-notice">A fresh verification email has been requested.</div> : null}
             {resendState === 'failed' ? <div className="marketing-form-error">We could not resend the verification email.</div> : null}
-            <button className="marketing-button" onClick={resend} disabled={resendState === 'sending'} type="button">
+            {!pendingManaged?<button className="marketing-button" onClick={resend} disabled={resendState === 'sending'} type="button">
               {resendState === 'sending' ? 'Sending…' : 'Resend verification email'}
-            </button>
+            </button>:null}
           </section>
         </main>
       </div>
@@ -207,7 +230,9 @@ export function SignupPage() {
           <p>
             {SELF_HOST_SINGLE
               ? 'Your installation is running. Create the first organisation and owner account to continue to onboarding.'
-              : 'Your tenant URL, administrator account and product selection are created together. Verify your email, complete onboarding and enter the workspace automatically.'}
+              : MANAGED_SIGNUP
+                ? 'Request a managed customer workspace. Verify your email first; then we prepare your environment and send your secure first-owner invitation. Nothing is deployed automatically.'
+                : 'Your tenant URL, administrator account and product selection are created together. Verify your email, complete onboarding and enter the workspace automatically.'}
           </p>
           <div className="marketing-signup-points">
             <span><CheckCircle2 size={18} /> {SINGLE_TENANT ? 'Single-organisation workspace' : 'Dedicated tenant workspace'}</span>
@@ -258,24 +283,52 @@ export function SignupPage() {
             <label className={`marketing-product-choice ${form.rmm ? 'is-selected' : ''}`}><input type="checkbox" checked={form.rmm} onChange={(event) => updateField('rmm', event.target.checked)} /><MonitorCog size={19} /><span><strong>RMM</strong><small>Endpoint management</small></span></label>
           </div>
 
+          {MANAGED_SIGNUP?<section className="marketing-signup-updates">
+            <div className="marketing-product-choice-heading">Keeping Hi5Central up to date</div>
+            <p>Choose how approved web-platform releases reach your Production. Customer-specific settings and records are never automatically copied across environments.</p>
+            <div className="marketing-update-choice-grid" role="group" aria-label="Update management">
+              <button type="button" className={`marketing-update-choice ${form.updateMode==='hi5_managed'?'is-selected':''}`}
+                onClick={()=>updateField('updateMode','hi5_managed')}>
+                <strong>Managed (recommended)</strong><span>Hi5Central updates Production in your selected window. Your own UAT is optional.</span>
+              </button>
+              <button type="button" className={`marketing-update-choice ${form.updateMode==='admin_controlled'?'is-selected':''}`}
+                onClick={()=>updateField('updateMode','admin_controlled')}>
+                <strong>Custom — manual approval</strong><span>Use your own UAT to review each release and approve UAT → Production.</span>
+              </button>
+            </div>
+            {form.updateMode==='hi5_managed'?<div className="marketing-form-grid">
+              <label><span>Update day</span><select value={form.deploymentDay} onChange={e=>updateField('deploymentDay',e.target.value)}>
+                {['mon','tue','wed','thu','fri','sat','sun'].map((day,i)=><option value={day} key={day}>{['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][i]}</option>)}
+              </select></label>
+              <label><span>Start time</span><input type="time" value={form.deploymentTime} onChange={e=>updateField('deploymentTime',e.target.value)}/></label>
+              <label><span>Timezone</span><select value={form.deploymentTimezone} onChange={e=>updateField('deploymentTimezone',e.target.value)}>
+                {['Europe/London','Europe/Dublin','UTC','Europe/Paris','Europe/Berlin','America/New_York','America/Chicago','America/Los_Angeles','Asia/Dubai','Asia/Singapore','Australia/Sydney'].map(zone=><option key={zone} value={zone}>{zone}</option>)}
+              </select></label>
+              <label><span>Optional customer UAT</span><input type="checkbox" checked={form.customerUatOptIn} onChange={e=>updateField('customerUatOptIn',e.target.checked)}/> I want a dedicated UAT too</label>
+            </div>:null}
+            {form.updateMode==='admin_controlled'?<div className="marketing-notice">A dedicated customer UAT is required. Promotion to Production needs manual approval.</div>:null}
+          </section>:null}
+
           <div className="marketing-form-grid">
             <label><span>Your name</span><input value={form.name} onChange={(event) => updateField('name', event.target.value)} required autoComplete="name" /></label>
             <label><span>Email</span><input type="email" value={form.email} onChange={(event) => updateField('email', event.target.value)} required autoComplete="email" /></label>
           </div>
-          <div className="marketing-form-grid">
+          {!MANAGED_SIGNUP?<div className="marketing-form-grid">
             <label><span>Password</span><input type="password" value={form.password} onChange={(event) => updateField('password', event.target.value)} required minLength={12} autoComplete="new-password" /><small>Use at least 12 characters.</small></label>
             <label><span>Confirm password</span><input type="password" value={form.confirmPassword} onChange={(event) => updateField('confirmPassword', event.target.value)} required minLength={12} autoComplete="new-password" /></label>
-          </div>
+          </div>:null
 
           {error ? <div className="marketing-form-error">{error}</div> : null}
-          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable'}>
-            {submitting ? 'Creating workspace…' : SELF_HOST_SINGLE ? 'Create administrator' : 'Create workspace'}
+          <button className="marketing-button marketing-submit" type="submit" disabled={submitting || slugStatus === 'unavailable' || (MANAGED_SIGNUP&&!form.updateMode)}>
+            {submitting ? 'Submitting…' : SELF_HOST_SINGLE ? 'Create administrator' : MANAGED_SIGNUP?'Request customer workspace':'Create workspace'}
             {!submitting ? <ArrowRight size={18} /> : null}
           </button>
           <p className="marketing-form-footnote">
             {SELF_HOST_SINGLE
               ? 'The setup code is only accepted while this installation has no tenant.'
-              : 'By creating a workspace you agree to use Hi5Central for legitimate business administration and support purposes.'}
+              : MANAGED_SIGNUP
+                ? 'Your email verification confirms the signup request, not a live workspace. Owner invitations follow independent environment setup.'
+                : 'By creating a workspace you agree to use Hi5Central for legitimate business administration and support purposes.'}
           </p>
         </form>
       </main>
