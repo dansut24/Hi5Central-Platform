@@ -44,7 +44,9 @@ jobs:
           cache: npm
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
-      - run: node --check src/tenantEnvironmentProvisioner.js && node --check src/index.js
+      - run: node --check src/tenantEnvironmentProvisioner.js && node --check src/index.js && node --check src/tenantSlugPolicy.js
+      - name: Verify signup vs existing sandbox slug validation
+        run: node --test test/tenant-slug-policy.test.mjs
       - name: Create independent Test and UAT logical databases
         env: {PGPASSWORD: ci_password}
         run: |
