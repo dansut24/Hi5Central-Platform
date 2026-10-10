@@ -255,7 +255,11 @@ export async function sendManagedSignupRequestVerificationEmail({email,name,comp
     ||process.env.MANAGED_SIGNUP_SMTP_APPROVED!=='true'
     ||process.env.API_URL!=='https://pilot-control-api.hi5central.com')
     throw new Error('Scoped managed signup verification is disabled.')
-  const endpoint=new URL('/api/v1/public/signup-requests/verify',process.env.API_URL)
+  // In the single-recipient signup pilot, only the reviewed public
+  // verification path is exposed; the control-plane hostname stays private.
+  const verifyOrigin=process.env.MANAGED_SIGNUP_TEST_ONLY==='true'
+    ? 'https://hi5central.com' : process.env.API_URL
+  const endpoint=new URL('/api/v1/public/signup-requests/verify',verifyOrigin)
   endpoint.searchParams.set('token',token)
   const url=endpoint.toString()
   const transporter=nodemailer.createTransport(smtpConfig())
