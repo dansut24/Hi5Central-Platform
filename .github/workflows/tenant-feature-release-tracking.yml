@@ -28,6 +28,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_ci
       TENANT_UAT_DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_uat_ci
+      TENANT_TEST_DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_test_ci
       DEPLOYMENT_MODE: managed
       TENANCY_MODE: multi
       ROOT_DOMAIN: hi5central.com
@@ -46,12 +47,15 @@ jobs:
       - run: npm ci
       - name: Check API source syntax
         run: node --check src/tenantFeatureRollouts.js && node --check src/index.js
-      - name: Create isolated UAT DB
+      - name: Create isolated Test and UAT databases
         env: {PGPASSWORD: ci_only_password}
-        run: psql -h localhost -U hi5_ci -d hi5_release_ci -c 'CREATE DATABASE hi5_release_uat_ci'
-      - name: Migrate independent Live and UAT
+        run: |
+          psql -h localhost -U hi5_ci -d hi5_release_ci -c 'CREATE DATABASE hi5_release_test_ci'
+          psql -h localhost -U hi5_ci -d hi5_release_ci -c 'CREATE DATABASE hi5_release_uat_ci'
+      - name: Migrate independent Live, Test and UAT
         run: |
           npm run migrate
+          DATABASE_URL="$TENANT_TEST_DATABASE_URL" npm run migrate
           DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
-      - name: Test staged rollout, acceptance, promotion, tenant isolation
+      - name: Test failed-ledger rollback, staged rollout, acceptance and tenant isolation
         run: node test/tenant-feature-release-tracking.mjs
