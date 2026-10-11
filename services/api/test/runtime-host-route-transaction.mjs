@@ -14,6 +14,13 @@ const source=`*.hi5central.com {
     reverse_proxy hi5pool-other-web:80
   }
   # HI5_RUNTIME_ROUTE_BEGIN live:testing
+  @testingApi {
+    host testing.hi5central.com
+    path /api/v1/*
+  }
+  handle @testingApi {
+    reverse_proxy hi5pool-legacy-api:3001
+  }
   @testingHost host testing.hi5central.com
   handle @testingHost {
     reverse_proxy hi5pool-legacy-web:80
@@ -25,7 +32,7 @@ const source=`*.hi5central.com {
 const intent={
  environment:'live',tenantSlug:'testing',publicHost:'testing.hi5central.com',
  buildSha:sha,previousUpstream:'hi5pool-legacy-web:80',nextUpstream:'hi5pool-release-web:80',
- nextApiTarget:'hi5pool-release-api:3001',
+ previousApiTarget:'hi5pool-legacy-api:3001',nextApiTarget:'hi5pool-release-api:3001',
  expectedCaddySha256:createHash('sha256').update(source).digest('hex'),routeGeneration:4,
  issuedAt:'2026-10-11T21:59:00Z',expiresAt:'2026-10-11T22:09:00Z',
 }
@@ -38,9 +45,11 @@ assert.throws(()=>verifyHostRouteIntent({...auth,now:new Date('2026-10-11T23:00:
 assert.throws(()=>verifyHostRouteIntent({...auth,intent:{...intent,tenantSlug:'another'}}),/approved tenant/)
 const candidate=renderVerifiedTenantRoute(source,intent)
 assert.ok(candidate.includes('reverse_proxy hi5pool-release-web:80'))
+assert.ok(candidate.includes('reverse_proxy hi5pool-release-api:3001'))
 assert.ok(candidate.includes('reverse_proxy hi5pool-other-web:80'))
 assert.ok(!candidate.includes('reverse_proxy hi5pool-legacy-web:80'))
-assert.equal(candidate.replace('hi5pool-release-web:80','hi5pool-legacy-web:80'),source)
+assert.equal(candidate.replace('hi5pool-release-web:80','hi5pool-legacy-web:80')
+ .replace('hi5pool-release-api:3001','hi5pool-legacy-api:3001'),source)
 assert.throws(()=>renderVerifiedTenantRoute(source.replace(
  '# HI5_RUNTIME_ROUTE_BEGIN live:testing','# NO_AUTO_ROUTE live:testing'),intent),/operator-provisioned/)
 assert.throws(()=>renderVerifiedTenantRoute(source.replace(
