@@ -1,0 +1,21 @@
+.hi5-runtime-updates{display:grid;gap:12px}
+.hi5-runtime-updates-meta{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.hi5-runtime-updates-meta span{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:800}
+.hi5-runtime-updates-meta small{color:var(--muted);font-size:11px;line-height:1.45}
+.hi5-runtime-update{display:grid;gap:11px;min-width:0;border:1px solid var(--line);border-radius:11px;padding:14px;background:var(--surface-soft)}
+.hi5-runtime-update-header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.hi5-runtime-update-header>div{min-width:0;display:grid;gap:5px}
+.hi5-runtime-update-header span{font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:850}
+.hi5-runtime-update-header strong{font-size:13px;overflow-wrap:anywhere}
+.hi5-runtime-update-header small,.hi5-runtime-update>small{font-size:10px;color:var(--muted)}
+.hi5-runtime-update-header a{display:inline-flex;gap:5px;align-items:center;flex:none;text-decoration:none;font-size:11px;color:var(--settings-accent)}
+.hi5-runtime-uat-accept,.hi5-runtime-update-actions{display:grid;gap:11px}
+.hi5-runtime-uat-accept p,.hi5-runtime-update-actions p,.hi5-runtime-update>p{font-size:11px;line-height:1.55;color:var(--muted);margin:0}
+.hi5-runtime-uat-accept label{display:flex;align-items:center;gap:9px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);font-size:11px}
+.hi5-runtime-uat-accept input{width:16px;height:16px;accent-color:var(--settings-accent);flex:none}
+.hi5-runtime-uat-accept textarea,.hi5-runtime-update-actions input{padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:12px;width:100%;min-width:0}
+.hi5-runtime-update-actions label{display:grid;gap:6px;font-size:11px;font-weight:750}
+.hi5-runtime-uat-accept button,.hi5-runtime-update-actions button{display:inline-flex;justify-content:center;align-items:center;gap:7px;width:max-content;max-width:100%;padding:10px 12px;border:1px solid var(--settings-accent);border-radius:8px;background:var(--settings-accent);color:white;font-size:12px;font-weight:750;cursor:pointer}
+.hi5-runtime-uat-accept button:disabled,.hi5-runtime-update-actions button:disabled{opacity:.45;cursor:not-allowed}
+.hi5-runtime-update-pending{border-left:3px solid var(--settings-accent);padding-left:10px}
+@media(max-width:680px){.hi5-runtime-update-header{flex-wrap:wrap}.hi5-runtime-update-header a{align-self:flex-start}.hi5-runtime-uat-accept button,.hi5-runtime-update-actions button{width:100%}}
