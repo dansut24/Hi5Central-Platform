@@ -172,6 +172,14 @@ export function registerConfigurationReleaseRoutes(app){
         await db.query(
           `UPDATE tenant_settings SET configuration=$2::jsonb,updated_at=now()
             WHERE tenant_id=$1`,[auth.session.tenant_id,JSON.stringify(next)])
+        if(body.changes.some(item=>item.id==='company.displayName')) {
+          const displayName=String(next?.company?.displayName||'').trim()
+          if(displayName.length<2||displayName.length>120)
+            throw error('The promoted organisation name must be 2–120 characters.',400)
+          await db.query(
+            'UPDATE tenants SET company_name=$2,updated_at=now() WHERE id=$1',
+            [auth.session.tenant_id,displayName])
+        }
         if(!requiresMfaBefore&&requiresMfaAfter){
           // The exact same security enforcement as an ordinary Production
           // security settings save, without copying UAT sessions or secrets.
