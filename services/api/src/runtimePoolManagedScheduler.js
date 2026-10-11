@@ -31,7 +31,7 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
  })
 
  // A read-only host poll. It evaluates the *current* maintenance policy,
- // UAT acceptance, delay and fresh pool health on every call. No route changes.
+ // customer UAT or centrally published release, delay and pool health on every call. No route changes.
  app.get('/api/platform-operator/v1/runtime-pools/due',async c=>{
   const denied=requireOperator(c)
   if(denied)return denied
@@ -44,10 +44,11 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
    'q.build_sha AS pool_build_sha,q.state AS pool_state,',
    'q.api_target,q.web_target,q.last_seen_at,q.verified_at,',
    'a.state AS uat_state,a.build_sha AS uat_build_sha,',
-   'a.uat_accepted_at AS uat_time',
+   'a.uat_accepted_at AS uat_time, rel.published_at AS release_published_at',
    'FROM tenant_runtime_update_offers o',
    'JOIN tenant_release_preferences p ON p.tenant_id=o.tenant_id',
    'JOIN platform_runtime_pools q ON q.id=o.pool_id AND q.environment=o.environment',
+   'LEFT JOIN hi5central_published_release_notes rel ON rel.build_sha=o.build_sha',
    'LEFT JOIN LATERAL (SELECT state,build_sha,uat_accepted_at',
    'FROM tenant_runtime_update_offers u',
    "WHERE u.tenant_id=o.tenant_id AND u.environment='uat'",
@@ -70,7 +71,7 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
     },
     uatOffer:row.uat_state?{
      state:row.uat_state,build_sha:row.uat_build_sha,uat_accepted_at:row.uat_time,
-    }:null,now,
+    }:null,publishedAt:row.release_published_at,now,
    })
    const item={id:row.id,tenantId:row.tenant_id,
     buildSha:row.build_sha,poolId:row.pool_id,reason:gate.reason}
