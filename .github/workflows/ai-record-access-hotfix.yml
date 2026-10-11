@@ -57,6 +57,7 @@ jobs:
           cache-dependency-path: apps/itsm/package-lock.json
       - run: npm ci
       - run: node test/release-tracking-layout.mjs
+      - run: node test/update-publication-status.mjs
       - run: npm run build
   package:
     needs: [verify-api,verify-ui]
