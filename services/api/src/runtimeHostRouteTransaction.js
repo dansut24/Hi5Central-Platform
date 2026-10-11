@@ -4,6 +4,7 @@ const shaPattern=/^[a-f0-9]{40}$/
 const hashPattern=/^[a-f0-9]{64}$/
 const slugPattern=/^[a-z0-9][a-z0-9-]{1,45}[a-z0-9]$/
 const upstreamPattern=/^hi5pool-[a-z0-9-]+-web:80$/
+const apiPattern=/^hi5pool-[a-z0-9-]+-api:3001$/
 const environmentSuffix={live:'',uat:'-uat',test:'-test'}
 const digest=data=>createHash('sha256').update(data).digest('hex')
 const stable=v=>Array.isArray(v)?v.map(stable):v!==null&&typeof v==='object'
@@ -18,11 +19,12 @@ export function verifyHostRouteIntent({intent,signature,publicKeyPem,now=new Dat
  if(!intent||typeof intent!=='object'||Array.isArray(intent))
   refuse('Route intent is missing.')
  const {environment,tenantSlug,publicHost,buildSha,previousUpstream,
-  nextUpstream,expectedCaddySha256,routeGeneration,issuedAt,expiresAt}=intent
+  nextUpstream,nextApiTarget,expectedCaddySha256,routeGeneration,issuedAt,expiresAt}=intent
  if(!Object.hasOwn(environmentSuffix,environment)||!slugPattern.test(tenantSlug||'')
    ||publicHost!==tenantSlug+environmentSuffix[environment]+'.hi5central.com'
    ||!shaPattern.test(buildSha||'')||!hashPattern.test(expectedCaddySha256||'')
    ||!upstreamPattern.test(previousUpstream||'')||!upstreamPattern.test(nextUpstream||'')
+   ||!apiPattern.test(nextApiTarget||'')
    ||previousUpstream===nextUpstream
    ||!Number.isSafeInteger(routeGeneration)||routeGeneration<=0)
   refuse('Route intent does not match the approved tenant, immutable build or internal targets.')
