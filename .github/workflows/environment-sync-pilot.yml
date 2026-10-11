@@ -1,0 +1,96 @@
+name: Pinned tenant reference sync pilot
+on:
+  push:
+    branches: [pilot/production-reference-sync-20261011]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_sync_live_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_sync_live_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    defaults:
+      run: {working-directory: services/api}
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_sync_live_ci
+      TENANT_UAT_DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_sync_uat_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+      ENV_REFERENCE_SYNC_PILOT_TENANT_SLUG: sync-tenant
+      ENV_REFERENCE_SYNC_APPLY_ENABLED: 'true'
+      ENV_REFERENCE_SYNC_AUTO_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/environmentReferencePlan.js && node --check src/environmentReferenceSync.js && node --check src/index.js
+      - run: node test/environment-reference-sync.mjs
+      - run: PGPASSWORD=ci_only_password psql -h localhost -U hi5_ci -d hi5_sync_live_ci -c 'CREATE DATABASE hi5_sync_uat_ci'
+      - run: |
+          npm run migrate
+          DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
+      - run: node test/environment-reference-db.mjs
+      - run: npm run build:runtime
+  web:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: apps/itsm}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: npm run build
+  package:
+    needs: [api,web]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - name: itsm
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:reference-sync-pilot-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.hi5central.purpose=isolated-tenant-reference-sync-pilot
