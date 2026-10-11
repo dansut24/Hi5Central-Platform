@@ -28,7 +28,7 @@ export function ItsmAiAssistPanel({record}){
     try{
       const r=await fetch(BASE+'/api/v1/itsm-ai/summary',{
         method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({reference,type:record.type,title:record.title,description:record.description,status:record.status,priority:record.priority,category:record.category}),
+        body:JSON.stringify({reference}), // API loads verified lifecycle record context.
       })
       const p=await r.json().catch(()=>({}))
       if(!r.ok)throw Error(p.error||'Could not generate a summary.')
