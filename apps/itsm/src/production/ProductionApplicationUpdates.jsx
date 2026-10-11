@@ -249,7 +249,8 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   const installed=releases.find(release=>release.buildSha===data?.sha)
   const latest=releases[0]
   const candidate=releases.find(release=>release.buildSha===data?.sha)
-  const available=latest&&latest.buildSha!==data?.sha
+  const preview=ENV!=='live'&&!installed
+  const available=Boolean(ENV==='live'&&installed&&latest&&latest.buildSha!==data?.sha)
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
       <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
@@ -264,14 +265,14 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Installed version</span>
-          <strong>{displayVersion(installed?.versionLabel)||displayVersion(data.releaseName)||short(data.sha)}</strong>
+          <strong>{displayVersion(installed?.versionLabel)||(preview?'Preview build':'Not yet published')}</strong>
           <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
         <article><span className="hi5-updates-kicker">Latest published</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
         <article><span className="hi5-updates-kicker">Update status</span>
-          <strong>{available?'Available':latest?'Up to date':'No published update'}</strong>
-          <small>{available?'A version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
+          <strong>{preview?'Preview':available?'Available':installed?'Up to date':'No published update'}</strong>
+          <small>{preview?'This build has not been published to customers':available?'A newer version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
       </div>
       {ENV==='dev'?<>
         <DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>
