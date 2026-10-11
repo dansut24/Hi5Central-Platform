@@ -43,6 +43,7 @@ import { deploymentConfig } from '../lib/deploymentConfig.js'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { Hi5EntityTypeahead } from './Hi5EntityTypeahead.jsx'
 import { RecordLinkedDevices } from './RecordLinkedDevices.jsx'
+import {ItsmAiAssistPanel} from './ItsmAiAssistPanel.jsx'
 import { RecordTasksPanel, RecordApprovalsPanel } from './RecordWorkflowPanels.jsx'
 import { RichNoteEditor, RichActivityBody, sanitizeNoteHtml } from './ProductionRichNoteEditor.jsx'
 import './ProductionRecordWorkspace.css'
@@ -1135,6 +1136,7 @@ function RecordWorkspace({ route }) {
   </aside>
 
   const renderActivity = () => <section className="record-lab-panel record-lab-tab-panel record-lab-activity-panel">
+    {route.type!=='Service Request' ? <ItsmAiAssistPanel record={detail}/> : null}
     {workbenchMode === 'focus' ? <div className={`record-lab-issue-summary${summaryLong ? ' is-collapsible' : ''}${summaryExpanded ? ' is-expanded' : ''}`}>
       <div className="record-lab-issue-summary-heading"><span>{route.type === 'Service Request' ? 'Request summary' : route.type === 'Change' ? 'Change summary' : route.type === 'Problem' ? 'Problem summary' : 'Issue summary'}</span><small>Original description</small></div>
       <p>{originalSummary || 'No issue description has been provided yet.'}</p>
