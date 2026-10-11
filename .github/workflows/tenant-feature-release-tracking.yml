@@ -10,6 +10,7 @@ on:
       - 'services/api/test/application-updates.mjs'
       - 'services/api/test/curated-release-notes.mjs'
       - 'services/api/migrations/platform-admin/146_curated_release_notes.sql'
+      - 'services/api/migrations/platform-admin/147_managed_release_version_labels.sql'
       - 'apps/itsm/src/production/ProductionApplicationUpdates.jsx'
       - 'apps/itsm/src/production/ProductionApplicationUpdates.css'
       - 'services/api/src/platformAdmin.js'
