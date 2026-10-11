@@ -32,6 +32,14 @@ export function mfaRequiredFor(row) {
   return security.requireMfa && ['owner', 'admin'].includes(row.tenant_role)
 }
 
+
+// An environment can request stronger MFA than the Live tenant requires.
+// This flag only adds a challenge; it can never disable the Live MFA policy.
+// Password verification and all MFA challenges remain on the Live authority.
+export function loginMfaRequired(row, forceMfa = false) {
+  return mfaRequiredFor(row) || forceMfa === true
+}
+
 export function sessionTtlSeconds(row) {
   return securitySettings(row).sessionHours * 60 * 60
 }
