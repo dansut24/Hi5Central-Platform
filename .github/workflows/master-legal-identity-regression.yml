@@ -1,0 +1,38 @@
+name: Production-owned legal identity guard
+on:
+  push:
+    branches: [fix/production-owned-legal-company-identity-20261011]
+  pull_request:
+    paths:
+      - 'services/api/src/masterLegalIdentity.js'
+      - 'services/api/src/settings.js'
+      - 'services/api/test/master-legal-identity.mjs'
+      - 'apps/itsm/src/features/settings/ProductionSettingsWorkspace.jsx'
+permissions: {contents: read}
+jobs:
+  api:
+    runs-on: ubuntu-24.04
+    defaults: {run: {working-directory: services/api}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/masterLegalIdentity.js && node --check src/settings.js
+      - run: node test/master-legal-identity.mjs
+      - run: npm run build:runtime
+  itsm:
+    runs-on: ubuntu-24.04
+    defaults: {run: {working-directory: apps/itsm}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: npm run build
