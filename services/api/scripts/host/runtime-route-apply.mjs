@@ -3,7 +3,7 @@
 // --apply and a host-approved HI5_RUNTIME_ROUTE_APPLY_ENABLED=true switch.
 // The source intent is signed by the release authority, not tenant browsers.
 import {execFileSync} from 'node:child_process'
-import {readFileSync,writeFileSync,mkdtempSync,rmSync,mkdirSync,renameSync,appendFileSync} from 'node:fs'
+import {readFileSync,writeFileSync,mkdtempSync,rmSync,mkdirSync,openSync,writeSync,ftruncateSync,fsyncSync,closeSync,appendFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join,resolve} from 'node:path'
 import {runHostRouteTransaction} from '../../src/runtimeHostRouteTransaction.js'
@@ -29,10 +29,21 @@ const candidatePath='/config/'+file
 const beforePath='/config/'+name+'.before.caddy'
 const docker=(args,timeout=20000)=>execFileSync('docker',args,{encoding:'utf8',timeout,maxBuffer:2*1024*1024})
 const ensureHostFile=()=>readFileSync(caddyFile,'utf8')
-const writeAtomic=(target,source)=>{
- const next=target+'.runtime-next'
- writeFileSync(next,source,{mode:0o600})
- renameSync(next,target)
+// Preserve the existing inode: Caddy binds the host file read-only into
+// the running container. An atomic rename would leave that mount stale after
+// a successful reload, so subsequent deployments would read the wrong route.
+// The durable before-image is created before this write; Caddy only activates
+// a separately validated candidate after the complete file is fsynced.
+const writeBoundCaddyFile=(target,source)=>{
+ const bytes=Buffer.from(source)
+ const fd=openSync(target,'r+')
+ try{
+  let position=0
+  while(position<bytes.length)
+   position+=writeSync(fd,bytes,position,bytes.length-position,position)
+  ftruncateSync(fd,bytes.length)
+  fsyncSync(fd)
+ }finally{closeSync(fd)}
 }
 const copyToCaddy=(text,path)=>{
  const local=join(tmp,'Caddyfile')
@@ -88,7 +99,7 @@ const adapter={
   copyToCaddy(previous,beforePath)
  },
  async activateCandidate(candidate){
-  writeAtomic(caddyFile,candidate)
+  writeBoundCaddyFile(caddyFile,candidate)
   docker(['exec',caddy,'caddy','reload','--config',candidatePath,'--adapter','caddyfile'])
  },
  async verifyPublicRoute(){
@@ -107,11 +118,10 @@ const adapter={
    timestamp:new Date().toISOString(),...preview,state:'host_verified_unattested'})+'\n',{mode:0o600})
  },
  async restoreRollback(previous){
-  writeAtomic(caddyFile,previous)
+  writeBoundCaddyFile(caddyFile,previous)
   docker(['exec',caddy,'caddy','reload','--config',beforePath,'--adapter','caddyfile'])
  },
  async verifyRestoredRoute(){
-  if(!intent.previousBuildSha)return
   for(const path of ['/release-manifest.json','/api/v1/updates/version']){
    if(await getPublicSha(path)!==intent.previousBuildSha)
     throw Error('Previous customer revision was not restored: '+path)
