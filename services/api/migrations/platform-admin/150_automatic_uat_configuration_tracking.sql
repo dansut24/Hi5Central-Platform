@@ -135,3 +135,19 @@ CREATE TABLE IF NOT EXISTS tenant_configuration_promotions (
 );
 CREATE INDEX IF NOT EXISTS tenant_config_promotions_tenant_idx
   ON tenant_configuration_promotions(tenant_id,promoted_at DESC);
+
+-- Generic code-capability registry: registration is release metadata, not a
+-- per-screen tracking hook. Code-independent configuration needs no entry.
+-- Each new application build advertises the capabilities it implements.
+CREATE TABLE IF NOT EXISTS platform_build_configuration_capabilities (
+  build_sha text NOT NULL CHECK(build_sha ~ '^[a-f0-9]{40}$'),
+  component text NOT NULL CHECK(component IN ('api','itsm')),
+  capability_key text NOT NULL CHECK(capability_key ~ '^[a-z0-9_.-]{3,120}$'),
+  PRIMARY KEY(build_sha,component,capability_key)
+);
+CREATE TABLE IF NOT EXISTS platform_configuration_capability_requirements (
+  path_prefix text[] NOT NULL PRIMARY KEY,
+  capability_key text NOT NULL CHECK(capability_key ~ '^[a-z0-9_.-]{3,120}$'),
+  component text NOT NULL CHECK(component IN ('api','itsm')),
+  description text NOT NULL DEFAULT ''
+);
