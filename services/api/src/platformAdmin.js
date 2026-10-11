@@ -717,6 +717,7 @@ export function registerPlatformAdminRoutes(app) {
   app.post('/api/platform/v1/releases/application-deployments/promote', async (c) => {
     const auth=await requireAdmin(c,WRITE_ROLES)
     if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live') return c.json({error:'Queue managed deployments through the central Live release authority.'},403)
     const body=await c.req.json().catch(()=>null)
     const target=String(body?.environment||'').trim().toLowerCase()
     if(!['uat','live'].includes(target))return c.json({error:'Environment must be UAT or Live.'},400)
