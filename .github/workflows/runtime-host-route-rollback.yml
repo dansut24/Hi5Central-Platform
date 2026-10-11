@@ -1,0 +1,28 @@
+name: Signed host route and rollback checks
+on:
+  push:
+    branches: [feature/attested-host-release-rollback-20261011]
+  pull_request:
+    paths:
+      - 'services/api/src/runtimeHostRouteTransaction.js'
+      - 'services/api/scripts/host/runtime-route-apply.mjs'
+      - 'services/api/test/runtime-host-route-transaction.mjs'
+permissions: {contents: read}
+jobs:
+  transaction:
+    runs-on: ubuntu-24.04
+    defaults: {run: {working-directory: services/api}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - name: Syntax and immutable signed route checks
+        run: node --check src/runtimeHostRouteTransaction.js && node --check scripts/host/runtime-route-apply.mjs
+      - name: Test failed cutover rollback, cross-tenant denial and no-op by default
+        run: node test/runtime-host-route-transaction.mjs
+      - name: Test runtime pool maintenance and UAT acceptance gates
+        run: node test/runtime-pool-policy.mjs && node test/tenant-runtime-release-lifecycle.mjs
