@@ -93,6 +93,8 @@ export function registerSettingsRoutes(app) {
     if (JSON.stringify(data).length > 40_000) return c.json({ error: 'Settings data is too large.' }, 413)
 
     await withTransaction(async (client) => {
+      // Audit the actor automatically at the database write boundary.
+      await client.query("SELECT set_config('hi5.actor_user_id',$1,true)",[auth.session.user_id])
       let newlyEnforcedMfa = false
       let previousSecurity = null
       if (area === 'security') {
