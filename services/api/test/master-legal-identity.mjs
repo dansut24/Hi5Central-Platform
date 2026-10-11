@@ -19,6 +19,8 @@ let lookups=0
 const database={async query(sql,args){
  lookups++
  assert.match(sql,/JOIN tenants t ON t.id=ts.tenant_id/)
+ assert.match(sql,/COALESCE\(NULLIF\(ts.configuration/)
+ assert.match(sql,/NULLIF\(ts.onboarding_data/)
  assert.match(sql,/t.id=\$1 AND t.slug=\$2 AND t.status='active'/)
  assert.deepEqual(args,[tenantId,'testing'])
  return {rowCount:1,rows:[{legal_name:'Example Registered Co Ltd'}]}
