@@ -93,6 +93,9 @@ export function registerSettingsRoutes(app) {
     if (JSON.stringify(data).length > 40_000) return c.json({ error: 'Settings data is too large.' }, 413)
 
     await withTransaction(async (client) => {
+      // The database trigger records every configuration leaf changed by this
+      // transaction; it does not depend on individual settings screens.
+      await client.query("SELECT set_config('hi5.actor_user_id',$1,true)",[auth.session.user_id])
       let newlyEnforcedMfa = false
       let previousSecurity = null
       if (area === 'security') {
