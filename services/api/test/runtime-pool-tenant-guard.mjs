@@ -23,5 +23,5 @@ assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/auth/tenant-state/testing-uat',method:'GET'}).allowed,true)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/incidents',method:'OPTIONS'}).allowed,true)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/incidents',method:'GET',origin:''}).status,401)
-assert.equal(checkPoolTenantRequest({...boundary:null}).allowed,true)
+assert.equal(checkPoolTenantRequest({...base,boundary:null}).allowed,true)
 console.log('PASS: pool canary host/session/origin isolation; shared runtime unchanged')
