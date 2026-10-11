@@ -57,8 +57,9 @@ export function renderVerifiedTenantRoute(current,intent){
  const right=current.indexOf(end,left)
  if(right<left)refuse('Tenant route marker order is invalid.')
  const block=current.slice(left,right)
- if(!block.includes('host '+intent.publicHost))
-  refuse('Route is not bound to the approved hostname.')
+ if(block.split('host '+intent.publicHost).length!==3
+   ||!block.includes('path /api/v1/*'))
+  refuse('Both tenant API and ITSM routes must be bound to the approved hostname.')
  const oldWeb='reverse_proxy '+intent.previousUpstream
  const oldApi='reverse_proxy '+intent.previousApiTarget
  if(!exactlyOne(block,oldWeb)||!exactlyOne(block,oldApi)
