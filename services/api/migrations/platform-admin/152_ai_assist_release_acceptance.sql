@@ -8,17 +8,20 @@ CREATE TABLE IF NOT EXISTS tenant_ai_release_acceptances (
   accepted_by uuid REFERENCES users(id) ON DELETE SET NULL,
   accepted_at timestamptz NOT NULL DEFAULT now()
 );
--- An AI Assist toggle requires the API and ITSM UI to support the same
--- application capability before it can be enabled in Production.
+-- Extend the capability registry to support two components for one setting.
+-- Existing data is preserved; the old primary key was path_prefix alone.
+ALTER TABLE platform_configuration_capability_requirements
+  DROP CONSTRAINT IF EXISTS platform_configuration_capability_requirements_pkey;
+ALTER TABLE platform_configuration_capability_requirements
+  ADD CONSTRAINT platform_configuration_capability_requirements_pkey
+  PRIMARY KEY(path_prefix,component);
+-- An AI Assist toggle requires BOTH API and ITSM UI runtime capabilities.
 INSERT INTO platform_configuration_capability_requirements
   (path_prefix,capability_key,component,description)
 VALUES
   (ARRAY['itsm','aiAssistant'],'itsm.ai_assist','api','AI Assist API runtime'),
-  (ARRAY['itsm','aiAssistant','ui'],'itsm.ai_assist','itsm','AI Assist technician UI')
+  (ARRAY['itsm','aiAssistant'],'itsm.ai_assist','itsm','AI Assist technician UI')
 ON CONFLICT (path_prefix) DO NOTHING;
--- The UI prerequisite applies to the parent aiAssistant setting too. Make
--- component requirement rows a separate explicit prefix only if path matches;
--- use two-component registries with a single exact path metadata probe.
 INSERT INTO platform_build_configuration_capabilities (build_sha,component,capability_key)
 VALUES
   ('27a8974dc337dcb255c9f561e7954281453d60f6','api','itsm.ai_assist'),
