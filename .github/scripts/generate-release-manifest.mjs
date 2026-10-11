@@ -34,6 +34,7 @@ const commits=git(['log','-100','--format=%H%x09%cI%x09%s'])
 const manifest={
   schemaVersion:1,
   version:sha.slice(0,12),
+  releaseName:committedAt.slice(0,10).replaceAll('-','.')+'+'+sha.slice(0,8),
   sha,
   builtAt:committedAt,
   releaseChannel:'preview',
