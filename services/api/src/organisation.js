@@ -1,3 +1,6 @@
+import pg from 'pg'
+import {readFileSync} from 'node:fs'
+import {deployment} from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { resolveSession } from './session.js'
 import { originMatchesTenant } from './deploymentConfig.js'
@@ -75,13 +78,13 @@ async function ensureOrganisationSeed(session) {
   })
 }
 
-async function organisationSnapshot(tenantId) {
+async function organisationSnapshot(tenantId, client = pool) {
   const [departmentsResult, teamsResult, sitesResult, peopleResult, membershipResult] = await Promise.all([
-    pool.query('SELECT * FROM organisation_departments WHERE tenant_id = $1 ORDER BY name', [tenantId]),
-    pool.query('SELECT * FROM organisation_teams WHERE tenant_id = $1 ORDER BY name', [tenantId]),
-    pool.query('SELECT * FROM organisation_sites WHERE tenant_id = $1 ORDER BY name', [tenantId]),
-    pool.query('SELECT * FROM organisation_people WHERE tenant_id = $1 ORDER BY name', [tenantId]),
-    pool.query('SELECT * FROM organisation_team_memberships WHERE tenant_id = $1', [tenantId]),
+    client.query('SELECT * FROM organisation_departments WHERE tenant_id = $1 ORDER BY name', [tenantId]),
+    client.query('SELECT * FROM organisation_teams WHERE tenant_id = $1 ORDER BY name', [tenantId]),
+    client.query('SELECT * FROM organisation_sites WHERE tenant_id = $1 ORDER BY name', [tenantId]),
+    client.query('SELECT * FROM organisation_people WHERE tenant_id = $1 ORDER BY name', [tenantId]),
+    client.query('SELECT * FROM organisation_team_memberships WHERE tenant_id = $1', [tenantId]),
   ])
 
   const departmentsById = new Map(departmentsResult.rows.map((row) => [row.id, row]))
@@ -574,10 +577,45 @@ async function upsertOrganisationEntry(client, session, collection, item) {
   }
 }
 
+const {Client}=pg
+function sharedMasterEnabled(session){
+  const pilot=String(process.env.ENV_SHARED_MASTER_PILOT_TENANT_SLUG||'').trim().toLowerCase()
+  return Boolean(pilot && ['uat','test'].includes(deployment.runtimeEnvironment)
+    &&session.slug===pilot+'-'+deployment.runtimeEnvironment)
+}
+async function organisationMasterSnapshot(session) {
+  // The mounted credential is a dedicated PostgreSQL SELECT-only role.
+  // Its search_path resolves five fixed-tenant views, never public base tables.
+  const credential=process.env.ENV_MASTER_DATABASE_URL_FILE
+  if(!credential)throw Object.assign(Error('Shared organisation master data is unavailable.'),{status:503})
+  const conn=new Client({
+    connectionString:readFileSync(credential,'utf8').trim(),
+    connectionTimeoutMillis:5000,
+    statement_timeout:8000,
+  })
+  try{
+    await conn.connect()
+    await conn.query('BEGIN READ ONLY')
+    const data=await organisationSnapshot(session.tenant_id,conn)
+    await conn.query('COMMIT')
+    return data
+  }catch(error){
+    await conn.query('ROLLBACK').catch(()=>{})
+    throw error
+  }finally{await conn.end().catch(()=>{})}
+}
+
 export function registerOrganisationRoutes(app) {
   app.get('/api/v1/organisation', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
+    if(sharedMasterEnabled(auth.session)){
+      try{return c.json(await organisationMasterSnapshot(auth.session))}
+      catch(error){
+        console.error('Shared organisation read failed',{code:error.code||'SHARED_MASTER_READ_ERROR'})
+        return c.json({error:'The shared organisation directory is temporarily unavailable.'},503)
+      }
+    }
     await ensureOrganisationSeed(auth.session)
     return c.json(await organisationSnapshot(auth.session.tenant_id))
   })
@@ -586,6 +624,8 @@ export function registerOrganisationRoutes(app) {
   app.post('/api/v1/organisation/:collection/upsert', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
+    if(sharedMasterEnabled(auth.session))
+      return c.json({error:'Edit shared People and organisation records in Production; UAT/Test master data is read-only.'},403)
     if (auth.session.tenant_role === 'requester') return c.json({ error: 'Technician access required.' }, 403)
     const collection = text(c.req.param('collection'), 40).toLowerCase()
     if (!['people', 'teams', 'departments'].includes(collection)) {
@@ -604,6 +644,8 @@ export function registerOrganisationRoutes(app) {
   app.put('/api/v1/organisation/:collection', async (c) => {
     const auth = await requireSession(c, true)
     if (auth.error) return auth.error
+    if(sharedMasterEnabled(auth.session))
+      return c.json({error:'Edit shared People and organisation records in Production; UAT/Test master data is read-only.'},403)
     const collection = String(c.req.param('collection') || '').toLowerCase()
     if (!collections.has(collection)) return c.json({ error: 'Unknown organisation collection.' }, 404)
 
