@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import {TrackedConfigurationChanges} from './TrackedConfigurationChanges.jsx'
+import {EnvironmentReferenceSync} from './EnvironmentReferenceSync.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -322,6 +323,7 @@ function LiveProductionReleaseManagement() {
   if(loading)return <section className="production-settings-panel"><div className="hi5-release-loading"><RefreshCw size={18}/>Loading release control…</div></section>
 
   return <div className="hi5-release-settings">
+    <EnvironmentReferenceSync/>
     <TrackedConfigurationChanges environment="live"/>
 
     <section className="production-settings-panel">
