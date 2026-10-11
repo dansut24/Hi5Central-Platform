@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
+import { verifiedRuntimePool } from './runtimePoolPolicy.js'
+import { buildHostRoutingManifest } from './runtimePoolControl.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -213,6 +215,75 @@ function actionPayload(row) {
 }
 
 export function registerReleaseOperatorRoutes(app) {
+  // Host-attested pools are immutable Docker image revisions. Neither the
+  // tenant browser nor Platform Admin can provide an arbitrary upstream.
+  app.post('/api/platform-operator/v1/runtime-pools/attest',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'The central Live authority owns runtime pool verification.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const id=String(body?.id||'')
+    const environment=String(body?.environment||'')
+    const buildSha=String(body?.buildSha||'')
+    const apiTarget=String(body?.apiTarget||'')
+    const webTarget=String(body?.webTarget||'')
+    const observedAt=new Date()
+    const submitted={id,environment,build_sha:buildSha,state:'verified',
+      api_target:apiTarget,web_target:webTarget,verified_at:observedAt,last_seen_at:observedAt}
+    const valid=verifiedRuntimePool(submitted,observedAt)
+    if(!valid.verified
+      ||!/^hi5pool-[a-z0-9-]+:(?:80|3001)$/.test(apiTarget)
+      ||!/^hi5pool-[a-z0-9-]+:(?:80|3001)$/.test(webTarget)
+      ||!apiTarget.endsWith(':3001')||!webTarget.endsWith(':80'))
+      return c.json({error:valid.reason||'Only internal, host-verified API and ITSM targets are allowed.'},400)
+    const response=await pool.query([
+      'INSERT INTO platform_runtime_pools',
+      '(id,environment,build_sha,api_target,web_target,state,verified_at,last_seen_at,health)',
+      "VALUES($1,$2,$3,$4,$5,'verified',now(),now(),$6::jsonb)",
+      'ON CONFLICT (id) DO UPDATE SET',
+      'last_seen_at=now(),state=EXCLUDED.state,health=EXCLUDED.health,updated_at=now()',
+      'WHERE platform_runtime_pools.environment=EXCLUDED.environment',
+      'AND platform_runtime_pools.build_sha=EXCLUDED.build_sha',
+      'AND platform_runtime_pools.api_target=EXCLUDED.api_target',
+      'AND platform_runtime_pools.web_target=EXCLUDED.web_target',
+      'RETURNING id,environment,build_sha,state,last_seen_at',
+    ].join(' '),[id,environment,buildSha,apiTarget,webTarget,
+      JSON.stringify({apiHealthy:true,webHealthy:true,checkedBy:'host_operator'})])
+    if(!response.rowCount)
+      return c.json({error:'Existing runtime pool identity is immutable. Use a different pool ID for another build.'},409)
+    return c.json({pool:response.rows[0],routingChanged:false})
+  })
+
+  // Preview only. A host operator will later validate this exact hash and
+  // stage its Caddy generation. This endpoint NEVER activates a route.
+  app.post('/api/platform-operator/v1/runtime-pools/route-plan',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Route plans must originate from the central Live authority.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const environment=String(body?.environment||'')
+    if(!['uat','live'].includes(environment))
+      return c.json({error:'Only UAT and Live support customer route assignments.'},400)
+    const assignments=await pool.query([
+      'SELECT t.slug,a.environment,a.pool_id,a.build_sha,',
+      'p.build_sha AS pool_build_sha,p.state AS pool_state,p.api_target,p.web_target,',
+      'p.verified_at,p.last_seen_at',
+      'FROM tenant_runtime_assignments a',
+      'JOIN tenants t ON t.id=a.tenant_id AND t.status=$2',
+      'JOIN platform_runtime_pools p ON p.id=a.pool_id AND p.environment=a.environment',
+      'WHERE a.environment=$1 ORDER BY t.slug',
+    ].join(' '),[environment,'active'])
+    try{
+      const manifest=buildHostRoutingManifest({
+        environment,rows:assignments.rows,domain:deployment.rootDomain,
+      })
+      return c.json({manifest,activationAllowed:false,
+        message:'Dry-run only. A verified and approved route generation is required before host activation.'})
+    }catch(error){return c.json({error:String(error.message||'Route validation failed.')},409)}
+  })
+
   // Publication is an editorial action initiated by authorised Hi5Central
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
