@@ -20,6 +20,6 @@ assert.equal(applyReviewedChanges(live,uat,[{
  id:reviewed.id,beforeHash:reviewed.beforeHash,afterHash:reviewed.afterHash,
 }]).itsm.liveChat,true,'An unchanged reviewed item can be promoted')
 changes=differenceList({...live,company:{...live.company,legalName:'Another Legal Ltd'}},uat)
-assert.ok(changes.some(x=>x.id==='company.legalName'),
- 'Legal identity is currently environment configuration, not shared master company data')
+assert.ok(!changes.some(x=>x.id==='company.legalName'),
+ 'Production-owned legal identity must never become a UAT promotion candidate')
 console.log('PASS: pending UAT diffs resolve on matching Production values and stale promotions are refused')
