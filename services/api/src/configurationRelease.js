@@ -19,6 +19,10 @@ async function admin(c){
     return {error:c.json({error:'Tenant session mismatch.'},403)}
   if(!['owner','admin'].includes(s.tenant_role))
     return {error:c.json({error:'Organisation administrator access is required.'},403)}
+  // No other organisation can preview or activate this pilot.
+  const pilot=String(process.env.CONFIGURATION_RELEASE_PILOT_TENANT_SLUG||'').trim().toLowerCase()
+  if(!pilot||!([pilot,pilot+'-uat'].includes(s.slug)))
+    return {error:c.json({error:'Configuration promotion is not enabled for this organisation.'},404)}
   return {session:s}
 }
 function uatConnectionString(){
