@@ -11,6 +11,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       DATABASE_URL: postgresql://ci_user:ci_pass@localhost:5432/ci_only
+      REDIS_URL: redis://localhost:6379
     defaults: {run: {working-directory: services/api}}
     steps:
       - uses: actions/checkout@v4
