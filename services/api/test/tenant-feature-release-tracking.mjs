@@ -107,9 +107,27 @@ try{
   assert.equal(await effectiveTenantLiveChatEnabled(liveTenantId,'live',{source:pool}),false)
   await assert.rejects(()=>promoteTenantLiveChat(liveTenantId,ownerId,opts),/must pass UAT/)
   await assert.rejects(()=>verifyTenantLiveChatUat(liveTenantId,ownerId,opts),/Enter UAT test evidence/)
+  // An unreported host must not allow the UI to claim UAT has been validated.
+  await assert.rejects(()=>verifyTenantLiveChatUat(liveTenantId,ownerId,{
+    ...opts,notes:'Validated message delivery and close flow in UAT.'
+  }),/host must verify/)
+  const testedSha='a'.repeat(40)
+  const previousSha='b'.repeat(40)
+  // Simulate the authenticated host operator's observations in separate DBs.
+  await pool.query(`INSERT INTO platform_application_deployment_attestations
+    (environment,status,api_sha,itsm_sha,release_ref)
+    VALUES ('uat','verified',$1,$1,'ci-uat'),('live','verified',$2,$2,'ci-live')`,
+    [testedSha,previousSha])
   result=await verifyTenantLiveChatUat(liveTenantId,ownerId,{...opts,notes:'Validated Live Chat opening, messages and closing in the UAT workspace.'})
   assert.equal(result.state,'uat_passed')
   assert(result.verifiedAt)
+  assert.equal(result.testedApiSha,testedSha)
+  assert.equal(result.testedItsmSha,testedSha)
+  assert.equal(result.applicationDeployment.ready,false,'different Live version must block promotion')
+  await assert.rejects(()=>promoteTenantLiveChat(liveTenantId,ownerId,opts),/Deploy the approved API and ITSM images/)
+  assert.equal((await tenantLiveChatState(liveTenantId,opts)).liveEnabled,false,'blocked promotion must not toggle Live')
+  await pool.query(`UPDATE platform_application_deployment_attestations
+      SET api_sha=$1,itsm_sha=$1,observed_at=now() WHERE environment='live'`,[testedSha])
   const promoted=await promoteTenantLiveChat(liveTenantId,ownerId,opts)
   assert.equal(promoted.state,'promoted')
   assert.equal(promoted.liveEnabled,true)
@@ -134,7 +152,7 @@ try{
   assert.equal(uat.rows[0].enabled,true)
   const live=await pool.query("SELECT enabled FROM tenant_environment_feature_overrides WHERE tenant_id=$1 AND environment='live' AND feature_key='itsm.live_chat'",[liveTenantId])
   assert.equal(live.rows[0].enabled,true)
-  console.log('PASS: separate Test migration, failed-ledger compensation, UAT approval, promotion, audit history and tenant isolation')
+  console.log('PASS: isolated Test migration, ledger compensation, verified UAT binary, blocked stale Live binary, matching promotion, audit and tenant isolation')
 } finally {
   await client.end().catch(()=>{})
   await pool.end()
