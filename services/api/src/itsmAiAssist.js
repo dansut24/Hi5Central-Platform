@@ -102,6 +102,19 @@ async function authorise(c){
     return {error:c.json({error:'AI Assist is disabled for this environment.'},403)}
   return {session}
 }
+// Resolve actual lifecycle records on the server before disclosing any
+// context to an external provider. Browser-submitted titles/descriptions are
+// never trusted as evidence of record existence or access.
+export async function loadAiRecord(tenantId,reference,{db=pool}={}){
+  const result=await db.query(
+    `SELECT reference,record_type,title,description,status,priority,category
+       FROM itsm_records
+      WHERE tenant_id=$1 AND upper(reference)=upper($2)
+      LIMIT 1`,
+    [tenantId,reference])
+  return result.rows[0]||null
+}
+
 export function registerItsmAiAssistRoutes(app){
   app.get('/api/v1/itsm-ai/status',async c=>{
     const auth=await authorise(c)
@@ -119,23 +132,26 @@ export function registerItsmAiAssistRoutes(app){
     const reference=compact(input?.reference,80)
     if(!/^[A-Z]{2,8}-[A-Z0-9-]{2,50}$/i.test(reference))
       return c.json({error:'Invalid record reference.'},400)
-    // The current record workspace fetches data from the ITSM lifecycle API.
-    // Summarise the technician-visible, explicitly submitted snapshot rather
-    // than querying the unrelated legacy itsm_records table.
-    const type=compact(input?.type,40)
-    if(!['Incident','Problem','Change'].includes(type))
+    // This is the same source and tenant/reference lookup used by the
+    // technician record-detail endpoint /api/v1/itsm-lifecycle/:reference.
+    // Reject forged, stale or cross-tenant record snapshots before any
+    // provider call or quota reservation.
+    const persisted=await loadAiRecord(auth.session.tenant_id,reference)
+    if(!persisted)return c.json({error:'ITSM record not found.'},404)
+    if(!['Incident','Problem','Change'].includes(persisted.record_type))
       return c.json({error:'AI Assist currently supports incidents, problems and changes.'},400)
-    if(!hasRecordPermission(auth.session,type,'view'))
-      return c.json({error:'You do not have permission to view this record type.'},403)
+    if(!hasRecordPermission(auth.session,persisted.record_type,'view'))
+      return c.json({error:'You do not have permission to view this record.'},403)
     const record={
-      reference,record_type:type,
-      title:compact(input?.title,240),
-      description:compact(input?.description,1800),
-      status:compact(input?.status,80),
-      priority:compact(input?.priority,40),
-      category:compact(input?.category,100),
+      reference:compact(persisted.reference,80),
+      record_type:persisted.record_type,
+      title:compact(persisted.title,240),
+      description:compact(persisted.description,1800),
+      status:compact(persisted.status,80),
+      priority:compact(persisted.priority,40),
+      category:compact(persisted.category,100),
     }
-    if(record.title.length<2)return c.json({error:'Record title required.'},400)
+    if(record.title.length<2)return c.json({error:'The stored record needs a valid title.'},400)
     if(!aiProviderKey())return c.json({error:'AI provider not configured. Ask an administrator to connect an AI provider.'},503)
     const allowed=await reserveBillableAiCall(auth.session)
     if(allowed===false)return c.json({error:'Daily AI test quota reached (2 generations per environment). Try tomorrow.'},429)
