@@ -87,7 +87,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     setBusy(true);setError('')
     try{
       const res=await request('/api/v1/updates/uat-review',{
-        method:'POST',body:JSON.stringify({approvedShas:selected,evidence:notes,requestLive})
+        method:'POST',body:JSON.stringify({approvedShas:selected,evidence:notes,requestLive,baselineSha:live?.sha||''})
       })
       setReview({buildSha:data.sha,approvedShas:selected,evidence:notes,status:requestLive?'requested':'approved',reviewedAt:new Date().toISOString()})
       setError('')
@@ -120,8 +120,8 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {loading?<div className="hi5-updates-placeholder">Checking installed application version…</div>:null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
-        <article><Label>Currently installed</Label><strong>{short(data.sha)}</strong>
-          <small>{deploymentConfig().runtimeEnvironment.toUpperCase()} build · {fmtDate(data.builtAt)}</small></article>
+        <article><Label>Currently installed</Label><strong>{data.releaseName?.split('+')[0]||short(data.sha)}</strong>
+          <small>{deploymentConfig().runtimeEnvironment.toUpperCase()} · build {short(data.sha)} · {fmtDate(data.builtAt)}</small></article>
         <article><Label>{uat?'Production comparison':'Release status'}</Label>
           <strong>{uat?(same?'Same as Production':hasBaseline?short(live.sha):'Not available'):'Installed'}</strong>
           <small>{uat?(same?'No newer UAT build changes':hasBaseline?'Review the changes before promoting':'Production needs version reporting to compare builds'):'This is the build currently serving your organisation'}</small>
