@@ -16,6 +16,7 @@ import { featureEntitled, registerLicensingRoutes, startLicensingRefreshSchedule
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
+import {registerConfigurationReleaseRoutes} from './configurationRelease.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { registerTenantEnvironmentAccessRoutes } from './tenantEnvironmentAccess.js'
@@ -724,6 +725,7 @@ registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
 registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
+registerConfigurationReleaseRoutes(app)
 registerEnvironmentHandoffRoutes(app)
 registerTenantEnvironmentAccessRoutes(app)
 registerApiTokenRoutes(app)
