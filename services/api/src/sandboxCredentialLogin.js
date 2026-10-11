@@ -1,4 +1,5 @@
 import { deployment, originMatchesTenant, portalRequestFromHeaders, originMatchesPortalTenant } from './deploymentConfig.js'
+import {sandboxRequiresMfaForLogin} from './sandboxMfaPolicy.js'
 
 const ALLOWED_FLOWS = Object.freeze({
   login: '/api/v1/auth/login-secure',
@@ -90,7 +91,8 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
 
   try {
     const livePayload = flow==='login'
-      ? {tenantSlug:tenant.liveSlug,email:body?.email,password:body?.password}
+      ? {tenantSlug:tenant.liveSlug,email:body?.email,password:body?.password,
+          forceMfa:await sandboxRequiresMfaForLogin(tenant.sandboxSlug,body?.email)}
       : flow==='setup'
         ? {challengeToken:body?.challengeToken}
         : {challengeToken:body?.challengeToken,code:body?.code}
