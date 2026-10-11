@@ -133,3 +133,24 @@
 .hi5-updates-version-manager>small{font-size:11px;line-height:1.45;color:var(--muted,#667083)}
 .hi5-updates-version-save{display:inline-flex;align-items:center;justify-content:center;gap:7px;align-self:flex-start;border:1px solid #2563eb;border-radius:9px;padding:9px 12px;color:#fff;background:#2563eb;font-size:11px;font-weight:750;cursor:pointer}
 .hi5-updates-version-save:disabled{opacity:.5;cursor:not-allowed}
+
+/* Staged release drill: visual readiness and UAT acceptance are useful
+   without changing tenant records or activating unapproved Live features. */
+.hi5-release-readiness,.hi5-release-acceptance-checklist{display:flex;flex-direction:column;gap:12px;padding:14px;border:1px solid var(--line,#e1e5ec);border-radius:12px;background:var(--surface,#fff)}
+.hi5-release-readiness .hi5-updates-change-header h3{display:flex;align-items:center;gap:7px}
+.hi5-release-readiness-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.hi5-release-readiness-items>div{display:flex;align-items:flex-start;gap:9px;padding:12px 10px;border:1px solid var(--line,#e1e5ec);border-radius:10px;background:var(--surface-soft,#f7f8fa)}
+.hi5-release-readiness-items>div>svg{color:#16a34a;flex:none}
+.hi5-release-readiness-items>div.is-pending>svg{color:#d97706}
+.hi5-release-readiness-items>div span{display:flex;flex-direction:column;gap:5px;min-width:0}
+.hi5-release-readiness-items strong{font-size:11px;line-height:1.4}
+.hi5-release-readiness-items small{font-size:10px;color:var(--muted,#667083);line-height:1.45;overflow-wrap:anywhere}
+.hi5-release-acceptance-checklist{padding:12px;gap:9px;background:var(--surface-soft,#f7f8fa)}
+.hi5-release-acceptance-checklist>strong{display:flex;align-items:center;gap:7px;font-size:12px}
+.hi5-release-acceptance-checklist>small{font-size:11px;color:var(--muted,#667083);line-height:1.45}
+.hi5-release-acceptance-checklist>label{display:flex;align-items:flex-start;gap:9px;cursor:pointer;border:1px solid var(--line,#e1e5ec);padding:10px;background:var(--surface,#fff);border-radius:9px}
+.hi5-release-acceptance-checklist>label>input{width:16px;height:16px;accent-color:#2563eb;margin:0;flex:none}
+.hi5-release-acceptance-checklist>label>span{display:flex;flex-direction:column;gap:3px}
+.hi5-release-acceptance-checklist>label strong{font-size:11px;line-height:1.35}
+.hi5-release-acceptance-checklist>label small{font-size:10px;color:var(--muted,#667083);line-height:1.4}
+@media(max-width:700px){.hi5-release-readiness-items{grid-template-columns:1fr}}
