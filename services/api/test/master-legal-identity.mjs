@@ -44,7 +44,9 @@ try{
   assert.equal(merged.settings.company.industry,'Technology','No other company setting is overwritten')
   assert.equal(merged.masterIdentity.companyLegalNameReadOnly,true)
   assert.deepEqual(protectMasterLegalIdentity({industry:'Technology'},identity),
-    {industry:'Technology',legalName:'Registered Company Ltd'})
+    {industry:'Technology'})
+  assert.deepEqual(protectMasterLegalIdentity({industry:'Technology',legalName:identity.legalName},identity),
+    {industry:'Technology'},'Sandbox must never store its own duplicate legal name')
   assert.throws(()=>protectMasterLegalIdentity({legalName:'Sandbox forged registration'},identity),
     /managed in Production/)
  }
