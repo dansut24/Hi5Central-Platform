@@ -38,7 +38,7 @@ export function checkPoolTenantRequest({boundary,host,origin,referer,sessionSlug
     // Allow only the minimal public authentication bootstrap endpoints.
     const publicRoute=/^\/api\/v1\/auth\/(?:login|logout|tenant-state\/[a-z0-9-]+|tenant-slug\/[a-z0-9-]+)$/
     if(method==='OPTIONS')return {allowed:true}
-    if(publicRoute.test(path))return {allowed:true}
+    if(publicRoute.test(path)||path==='/api/v1/updates/version')return {allowed:true}
     return {allowed:false,status:401,reason:'Canary session required.'}
   }
   return {allowed:true}

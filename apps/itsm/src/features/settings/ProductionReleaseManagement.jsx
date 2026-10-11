@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -350,6 +351,8 @@ function LiveProductionReleaseManagement() {
         </div>
       </div>
     </section>
+
+    <TenantRuntimeUpdates updateMode={policy.updateMode}/>
 
     {platformAvailable ? (
     <section className="production-settings-panel">
