@@ -49,5 +49,9 @@ export function protectMasterLegalIdentity(company,identity){
  if(Object.hasOwn(company,'legalName')
    &&company.legalName!==identity.legalName)
    throw new Error('The registered company name is managed in Production. Update it there.')
- return {...company,legalName:identity.legalName}
+ // The sandbox must not persist a second copy of the master legal name.
+ // Its reads are projected from Production and the remaining company
+ // settings continue to be environment-local.
+ const {legalName:ignored,...environmentSettings}=company
+ return environmentSettings
 }
