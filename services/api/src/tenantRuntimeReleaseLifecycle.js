@@ -102,7 +102,8 @@ export async function acceptTenantUat({db,tenantId,offerId,userId,evidence,now=n
 }
 export async function scheduleTenantLive({db,tenantId,offerId,userId,
   confirmed=false,requestedAt=null,now=new Date()}){
-  checkIds(tenantId,offerId,userId)
+  checkIds(tenantId,offerId)
+  if(userId!=null)checkIds(userId)
   const row=(await db.query([
     'SELECT o.*,p.update_mode AS current_mode,p.live_auto_promote,p.live_delay_hours,',
     'p.maintenance_window FROM tenant_runtime_update_offers o',
@@ -126,7 +127,7 @@ export async function scheduleTenantLive({db,tenantId,offerId,userId,
   if(!published.rowCount)throw refuse('Hi5Central has not published the application release.')
   let start=now,approver=null
   if(row.update_mode==='admin_controlled'){
-    if(confirmed!==true)throw refuse('Customer must explicitly approve the Production update.',400)
+    if(!userId||confirmed!==true)throw refuse('Customer must explicitly approve the Production update.',400)
     if(requestedAt!=null){
       start=new Date(requestedAt)
       if(!Number.isFinite(start.getTime())||start.getTime()<now.getTime()||
