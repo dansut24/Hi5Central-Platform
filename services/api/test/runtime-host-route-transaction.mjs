@@ -55,16 +55,15 @@ assert.throws(()=>renderVerifiedTenantRoute(source.replace(
 assert.throws(()=>renderVerifiedTenantRoute(source.replace(
  'host testing.hi5central.com','host other-company.hi5central.com'),intent),/hostname/)
 const calls=[]
-const adapter=({
- fail=null,
+const adapter=(options={})=>({
  readActiveConfig:async()=>{calls.push('read');return source},
  validateCandidate:async c=>{calls.push('validate');assert.equal(c,candidate)},
  verifyTargetBuild:async i=>{calls.push('preflight');assert.equal(i.buildSha,sha)},
  preserveRollback:async()=>{calls.push('backup')},
- activateCandidate:async()=>{calls.push('activate');if(fail==='activate')throw Error('Caddy refused new config')},
- verifyPublicRoute:async()=>{calls.push('public');if(fail==='public')throw Error('Unexpected public build')},
- recordActivation:async()=>{calls.push('receipt');if(fail==='receipt')throw Error('Could not append receipt')},
- restoreRollback:async old=>{calls.push('restore');assert.equal(old,source);if(fail==='rollback')throw Error('Caddy rollback error')},
+ activateCandidate:async()=>{calls.push('activate');if(options.fail==='activate')throw Error('Caddy refused new config')},
+ verifyPublicRoute:async()=>{calls.push('public');if(options.fail==='public')throw Error('Unexpected public build')},
+ recordActivation:async()=>{calls.push('receipt');if(options.fail==='receipt')throw Error('Could not append receipt')},
+ restoreRollback:async old=>{calls.push('restore');assert.equal(old,source);if(options.fail==='rollback')throw Error('Caddy rollback error')},
  verifyRestoredRoute:async()=>{calls.push('restored')},
 })
 const preview=await runHostRouteTransaction({...auth,adapter:adapter()})
