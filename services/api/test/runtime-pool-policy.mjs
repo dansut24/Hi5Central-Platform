@@ -28,7 +28,7 @@ assert.equal(tenantReleaseEligibility({preference:custom,pool:livePool,environme
 assert.equal(tenantReleaseEligibility({preference:custom,pool:livePool,environment:'live',published:true,uatAccepted:true,now}).state,'ready_for_customer_approval')
 assert.equal(tenantReleaseEligibility({preference:managed,pool:livePool,environment:'live',published:true,uatAccepted:true,uatAcceptedAt:'2026-10-12T00:00:00Z',now}).state,'pending_delay')
 assert.equal(tenantReleaseEligibility({preference:managed,pool:livePool,environment:'live',published:true,uatAccepted:true,uatAcceptedAt:'2026-10-10T00:00:00Z',now}).state,'eligible_for_scheduled_update')
-assert.equal(tenantReleaseEligibility({preference:managed,pool:livePool,environment:'live',published:true,uatAccepted:true,uatAcceptedAt:'2026-10-10T00:00:00Z',now:new Date('2026-10-12T10:00:00Z')}).state,'pending_maintenance')
+assert.equal(tenantReleaseEligibility({preference:managed,pool:{...livePool,last_seen_at:'2026-10-12T09:59:00Z'},environment:'live',published:true,uatAccepted:true,uatAcceptedAt:'2026-10-10T00:00:00Z',now:new Date('2026-10-12T10:00:00Z')}).state,'pending_maintenance')
 assert.equal(tenantReleaseEligibility({preference:managed,pool:livePool,environment:'live',published:false,uatAccepted:true,now}).state,'unreleased')
 assert.equal(resolvedCustomerPool({assignment:null,pool:null,environment:'live',now}).route,'legacy')
 const assignment={pool_id:pool.id,build_sha:sha,environment:'uat'}
