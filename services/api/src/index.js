@@ -13,6 +13,8 @@ import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
+import {registerItsmAiAssistRoutes} from './itsmAiAssist.js'
+import {registerTenantDeploymentProofRoutes} from './tenantDeploymentProof.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
 import {registerConfigurationReleaseRoutes} from './configurationRelease.js'
@@ -704,6 +706,8 @@ registerReleaseFeedRoutes(app)
 registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
+registerItsmAiAssistRoutes(app)
+registerTenantDeploymentProofRoutes(app)
 registerTenantReleaseRoutes(app)
 registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
