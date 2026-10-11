@@ -5,7 +5,8 @@ import {deployment,originMatchesTenant} from './deploymentConfig.js'
 import {resolveSession} from './session.js'
 import {recordSecurityEvent,requestIp,requestUserAgent} from './securityAudit.js'
 import {differenceList,applyReviewedChanges} from './configurationReleaseDiff.js'
-import {AI_CONFIG_PATH,TESTED_AI_BUILD_SHA,acceptedAiChange,verifiedAiProductionBuild,shouldApplyAiVersionGate} from './aiReleaseGate.js'
+import {AI_CONFIG_PATH,TESTED_AI_BUILD_SHA,acceptedAiChange,shouldApplyAiVersionGate} from './aiReleaseGate.js'
+import {validTenantDeploymentProof} from './tenantDeploymentProof.js'
 
 const {Client}=pg
 const error=(message,status=409)=>Object.assign(new Error(message),{status})
@@ -77,7 +78,7 @@ async function readyUat(tenantId){
     [tenantId])
   if(r.rows[0]?.status!=='ready')throw error('Provision a ready UAT environment before promoting configuration.')
 }
-async function requiredCapabilities(db,changes){
+async function requiredCapabilities(db,changes,tenantId){
   const rows=await db.query(`
     SELECT r.path_prefix,r.capability_key,r.component,r.description,
       EXISTS(
@@ -91,10 +92,18 @@ async function requiredCapabilities(db,changes){
       ) AS installed
     FROM platform_configuration_capability_requirements r
   `)
+  const proof=await db.query(
+    "SELECT status,api_sha,itsm_sha,verified_at FROM tenant_application_deployment_proofs WHERE tenant_id=$1 AND environment='live'",
+    [tenantId])
+  const registered=await db.query(
+    "SELECT component FROM platform_build_configuration_capabilities WHERE build_sha=$1 AND capability_key=$2",
+    [TESTED_AI_BUILD_SHA,'itsm.ai_assist'])
+  const aiReady=validTenantDeploymentProof({row:proof.rows[0],buildSha:TESTED_AI_BUILD_SHA})
+    &&registered.rows.map(r=>r.component).sort().join(',')==='api,itsm'
   return changes.map(item=>{
     const required=rows.rows.filter(r=>r.path_prefix.length<=item.path.length
       &&r.path_prefix.every((p,i)=>p===item.path[i]))
-    const blocked=required.filter(r=>!r.installed)
+    const blocked=required.filter(r=>r.capability_key==='itsm.ai_assist'?!aiReady:!r.installed)
     return {...item,versionUpgradeRequired:blocked.length>0,
       requiredCapabilities:blocked.map(r=>({capability:r.capability_key,
         component:r.component,description:r.description}))}
@@ -107,10 +116,10 @@ async function aiAcceptance(db,tenantId){
     [tenantId])
   return a.rows[0]||null
 }
-async function verifiedLiveAiRuntime(db){
+async function verifiedLiveAiRuntime(db,tenantId){
   const r=await db.query(
-    "SELECT status,api_sha,itsm_sha,observed_at FROM platform_application_deployment_attestations WHERE environment='live'")
-  return verifiedAiProductionBuild({row:r.rows[0]})
+    "SELECT status,api_sha,itsm_sha,verified_at FROM tenant_application_deployment_proofs WHERE tenant_id=$1 AND environment='live'",[tenantId])
+  return validTenantDeploymentProof({row:r.rows[0],buildSha:TESTED_AI_BUILD_SHA})
 }
 async function checkDeployedUatAiBuild(){
   // Pilot host is fixed; no user-controlled URL or redirect target.
@@ -164,7 +173,7 @@ export function registerConfigurationReleaseRoutes(app){
       // previously approved customer changes. The allowlist also constrains POST.
       const reviewedChanges=allChanges.filter(change=>pilotPaths().has(change.id))
       const [acceptance,liveAiReady]=await Promise.all([
-        aiAcceptance(pool,tenantId),verifiedLiveAiRuntime(pool),
+        aiAcceptance(pool,tenantId),verifiedLiveAiRuntime(pool,tenantId),
       ])
       const aiDiff=reviewedChanges.find(c=>c.id===AI_CONFIG_PATH)
       return c.json({
@@ -176,7 +185,7 @@ export function registerConfigurationReleaseRoutes(app){
           productionBuildReady:liveAiReady,
           requiresSoftwareUpdate:shouldApplyAiVersionGate(aiDiff)&&!liveAiReady,
         }:null,
-        changes:summarizeDiff(await requiredCapabilities(pool,reviewedChanges)),
+        changes:summarizeDiff(await requiredCapabilities(pool,reviewedChanges,tenantId)),
         baselineExcludedCount:allChanges.length-reviewedChanges.length,
         trackedEvents:uat.events,
         promotionPolicy:'Select only tested settings; live changes are not overwritten without approval.',
@@ -261,14 +270,14 @@ export function registerConfigurationReleaseRoutes(app){
       const uat=await withUat(db=>configuration(db,auth.session.tenant_id))
       const result=await withTransaction(async db=>{
         const live=await configuration(db,auth.session.tenant_id,true)
-        const differences=await requiredCapabilities(db,differenceList(live,uat))
+        const differences=await requiredCapabilities(db,differenceList(live,uat),auth.session.tenant_id)
         const indexed=new Map(differences.map(item=>[item.id,item]))
         const ai=body.changes.find(change=>change.id===AI_CONFIG_PATH)
         if(ai&&indexed.get(AI_CONFIG_PATH)?.to===true){
           const acceptance=await aiAcceptance(db,auth.session.tenant_id)
           if(!acceptedAiChange({change:indexed.get(AI_CONFIG_PATH),acceptance}))
             throw error('The matching AI application release must be accepted in UAT before promotion.')
-          if(!(await verifiedLiveAiRuntime(db)))
+          if(!(await verifiedLiveAiRuntime(db,auth.session.tenant_id)))
             throw error('Deploy and verify the exact UAT-tested AI API and ITSM build in Production first.')
         }
         if(body.changes.some(change=>indexed.get(change.id)?.versionUpgradeRequired))
