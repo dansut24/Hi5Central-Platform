@@ -1,0 +1,70 @@
+name: Isolated testing-uat login hotfix images
+
+on:
+  push:
+    branches:
+      - canary/testing-uat-login-hotfix-1480b5-20261011
+    paths:
+      - .github/workflows/uat-canary-auth-hotfix.yml
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  guard-tests:
+    name: Verify canary authentication boundary
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/runtimePoolTenantGuard.js
+      - run: node test/runtime-pool-tenant-guard.mjs
+
+  package:
+    name: Package isolated ${{ matrix.name }} image
+    runs-on: ubuntu-latest
+    needs: guard-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: API
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - name: ITSM
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Create matching immutable manifests for both images
+        run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:uat-canary-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.hi5central.purpose=isolated-testing-uat-auth-hotfix
+          cache-from: type=gha,scope=uatcanary-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=uatcanary-${{ matrix.name }}
