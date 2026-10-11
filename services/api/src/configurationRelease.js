@@ -69,6 +69,29 @@ async function readyUat(tenantId){
     [tenantId])
   if(r.rows[0]?.status!=='ready')throw error('Provision a ready UAT environment before promoting configuration.')
 }
+async function requiredCapabilities(db,changes){
+  const rows=await db.query(`
+    SELECT r.path_prefix,r.capability_key,r.component,r.description,
+      EXISTS(
+        SELECT 1 FROM platform_build_configuration_capabilities b
+        JOIN platform_application_deployment_attestations d ON d.environment='live'
+        WHERE b.component=r.component
+          AND b.capability_key=r.capability_key
+          AND b.build_sha=CASE WHEN r.component='api' THEN d.api_sha ELSE d.itsm_sha END
+          AND d.status='verified'
+      ) AS installed
+    FROM platform_configuration_capability_requirements r
+  `)
+  return changes.map(item=>{
+    const required=rows.rows.filter(r=>r.path_prefix.length<=item.path.length
+      &&r.path_prefix.every((p,i)=>p===item.path[i]))
+    const blocked=required.filter(r=>!r.installed)
+    return {...item,versionUpgradeRequired:blocked.length>0,
+      requiredCapabilities:blocked.map(r=>({capability:r.capability_key,
+        component:r.component,description:r.description}))}
+  })
+}
+
 function summarizeDiff(changes){
   return changes.map(row=>({
     ...row,
@@ -104,7 +127,7 @@ export function registerConfigurationReleaseRoutes(app){
         })),
       ])
       return c.json({
-        environment:'live',changes:summarizeDiff(differenceList(live,uat.configuration)),
+        environment:'live',changes:summarizeDiff(await requiredCapabilities(pool,differenceList(live,uat.configuration))),
         trackedEvents:uat.events,
         promotionPolicy:'Select only tested settings; live changes are not overwritten without approval.',
       })
@@ -137,10 +160,15 @@ export function registerConfigurationReleaseRoutes(app){
       const uat=await withUat(db=>configuration(db,auth.session.tenant_id))
       const result=await withTransaction(async db=>{
         const live=await configuration(db,auth.session.tenant_id,true)
+        const differences=await requiredCapabilities(db,differenceList(live,uat))
+        const indexed=new Map(differences.map(item=>[item.id,item]))
+        if(body.changes.some(change=>indexed.get(change.id)?.versionUpgradeRequired))
+          throw error('A selected change requires a compatible Production application upgrade first.')
         const next=applyReviewedChanges(live,uat,body.changes)
         if(JSON.stringify(next)===JSON.stringify(live))throw error('No configuration changes remain to promote.')
         const requiresMfaBefore=live?.security?.requireMfa===true
         const requiresMfaAfter=next?.security?.requireMfa===true
+        await db.query("SELECT set_config('hi5.actor_user_id',$1,true)",[auth.session.user_id])
         await db.query(
           `UPDATE tenant_settings SET configuration=$2::jsonb,updated_at=now()
             WHERE tenant_id=$1`,[auth.session.tenant_id,JSON.stringify(next)])
