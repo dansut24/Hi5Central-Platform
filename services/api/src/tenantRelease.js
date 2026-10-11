@@ -6,6 +6,8 @@ import { provisionTenantSandboxes, tenantSandboxUrl } from './tenantEnvironmentP
 import { issueEnvironmentTicket } from './environmentHandoff.js'
 import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
+import {withTransaction} from './db.js'
+import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -134,6 +136,59 @@ export function registerTenantReleaseRoutes(app) {
     if(deployment.runtimeEnvironment!=='live')
       return c.json({error:'Check your Production workspace for customer-specific release assignments.'},403)
     return c.json(await tenantRuntimePoolState(pool,auth.session.tenant_id))
+  })
+
+  app.post('/api/v1/release-management/runtime-updates/:id/accept-uat',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Approve customer releases in the Production release centre.'},403)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const accepted=await withTransaction(db=>acceptTenantUat({
+        db,tenantId:auth.session.tenant_id,offerId:c.req.param('id'),
+        userId:auth.session.user_id,evidence:body,
+      }))
+      await recordSecurityEvent({
+        tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+        sessionId:auth.session.session_id||null,
+        eventType:'release.runtime_uat_accepted',
+        ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+        metadata:{offerId:accepted.id,buildSha:accepted.build_sha},
+      })
+      return c.json({accepted,productionChanged:false})
+    }catch(error){
+      return c.json({error:error.message||'UAT acceptance failed.'},error.status||409)
+    }
+  })
+  app.post('/api/v1/release-management/runtime-updates/:id/schedule',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Schedule customer Production releases from Live.'},403)
+    const preference=await pool.query('SELECT update_mode FROM tenant_release_preferences WHERE tenant_id=$1',
+      [auth.session.tenant_id])
+    if(preference.rows[0]?.update_mode!=='admin_controlled')
+      return c.json({error:'Hi5Central-managed customers receive scheduled updates through the managed release operator.'},403)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const scheduled=await withTransaction(db=>scheduleTenantLive({
+        db,tenantId:auth.session.tenant_id,offerId:c.req.param('id'),
+        userId:auth.session.user_id,confirmed:body?.confirm===true,
+        requestedAt:body?.requestedAt||null,
+      }))
+      await recordSecurityEvent({
+        tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+        sessionId:auth.session.session_id||null,
+        eventType:'release.runtime_production_scheduled',
+        ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+        metadata:{offerId:scheduled.id,buildSha:scheduled.build_sha},
+      })
+      return c.json({scheduled,productionChanged:false,
+        message:'Production update scheduled for a trusted host activation; no application traffic has moved.'},202)
+    }catch(error){
+      return c.json({error:error.message||'Could not schedule this release.'},error.status||409)
+    }
   })
 
   app.get('/api/v1/release-management', async (c) => {
