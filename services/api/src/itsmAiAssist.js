@@ -91,13 +91,23 @@ export function registerItsmAiAssistRoutes(app){
     const reference=compact(input?.reference,80)
     if(!/^[A-Z]{2,8}-[A-Z0-9-]{2,50}$/i.test(reference))
       return c.json({error:'Invalid record reference.'},400)
-    const found=await pool.query(
-      'SELECT reference,record_type,title,description,status,priority,category FROM itsm_records WHERE tenant_id=$1 AND upper(reference)=upper($2) LIMIT 1',
-      [auth.session.tenant_id,reference])
-    if(found.rowCount!==1)return c.json({error:'Record not found.'},404)
-    const record=found.rows[0]
-    if(!hasRecordPermission(auth.session,record.record_type,'view'))
-      return c.json({error:'You do not have permission to view this record.'},403)
+    // The current record workspace fetches data from the ITSM lifecycle API.
+    // Summarise the technician-visible, explicitly submitted snapshot rather
+    // than querying the unrelated legacy itsm_records table.
+    const type=compact(input?.type,40)
+    if(!['Incident','Problem','Change'].includes(type))
+      return c.json({error:'AI Assist currently supports incidents, problems and changes.'},400)
+    if(!hasRecordPermission(auth.session,type,'view'))
+      return c.json({error:'You do not have permission to view this record type.'},403)
+    const record={
+      reference,record_type:type,
+      title:compact(input?.title,240),
+      description:compact(input?.description,1800),
+      status:compact(input?.status,80),
+      priority:compact(input?.priority,40),
+      category:compact(input?.category,100),
+    }
+    if(record.title.length<2)return c.json({error:'Record title required.'},400)
     if(!aiProviderKey())return c.json({error:'AI provider not configured. Ask an administrator to connect an AI provider.'},503)
     const key=auth.session.tenant_id+':'+auth.session.user_id
     const now=Date.now()
