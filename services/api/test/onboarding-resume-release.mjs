@@ -65,7 +65,7 @@ try {
   assert.equal(edit.data.onboarding.step,'updates')
   let policy = await db.query('SELECT update_mode,uat_auto_stage,live_auto_promote FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId])
   assert.equal(policy.rows[0].update_mode,'admin_controlled')
-  assert.equal(policy.rows[0].uat_auto_stage,false)
+  assert.equal(policy.rows[0].uat_auto_stage,true,'Custom tenants stage new releases in UAT')
   const advance = await call('POST','/api/v1/onboarding/step',
     {step:'updates',data:{updateMode:'hi5_managed',liveDelayHours:48,allowEmergencySecurityUpdates:false}})
   assert.equal(advance.code,200,JSON.stringify(advance.data))
@@ -77,7 +77,7 @@ try {
   policy = await db.query('SELECT update_mode,live_delay_hours,uat_auto_stage,live_auto_promote,allow_emergency_security_updates FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId])
   assert.equal(policy.rows[0].update_mode,'hi5_managed')
   assert.equal(policy.rows[0].live_delay_hours,48)
-  assert.equal(policy.rows[0].uat_auto_stage,true)
+  assert.equal(policy.rows[0].uat_auto_stage,false,'Managed tenants do not require UAT')
   assert.equal(policy.rows[0].live_auto_promote,true)
   assert.equal(policy.rows[0].allow_emergency_security_updates,false)
   const previous = await call('POST','/api/v1/onboarding/save',{step:'security',data:{requireMfa:false}})
