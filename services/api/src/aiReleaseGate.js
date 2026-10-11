@@ -1,6 +1,6 @@
 // Pilot pinned to one tested application artifact. This is release metadata,
 // not a customer configuration flag and not a trigger for image deployment.
-export const TESTED_AI_BUILD_SHA='27a8974dc337dcb255c9f561e7954281453d60f6'
+export const TESTED_AI_BUILD_SHA='9fb2fb5dba0516add7b2bea7cbb52554a7224ebf'
 export const AI_CONFIG_PATH='itsm.aiAssistant'
 export function acceptedAiChange({change,acceptance}){
   return Boolean(change&&change.id===AI_CONFIG_PATH&&change.to===true
