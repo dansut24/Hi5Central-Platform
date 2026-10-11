@@ -1,0 +1,75 @@
+name: AI acceptance successor pilot (no Production software deployment)
+on:
+  push:
+    branches: [hotfix/ai-release-next-revision-20261011]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_release_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_release_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    defaults: {run: {working-directory: services/api}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/aiReleaseGate.js && node --check src/configurationRelease.js && node --check src/index.js
+      - run: node test/ai-release-gate.mjs
+      - run: npm run migrate
+      - name: Check successor build capability and acceptance audit schema
+        run: |
+          node --input-type=module -e "
+            import pg from 'pg';
+            const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+            await c.connect();
+            const a=await c.query(\"SELECT component FROM platform_build_configuration_capabilities WHERE build_sha='9fb2fb5dba0516add7b2bea7cbb52554a7224ebf' ORDER BY component\");
+            const b=await c.query(\"SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name='tenant_ai_release_acceptance_history'\");
+            console.log('AI_CAPABILITIES',a.rows.map(x=>x.component),'ACCEPTANCE_HISTORY',b.rows[0].n);
+            if(a.rows.map(x=>x.component).join(',')!=='api,itsm'||b.rows[0].n!==1)process.exitCode=4;
+            await c.end();"
+      - run: npm run build:runtime
+  package:
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/api
+          push: true
+          tags: ghcr.io/dansut24/hi5central-platform-api:ai-acceptance-successor-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.hi5central.purpose=pilot-acceptance-approval-api-only
