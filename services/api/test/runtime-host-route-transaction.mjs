@@ -31,7 +31,7 @@ const source=`*.hi5central.com {
 `
 const intent={
  environment:'live',tenantSlug:'testing',publicHost:'testing.hi5central.com',
- buildSha:sha,previousUpstream:'hi5pool-legacy-web:80',nextUpstream:'hi5pool-release-web:80',
+ buildSha:sha,previousBuildSha:'b'.repeat(40),previousUpstream:'hi5pool-legacy-web:80',nextUpstream:'hi5pool-release-web:80',
  previousApiTarget:'hi5pool-legacy-api:3001',nextApiTarget:'hi5pool-release-api:3001',
  expectedCaddySha256:createHash('sha256').update(source).digest('hex'),routeGeneration:4,
  issuedAt:'2026-10-11T21:59:00Z',expiresAt:'2026-10-11T22:09:00Z',
