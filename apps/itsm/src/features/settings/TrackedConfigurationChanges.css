@@ -1,25 +1,163 @@
-.hi5-tracked-config{display:flex;flex-direction:column;gap:14px}
-.hi5-tracked-config-row{display:flex;flex-direction:column;gap:5px;padding:14px 16px;border:1px solid var(--border-color,rgba(128,128,128,.25));border-radius:10px}
-.hi5-tracked-config-row strong{font-weight:650;font-size:13px}
-.hi5-tracked-config-row small{font-size:12px;opacity:.73}
-.hi5-tracked-config-selection{display:flex;align-items:flex-start;gap:12px}
-.hi5-tracked-config-selection input{margin-top:3px;flex-shrink:0}
-.hi5-tracked-config-selection span{display:flex;flex-direction:column;gap:4px}
-.hi5-tracked-config-approval{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--border-color,rgba(128,128,128,.25));border-radius:12px}
-.hi5-tracked-config-approval label{display:flex;align-items:center;gap:9px}
-.hi5-tracked-config-approval textarea{width:100%;min-height:90px;box-sizing:border-box;border-radius:9px;padding:10px;color:inherit;background:transparent;border:1px solid var(--border-color,rgba(128,128,128,.3))}
-.hi5-tracked-config-approval button{align-self:flex-start;display:flex;align-items:center;gap:8px}
-@media(max-width:650px){.hi5-tracked-config-approval button{width:100%;justify-content:center}}
-
-.hi5-tracked-config-prerequisites{border:1px solid var(--border-color,rgba(128,128,128,.3));border-radius:8px;padding:12px 14px;font-size:13px}
+/* Scoped release-centre layout: the settings shell has other label/input rules.
+   Every row must size within its own card at all viewport widths. */
+.hi5-tracked-config{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  min-width:0;
+  width:100%;
+  box-sizing:border-box;
+}
+.hi5-tracked-config, .hi5-tracked-config * { box-sizing:border-box; }
+.hi5-tracked-config > * { min-width:0; max-width:100%; }
+.hi5-tracked-config-row {
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr) !important;
+  justify-items:stretch;
+  width:100%;
+  min-width:0;
+  min-height:0;
+  gap:7px;
+  padding:13px 15px;
+  border:1px solid var(--line,var(--border-color,rgba(128,128,128,.25)));
+  border-radius:10px;
+  text-align:left;
+  white-space:normal;
+}
+.hi5-tracked-config-row strong{font-weight:650;font-size:13px;line-height:1.45}
+.hi5-tracked-config-row small{font-size:12px;line-height:1.45;opacity:.73}
+.hi5-tracked-config-selection{
+  display:grid !important;
+  grid-template-columns:18px minmax(0,1fr) !important;
+  gap:11px !important;
+  align-items:start !important;
+  justify-content:start !important;
+  min-width:0;
+  width:100%;
+  text-align:left;
+}
+.hi5-tracked-config-copy{
+  display:flex !important;
+  flex-direction:column !important;
+  align-items:flex-start !important;
+  gap:3px;
+  min-width:0;
+  width:100%;
+  text-align:left;
+  overflow-wrap:anywhere;
+}
+.hi5-tracked-config-copy > *{max-width:100%;min-width:0;overflow-wrap:anywhere}
+.hi5-tracked-config input[type="checkbox"]{
+  display:block !important;
+  flex:none !important;
+  width:18px !important;
+  min-width:18px !important;
+  max-width:18px !important;
+  height:18px !important;
+  min-height:18px !important;
+  max-height:18px !important;
+  margin:2px 0 0 !important;
+  padding:0 !important;
+  accent-color:var(--settings-accent,#087fb5);
+  justify-self:start;
+  align-self:start;
+}
+.hi5-tracked-config-check{
+  display:grid !important;
+  grid-template-columns:18px minmax(0,1fr) !important;
+  align-items:start !important;
+  justify-content:start !important;
+  justify-items:start !important;
+  gap:11px !important;
+  width:100%;
+  max-width:100%;
+  min-width:0;
+  padding:0;
+  margin:0;
+  text-align:left !important;
+  white-space:normal;
+  line-height:1.5;
+}
+.hi5-tracked-config-check > span {
+  display:block !important;
+  min-width:0;
+  max-width:100%;
+  overflow-wrap:anywhere;
+  text-align:left !important;
+}
+.hi5-tracked-config-row > small {
+  display:block;
+  margin:0 0 0 29px;
+  overflow-wrap:anywhere;
+  white-space:normal;
+}
+.hi5-tracked-config-ai-approval,
+.hi5-tracked-config-approval{
+  display:flex;
+  flex-direction:column;
+  align-items:stretch;
+  width:100%;
+  min-width:0;
+  gap:12px;
+  padding:15px;
+  border:1px solid var(--line,var(--border-color,rgba(128,128,128,.25)));
+  border-radius:12px;
+  text-align:left;
+}
+.hi5-tracked-config-ai-approval > *,
+.hi5-tracked-config-approval > *{
+  min-width:0;
+  max-width:100%;
+  overflow-wrap:anywhere;
+}
+.hi5-tracked-config-ai-approval p{
+  margin:0;
+  font-size:13px;
+  line-height:1.55;
+}
+.hi5-tracked-config-ai-approval code{overflow-wrap:anywhere}
+.hi5-tracked-config-ai-approval textarea,
+.hi5-tracked-config-approval textarea{
+  display:block;
+  width:100%;
+  min-width:0;
+  min-height:90px;
+  padding:10px 12px;
+  border:1px solid var(--line,var(--border-color,rgba(128,128,128,.3)));
+  border-radius:9px;
+  background:transparent;
+  color:inherit;
+  font:inherit;
+  resize:vertical;
+}
+.hi5-tracked-config-ai-approval button,
+.hi5-tracked-config-approval button{
+  align-self:flex-start;
+  display:inline-flex;
+  justify-content:center;
+  align-items:center;
+  gap:8px;
+  width:auto;
+  max-width:100%;
+  min-height:38px;
+  padding:9px 13px;
+  text-align:center;
+  white-space:normal;
+  overflow-wrap:anywhere;
+}
+.hi5-tracked-config-ai-approval small{opacity:.75}
+.hi5-tracked-config-prerequisites{
+  width:100%;
+  border:1px solid var(--line,var(--border-color,rgba(128,128,128,.3)));
+  border-radius:8px;
+  padding:12px 14px;
+  font-size:13px;
+}
 .hi5-tracked-config-prerequisites strong{display:block;margin-bottom:6px}
 .hi5-tracked-config-prerequisites ul{margin:0;padding-left:22px;line-height:1.7}
 .hi5-tracked-config-ready{font-weight:600;font-size:13px;margin:0}
-
-.hi5-tracked-config-ai-approval{display:flex;flex-direction:column;gap:11px;padding:15px;border:1px solid var(--border-color,rgba(128,128,128,.3));border-radius:12px}
-.hi5-tracked-config-ai-approval p{margin:0;line-height:1.55;font-size:13px}
-.hi5-tracked-config-ai-approval label{display:flex;align-items:center;gap:8px;font-size:13px}
-.hi5-tracked-config-ai-approval textarea{width:100%;box-sizing:border-box;min-height:85px;padding:10px;border:1px solid var(--border-color,rgba(128,128,128,.3));border-radius:8px;background:transparent;color:inherit}
-.hi5-tracked-config-ai-approval button{align-self:flex-start;padding:9px 13px;border-radius:9px}
-.hi5-tracked-config-ai-approval small{opacity:.75}
-@media(max-width:650px){.hi5-tracked-config-ai-approval button{width:100%}}
+@media(max-width:650px){
+  .hi5-tracked-config-row { padding:12px; }
+  .hi5-tracked-config-ai-approval,.hi5-tracked-config-approval {padding:13px}
+  .hi5-tracked-config-ai-approval button,.hi5-tracked-config-approval button{width:100%;align-self:stretch}
+}
