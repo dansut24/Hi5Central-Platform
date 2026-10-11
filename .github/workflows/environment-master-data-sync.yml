@@ -1,0 +1,58 @@
+name: Environment master-reference sync isolation
+on:
+  push:
+    branches: [feature/environment-master-data-sync-20261011]
+  pull_request:
+    paths:
+      - 'services/api/src/environmentReference*.js'
+      - 'services/api/test/environment-reference*.mjs'
+      - 'services/api/migrations/platform-admin/151_environment_reference_sync.sql'
+      - 'services/api/src/index.js'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_sync_live_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_sync_live_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_sync_live_ci
+      TENANT_UAT_DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_sync_uat_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      NODE_ENV: test
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      ENV_REFERENCE_SYNC_PILOT_TENANT_SLUG: sync-tenant
+      ENV_REFERENCE_SYNC_APPLY_ENABLED: 'true'
+      ENV_REFERENCE_SYNC_AUTO_ENABLED: 'false'
+    defaults:
+      run: {working-directory: services/api}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/environmentReferencePlan.js && node --check src/environmentReferenceSync.js && node --check src/index.js
+      - run: node test/environment-reference-sync.mjs
+      - name: Prepare isolated UAT database
+        run: PGPASSWORD=ci_only_password psql -h localhost -U hi5_ci -d hi5_sync_live_ci -c 'CREATE DATABASE hi5_sync_uat_ci'
+      - name: Migrate both environments
+        run: |
+          npm run migrate
+          DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
+      - run: node test/environment-reference-db.mjs
+      - run: npm run build:runtime
