@@ -6,6 +6,7 @@ import { verifyPassword } from './password.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
+import { applicationDeployments } from './applicationDeployment.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -697,6 +698,55 @@ export function registerPlatformAdminRoutes(app) {
     if (auth.error) return auth.error
     const tenantId = auth.session.tenant_id || clean(c.req.query('tenantId'), 80) || null
     return c.json(await releaseOverview(tenantId))
+  })
+
+  // Platform-wide application releases are not tenant permissions. Only
+  // Platform Admin can schedule the operator to deploy the UAT-verified SHA.
+  app.get('/api/platform/v1/releases/application-deployments', async (c) => {
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    const [versions,jobs]=await Promise.all([
+      applicationDeployments(pool),
+      pool.query(`SELECT id,from_environment,to_environment,api_sha,itsm_sha,
+        release_ref,status,requested_at,started_at,completed_at,error_message
+        FROM platform_application_deployment_jobs ORDER BY requested_at DESC LIMIT 30`),
+    ])
+    return c.json({environments:versions,jobs:jobs.rows})
+  })
+
+  app.post('/api/platform/v1/releases/application-deployments/promote', async (c) => {
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    const body=await c.req.json().catch(()=>null)
+    const target=String(body?.environment||'').trim().toLowerCase()
+    if(!['uat','live'].includes(target))return c.json({error:'Environment must be UAT or Live.'},400)
+    const source=target==='uat'?'dev':'uat'
+    const versions=await applicationDeployments(pool)
+    const approved=versions[source]
+    if(!approved.verified) return c.json({error:`The ${source.toUpperCase()} application must be verified by the host operator before deploying to ${target.toUpperCase()}.`},409)
+    // The two application images are built as one atomic commit.
+    if(approved.apiSha!==approved.itsmSha) return c.json({error:'API and ITSM are not on the same release revision.'},409)
+    if(versions[target].verified
+      && versions[target].apiSha===approved.apiSha
+      && versions[target].itsmSha===approved.itsmSha){
+      return c.json({status:'already_deployed',sha:approved.apiSha})
+    }
+    const releaseRef=clean(body?.releaseRef,180) || `app-${approved.apiSha.slice(0,12)}-${target}`
+    try {
+      const job=await withTransaction(async db=>{
+        const result=await db.query(`INSERT INTO platform_application_deployment_jobs
+          (from_environment,to_environment,api_sha,itsm_sha,release_ref,requested_by)
+          VALUES($1,$2,$3,$4,$5,$6) RETURNING id,status,api_sha,itsm_sha,to_environment,release_ref`,
+          [source,target,approved.apiSha,approved.itsmSha,releaseRef,auth.session.user_id])
+        return result.rows[0]
+      })
+      await audit(c,auth.session,'release.application_deployment.queued','deployment_job',job.id,
+        {source,target,apiSha:job.api_sha,itsmSha:job.itsm_sha,releaseRef})
+      return c.json({job,status:'queued'},202)
+    }catch(error){
+      if(error?.code==='23505')return c.json({error:'An application deployment is already queued or running for this environment.'},409)
+      throw error
+    }
   })
 
   app.post('/api/platform/v1/releases/features', async (c) => {
