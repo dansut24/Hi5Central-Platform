@@ -345,6 +345,9 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
   const [notificationSettings, setNotificationSettings] = useState(defaultNotificationSettings)
   const [notificationSettingsLoaded, setNotificationSettingsLoaded] = useState(false)
   const [settingsNavVisible, setSettingsNavVisible] = useState(loadSettingsNavVisible)
+  const [legalIdentityLoaded,setLegalIdentityLoaded]=useState(false)
+  const [legalIdentityReadOnly,setLegalIdentityReadOnly]=useState(false)
+  const sandboxHostname=/(?:-uat|-test)\.hi5central\.com$/i.test(window.location.hostname)
   const activeId = sectionFromPath(currentPath)
   const active = sections[activeId]
   const modules = session?.tenant?.modules || {}
@@ -353,6 +356,28 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
   useEffect(() => {
     setConfig(mergeConfig(defaults(session), effectiveSettings(session)))
   }, [session])
+
+  // Organisation's legal identity belongs to the Production master record.
+  // Refetch it when opening Settings, not from the per-environment session
+  // snapshot. A failed master lookup must not silently show stale sandbox data.
+  useEffect(()=>{
+    if(activeId!=='organisation')return
+    let active=true
+    setLegalIdentityLoaded(false)
+    fetch(`${API_BASE}/api/v1/settings`,{credentials:'include',cache:'no-store'})
+      .then(async response=>{
+        const result=await response.json().catch(()=>({}))
+        if(!response.ok)throw Error(result.error||'Could not verify organisation identity.')
+        if(!active)return
+        setLegalIdentityReadOnly(Boolean(result.masterIdentity?.companyLegalNameReadOnly))
+        const legalName=result.settings?.company?.legalName
+        if(typeof legalName==='string')
+          setConfig(previous=>({...previous,company:{...previous.company,legalName}}))
+        setLegalIdentityLoaded(true)
+      })
+      .catch(e=>{if(active&&sandboxHostname)setError(e.message)})
+    return()=>{active=false}
+  },[activeId,session?.tenant?.id,sandboxHostname])
 
   useEffect(() => {
     let active = true
@@ -516,7 +541,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
           <div className="production-settings-save-state">
             {saved ? <span className="is-saved"><Check size={14} /> {saved}</span> : null}
             {error ? <span className="is-error">{error}</span> : null}
-            {!['release-management','platform-updates'].includes(activeId) ? <button disabled={saving} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
+            {!['release-management','platform-updates'].includes(activeId) ? <button disabled={saving||(activeId==='organisation'&&sandboxHostname&&!legalIdentityLoaded)} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
           </div>
         </header>
 
@@ -524,7 +549,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
 
         <div className="production-settings-scroll-region">
           <div className="production-settings-content">
-            {activeId === 'organisation' ? <Organisation config={config.company} update={(f, v) => updateArea('company', f, v)} /> : null}
+            {activeId === 'organisation' ? <Organisation config={config.company} legalNameReadOnly={legalIdentityReadOnly} legalNameLoading={sandboxHostname&&!legalIdentityLoaded} update={(f, v) => updateArea('company', f, v)} /> : null}
             {activeId === 'appearance' ? <Appearance config={config.theme} update={(f, v) => updateArea('theme', f, v)} /> : null}
             {activeId === 'directory' ? <Directory config={config.users} update={(f, v) => updateArea('users', f, v)} updateNested={(p, f, v) => updateNested('users', p, f, v)} /> : null}
             {activeId === 'teams' ? <TeamsDepartments config={config.groups} update={(f, v) => updateArea('groups', f, v)} /> : null}
@@ -569,8 +594,8 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
   )
 }
 
-function Organisation({ config, update }) {
-  return <Panel title="Organisation" description="Core tenant identity and regional defaults inherited from onboarding."><div className="production-settings-grid"><Field label="Display name"><input value={config.displayName || ''} onChange={(e) => update('displayName', e.target.value)} /></Field><Field label="Legal / registered name"><input value={config.legalName || ''} onChange={(e) => update('legalName', e.target.value)} /></Field><Field label="Country"><input value={config.country || ''} onChange={(e) => update('country', e.target.value)} /></Field><Field label="Industry"><select value={config.industry || 'Technology'} onChange={(e) => update('industry', e.target.value)}><option>Technology</option><option>Professional services</option><option>Education</option><option>Healthcare</option><option>Retail</option><option>Manufacturing</option><option>Other</option></select></Field><Field label="Organisation size"><select value={config.employeeBand || '51-250'} onChange={(e) => update('employeeBand', e.target.value)}><option value="1-50">1-50</option><option value="51-250">51-250</option><option value="251-1000">251-1,000</option><option value="1001+">1,001+</option></select></Field><Field label="Time zone"><select value={config.timezone || 'Europe/London'} onChange={(e) => update('timezone', e.target.value)}><option>Europe/London</option><option>Europe/Dublin</option><option>UTC</option><option>America/New_York</option></select></Field><Field label="Locale"><select value={config.locale || 'en-GB'} onChange={(e) => update('locale', e.target.value)}><option value="en-GB">English (UK)</option><option value="en-US">English (US)</option></select></Field></div></Panel>
+function Organisation({ config, update, legalNameReadOnly=false,legalNameLoading=false }) {
+  return <Panel title="Organisation" description="Core tenant identity and regional defaults inherited from onboarding."><div className="production-settings-grid"><Field label="Display name"><input value={config.displayName || ''} onChange={(e) => update('displayName', e.target.value)} /></Field><Field label="Legal / registered name"><input aria-label="Legal / registered name" readOnly={legalNameReadOnly} disabled={legalNameLoading} title={legalNameReadOnly?'Managed from Production':undefined} value={legalNameLoading?'':(config.legalName || '')} onChange={(e) => update('legalName', e.target.value)} />{legalNameReadOnly?<small>Managed in Production and shared with UAT/Test.</small>:null}{legalNameLoading?<small>Verifying Production organisation identity…</small>:null}</Field><Field label="Country"><input value={config.country || ''} onChange={(e) => update('country', e.target.value)} /></Field><Field label="Industry"><select value={config.industry || 'Technology'} onChange={(e) => update('industry', e.target.value)}><option>Technology</option><option>Professional services</option><option>Education</option><option>Healthcare</option><option>Retail</option><option>Manufacturing</option><option>Other</option></select></Field><Field label="Organisation size"><select value={config.employeeBand || '51-250'} onChange={(e) => update('employeeBand', e.target.value)}><option value="1-50">1-50</option><option value="51-250">51-250</option><option value="251-1000">251-1,000</option><option value="1001+">1,001+</option></select></Field><Field label="Time zone"><select value={config.timezone || 'Europe/London'} onChange={(e) => update('timezone', e.target.value)}><option>Europe/London</option><option>Europe/Dublin</option><option>UTC</option><option>America/New_York</option></select></Field><Field label="Locale"><select value={config.locale || 'en-GB'} onChange={(e) => update('locale', e.target.value)}><option value="en-GB">English (UK)</option><option value="en-US">English (US)</option></select></Field></div></Panel>
 }
 
 function Appearance({ config, update }) {
