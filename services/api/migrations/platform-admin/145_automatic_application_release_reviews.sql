@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS tenant_application_release_reviews (
   build_sha text NOT NULL CHECK (build_sha ~ '^[a-f0-9]{40}$'),
   approved_change_shas jsonb NOT NULL DEFAULT '[]'::jsonb,
   evidence text NOT NULL DEFAULT '',
-  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','requested')),
+  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','approved','requested','forwarded')),
   reviewed_by uuid REFERENCES users(id) ON DELETE SET NULL,
   reviewed_at timestamptz,
   requested_at timestamptz,
