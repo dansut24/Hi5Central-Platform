@@ -21,6 +21,8 @@ export function TrackedConfigurationChanges({environment}){
   const [selected,setSelected]=useState([])
   const [tested,setTested]=useState(false)
   const [note,setNote]=useState('')
+  const [aiTested,setAiTested]=useState(false)
+  const [aiEvidence,setAiEvidence]=useState('')
   const config=deploymentConfig()
   const slug=window.location.hostname.split('.')[0].replace(/-(uat|test)$/,'')
   const liveUrl=`https://${slug}.${config.rootDomain}/settings/platform/releases`
@@ -32,6 +34,22 @@ export function TrackedConfigurationChanges({environment}){
   const changes=data?.changes||[]
   const events=data?.trackedEvents||[]
   const pending=changes.filter(x=>x.promotable&&!x.versionUpgradeRequired)
+  const aiRelease=data?.aiRelease
+  const aiChange=changes.find(x=>x.id==='itsm.aiAssistant')
+  async function acceptAiUat(){
+    if(!aiTested||aiEvidence.trim().length<20||!aiChange)return
+    if(!window.confirm('Record successful UAT acceptance of this AI Assist application build? No Production software or settings will be changed.'))return
+    setBusy(true);setError('');setMessage('')
+    try{
+      await api('/accept-ai-uat',{
+        method:'POST',
+        body:JSON.stringify({confirmed:true,tested:true,note:aiEvidence}),
+      })
+      setMessage('AI Assist UAT testing accepted. The matching application version must be deployed before configuration promotion.')
+      setAiEvidence('');setAiTested(false)
+      await load()
+    }catch(e){setError(e.message)}finally{setBusy(false)}
+  }
   const readyToPromote=selected.length>0&&tested&&note.trim().length>=20&&!busy
   const missingRequirements=[
     !selected.length?'Select the change you want to promote.':null,
@@ -82,7 +100,20 @@ export function TrackedConfigurationChanges({environment}){
         <p>{changes.length
           ? `${changes.length} UAT configuration difference(s) waiting for review.`
           : 'UAT settings match Production. No pending differences.'}</p>
-        {data?.baselineExcludedCount>0?<p><small>{data.baselineExcludedCount} older UAT/Production baseline differences are excluded from this MFA-only pilot until their change history and safe promotion handlers have been reviewed.</small></p>:null}
+        {data?.baselineExcludedCount>0?<p><small>{data.baselineExcludedCount} unrelated baseline differences remain excluded from this controlled release pilot until independently reviewed.</small></p>:null}
+        {aiChange&&aiRelease?<div className="hi5-tracked-config-ai-approval">
+          <strong>AI Assist — application release requirement</strong>
+          <p>UAT-tested application revision: <code>{aiRelease.testedBuildSha.slice(0,12)}</code>. Both the API and ITSM interface must be on this verified version before the AI setting can be promoted.</p>
+          {aiRelease.uatAccepted?<p role="status">UAT acceptance recorded. {aiRelease.productionBuildReady?'The matching Production application build is verified; the configuration can be selected for promotion.':'Awaiting the approved application deployment to Production.'}</p>:<>
+            <label><input type="checkbox" checked={aiTested} onChange={e=>setAiTested(e.target.checked)} disabled={busy}/> The AI Assist feature was successfully tested in UAT.</label>
+            <textarea rows={3} value={aiEvidence} maxLength={3000}
+              onChange={e=>setAiEvidence(e.target.value)}
+              placeholder="Describe the tested AI result (minimum 20 characters)"/>
+            <button type="button" onClick={acceptAiUat}
+              disabled={busy||!aiTested||aiEvidence.trim().length<20}>Accept tested AI application release</button>
+          </>}
+          {!aiRelease.productionBuildReady?<small>Production has not yet been upgraded. UAT acceptance alone cannot enable AI Assist in Production.</small>:null}
+        </div>:null}
         {changes.map(x=><label className="hi5-tracked-config-row" key={x.id}>
           <span className="hi5-tracked-config-selection">
             <input type="checkbox" checked={selected.includes(x.id)}
@@ -92,7 +123,7 @@ export function TrackedConfigurationChanges({environment}){
               <small>{x.category} · {x.from!==null||x.to!==null?`${String(x.from)} → ${String(x.to)}`:'Setting updated'}</small>
             </span>
           </span>
-          {x.versionUpgradeRequired?<small>Requires an application version upgrade to support this change.</small>:null}
+          {x.versionUpgradeRequired?<small>Requires the approved application version in Production first.</small>:null}
           {!x.promotable?<small>Tracked; a safe promotion handler is not yet available for this setting.</small>:null}
         </label>)}
         {pending.length?<div className="hi5-tracked-config-approval">
