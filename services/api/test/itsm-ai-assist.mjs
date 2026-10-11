@@ -1,9 +1,24 @@
 import assert from 'node:assert/strict'
-import {aiEnabledInEnvironment,summariseRecordViaProvider} from '../src/itsmAiAssist.js'
+import {aiEnabledInEnvironment,summariseRecordViaProvider,hasAiPilotAccess} from '../src/itsmAiAssist.js'
 assert.equal(aiEnabledInEnvironment({itsm:{aiAssistant:false}},'uat'),false)
 assert.equal(aiEnabledInEnvironment({itsm:{aiAssistant:true}},'uat'),true)
 assert.equal(aiEnabledInEnvironment({itsm:{aiAssistant:false}},'live'),false)
 assert.equal(aiEnabledInEnvironment({},'test'),true)
+const testing={slug:'testing'}
+const testingUat={slug:'testing-uat'}
+const testingTest={slug:'testing-test'}
+const other={slug:'other-customer'}
+assert.equal(hasAiPilotAccess(testingUat,'uat',{ITSM_AI_PILOT_TENANT_SLUG:'testing'}),true)
+assert.equal(hasAiPilotAccess(testingTest,'test',{ITSM_AI_PILOT_TENANT_SLUG:'testing'}),true)
+assert.equal(hasAiPilotAccess(testing,'live',{ITSM_AI_PILOT_TENANT_SLUG:'testing'}),false,
+  'Enabling AI in UAT must not enable it in Production.')
+assert.equal(hasAiPilotAccess(testing,'live',{ITSM_AI_LIVE_PILOT_TENANT_SLUG:'testing'}),false,
+  'Production must require an independent explicit enabled switch.')
+assert.equal(hasAiPilotAccess(testing,'live',{ITSM_AI_LIVE_PILOT_TENANT_SLUG:'testing',ITSM_AI_LIVE_PILOT_ENABLED:'true'}),true)
+assert.equal(hasAiPilotAccess(other,'live',{ITSM_AI_LIVE_PILOT_TENANT_SLUG:'testing',ITSM_AI_LIVE_PILOT_ENABLED:'true'}),false)
+assert.equal(hasAiPilotAccess(testing,'live',{ITSM_AI_LIVE_PILOT_TENANT_SLUG:'testing',ITSM_AI_LIVE_PILOT_ENABLED:'false'}),false)
+assert.equal(hasAiPilotAccess(testing,'dev',{ITSM_AI_LIVE_PILOT_TENANT_SLUG:'testing',ITSM_AI_LIVE_PILOT_ENABLED:'true'}),false)
+
 let request
 const transport=async (url,options)=>{
   request={url,options,body:JSON.parse(options.body)}
