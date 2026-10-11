@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto'
 // Connector credentials, billing details and account-specific secrets are never
 // transferred by the generic configuration promoter.
 const excludedAreas=new Set(['integrations','billing','users'])
+const derivedFields=new Set(['mfaEnforcedAt'])
 const sensitiveKey=/(secret|password|token|credential|private.?key|api.?key|refresh.?key|connection.?string|smtp|oauth|client.?secret|recovery.?code)/i
 const MAX_DEPTH=12
 const MAX_ITEMS=1200
@@ -27,7 +28,7 @@ export function valueAtPath(config,path) {
 export function safeToPromote(path){
   if(!Array.isArray(path)||!path.length||path.length>MAX_DEPTH)return false
   if(!path.every(x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x)))return false
-  if(excludedAreas.has(path[0]))return false
+  if(excludedAreas.has(path[0])||path.some(x=>derivedFields.has(x)))return false
   return !path.some(key=>sensitiveKey.test(key))
 }
 export function differenceList(live,uat){
@@ -37,7 +38,7 @@ export function differenceList(live,uat){
     if(path.length>MAX_DEPTH)throw Error('Configuration nesting exceeds the supported depth.')
     const oldObject=before.exists&&object(before.value)
     const newObject=after.exists&&object(after.value)
-    if(oldObject||newObject) {
+    if((oldObject||newObject)&&(!before.exists||!after.exists||oldObject===newObject)) {
       const keys=new Set([...Object.keys(oldObject?before.value:{}),...Object.keys(newObject?after.value:{})])
       for(const k of [...keys].sort()){
         const bp=oldObject&&hasOwn(before.value,k)?{exists:true,value:before.value[k]}:{exists:false,value:null}
