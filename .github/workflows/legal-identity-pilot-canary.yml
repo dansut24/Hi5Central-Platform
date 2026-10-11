@@ -1,0 +1,96 @@
+name: Testing pilot - Production-owned legal identity
+on:
+  push:
+    branches: [release/legal-identity-testing-canary-20261011]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  verify-api:
+    environment: develop
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only
+          POSTGRES_DB: hi5_ai_record_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_ai_record_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only@localhost:5432/hi5_ai_record_ci
+      REDIS_URL: redis://localhost:6379
+      RUNTIME_ENVIRONMENT: live
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+      CONFIGURATION_RELEASE_AI_APPROVED_BUILD_SHA: edfc90c119ce57695012e72fe7d3ea5dbbcb1839
+    defaults: {run: {working-directory: services/api}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/masterLegalIdentity.js && node --check src/settings.js && node --check src/itsmAiAssist.js && node --check src/configurationRelease.js && node --check src/itsmLifecycle.js
+      - run: node test/master-legal-identity.mjs
+      - run: node test/itsm-ai-assist.mjs
+      - run: node test/ai-release-gate.mjs
+      - run: node test/tenant-deployment-proof.mjs
+      - run: npm run migrate
+      - run: npm run build:runtime
+  verify-ui:
+    environment: develop
+    runs-on: ubuntu-24.04
+    defaults: {run: {working-directory: apps/itsm}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: node test/release-tracking-layout.mjs
+      - run: node test/update-publication-status.mjs
+      - run: npm run build
+  package:
+    needs: [verify-api,verify-ui]
+    environment: develop
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: api
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - kind: itsm
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:legal-identity-pilot-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.hi5central.release.scope=testing-test-and-uat-legal-identity-canary
