@@ -11,6 +11,7 @@ const CATEGORIES=[{value:'feature',label:'New feature'},{value:'improvement',lab
 const EMPTY_ENTRY=()=>({category:'feature',title:'',description:''})
 function dateLabel(value){if(!value)return '';const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
 function short(sha){return String(sha||'').slice(0,8)||'Unknown'}
+function displayVersion(value){return String(value||'').trim().replace(/\+[a-f0-9]{8,40}$/i,'')}
 async function api(path,options={}){
   const response=await fetch(API_BASE+path,{credentials:'include',cache:'no-store',...options,
     headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
@@ -33,16 +34,23 @@ function DevReleaseEditor({installed,onPublished}){
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [success,setSuccess]=useState('')
+  const [originalVersion,setOriginalVersion]=useState('')
   useEffect(()=>{
     let active=true
     api('/api/v1/updates/dev-notes').then(data=>{
       if(!active)return
-      setNotes(data.notes||{buildSha:data.buildSha,versionLabel:data.defaultVersion||'',
-        title:'',summary:'',entries:[EMPTY_ENTRY()],status:'draft'})
+      setOriginalVersion(data.notes?.versionLabel||'')
+      setNotes(data.notes
+        ?{...data.notes,versionLabel:displayVersion(data.notes.versionLabel)}
+        :{buildSha:data.buildSha,versionLabel:data.defaultVersion||'',
+          title:'',summary:'',entries:[EMPTY_ENTRY()],status:'draft'})
     }).catch(e=>{if(active&&e.status!==403)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
   },[installed])
   const editable=notes?.status==='draft'
+  const versionEditable=editable||(notes?.status==='published'&&notes?.versionSyncState!=='pending')
+  const pendingVersion=notes?.versionSyncState==='pending'
+  const versionChanged=notes?.status==='published'&&notes?.versionLabel?.trim()!==originalVersion
   function field(key,value){setNotes(current=>({...current,[key]:value}))}
   function entry(index,key,value){
     field('entries',notes.entries.map((item,i)=>i===index?{...item,[key]:value}:item))
@@ -62,20 +70,34 @@ function DevReleaseEditor({installed,onPublished}){
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
   }
+  async function updatePublishedVersion(){
+    if(!notes||busy||!versionChanged)return
+    if(!window.confirm('Update only this published release version number? The build and release notes will remain unchanged.'))return
+    setBusy(true);setError('');setSuccess('')
+    try{
+      const response=await api('/api/v1/updates/dev-notes/version',{
+        method:'PUT',body:JSON.stringify({versionLabel:notes.versionLabel})})
+      setNotes(current=>({...current,versionSyncState:'pending'}))
+      setSuccess(response.message||'Customer version correction requested.')
+    }catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
   if(loading)return <p className="hi5-updates-placeholder">Loading Dev release editor…</p>
   if(!notes)return error?<p role="alert" className="hi5-updates-error">{error}</p>:null
   return <section className="hi5-updates-editor" aria-label="Hi5Central Dev release-note editor">
     <div className="hi5-updates-change-header">
       <div><h3>Dev team · Prepare release notes</h3>
-        <p>Write what customers should see. Notes remain private until you publish this version from Dev.</p>
+        <p>Choose a customer version number and write what changed. The technical build ID is tracked separately.</p>
       </div>
-      <span className="hi5-updates-status">{notes.status==='draft'?'Unpublished draft':notes.status==='publication_requested'?'Publishing requested':'Published'}</span>
+      <span className="hi5-updates-status">{pendingVersion?'Updating version':notes.status==='draft'?'Unpublished draft':notes.status==='publication_requested'?'Publishing requested':'Published'}</span>
     </div>
     {error?<p role="alert" className="hi5-updates-error"><CircleAlert size={16}/>{error}</p>:null}
     {success?<p role="status" className="hi5-updates-success">{success}</p>:null}
     <div className="hi5-updates-editor-fields">
-      <label>Customer version number<input maxLength={64} disabled={!editable} value={notes.versionLabel||''}
-        onChange={e=>field('versionLabel',e.target.value)} placeholder="e.g. 2026.10.2"/></label>
+      <label>Customer version number<input maxLength={32} disabled={!versionEditable} value={notes.versionLabel||''}
+        onChange={e=>field('versionLabel',e.target.value)} placeholder="e.g. 1.0.1 or 2026.10.1"/>
+        <small className="hi5-updates-field-hint">Customer-facing label only. Build {short(notes.buildSha)} remains unchanged.</small>
+      </label>
       <label>Release title<input maxLength={180} disabled={!editable} value={notes.title||''}
         onChange={e=>field('title',e.target.value)} placeholder="e.g. October platform improvements"/></label>
       <label>Release summary<textarea rows={2} maxLength={1200} disabled={!editable} value={notes.summary||''}
@@ -104,7 +126,14 @@ function DevReleaseEditor({installed,onPublished}){
       <button type="button" className="is-primary" disabled={busy||!notes.versionLabel?.trim()||!notes.title?.trim()||
         !(notes.entries||[]).length||notes.entries.some(item=>item.title.trim().length<3)}
         onClick={()=>save(true)}><Send size={15}/> Release to customers</button>
-    </div>:<small>Notes for this build are locked after publication is requested. Publish a newer build for revised release notes.</small>}
+    </div>:notes.status==='published'
+      ?<div className="hi5-updates-version-correction">
+        <p>The notes are published and locked. You can still correct the customer version number without deploying new code.</p>
+        {pendingVersion?<small>Version correction submitted. It will appear to customers after central synchronisation. Refresh this page to see the result.</small>
+          :<button type="button" disabled={busy||!versionChanged||!notes.versionLabel?.trim()}
+            onClick={updatePublishedVersion}><Save size={15}/> Update published version number</button>}
+      </div>
+      :<small>Publication is in progress. Release notes cannot be changed after submission.</small>}
   </section>
 }
 export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
@@ -163,10 +192,10 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Installed version</span>
-          <strong>{installed?.versionLabel||data.releaseName?.split('+')[0]||short(data.sha)}</strong>
+          <strong>{displayVersion(installed?.versionLabel)||displayVersion(data.releaseName)||short(data.sha)}</strong>
           <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
         <article><span className="hi5-updates-kicker">Latest published</span>
-          <strong>{latest?.versionLabel||'No releases yet'}</strong>
+          <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
         <article><span className="hi5-updates-kicker">Update status</span>
           <strong>{available?'Available':latest?'Up to date':'No published update'}</strong>
@@ -192,7 +221,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
           <button className="hi5-updates-release-heading" type="button"
             aria-expanded={expanded===release.buildSha||(!expanded&&release===latest)}
             onClick={()=>setExpanded(v=>v===release.buildSha?'closed':release.buildSha)}>
-            <span><strong>{release.versionLabel} · {release.title}</strong>
+            <span><strong>{displayVersion(release.versionLabel)} · {release.title}</strong>
               <small>{dateLabel(release.publishedAt)} · {release.entries?.length||0} changes
                 {release.buildSha===data.sha?' · Installed':''}</small></span>
             <span>{expanded===release.buildSha||(!expanded&&release===latest)?'−':'+'}</span>
