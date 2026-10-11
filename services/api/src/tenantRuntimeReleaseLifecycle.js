@@ -1,4 +1,4 @@
-import {customerPoolHostname,maintenanceWindowStatus,verifiedRuntimePool} from './runtimePoolPolicy.js'
+import {customerPoolHostname,maintenanceWindowStatus,publishedReleaseDelayStatus,verifiedRuntimePool} from './runtimePoolPolicy.js'
 
 const checks=['login','navigation','records','mobile']
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
@@ -26,7 +26,7 @@ export function verifiedCustomerRoute({route,pool,offer,slug,now=new Date()}){
   const verified=verifiedRuntimePool(pool,now)
   return verified.verified?{ok:true}:{ok:false,reason:verified.reason}
 }
-export function scheduledPromotionGate({offer,preference,uatOffer,pool,now=new Date()}){
+export function scheduledPromotionGate({offer,preference,uatOffer,pool,publishedAt=null,now=new Date()}){
   if(offer?.environment!=='live'||offer.state!=='scheduled')
     return {allowed:false,reason:'No scheduled Production update.'}
   if(!pool||pool.id!==offer.pool_id||pool.build_sha!==offer.build_sha||
@@ -34,25 +34,23 @@ export function scheduledPromotionGate({offer,preference,uatOffer,pool,now=new D
     return {allowed:false,reason:'Production pool revision mismatch.'}
   const healthy=verifiedRuntimePool(pool,now)
   if(!healthy.verified)return {allowed:false,reason:healthy.reason}
-  if(!uatOffer||uatOffer.build_sha!==offer.build_sha||!uatOffer.uat_accepted_at||
-    !['uat_accepted','active'].includes(uatOffer.state))
-    return {allowed:false,reason:'Matching customer UAT approval is missing.'}
   if(offer.update_mode!==preference?.update_mode)
     return {allowed:false,reason:'Update mode changed after scheduling.'}
-  if(!offer.maintenance_not_before||
-    new Date(offer.maintenance_not_before).getTime()>now.getTime())
+  const begins=new Date(offer.maintenance_not_before||'').getTime()
+  if(!Number.isFinite(begins)||begins>now.getTime())
     return {allowed:false,reason:'Release start time has not arrived.'}
-  if(preference.update_mode==='admin_controlled')
+  if(preference.update_mode==='admin_controlled'){
+    if(!uatOffer||uatOffer.build_sha!==offer.build_sha||!uatOffer.uat_accepted_at||
+      !['uat_accepted','active'].includes(uatOffer.state))
+      return {allowed:false,reason:'Matching customer UAT approval is missing.'}
     return offer.promotion_approved_at&&offer.promotion_approved_by
       ?{allowed:true,reason:'Customer-controlled release approved.'}
       :{allowed:false,reason:'Customer approval is missing.'}
+  }
   if(preference.update_mode!=='hi5_managed'||preference.live_auto_promote!==true)
     return {allowed:false,reason:'Managed updates are paused.'}
-  const hours=Number(preference.live_delay_hours)
-  const accepted=new Date(uatOffer.uat_accepted_at).getTime()
-  if(!Number.isInteger(hours)||hours<0||hours>720||!Number.isFinite(accepted)||
-    now.getTime()-accepted<hours*3600000)
-    return {allowed:false,reason:'Minimum managed UAT delay has not elapsed.'}
+  const published=publishedReleaseDelayStatus(publishedAt,preference.live_delay_hours,now)
+  if(!published.ready)return {allowed:false,reason:published.reason}
   const window=maintenanceWindowStatus(preference.maintenance_window,now)
   return {allowed:window.allowed,reason:window.reason}
 }
@@ -118,12 +116,13 @@ export async function scheduleTenantLive({db,tenantId,offerId,userId,
     "AND state IN ('uat_accepted','active') AND uat_accepted_at IS NOT NULL",
     'ORDER BY uat_accepted_at DESC LIMIT 1',
   ].join(' '),[tenantId,row.build_sha])).rows[0]
-  if(!accepted)throw refuse('The same build must be accepted in UAT first.')
+  if(row.update_mode==='admin_controlled'&&!accepted)
+    throw refuse('The same build must be accepted in UAT first.')
   const pool=(await db.query('SELECT * FROM platform_runtime_pools WHERE id=$1 AND environment=$2',
     [row.pool_id,'live'])).rows[0]
   if(!pool||pool.build_sha!==row.build_sha||!verifiedRuntimePool(pool,now).verified)
     throw refuse('A healthy verified Production pool for this exact build is required.')
-  const published=await db.query('SELECT 1 FROM hi5central_published_release_notes WHERE build_sha=$1',[row.build_sha])
+  const published=await db.query('SELECT published_at FROM hi5central_published_release_notes WHERE build_sha=$1',[row.build_sha])
   if(!published.rowCount)throw refuse('Hi5Central has not published the application release.')
   let start=now,approver=null
   if(row.update_mode==='admin_controlled'){
@@ -137,10 +136,10 @@ export async function scheduleTenantLive({db,tenantId,offerId,userId,
     approver=userId
   }else{
     if(row.live_auto_promote!==true)throw refuse('Managed automatic updates are disabled.')
-    const hours=Number(row.live_delay_hours)
-    if(!Number.isInteger(hours)||hours<0||hours>720)throw refuse('Invalid managed release delay.')
-    start=new Date(Math.max(now.getTime(),
-      new Date(accepted.uat_accepted_at).getTime()+hours*3600000))
+    const delay=publishedReleaseDelayStatus(published.rows[0].published_at,row.live_delay_hours,now)
+    if(delay.invalid)throw refuse(delay.reason)
+    const publishedTime=new Date(published.rows[0].published_at).getTime()
+    start=new Date(Math.max(now.getTime(),publishedTime+Number(row.live_delay_hours)*3600000))
   }
   const updated=await db.query([
     "UPDATE tenant_runtime_update_offers SET state='scheduled',",
