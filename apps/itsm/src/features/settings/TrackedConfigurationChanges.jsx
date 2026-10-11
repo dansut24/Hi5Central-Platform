@@ -76,6 +76,7 @@ export function TrackedConfigurationChanges({environment}){
         <p>{changes.length
           ? `${changes.length} UAT configuration difference(s) waiting for review.`
           : 'UAT settings match Production. No pending differences.'}</p>
+        {data?.baselineExcludedCount>0?<p><small>{data.baselineExcludedCount} older UAT/Production baseline differences are excluded from this MFA-only pilot until their change history and safe promotion handlers have been reviewed.</small></p>:null}
         {changes.map(x=><label className="hi5-tracked-config-row" key={x.id}>
           <span className="hi5-tracked-config-selection">
             <input type="checkbox" checked={selected.includes(x.id)}
