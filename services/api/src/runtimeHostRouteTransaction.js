@@ -19,12 +19,13 @@ export function verifyHostRouteIntent({intent,signature,publicKeyPem,now=new Dat
  if(!intent||typeof intent!=='object'||Array.isArray(intent))
   refuse('Route intent is missing.')
  const {environment,tenantSlug,publicHost,buildSha,previousUpstream,
-  nextUpstream,nextApiTarget,expectedCaddySha256,routeGeneration,issuedAt,expiresAt}=intent
+  nextUpstream,previousApiTarget,nextApiTarget,expectedCaddySha256,routeGeneration,issuedAt,expiresAt}=intent
  if(!Object.hasOwn(environmentSuffix,environment)||!slugPattern.test(tenantSlug||'')
    ||publicHost!==tenantSlug+environmentSuffix[environment]+'.hi5central.com'
    ||!shaPattern.test(buildSha||'')||!hashPattern.test(expectedCaddySha256||'')
    ||!upstreamPattern.test(previousUpstream||'')||!upstreamPattern.test(nextUpstream||'')
-   ||!apiPattern.test(nextApiTarget||'')
+   ||!apiPattern.test(previousApiTarget||'')||!apiPattern.test(nextApiTarget||'')
+   ||previousApiTarget===nextApiTarget
    ||previousUpstream===nextUpstream
    ||!Number.isSafeInteger(routeGeneration)||routeGeneration<=0)
   refuse('Route intent does not match the approved tenant, immutable build or internal targets.')
@@ -57,13 +58,19 @@ export function renderVerifiedTenantRoute(current,intent){
  const block=current.slice(left,right)
  if(!block.includes('host '+intent.publicHost))
   refuse('Route is not bound to the approved hostname.')
- const old='reverse_proxy '+intent.previousUpstream
- if(!exactlyOne(block,old)||block.includes('reverse_proxy '+intent.nextUpstream))
-  refuse('Expected previous tenant upstream does not match the active route.')
- const replacement=block.replace(old,'reverse_proxy '+intent.nextUpstream)
+ const oldWeb='reverse_proxy '+intent.previousUpstream
+ const oldApi='reverse_proxy '+intent.previousApiTarget
+ if(!exactlyOne(block,oldWeb)||!exactlyOne(block,oldApi)
+   ||block.includes('reverse_proxy '+intent.nextUpstream)
+   ||block.includes('reverse_proxy '+intent.nextApiTarget))
+  refuse('Expected previous tenant API and ITSM upstreams do not match the active route.')
+ const replacement=block.replace(oldWeb,'reverse_proxy '+intent.nextUpstream)
+   .replace(oldApi,'reverse_proxy '+intent.nextApiTarget)
  const candidate=current.slice(0,left)+replacement+current.slice(right)
- if(candidate===current||candidate.length!==current.length+intent.nextUpstream.length-intent.previousUpstream.length)
-  refuse('Route edit was not exactly one upstream replacement.')
+ const delta=intent.nextUpstream.length-intent.previousUpstream.length
+   +intent.nextApiTarget.length-intent.previousApiTarget.length
+ if(candidate===current||candidate.length!==current.length+delta)
+  refuse('Route edit must replace precisely the selected tenant API and ITSM upstreams.')
  return candidate
 }
 
@@ -80,7 +87,8 @@ export async function runHostRouteTransaction({intent,signature,publicKeyPem,
  const candidate=renderVerifiedTenantRoute(previous,intent)
  const preview={environment:intent.environment,tenantSlug:intent.tenantSlug,
   buildSha:intent.buildSha,routeGeneration:intent.routeGeneration,
-  from: intent.previousUpstream,to:intent.nextUpstream,
+  from: {web:intent.previousUpstream,api:intent.previousApiTarget},
+  to:{web:intent.nextUpstream,api:intent.nextApiTarget},
   currentDigest:digest(previous),candidateDigest:digest(candidate)}
  await adapter.validateCandidate(candidate)
  if(!applyEnabled)return {...preview,state:'dry_run',routingChanged:false}
