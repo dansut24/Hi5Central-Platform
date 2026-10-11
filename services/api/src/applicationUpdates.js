@@ -64,9 +64,14 @@ async function requireHi5Developer(c){
   if(deployment.runtimeEnvironment!=='dev')
     return {error:c.json({error:'Release notes are authored only in Dev.'},403)}
   const membership=await pool.query(
-    "SELECT 1 FROM platform_admin_members WHERE user_id=$1 AND status='active' AND role IN ('owner','admin','engineer') LIMIT 1",
+    "SELECT 1 FROM platform_admin_members WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
     [auth.session.user_id])
-  if(!membership.rowCount)return {error:c.json({error:'Hi5Central platform staff access required.'},403)}
+  // Dev's dedicated internal workspace owner is the development release
+  // author. Never grant this privilege to owners of other tenant slugs.
+  const devTeamOwner=auth.session.slug==='dev'
+    &&['owner','admin'].includes(auth.session.tenant_role)
+  if(!membership.rowCount&&!devTeamOwner)
+    return {error:c.json({error:'Hi5Central Dev release author access required.'},403)}
   return auth
 }
 function publicItem(row){
