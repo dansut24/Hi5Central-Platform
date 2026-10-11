@@ -10,3 +10,8 @@
 .hi5-tracked-config-approval textarea{width:100%;min-height:90px;box-sizing:border-box;border-radius:9px;padding:10px;color:inherit;background:transparent;border:1px solid var(--border-color,rgba(128,128,128,.3))}
 .hi5-tracked-config-approval button{align-self:flex-start;display:flex;align-items:center;gap:8px}
 @media(max-width:650px){.hi5-tracked-config-approval button{width:100%;justify-content:center}}
+
+.hi5-tracked-config-prerequisites{border:1px solid var(--border-color,rgba(128,128,128,.3));border-radius:8px;padding:12px 14px;font-size:13px}
+.hi5-tracked-config-prerequisites strong{display:block;margin-bottom:6px}
+.hi5-tracked-config-prerequisites ul{margin:0;padding-left:22px;line-height:1.7}
+.hi5-tracked-config-ready{font-weight:600;font-size:13px;margin:0}
