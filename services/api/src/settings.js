@@ -18,6 +18,7 @@ import {
   requestUserAgent,
 } from './securityAudit.js'
 import { resolveSession, sessionPayload } from './session.js'
+import {readMasterLegalIdentity,applyMasterLegalIdentity,protectMasterLegalIdentity} from './masterLegalIdentity.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerWorkflowRoutes } from './itsmWorkflows.js'
 
@@ -77,7 +78,12 @@ export function registerSettingsRoutes(app) {
   app.get('/api/v1/settings', async (c) => {
     const auth = await requirePermission(c, 'settings.view')
     if (auth.error) return auth.error
-    return c.json(sessionPayload(auth.session))
+    try{
+      const identity=await readMasterLegalIdentity(auth.session)
+      return c.json(applyMasterLegalIdentity(sessionPayload(auth.session),identity))
+    }catch{
+      return c.json({error:'Production master organisation identity is temporarily unavailable.'},503)
+    }
   })
 
   app.post('/api/v1/settings/:area', async (c) => {
@@ -91,6 +97,16 @@ export function registerSettingsRoutes(app) {
     let data = body?.data
     if (!data || typeof data !== 'object' || Array.isArray(data)) return c.json({ error: 'Settings data must be an object.' }, 400)
     if (JSON.stringify(data).length > 40_000) return c.json({ error: 'Settings data is too large.' }, 413)
+    if(area==='company'){
+      try{
+        const identity=await readMasterLegalIdentity(auth.session)
+        data=protectMasterLegalIdentity(data,identity)
+      }catch(e){
+        if(String(e.message||'').includes('managed in Production'))
+          return c.json({error:e.message},409)
+        return c.json({error:'Production master organisation identity is temporarily unavailable.'},503)
+      }
+    }
 
     await withTransaction(async (client) => {
       let newlyEnforcedMfa = false
@@ -164,7 +180,12 @@ export function registerSettingsRoutes(app) {
     if (area === 'security') await pruneSecurityAuditForTenant(auth.session.tenant_id, Number(data.auditRetention)).catch(() => {})
     const refreshed = await resolveSession(c)
     if (!refreshed) return c.json({ error: 'Your security policy changed. Sign in again to continue.' }, 401)
-    return c.json(sessionPayload(refreshed))
+    try{
+      const identity=await readMasterLegalIdentity(refreshed)
+      return c.json(applyMasterLegalIdentity(sessionPayload(refreshed),identity))
+    }catch{
+      return c.json({error:'Settings were saved, but the master identity could not be reloaded. Refresh to retry.'},503)
+    }
   })
 
   registerAccessRoutes(app)
