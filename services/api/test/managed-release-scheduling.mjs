@@ -21,7 +21,7 @@ function fakeDb({mode='hi5_managed',accepted=false,auto=true,stamp=publishedAt}=
      uatLookups++;return {rows:accepted?[{build_sha:sha,uat_accepted_at:new Date('2026-10-10T01:00:00Z')}]:[]}
    }
    if(sql.startsWith('SELECT * FROM platform_runtime_pools'))return {rows:[pool]}
-   if(sql.startsWith('SELECT published_at FROM hi5central_published_release_notes'))return {rows:[{published_at:stamp}]}
+   if(sql.startsWith('SELECT published_at FROM hi5central_published_release_notes'))return {rowCount:1,rows:[{published_at:stamp}]}
    if(sql.startsWith('UPDATE tenant_runtime_update_offers')){
      updates++;return {rowCount:1,rows:[{id:offerId,environment:'live',build_sha:sha,
        state:'scheduled',maintenance_not_before:args[2]}]}
