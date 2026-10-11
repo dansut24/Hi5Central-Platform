@@ -40,6 +40,7 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
   const rows=await pool.query([
    'SELECT o.*,p.update_mode AS current_mode,p.live_auto_promote,',
    'p.live_delay_hours,p.maintenance_window,',
+   'published.published_at AS release_published_at,',
    'q.id AS verified_pool_id,q.environment AS pool_environment,',
    'q.build_sha AS pool_build_sha,q.state AS pool_state,',
    'q.api_target,q.web_target,q.last_seen_at,q.verified_at,',
@@ -48,6 +49,7 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
    'FROM tenant_runtime_update_offers o',
    'JOIN tenant_release_preferences p ON p.tenant_id=o.tenant_id',
    'JOIN platform_runtime_pools q ON q.id=o.pool_id AND q.environment=o.environment',
+   'LEFT JOIN hi5central_published_release_notes published ON published.build_sha=o.build_sha',
    'LEFT JOIN LATERAL (SELECT state,build_sha,uat_accepted_at',
    'FROM tenant_runtime_update_offers u',
    "WHERE u.tenant_id=o.tenant_id AND u.environment='uat'",
@@ -68,6 +70,7 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
      update_mode:row.current_mode,live_auto_promote:row.live_auto_promote,
      live_delay_hours:row.live_delay_hours,maintenance_window:row.maintenance_window,
     },
+    publishedAt:row.release_published_at,
     uatOffer:row.uat_state?{
      state:row.uat_state,build_sha:row.uat_build_sha,uat_accepted_at:row.uat_time,
     }:null,now,
