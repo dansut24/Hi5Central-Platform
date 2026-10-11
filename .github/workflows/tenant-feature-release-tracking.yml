@@ -8,6 +8,10 @@ on:
       - 'services/api/src/applicationUpdates.js'
       - 'services/api/migrations/platform-admin/145_automatic_application_release_reviews.sql'
       - 'services/api/test/application-updates.mjs'
+      - 'services/api/test/curated-release-notes.mjs'
+      - 'services/api/migrations/platform-admin/146_curated_release_notes.sql'
+      - 'apps/itsm/src/production/ProductionApplicationUpdates.jsx'
+      - 'apps/itsm/src/production/ProductionApplicationUpdates.css'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/migrations/platform-admin/144_verified_application_deployment.sql'
       - 'services/api/test/application-deployment-gate.mjs'
@@ -67,6 +71,8 @@ jobs:
           DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
       - name: Test automatic changelog and UAT version comparison
         run: node test/application-updates.mjs
+      - name: Test curated customer release notes
+        run: node test/curated-release-notes.mjs
       - name: Test application deployment gate edge cases
         run: node test/application-deployment-gate.mjs
       - name: Test failed-ledger rollback, staged rollout, acceptance and tenant isolation

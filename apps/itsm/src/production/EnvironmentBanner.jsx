@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import './EnvironmentBanner.css'
 
 function currentEnvironment() {
@@ -13,11 +14,30 @@ function currentEnvironment() {
 
 export function EnvironmentBanner() {
   const environment=currentEnvironment()
+  const bannerRef=useRef(null)
+  useEffect(()=>{
+    if(environment==='live')return undefined
+    document.documentElement.dataset.hi5Environment=environment
+    const banner=bannerRef.current
+    if(!banner)return undefined
+    const update=()=>{
+      const height=Math.max(36,Math.ceil(banner.getBoundingClientRect().height))
+      document.documentElement.style.setProperty('--hi5-environment-banner-height',height+'px')
+    }
+    update()
+    const observer=typeof ResizeObserver==='function'?new ResizeObserver(update):null
+    observer?.observe(banner)
+    window.addEventListener('resize',update)
+    return()=>{
+      observer?.disconnect()
+      window.removeEventListener('resize',update)
+      document.documentElement.style.removeProperty('--hi5-environment-banner-height')
+    }
+  },[environment])
   if(environment==='live')return null
-  document.documentElement.dataset.hi5Environment=environment
   const isUat=environment==='uat'
   return (
-    <div className={`hi5-environment-banner hi5-environment-banner--${environment}`}
+    <div ref={bannerRef} className={`hi5-environment-banner hi5-environment-banner--${environment}`}
       role="status" aria-label={isUat?'UAT staging environment':'Test environment'}>
       <span className="hi5-environment-banner__label">
         {isUat?'UAT / STAGING ENVIRONMENT':'TEST ENVIRONMENT'}

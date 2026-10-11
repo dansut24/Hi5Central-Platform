@@ -5,72 +5,171 @@ import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 
 let manifest
-try {
-  manifest = JSON.parse(readFileSync(resolve(process.cwd(),'release-manifest.json'),'utf8'))
-} catch {
-  manifest = { schemaVersion:1,sha:'',version:'development',builtAt:null,commits:[] }
-}
+try {manifest=JSON.parse(readFileSync(resolve(process.cwd(),'release-manifest.json'),'utf8'))}
+catch {manifest={schemaVersion:1,sha:'',version:'development',builtAt:null,commits:[]}}
 const SHA=/^[0-9a-f]{40}$/
 const LIST_LIMIT=70
-
-export function releaseCatalog(version=manifest) {
+const CATEGORIES=new Set(['feature','improvement','fix','security','other'])
+function trimmed(value,max=250){return String(value??'').trim().slice(0,max)}
+export function validateReleaseNotes(input){
+  const buildSha=trimmed(input?.buildSha,40).toLowerCase()
+  const versionLabel=trimmed(input?.versionLabel,64)
+  const title=trimmed(input?.title,180)
+  const summary=trimmed(input?.summary,1200)
+  if(!SHA.test(buildSha)||!versionLabel||!title)
+    throw new Error('A valid build, version name and release title are required.')
+  if(!Array.isArray(input?.entries)||input.entries.length<1||input.entries.length>35)
+    throw new Error('Provide between 1 and 35 customer-facing release note entries.')
+  const entries=input.entries.map((item,i)=>{
+    const category=trimmed(item?.category,32).toLowerCase()
+    const heading=trimmed(item?.title,160)
+    const description=trimmed(item?.description,950)
+    if(!CATEGORIES.has(category)||heading.length<3)
+      throw new Error('Each release note needs a category and a descriptive title.')
+    return {category,title:heading,description}
+  })
+  return {buildSha,versionLabel,title,summary,entries}
+}
+export function releaseCatalog(version=manifest){
   const commits=Array.isArray(version.commits)?version.commits:[]
-  return {
-    version:String(version.version||'development'),
+  return {version:String(version.version||'development'),
     releaseName:String(version.releaseName||version.version||'Development build'),
-    sha:String(version.sha||''),
-    builtAt:version.builtAt||null,
-    changes:commits.filter(c=>c.sha&&SHA.test(c.sha))
-      .slice(0,LIST_LIMIT).map(c=>({
-        sha:c.sha,
-        title:c.subject,
-        date:c.date,
-        category:c.kind||'maintenance',
+    sha:String(version.sha||''),builtAt:version.builtAt||null,
+    changes:commits.filter(c=>SHA.test(String(c.sha||''))).slice(0,LIST_LIMIT)
+      .map(c=>({sha:c.sha,title:c.subject,date:c.date,category:c.kind||'maintenance',
         components:Array.isArray(c.components)?c.components:[],
         migrations:Array.isArray(c.migrations)?c.migrations:[],
-        files:Array.isArray(c.files)?c.files:[],
-      })),
+        files:Array.isArray(c.files)?c.files:[]})),
   }
 }
-
-export function changesSince(versions, liveSha) {
-  if (!SHA.test(String(liveSha||''))) return { knownBaseline:false,changes:[],reason:'The Production version is not available yet.' }
-  if (versions.sha===liveSha) return { knownBaseline:true,changes:[] }
-  const index=versions.changes.findIndex(entry=>entry.sha===liveSha)
-  return index<0
-    ?{knownBaseline:false,changes:[],reason:'Production is older than the recorded history. Review the complete build.'}
+export function changesSince(versions,liveSha){
+  if(!SHA.test(String(liveSha||'')))return {knownBaseline:false,changes:[],reason:'Production version unavailable.'}
+  if(versions.sha===liveSha)return {knownBaseline:true,changes:[]}
+  const index=versions.changes.findIndex(item=>item.sha===liveSha)
+  return index<0?{knownBaseline:false,changes:[],reason:'Baseline outside history.'}
     :{knownBaseline:true,changes:versions.changes.slice(0,index)}
 }
-
-async function requireUser(c, admin=false) {
+async function requireUser(c,admin=false){
   const session=await resolveSession(c)
   if(!session)return {error:c.json({error:'Authentication required.'},401)}
   if(!originMatchesTenant(c.req.header('origin'),session.slug))
     return {error:c.json({error:'Workspace origin mismatch.'},403)}
   if(admin&&!['owner','admin'].includes(session.tenant_role))
-    return {error:c.json({error:'Organisation admin access required.'},403)}
+    return {error:c.json({error:'Organisation administrator access required.'},403)}
   return {session}
 }
-
-export function registerApplicationUpdatesRoutes(app) {
-  // Minimal public version only. Internal file names and notes require login.
-  app.get('/api/v1/updates/version', c=>c.json({
-    sha:manifest.sha,
-    version:manifest.version,
-    releaseName:manifest.releaseName||manifest.version,
-    builtAt:manifest.builtAt,
-    environment:deployment.runtimeEnvironment,
-  }))
-
+async function requireHi5Developer(c){
+  const auth=await requireUser(c)
+  if(auth.error)return auth
+  if(deployment.runtimeEnvironment!=='dev')
+    return {error:c.json({error:'Release notes are authored only in Dev.'},403)}
+  const membership=await pool.query(
+    "SELECT 1 FROM platform_admin_members WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    [auth.session.user_id])
+  // Dev's dedicated internal workspace owner is the development release
+  // author. Never grant this privilege to owners of other tenant slugs.
+  const devTeamOwner=auth.session.slug==='dev'
+    &&['owner','admin'].includes(auth.session.tenant_role)
+  if(!membership.rowCount&&!devTeamOwner)
+    return {error:c.json({error:'Hi5Central Dev release author access required.'},403)}
+  return auth
+}
+function publicItem(row){
+  return {buildSha:row.build_sha,versionLabel:row.version_label,title:row.title,
+    summary:row.summary,entries:row.entries,publishedAt:row.published_at}
+}
+async function centralPublished(){
+  const result=await pool.query(
+    'SELECT build_sha,version_label,title,summary,entries,published_at FROM hi5central_published_release_notes ORDER BY published_at DESC LIMIT 40')
+  return result.rows.map(publicItem)
+}
+async function publishedReleases(){
+  if(deployment.runtimeEnvironment==='live'||deployment.deploymentMode==='self_hosted')
+    return centralPublished()
+  try{
+    const response=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/published',
+      {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
+    if(!response.ok)return []
+    const payload=await response.json()
+    return Array.isArray(payload.releases)?payload.releases:[]
+  }catch{return []}
+}
+export function registerApplicationUpdatesRoutes(app){
+  app.get('/api/v1/updates/version',c=>c.json({sha:manifest.sha,version:manifest.version,
+    releaseName:manifest.releaseName||manifest.version,builtAt:manifest.builtAt,
+    environment:deployment.runtimeEnvironment}))
+  // Public information consists ONLY of explicitly published notes. Never
+  // include private commits, migrations, feature flags or Dev drafts.
+  app.get('/api/v1/updates/published',async c=>{
+    if(deployment.runtimeEnvironment!=='live'&&deployment.deploymentMode!=='self_hosted')
+      return c.json({error:'Central release authority only.'},403)
+    c.header('Cache-Control','public,max-age=60')
+    return c.json({releases:await centralPublished()})
+  })
   app.get('/api/v1/updates',async c=>{
     const auth=await requireUser(c)
     if(auth.error)return auth.error
-    const {changes:allChanges,...version}=releaseCatalog()
-    const changes=allChanges.map(({files,...item})=>item)
-    return c.json({ ...version,environment:deployment.runtimeEnvironment,
-      changes,historyCount:changes.length,
-      hasReviewedChanges:changes.some(c=>['feature','fix','improvement','database'].includes(c.category)),
-    })
+    const releases=await publishedReleases()
+    return c.json({sha:manifest.sha,version:manifest.version,
+      releaseName:manifest.releaseName||manifest.version,builtAt:manifest.builtAt,
+      environment:deployment.runtimeEnvironment,
+      releases,latestPublished:releases[0]||null,
+      availableReleases:releases.filter(item=>item.buildSha!==manifest.sha)})
+  })
+  app.get('/api/v1/updates/dev-notes',async c=>{
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    const result=await pool.query(
+      'SELECT build_sha,version_label,title,summary,entries,status,edited_at,requested_at,published_at FROM hi5central_release_note_drafts WHERE build_sha=$1',
+      [manifest.sha])
+    const row=result.rows[0]
+    return c.json({buildSha:manifest.sha,defaultVersion:manifest.releaseName||manifest.version,
+      notes:row?{buildSha:row.build_sha,versionLabel:row.version_label,
+        title:row.title,summary:row.summary,entries:row.entries,status:row.status,
+        editedAt:row.edited_at,requestedAt:row.requested_at,publishedAt:row.published_at}:null})
+  })
+  app.put('/api/v1/updates/dev-notes',async c=>{
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    const body=await c.req.json().catch(()=>null)
+    // Drafts can be saved before any entries are complete; publish validates.
+    if(!SHA.test(manifest.sha))return c.json({error:'A versioned Dev build is required.'},409)
+    const entries=Array.isArray(body?.entries)?body.entries.slice(0,35).map(item=>({
+      category:CATEGORIES.has(String(item?.category||''))?item.category:'feature',
+      title:trimmed(item?.title,160),description:trimmed(item?.description,950),
+    })):[]
+    const params=[manifest.sha,trimmed(body?.versionLabel,64),
+      trimmed(body?.title,180),trimmed(body?.summary,1200),
+      JSON.stringify(entries),auth.session.user_id]
+    const result=await pool.query([
+      'INSERT INTO hi5central_release_note_drafts(build_sha,version_label,title,summary,entries,edited_by)',
+      "VALUES($1,$2,$3,$4,$5::jsonb,$6)",
+      'ON CONFLICT(build_sha) DO UPDATE SET version_label=EXCLUDED.version_label,',
+      'title=EXCLUDED.title,summary=EXCLUDED.summary,entries=EXCLUDED.entries,',
+      "edited_by=EXCLUDED.edited_by,edited_at=now() WHERE hi5central_release_note_drafts.status='draft'",
+      'RETURNING build_sha,status,edited_at',
+    ].join(' '),params)
+    if(!result.rowCount)return c.json({error:'The release was already submitted for publication and cannot be edited.'},409)
+    return c.json({notes:result.rows[0]})
+  })
+  app.post('/api/v1/updates/dev-notes/publish',async c=>{
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    if(!SHA.test(manifest.sha))return c.json({error:'A versioned Dev build is required.'},409)
+    const result=await pool.query(
+      'SELECT * FROM hi5central_release_note_drafts WHERE build_sha=$1',[manifest.sha])
+    if(!result.rowCount)return c.json({error:'Write and save Dev release notes first.'},409)
+    const row=result.rows[0]
+    if(row.status!=='draft')return c.json({error:'Release publication was already requested.'},409)
+    try{validateReleaseNotes({buildSha:row.build_sha,versionLabel:row.version_label,
+      title:row.title,summary:row.summary,entries:row.entries})}
+    catch(e){return c.json({error:e.message},400)}
+    const requested=await pool.query(
+      "UPDATE hi5central_release_note_drafts SET status='publication_requested',requested_at=now() WHERE build_sha=$1 AND status='draft' RETURNING status,requested_at",
+      [manifest.sha])
+    if(!requested.rowCount)return c.json({error:'The release is already being published.'},409)
+    return c.json({status:'publication_requested',
+      message:'Dev release publication requested. Customers see it only after the trusted release operator publishes the notes centrally.'},202)
   })
 
   app.get('/api/v1/updates/uat-review',async c=>{
@@ -93,7 +192,9 @@ export function registerApplicationUpdatesRoutes(app) {
     if(deployment.runtimeEnvironment!=='uat')return c.json({error:'Reviews are recorded in UAT.'},403)
     if(!SHA.test(manifest.sha))return c.json({error:'The running build has no verifiable manifest.'},409)
     const body=await c.req.json().catch(()=>null)
-    const approved=Array.isArray(body?.approvedShas)?[...new Set(body.approvedShas.map(String))]:[]
+    const approved=body?.acceptWholeBuild===true
+      ?releaseCatalog().changes.map(change=>change.sha)
+      :Array.isArray(body?.approvedShas)?[...new Set(body.approvedShas.map(String))]:[]
     const evidence=String(body?.evidence||'').trim().slice(0,4000)
     const request=body?.requestLive===true
     const baselineSha=String(body?.baselineSha||'')
@@ -102,6 +203,11 @@ export function registerApplicationUpdatesRoutes(app) {
       return c.json({error:'The review includes changes not present in this build.'},400)
     if(request&&evidence.length<12)
       return c.json({error:'Record what was tested in UAT before requesting promotion.'},400)
+    if(request){
+      const published=await publishedReleases()
+      if(!published.some(item=>item.buildSha===manifest.sha))
+        return c.json({error:'Hi5Central must publish the developer-written release notes from Dev before this version can be requested for Live.'},409)
+    }
     if(request) {
       // Verify Production's actual version rather than accepting a baseline
       // chosen by the requester. Missing Live version reporting falls back

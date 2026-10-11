@@ -56,3 +56,58 @@
 }
 
 .hi5-updates-select-all{background:transparent;border:1px solid var(--line,#e1e5ec);padding:7px 9px;border-radius:8px;color:inherit;font-size:11px;font-weight:750;cursor:pointer;white-space:nowrap}
+
+
+/* Environment banner sits in a separate fixed layer at z-index 2147483000.
+   Body padding does not affect fixed drawers. Honor its shared height variable
+   in desktop and mobile instead of obscuring the drawer title and close icon. */
+.hi5-updates-overlay .hi5-updates-drawer {
+  top:var(--hi5-environment-banner-height,0px);
+  bottom:0;
+  height:calc(100dvh - var(--hi5-environment-banner-height,0px));
+  max-height:calc(100dvh - var(--hi5-environment-banner-height,0px));
+  box-sizing:border-box;
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  scroll-padding-top:14px;
+}
+.hi5-updates-overlay .hi5-updates-backdrop{
+  top:var(--hi5-environment-banner-height,0px);
+}
+.hi5-updates-editor{display:flex;flex-direction:column;gap:13px;padding:15px;border:1px solid var(--line,#e1e5ec);border-radius:14px;background:var(--surface,#fff)}
+.hi5-updates-editor .hi5-updates-change-header p,.hi5-updates-change-header>div>p{margin:4px 0 0;font-size:11px;color:var(--muted,#667083);line-height:1.5}
+.hi5-updates-status{display:inline-flex;align-items:center;min-height:23px;border:1px solid var(--line,#e1e5ec);border-radius:999px;padding:3px 10px;font-size:10px;font-weight:750;white-space:nowrap}
+.hi5-updates-editor-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
+.hi5-updates-editor-fields label{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px;font-weight:750}
+.hi5-updates-editor-fields label:last-child{grid-column:1/-1}
+.hi5-updates-editor-fields input,.hi5-updates-editor-fields textarea,.hi5-updates-edit-row input,.hi5-updates-edit-row textarea,.hi5-updates-edit-row select{width:100%;min-width:0;border:1px solid var(--line,#e1e5ec);border-radius:9px;background:var(--surface,#fff);color:var(--ink,#192234);padding:9px 10px;font:inherit;font-size:12px;font-weight:400;resize:vertical}
+.hi5-updates-editor-fields input:disabled,.hi5-updates-editor-fields textarea:disabled,.hi5-updates-edit-row input:disabled,.hi5-updates-edit-row textarea:disabled,.hi5-updates-edit-row select:disabled{opacity:.68;cursor:not-allowed}
+.hi5-updates-add-note{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line,#e1e5ec);border-radius:9px;background:var(--surface,#fff);color:inherit;padding:7px 10px;font-size:11px;font-weight:750;cursor:pointer}
+.hi5-updates-editor-entries{display:flex;flex-direction:column;gap:9px}
+.hi5-updates-edit-row{display:flex;flex-direction:column;gap:7px;padding:12px;border:1px solid var(--line,#e1e5ec);border-radius:10px;background:var(--surface-soft,#f7f8fa)}
+.hi5-updates-edit-row .hi5-updates-edit-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.hi5-updates-edit-row .hi5-updates-edit-head strong{font-size:11px}
+.hi5-updates-edit-row .hi5-updates-edit-head button{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:1px solid var(--line,#e1e5ec);border-radius:7px;background:var(--surface,#fff);color:inherit;cursor:pointer}
+.hi5-updates-success{margin:0;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:9px;padding:10px;color:#065f46;font-size:12px}
+.hi5-updates-editor>small{color:var(--muted,#667083);font-size:11px}
+.hi5-updates-published-list{display:flex;flex-direction:column;gap:10px}
+.hi5-updates-published-release{border:1px solid var(--line,#e1e5ec);border-radius:12px;overflow:hidden;background:var(--surface,#fff)}
+.hi5-updates-release-heading{display:flex;justify-content:space-between;gap:12px;align-items:center;width:100%;padding:13px;text-align:left;background:transparent;border:0;color:inherit;cursor:pointer}
+.hi5-updates-release-heading>span:first-child{display:flex;flex-direction:column;gap:5px;min-width:0}
+.hi5-updates-release-heading strong{font-size:12px;overflow-wrap:anywhere}
+.hi5-updates-release-heading small{font-size:10px;color:var(--muted,#667083)}
+.hi5-updates-release-heading>span:last-child{font-size:18px;color:var(--muted,#667083)}
+.hi5-updates-release-details{display:flex;flex-direction:column;gap:10px;padding:0 13px 13px}
+.hi5-updates-release-details>p{font-size:12px;line-height:1.55;margin:0;color:var(--muted,#667083)}
+.hi5-updates-note-entry{display:flex;align-items:flex-start;gap:10px;padding-top:10px;border-top:1px solid var(--line,#e1e5ec)}
+.hi5-updates-note-entry>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.hi5-updates-note-icon{display:inline-flex;color:#16a34a;padding-top:1px;flex:none}
+.hi5-updates-note-entry strong{font-size:12px;line-height:1.4}
+.hi5-updates-note-entry small{font-size:10px;color:var(--muted,#667083)}
+.hi5-updates-note-entry p{margin:0;font-size:11px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:680px){
+  .hi5-updates-editor-fields{grid-template-columns:1fr}
+  .hi5-updates-editor-fields label:last-child{grid-column:auto}
+  .hi5-updates-overlay .hi5-updates-drawer{overscroll-behavior:contain}
+  .hi5-updates-intro{align-items:flex-start}
+}

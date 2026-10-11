@@ -516,7 +516,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
           <div className="production-settings-save-state">
             {saved ? <span className="is-saved"><Check size={14} /> {saved}</span> : null}
             {error ? <span className="is-error">{error}</span> : null}
-            {activeId !== 'release-management' ? <button disabled={saving} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
+            {!['release-management','platform-updates'].includes(activeId) ? <button disabled={saving} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
           </div>
         </header>
 

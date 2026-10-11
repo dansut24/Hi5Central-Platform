@@ -1,220 +1,244 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowRight, CheckCircle2, ChevronDown, CircleAlert, ClipboardCheck, Clock3, GitBranch, History, RefreshCw, Rocket, X } from 'lucide-react'
+import { CheckCircle2, CircleAlert, GitBranch, Plus, RefreshCw, Rocket, Save, Send, Trash2, X } from 'lucide-react'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import './ProductionApplicationUpdates.css'
 
-const API_BASE=window.__HI5_API_BASE__ || ''
-const KIND_LABEL={feature:'New feature',fix:'Fix',improvement:'Improvement',database:'Database migration',maintenance:'Maintenance'}
-
-async function request(path,options={}) {
-  const r=await fetch(API_BASE+path,{credentials:'include',cache:'no-store',...options,
-    headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}})
-  const body=await r.json().catch(()=>({}))
-  if(!r.ok)throw Object.assign(new Error(body.error||'Could not load release information.'),{status:r.status})
+const API_BASE=window.__HI5_API_BASE__||''
+const ENV=deploymentConfig().runtimeEnvironment
+const CATEGORIES=[{value:'feature',label:'New feature'},{value:'improvement',label:'Improvement'},
+  {value:'fix',label:'Fix'},{value:'security',label:'Security update'},{value:'other',label:'Other'}]
+const EMPTY_ENTRY=()=>({category:'feature',title:'',description:''})
+function dateLabel(value){if(!value)return '';const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
+function short(sha){return String(sha||'').slice(0,8)||'Unknown'}
+async function api(path,options={}){
+  const response=await fetch(API_BASE+path,{credentials:'include',cache:'no-store',...options,
+    headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
+  const body=await response.json().catch(()=>({}))
+  if(!response.ok)throw Object.assign(new Error(body.error||'Could not load release information.'),{status:response.status})
   return body
 }
-
-function groupChanges(data,baseline) {
-  if(!data?.changes?.length)return []
-  const all=data.changes
-  if(!baseline?.sha)return all
-  if(baseline.sha===data.sha)return []
-  const index=all.findIndex(item=>item.sha===baseline.sha)
-  return index<0?all:all.slice(0,index)
+function noteEntry(item,index){
+  return <div className="hi5-updates-note-entry" key={index}>
+    <span className="hi5-updates-note-icon"><CheckCircle2 size={15}/></span>
+    <div><strong>{item.title}</strong>
+      <small>{CATEGORIES.find(c=>c.value===item.category)?.label||'Update'}</small>
+      {item.description?<p>{item.description}</p>:null}
+    </div>
+  </div>
 }
-
-function short(sha){return String(sha||'').slice(0,8)||'Unknown'}
-function fmtDate(value){try{return value?new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):''}catch{return ''}}
-function Label({children}){return <span className="hi5-updates-kicker">{children}</span>}
-
-function UseUpdates() {
-  const [data,setData]=useState(null)
-  const [live,setLive]=useState(null)
-  const [review,setReview]=useState(null)
-  const [reviewLoaded,setReviewLoaded]=useState(false)
-  const [admin,setAdmin]=useState(false)
+function DevReleaseEditor({installed,onPublished}){
+  const [notes,setNotes]=useState(null)
   const [loading,setLoading]=useState(true)
-  const [error,setError]=useState('')
-  const refresh=async()=>{
-    setError('')
-    try{
-      const result=await request('/api/v1/updates')
-      setData(result)
-      if(deploymentConfig().runtimeEnvironment==='uat'){
-        const comparison=await fetch('https://api.hi5central.com/api/v1/updates/version',{mode:'cors',cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null)
-        setLive(comparison)
-        try{
-          const state=await request('/api/v1/updates/uat-review')
-          setReview(state.review)
-          setAdmin(true)
-          setReviewLoaded(true)
-        }catch(e){if(e.status===403){setAdmin(false);setReviewLoaded(true)}else throw e}
-      }else{
-        setLive(result)
-      }
-    }catch(e){setError(e.message)}finally{setLoading(false)}
-  }
-  useEffect(()=>{refresh()},[])
-  return {data,live,review,setReview,admin,reviewLoaded,loading,error,setError,refresh}
-}
-
-export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}) {
-  const current=UseUpdates()
-  const {data,live,review,setReview,admin,reviewLoaded,loading,error,setError,refresh}=current
-  const uat=deploymentConfig().runtimeEnvironment==='uat'
-  const changes=useMemo(()=>groupChanges(data,live),[data,live])
-  const [selected,setSelected]=useState([])
-  const [notes,setNotes]=useState('')
   const [busy,setBusy]=useState(false)
-  const [filter,setFilter]=useState('changes')
-  const reviewReady=review?.buildSha===data?.sha
-  const required=changes
-  const allApproved=required.every(item=>selected.includes(item.sha))
-  const initialized=useRef('')
-
+  const [error,setError]=useState('')
+  const [success,setSuccess]=useState('')
   useEffect(()=>{
-    if(!data||(uat&&!reviewLoaded)||initialized.current===data.sha)return
-    initialized.current=data.sha
-    setSelected(review?.buildSha===data.sha&&Array.isArray(review.approvedShas)
-      ?review.approvedShas:[])
-    setNotes(review?.buildSha===data.sha?review.evidence||'':'')
-  },[data,review])
-
-  async function save(requestLive=false){
-    if(!data||busy)return
-    if(requestLive&&!window.confirm('Request promotion of the entire approved UAT application build to Live? Platform Admin must approve the shared deployment.'))return
-    setBusy(true);setError('')
+    let active=true
+    api('/api/v1/updates/dev-notes').then(data=>{
+      if(!active)return
+      setNotes(data.notes||{buildSha:data.buildSha,versionLabel:data.defaultVersion||'',
+        title:'',summary:'',entries:[EMPTY_ENTRY()],status:'draft'})
+    }).catch(e=>{if(active&&e.status!==403)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
+    return()=>{active=false}
+  },[installed])
+  const editable=notes?.status==='draft'
+  function field(key,value){setNotes(current=>({...current,[key]:value}))}
+  function entry(index,key,value){
+    field('entries',notes.entries.map((item,i)=>i===index?{...item,[key]:value}:item))
+  }
+  async function save(publish=false){
+    if(!notes||busy)return
+    if(publish&&!window.confirm('Release this version and its notes to customers? Unreleased notes are private; publication cannot be undone for this build. This does not deploy application code.'))return
+    setBusy(true);setError('');setSuccess('')
     try{
-      const res=await request('/api/v1/updates/uat-review',{
-        method:'POST',body:JSON.stringify({approvedShas:selected,evidence:notes,requestLive,baselineSha:live?.sha||''})
-      })
-      setReview({buildSha:data.sha,approvedShas:selected,evidence:notes,status:requestLive?'requested':'approved',reviewedAt:new Date().toISOString()})
-      setError('')
-      window.dispatchEvent(new CustomEvent('hi5-uat-release-updated'))
-      if(requestLive) window.alert(res.message)
+      await api('/api/v1/updates/dev-notes',{method:'PUT',body:JSON.stringify(notes)})
+      if(publish){
+        await api('/api/v1/updates/dev-notes/publish',{method:'POST',body:'{}'})
+        field('status','publication_requested')
+        setSuccess('Publication requested. The trusted release operator will make these notes customer-visible once the central release authority accepts them.')
+      }else setSuccess('Release-note draft saved. Customers cannot see it yet.')
+      onPublished?.()
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
   }
-
-  const display=filter==='features'
-    ?changes.filter(c=>['feature','improvement'].includes(c.category))
-    :filter==='database'?changes.filter(c=>c.migrations?.length):changes
-  const hasBaseline=Boolean(live?.sha)
-  const same=hasBaseline&&data?.sha===live.sha
-  const major=changes.filter(item=>item.category!=='maintenance'||item.migrations?.length)
-  const latest=data?.changes?.filter(item=>['feature','fix','improvement','database'].includes(item.category)).slice(0,25)||[]
-
+  if(loading)return <p className="hi5-updates-placeholder">Loading Dev release editor…</p>
+  if(!notes)return error?<p role="alert" className="hi5-updates-error">{error}</p>:null
+  return <section className="hi5-updates-editor" aria-label="Hi5Central Dev release-note editor">
+    <div className="hi5-updates-change-header">
+      <div><h3>Dev team · Prepare release notes</h3>
+        <p>Write what customers should see. Notes remain private until you publish this version from Dev.</p>
+      </div>
+      <span className="hi5-updates-status">{notes.status==='draft'?'Unpublished draft':notes.status==='publication_requested'?'Publishing requested':'Published'}</span>
+    </div>
+    {error?<p role="alert" className="hi5-updates-error"><CircleAlert size={16}/>{error}</p>:null}
+    {success?<p role="status" className="hi5-updates-success">{success}</p>:null}
+    <div className="hi5-updates-editor-fields">
+      <label>Customer version number<input maxLength={64} disabled={!editable} value={notes.versionLabel||''}
+        onChange={e=>field('versionLabel',e.target.value)} placeholder="e.g. 2026.10.2"/></label>
+      <label>Release title<input maxLength={180} disabled={!editable} value={notes.title||''}
+        onChange={e=>field('title',e.target.value)} placeholder="e.g. October platform improvements"/></label>
+      <label>Release summary<textarea rows={2} maxLength={1200} disabled={!editable} value={notes.summary||''}
+        onChange={e=>field('summary',e.target.value)} placeholder="A short overview of this release…"/></label>
+    </div>
+    <div className="hi5-updates-change-header"><h3>Changes in this version</h3>
+      {editable?<button type="button" className="hi5-updates-add-note" disabled={notes.entries.length>=35}
+        onClick={()=>field('entries',[...notes.entries,EMPTY_ENTRY()])}><Plus size={15}/> Add change</button>:null}
+    </div>
+    <div className="hi5-updates-editor-entries">
+      {(notes.entries||[]).map((item,i)=><div className="hi5-updates-edit-row" key={i}>
+        <div className="hi5-updates-edit-head"><strong>Change {i+1}</strong>
+          {editable&&notes.entries.length>1?<button type="button" aria-label={'Remove change '+(i+1)}
+            onClick={()=>field('entries',notes.entries.filter((_,j)=>i!==j))}><Trash2 size={15}/></button>:null}</div>
+        <select disabled={!editable} value={item.category} onChange={e=>entry(i,'category',e.target.value)}>
+          {CATEGORIES.map(category=><option key={category.value} value={category.value}>{category.label}</option>)}</select>
+        <input disabled={!editable} maxLength={160} aria-label={'Change '+(i+1)+' title'}
+          placeholder="What changed?" value={item.title} onChange={e=>entry(i,'title',e.target.value)}/>
+        <textarea disabled={!editable} rows={2} maxLength={950} aria-label={'Change '+(i+1)+' description'}
+          placeholder="What does this improve for customers?" value={item.description||''}
+          onChange={e=>entry(i,'description',e.target.value)}/>
+      </div>)}
+    </div>
+    {editable?<div className="hi5-updates-approval-actions">
+      <button type="button" disabled={busy} onClick={()=>save(false)}><Save size={15}/> Save draft</button>
+      <button type="button" className="is-primary" disabled={busy||!notes.versionLabel?.trim()||!notes.title?.trim()||
+        !(notes.entries||[]).length||notes.entries.some(item=>item.title.trim().length<3)}
+        onClick={()=>save(true)}><Send size={15}/> Release to customers</button>
+    </div>:<small>Notes for this build are locked after publication is requested. Publish a newer build for revised release notes.</small>}
+  </section>
+}
+export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
+  const [data,setData]=useState(null)
+  const [review,setReview]=useState(null)
+  const [canReview,setCanReview]=useState(false)
+  const [loading,setLoading]=useState(true)
+  const [error,setError]=useState('')
+  const [evidence,setEvidence]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [expanded,setExpanded]=useState(null)
+  async function refresh(){
+    setError('')
+    try{
+      const response=await api('/api/v1/updates')
+      setData(response)
+      if(ENV==='uat'){
+        try{
+          const {review:next}=await api('/api/v1/updates/uat-review')
+          setReview(next);setEvidence(next?.evidence||'');setCanReview(true)
+        }catch(e){if(e.status===403)setCanReview(false);else throw e}
+      }
+    }catch(e){setError(e.message)}
+    finally{setLoading(false)}
+  }
+  useEffect(()=>{refresh()},[])
+  async function requestLive(){
+    if(!data||busy||!window.confirm('Submit this tested UAT version for a Platform Admin to approve for Live? This will not deploy code automatically.'))return
+    setBusy(true);setError('')
+    try{
+      const response=await fetch('https://api.hi5central.com/api/v1/updates/version',{cache:'no-store'})
+      const live= response.ok?await response.json():{}
+      await api('/api/v1/updates/uat-review',{method:'POST',body:JSON.stringify({
+        acceptWholeBuild:true,baselineSha:live.sha||'',evidence,requestLive:true})})
+      setReview({status:'requested',buildSha:data.sha,evidence})
+    }catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
   if(!visible)return null
+  const releases=data?.releases||[]
+  const installed=releases.find(release=>release.buildSha===data?.sha)
+  const latest=releases[0]
+  const candidate=releases.find(release=>release.buildSha===data?.sha)
+  const available=latest&&latest.buildSha!==data?.sha
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
-      <div><Label>Hi5Central updates</Label><h2>{uat?'UAT change tracking':'Versions and changelog'}</h2>
-        <p>{uat?'Review what is included in this build, record UAT evidence and request an approved Production deployment.':'See the installed Hi5Central build and the fixes, improvements and features delivered with recent releases.'}</p>
-      </div>
+      <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
+        <p>Published releases, customer-facing improvements and your currently installed version.</p></div>
       <div className="hi5-updates-intro-actions">
-        <button type="button" onClick={refresh} title="Refresh version information"><RefreshCw size={16}/></button>
-        {onClose?<button type="button" onClick={onClose} aria-label="Close release tracking"><X size={18}/></button>:null}
+        <button type="button" onClick={refresh} title="Refresh versions"><RefreshCw size={16}/></button>
+        {onClose?<button type="button" onClick={onClose} aria-label="Close versions"><X size={18}/></button>:null}
       </div>
     </div>
-    {error?<p role="alert" className="hi5-updates-error"><CircleAlert size={15}/>{error}</p>:null}
-    {loading?<div className="hi5-updates-placeholder">Checking installed application version…</div>:null}
+    {error?<p role="alert" className="hi5-updates-error"><CircleAlert size={16}/>{error}</p>:null}
+    {loading?<div className="hi5-updates-placeholder">Checking Hi5Central versions…</div>:null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
-        <article><Label>Currently installed</Label><strong>{data.releaseName?.split('+')[0]||short(data.sha)}</strong>
-          <small>{deploymentConfig().runtimeEnvironment.toUpperCase()} · build {short(data.sha)} · {fmtDate(data.builtAt)}</small></article>
-        <article><Label>{uat?'Production comparison':'Release status'}</Label>
-          <strong>{uat?(same?'Same as Production':hasBaseline?short(live.sha):'Not available'):'Installed'}</strong>
-          <small>{uat?(same?'No newer UAT build changes':hasBaseline?'Review the changes before promoting':'Production needs version reporting to compare builds'):'This is the build currently serving your organisation'}</small>
-        </article>
-        <article><Label>{uat?'Changes to review':'Recent improvements'}</Label>
-          <strong>{uat?(hasBaseline?major.length:'—'):latest.length}</strong>
-          <small>{uat?'Application changes are packaged as one build':'Automatically generated release history'}</small></article>
+        <article><span className="hi5-updates-kicker">Installed version</span>
+          <strong>{installed?.versionLabel||data.releaseName?.split('+')[0]||short(data.sha)}</strong>
+          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
+        <article><span className="hi5-updates-kicker">Latest published</span>
+          <strong>{latest?.versionLabel||'No releases yet'}</strong>
+          <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
+        <article><span className="hi5-updates-kicker">Update status</span>
+          <strong>{available?'Available':latest?'Up to date':'No published update'}</strong>
+          <small>{available?'A version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
       </div>
-      {uat&&admin?<div className="hi5-updates-approval">
-        <div><strong><ClipboardCheck size={17}/> UAT acceptance</strong>
-          <small>{reviewReady?'Last recorded: '+(review.status||'draft'):'No acceptance recorded for this version'}</small></div>
-        <p>Tick the changes you tested. Code and database migrations in the same container release must be promoted together; unticking a code change cannot remove it from the build.</p>
-        <textarea rows={2} aria-label="UAT test evidence" placeholder="Record what was tested, affected modules and results…" value={notes} onChange={e=>setNotes(e.target.value)}/>
+      {ENV==='dev'?<DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>:null}
+      {ENV==='uat'&&canReview?<div className="hi5-updates-approval">
+        <div><strong><GitBranch size={17}/> UAT release review</strong>
+          <small>{review?.status==='requested'?'Promotion requested':candidate?'Published candidate':'Awaiting Dev release'}</small></div>
+        <p>{candidate?'Review the Dev-authored release notes above and record testing before requesting Live deployment.':
+          'The Dev team must release the customer-facing notes for this version before UAT can request promotion.'}</p>
+        <textarea rows={2} placeholder="What was tested in UAT, and what passed?" aria-label="UAT test evidence"
+          value={evidence} onChange={e=>setEvidence(e.target.value)} />
         <div className="hi5-updates-approval-actions">
-          <button type="button" disabled={busy||!selected.length} onClick={()=>save(false)}>Save UAT review</button>
-          <button className="is-primary" type="button" disabled={busy||same||!major.length||!allApproved||notes.trim().length<12} onClick={()=>save(true)}>
-            <Rocket size={15}/> Request Live promotion
-          </button>
+          <button type="button" className="is-primary" disabled={busy||!candidate||review?.status==='requested'||evidence.trim().length<12}
+            onClick={requestLive}><Rocket size={15}/> Request Live promotion</button>
         </div>
-        {review?.status==='requested'?<small>Promotion requested for this build. Shared API/ITSM deployment still requires approval through Platform Admin.</small>:null}
-        {!hasBaseline?<small>Production comparison is unavailable until Live has the version endpoint. You can submit an approval request; Platform Admin must still verify the matching build before deployment.</small>:null}
       </div>:null}
-      <div className="hi5-updates-change-header">
-        <h3>{uat?'Detected changes since Production':'What’s new in Hi5Central'}</h3>
-        {uat&&admin?<button className="hi5-updates-select-all" type="button"
-          onClick={()=>setSelected(selected.length===changes.length?[]:changes.map(x=>x.sha))}>
-          {selected.length===changes.length?'Uncheck all':'Mark all tested'}
-        </button>:null}
-        <nav aria-label="Release changelog filters">
-          {['changes','features','database'].map((item)=><button type="button" key={item} aria-pressed={filter===item}
-            className={filter===item?'active':''} onClick={()=>setFilter(item)}>{item==='changes'?'All':item==='features'?'Features':'Migrations'}</button>)}
-        </nav>
-      </div>
-      <div className="hi5-updates-change-list">
-        {(uat?display:(filter==='features'?latest.filter(c=>['feature','improvement'].includes(c.category)):filter==='database'?latest.filter(c=>c.migrations?.length):latest)).map(item=>
-          <div className="hi5-updates-change" key={item.sha}>
-            {uat&&admin?<input type="checkbox" aria-label={'Tested '+item.title} checked={selected.includes(item.sha)}
-              onChange={e=>setSelected(current=>e.target.checked?[...current,item.sha]:current.filter(id=>id!==item.sha))}/>:<span className="hi5-updates-mark"><CheckCircle2 size={15}/></span>}
-            <div><strong>{item.title}</strong>
-              <small>{KIND_LABEL[item.category]||'Update'} · {(item.components||[]).join(', ')} · {fmtDate(item.date)}</small>
-              {item.migrations?.length?<small>Includes {item.migrations.length} schema migration{item.migrations.length===1?'':'s'}</small>:null}
-            </div>
-          </div>
-        )}
-        {((uat?display:latest).length===0)?<div className="hi5-updates-empty">
-          <CheckCircle2 size={21}/><strong>{same?'UAT and Production are on the same application build.':'No changes in this category'}</strong></div>:null}
+      <div className="hi5-updates-change-header"><div><h3>Release history</h3>
+        <p>Only notes officially published by Hi5Central are shown here.</p></div></div>
+      <div className="hi5-updates-published-list">
+        {releases.length?releases.map(release=><article className="hi5-updates-published-release" key={release.buildSha}>
+          <button className="hi5-updates-release-heading" type="button"
+            aria-expanded={expanded===release.buildSha||(!expanded&&release===latest)}
+            onClick={()=>setExpanded(v=>v===release.buildSha?'closed':release.buildSha)}>
+            <span><strong>{release.versionLabel} · {release.title}</strong>
+              <small>{dateLabel(release.publishedAt)} · {release.entries?.length||0} changes
+                {release.buildSha===data.sha?' · Installed':''}</small></span>
+            <span>{expanded===release.buildSha||(!expanded&&release===latest)?'−':'+'}</span>
+          </button>
+          {expanded===release.buildSha||(!expanded&&release===latest)?<div className="hi5-updates-release-details">
+            {release.summary?<p>{release.summary}</p>:null}
+            {(release.entries||[]).map(noteEntry)}
+          </div>:null}
+        </article>):<div className="hi5-updates-empty">
+          <CheckCircle2 size={20}/><strong>No published releases yet</strong>
+          <span>The Dev team can prepare private release notes. Customers see a version only after Hi5Central publishes it.</span>
+        </div>}
       </div>
     </div>:null}
   </section>
 }
-
-export function ProductionUatChangeTracking() {
-  const environment=deploymentConfig().runtimeEnvironment
+export function ProductionUatChangeTracking(){
   const [target,setTarget]=useState(null)
   const [open,setOpen]=useState(false)
-  const [count,setCount]=useState(0)
   useEffect(()=>{
-    if(environment!=='uat')return
-    let alive=true
-    const scan=()=>{
+    if(ENV!=='uat')return
+    let active=true
+    function scan(){
       const host=document.querySelector('.itsm-topbar-actions')
       if(!(host instanceof HTMLElement))return
       let node=host.querySelector('[data-hi5-uat-changes-anchor]')
       if(!node){node=document.createElement('span');node.dataset.hi5UatChangesAnchor='true';host.insertBefore(node,host.firstChild)}
-      if(alive)setTarget(t=>t===node?t:node)
+      if(active)setTarget(old=>old===node?old:node)
     }
     scan()
     const timer=window.setInterval(scan,1250)
-    return ()=>{alive=false;window.clearInterval(timer)}
-  },[environment])
-  useEffect(()=>{
-    if(environment!=='uat')return
-    Promise.all([
-      request('/api/v1/updates'),
-      fetch('https://api.hi5central.com/api/v1/updates/version',{cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-    ]).then(([data,live])=>{
-      if(live?.sha&&data?.changes){const index=data.changes.findIndex(c=>c.sha===live.sha);setCount(index>=0?index:0)}
-    }).catch(()=>{})
-  },[environment])
+    return()=>{active=false;clearInterval(timer)}
+  },[])
   useEffect(()=>{
     if(!open)return
-    const handle=e=>{if(e.key==='Escape')setOpen(false)}
-    document.addEventListener('keydown',handle)
-    return ()=>document.removeEventListener('keydown',handle)
+    const escape=e=>{if(e.key==='Escape')setOpen(false)}
+    document.addEventListener('keydown',escape)
+    return()=>document.removeEventListener('keydown',escape)
   },[open])
-  if(environment!=='uat'||!target)return null
+  if(ENV!=='uat'||!target)return null
   return <>
-    {createPortal(<button className="hi5-uat-changes-trigger" type="button" aria-label="Track and approve UAT changes"
-      aria-expanded={open} title="UAT changes and Live promotion" onClick={()=>setOpen(v=>!v)}>
-      <GitBranch size={17}/>{count>0?<span>{count>99?'99+':count}</span>:null}
-    </button>,target)}
+    {createPortal(<button type="button" className="hi5-uat-changes-trigger" title="UAT version changes"
+      aria-label="UAT version changes" aria-expanded={open} onClick={()=>setOpen(v=>!v)}><GitBranch size={17}/></button>,target)}
     {open?createPortal(<div className="hi5-updates-overlay">
-      <button className="hi5-updates-backdrop" type="button" aria-label="Close UAT changes" onClick={()=>setOpen(false)}/>
+      <button className="hi5-updates-backdrop" type="button" aria-label="Close update panel"
+        onClick={()=>setOpen(false)}/>
       <aside className="hi5-updates-drawer"><Hi5CentralUpdatesPanel compact onClose={()=>setOpen(false)}/></aside>
     </div>,document.body):null}
   </>
