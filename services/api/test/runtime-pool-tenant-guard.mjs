@@ -20,6 +20,7 @@ assert.equal(checkPoolTenantRequest({...base,referer:'https://test2-uat.hi5centr
 assert.equal(checkPoolTenantRequest({...base,authenticated:true,sessionSlug:'test2-uat'}).status,403)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:''}).status,401)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/auth/login',method:'POST'}).allowed,true)
+assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/updates/version',method:'GET'}).allowed,true)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/auth/tenant-state/testing-uat',method:'GET'}).allowed,true)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/incidents',method:'OPTIONS'}).allowed,true)
 assert.equal(checkPoolTenantRequest({...base,authenticated:false,sessionSlug:'',path:'/api/v1/incidents',method:'GET',origin:''}).status,401)
