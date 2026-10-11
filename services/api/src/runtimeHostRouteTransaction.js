@@ -18,11 +18,12 @@ const exactlyOne=(haystack,needle)=>haystack.split(needle).length===2
 export function verifyHostRouteIntent({intent,signature,publicKeyPem,now=new Date()}){
  if(!intent||typeof intent!=='object'||Array.isArray(intent))
   refuse('Route intent is missing.')
- const {environment,tenantSlug,publicHost,buildSha,previousUpstream,
+ const {environment,tenantSlug,publicHost,buildSha,previousBuildSha,previousUpstream,
   nextUpstream,previousApiTarget,nextApiTarget,expectedCaddySha256,routeGeneration,issuedAt,expiresAt}=intent
  if(!Object.hasOwn(environmentSuffix,environment)||!slugPattern.test(tenantSlug||'')
    ||publicHost!==tenantSlug+environmentSuffix[environment]+'.hi5central.com'
-   ||!shaPattern.test(buildSha||'')||!hashPattern.test(expectedCaddySha256||'')
+   ||!shaPattern.test(buildSha||'')||!shaPattern.test(previousBuildSha||'')
+   ||previousBuildSha===buildSha||!hashPattern.test(expectedCaddySha256||'')
    ||!upstreamPattern.test(previousUpstream||'')||!upstreamPattern.test(nextUpstream||'')
    ||!apiPattern.test(previousApiTarget||'')||!apiPattern.test(nextApiTarget||'')
    ||previousApiTarget===nextApiTarget
