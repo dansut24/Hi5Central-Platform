@@ -6,6 +6,9 @@ on:
       - 'services/api/src/applicationDeployment.js'
       - 'services/api/src/runtimePoolPolicy.js'
       - 'services/api/src/runtimePoolControl.js'
+      - 'services/api/src/runtimePoolTenantGuard.js'
+      - 'services/api/test/runtime-pool-tenant-guard.mjs'
+      - 'services/api/src/index.js'
       - 'services/api/migrations/platform-admin/148_versioned_runtime_pools.sql'
       - 'services/api/test/runtime-pool-policy.mjs'
       - 'services/api/test/runtime-route-manifest.mjs'
@@ -64,7 +67,7 @@ jobs:
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
       - name: Check API source syntax
-        run: node --check src/tenantFeatureRollouts.js && node --check src/applicationDeployment.js && node --check src/runtimePoolPolicy.js && node --check src/runtimePoolControl.js && node --check src/tenantRelease.js && node --check src/applicationUpdates.js && node --check src/releaseOperator.js && node --check src/platformAdmin.js && node --check src/index.js
+        run: node --check src/tenantFeatureRollouts.js && node --check src/applicationDeployment.js && node --check src/runtimePoolPolicy.js && node --check src/runtimePoolControl.js && node --check src/runtimePoolTenantGuard.js && node --check src/tenantRelease.js && node --check src/applicationUpdates.js && node --check src/releaseOperator.js && node --check src/platformAdmin.js && node --check src/index.js
       - name: Create isolated Test and UAT databases
         env: {PGPASSWORD: ci_only_password}
         run: |
@@ -81,6 +84,8 @@ jobs:
         run: node test/curated-release-notes.mjs
       - name: Test versioned pool safety and maintenance policy
         run: node test/runtime-pool-policy.mjs && node test/runtime-route-manifest.mjs
+      - name: Test tenant-bound UAT canary isolation
+        run: node test/runtime-pool-tenant-guard.mjs
       - name: Test application deployment gate edge cases
         run: node test/application-deployment-gate.mjs
       - name: Test failed-ledger rollback, staged rollout, acceptance and tenant isolation
