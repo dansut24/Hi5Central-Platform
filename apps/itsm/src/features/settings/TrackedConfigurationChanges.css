@@ -1,0 +1,12 @@
+.hi5-tracked-config{display:flex;flex-direction:column;gap:14px}
+.hi5-tracked-config-row{display:flex;flex-direction:column;gap:5px;padding:14px 16px;border:1px solid var(--border-color,rgba(128,128,128,.25));border-radius:10px}
+.hi5-tracked-config-row strong{font-weight:650;font-size:13px}
+.hi5-tracked-config-row small{font-size:12px;opacity:.73}
+.hi5-tracked-config-selection{display:flex;align-items:flex-start;gap:12px}
+.hi5-tracked-config-selection input{margin-top:3px;flex-shrink:0}
+.hi5-tracked-config-selection span{display:flex;flex-direction:column;gap:4px}
+.hi5-tracked-config-approval{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--border-color,rgba(128,128,128,.25));border-radius:12px}
+.hi5-tracked-config-approval label{display:flex;align-items:center;gap:9px}
+.hi5-tracked-config-approval textarea{width:100%;min-height:90px;box-sizing:border-box;border-radius:9px;padding:10px;color:inherit;background:transparent;border:1px solid var(--border-color,rgba(128,128,128,.3))}
+.hi5-tracked-config-approval button{align-self:flex-start;display:flex;align-items:center;gap:8px}
+@media(max-width:650px){.hi5-tracked-config-approval button{width:100%;justify-content:center}}
