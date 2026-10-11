@@ -78,7 +78,7 @@ async function ensureOrganisationSeed(session) {
   })
 }
 
-async function organisationSnapshot(tenantId, client = pool) {
+export async function organisationSnapshot(tenantId, client = pool) {
   const [departmentsResult, teamsResult, sitesResult, peopleResult, membershipResult] = await Promise.all([
     client.query('SELECT * FROM organisation_departments WHERE tenant_id = $1 ORDER BY name', [tenantId]),
     client.query('SELECT * FROM organisation_teams WHERE tenant_id = $1 ORDER BY name', [tenantId]),
