@@ -12,7 +12,7 @@ on:
         description: 'Exact UAT-approved immutable revision'
         type: string
         required: true
-        default: edfc90c119ce57695012e72fe7d3ea5dbbcb1839
+        default: 9675b3c3f829da1e66581984f1e560faf2071b0d
       approval_note:
         description: 'Human sign-off purpose, at least 20 characters'
         type: string
@@ -40,7 +40,7 @@ jobs:
           TARGET_TENANT: ${{ inputs.tenant_slug }}
           TARGET_SHA: ${{ inputs.build_sha }}
           SIGNOFF_NOTE: ${{ inputs.approval_note }}
-          EXPECTED_SHA: edfc90c119ce57695012e72fe7d3ea5dbbcb1839
+          EXPECTED_SHA: 9675b3c3f829da1e66581984f1e560faf2071b0d
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
@@ -74,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           for component in api itsm; do
-            image="ghcr.io/dansut24/hi5central-platform-${component}:unified-ai-release-${TARGET_SHA}"
+            image="ghcr.io/dansut24/hi5central-platform-${component}:ai-record-access-hotfix-${TARGET_SHA}"
             docker pull "$image" >/dev/null
             revision="$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
             test "$revision" = "$TARGET_SHA"
