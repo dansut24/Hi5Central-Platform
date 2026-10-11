@@ -8,9 +8,19 @@ import {hasRecordPermission} from './itsmPermissions.js'
 const MAX_CONTEXT_CHARS=3800
 const MAX_RESULT_CHARS=5000
 const DAILY_TEST_QUOTA=2
-const hasAiPilotAccess=session=>{
-  const slug=String(process.env.ITSM_AI_PILOT_TENANT_SLUG||'').trim().toLowerCase()
-  return Boolean(slug&&['test','uat'].includes(environment())&&session.slug===slug+'-'+environment())
+// Pilot is explicitly opt-in for each environment. Production must never
+// inherit UAT/Test's pilot toggle or credential merely by running this image.
+export const hasAiPilotAccess=(session,env=environment(),settings=process.env)=>{
+  if(env==='uat'||env==='test'){
+    const slug=String(settings.ITSM_AI_PILOT_TENANT_SLUG||'').trim().toLowerCase()
+    return Boolean(slug&&session?.slug===slug+'-'+env)
+  }
+  if(env==='live'){
+    const slug=String(settings.ITSM_AI_LIVE_PILOT_TENANT_SLUG||'').trim().toLowerCase()
+    return Boolean(settings.ITSM_AI_LIVE_PILOT_ENABLED==='true'
+      &&slug&&session?.slug===slug)
+  }
+  return false
 }
 async function reserveBillableAiCall(session){
   // Atomic Redis counters persist across API restarts. Fail closed if Redis is down.
