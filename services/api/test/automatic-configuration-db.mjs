@@ -10,6 +10,7 @@ try {
       VALUES($1,'config-ci-tenant','Configuration CI','active')`,[tenantId])
   await db.query(`INSERT INTO tenant_settings(tenant_id,tenant_url,portal_url)
       VALUES($1,'https://config-ci-tenant.example.invalid','https://config-ci-tenant-portal.example.invalid')`,[tenantId])
+  await db.query(`INSERT INTO tenant_configuration_tracking_pilots(tenant_id,enabled) VALUES ($1,true)`,[tenantId])
   await db.query("SELECT set_config('hi5.actor_user_id',$1,true)",[actor])
   await db.query(`UPDATE tenant_settings SET configuration=$2::jsonb WHERE tenant_id=$1`,[
     tenantId,JSON.stringify({security:{requireMfa:false},theme:{accent:'blue'}})])
