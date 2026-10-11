@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
+import { validateReleaseNotes } from './applicationUpdates.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -212,6 +213,34 @@ function actionPayload(row) {
 }
 
 export function registerReleaseOperatorRoutes(app) {
+  // Publication is an editorial action initiated by authorised Hi5Central
+  // developers in Dev and relayed by the trusted host. A build deployment,
+  // Git push or SQL migration can NEVER publish customer release notes.
+  app.post('/api/platform-operator/v1/releases/publish',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Only the central release authority may publish customer updates.'},403)
+    const body=await c.req.json().catch(()=>null)
+    let notes
+    try{notes=validateReleaseNotes(body)}
+    catch(e){return c.json({error:e.message},400)}
+    const existing=await pool.query(
+      'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
+      [notes.buildSha])
+    if(existing.rowCount){
+      const row=existing.rows[0]
+      if(row.version_label!==notes.versionLabel||row.title!==notes.title||
+        row.summary!==notes.summary||JSON.stringify(row.entries)!==JSON.stringify(notes.entries))
+        return c.json({error:'A different release is already published for this build. Published release notes are immutable.'},409)
+      return c.json({published:true,alreadyPublished:true,buildSha:notes.buildSha})
+    }
+    await pool.query(
+      'INSERT INTO hi5central_published_release_notes(build_sha,version_label,title,summary,entries) VALUES($1,$2,$3,$4,$5::jsonb)',
+      [notes.buildSha,notes.versionLabel,notes.title,notes.summary,JSON.stringify(notes.entries)])
+    return c.json({published:true,buildSha:notes.buildSha},201)
+  })
+
   // Only the authenticated host operator may report observed running images.
   // Never trust browser-supplied version strings for deployment status.
   app.post('/api/platform-operator/v1/deployments/report', async (c) => {
