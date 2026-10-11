@@ -8,6 +8,7 @@ import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
 import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
+import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerCatalogueRoutes } from './catalogue.js'
@@ -148,6 +149,23 @@ app.use('/api/*', cors({
   credentials: true,
   maxAge: 600,
 }))
+// Secondary UAT pools use the same session database, but cannot serve another
+// tenant's cookies, requests or API tokens. The shared APIs do not enable
+// this middleware unless an exact pool boundary is explicitly configured.
+const runtimePoolBoundary=configuredPoolBoundary()
+app.use('/api/*',async(c,next)=>{
+  if(!runtimePoolBoundary)return next()
+  const path=c.req.path
+  const authenticated=await resolveSession(c)
+  const decision=checkPoolTenantRequest({
+    boundary:runtimePoolBoundary,host:c.req.header('host'),
+    origin:c.req.header('origin'),referer:c.req.header('referer'),
+    sessionSlug:authenticated?.slug,authenticated:Boolean(authenticated),
+    path,method:c.req.method,
+  })
+  if(!decision.allowed)return c.json({error:decision.reason},decision.status)
+  return next()
+})
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))
