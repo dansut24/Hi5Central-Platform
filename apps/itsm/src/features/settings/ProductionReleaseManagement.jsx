@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import {TrackedConfigurationChanges} from './TrackedConfigurationChanges.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -106,6 +107,7 @@ function SandboxReleaseOverview() {
             uatLiveChatEnabled?'Enabled for this environment':'Not enabled by this organisation’s release policy'}</p>
           <small>Feature access is separate from the application version displayed above. Test changes in this environment; approve promotion from Live.</small>
         </div>
+        {isUat?<TrackedConfigurationChanges environment="uat"/>:null}
         {state.error?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{state.error}</p>:null}
         <div className="hi5-release-sandbox-guidance">
           <strong>{isUat?'How to validate a release':'How Test fits into releases'}</strong>
@@ -320,6 +322,7 @@ function LiveProductionReleaseManagement() {
   if(loading)return <section className="production-settings-panel"><div className="hi5-release-loading"><RefreshCw size={18}/>Loading release control…</div></section>
 
   return <div className="hi5-release-settings">
+    <TrackedConfigurationChanges environment="live"/>
 
     <section className="production-settings-panel">
       <header><div><h2>Who manages platform updates?</h2><p>Choose whether your administrators approve each release or Hi5Central handles the release flow automatically using your policy.</p></div></header>
