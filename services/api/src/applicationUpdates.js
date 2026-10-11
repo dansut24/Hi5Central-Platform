@@ -100,8 +100,9 @@ export function registerApplicationUpdatesRoutes(app) {
     if(request&&evidence.length<12)
       return c.json({error:'Record what was tested in UAT before requesting promotion.'},400)
     if(request) {
-      const required=releaseCatalog().changes.filter(change=>
-        change.category!=='maintenance'||change.migrations.length).map(change=>change.sha)
+      // Every commit in the immutable artifact is included, including
+      // maintenance changes. A change list is not a source-code cherry-pick.
+      const required=releaseCatalog().changes.map(change=>change.sha)
       if(required.some(sha=>!approved.includes(sha)))
         return c.json({error:'All code and schema changes in the build must be accepted. Excluding code requires a new release build.'},409)
     }
