@@ -2,7 +2,8 @@ import {useEffect,useState} from 'react'
 import {Sparkles,RefreshCw,ClipboardCopy} from 'lucide-react'
 import './ItsmAiAssistPanel.css'
 const BASE=window.__HI5_API_BASE__||''
-export function ItsmAiAssistPanel({reference}){
+export function ItsmAiAssistPanel({record}){
+  const reference=record?.id||record?.reference||''
   const [status,setStatus]=useState(null)
   const [summary,setSummary]=useState('')
   const [error,setError]=useState('')
@@ -27,7 +28,7 @@ export function ItsmAiAssistPanel({reference}){
     try{
       const r=await fetch(BASE+'/api/v1/itsm-ai/summary',{
         method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({reference}),
+        body:JSON.stringify({reference,type:record.type,title:record.title,description:record.description,status:record.status,priority:record.priority,category:record.category}),
       })
       const p=await r.json().catch(()=>({}))
       if(!r.ok)throw Error(p.error||'Could not generate a summary.')
