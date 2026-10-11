@@ -111,3 +111,19 @@
   .hi5-updates-overlay .hi5-updates-drawer{overscroll-behavior:contain}
   .hi5-updates-intro{align-items:flex-start}
 }
+
+/* Public versions are intentional human-readable labels, never hashes. */
+.hi5-updates-versions article strong{
+  font-size:clamp(14px,2vw,18px);
+  overflow-wrap:normal;
+  word-break:normal;
+  hyphens:none;
+}
+.hi5-updates-field-hint{font-size:10px!important;font-weight:400;color:var(--muted,#667083);line-height:1.4}
+.hi5-updates-version-correction{display:flex;flex-direction:column;align-items:flex-start;gap:9px;border-top:1px solid var(--line,#e1e5ec);padding-top:12px}
+.hi5-updates-version-correction p,.hi5-updates-version-correction small{font-size:11px;line-height:1.5;color:var(--muted,#667083);margin:0}
+.hi5-updates-version-correction button{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #2563eb;border-radius:9px;background:#2563eb;color:white;padding:9px 12px;font-size:11px;font-weight:750;cursor:pointer}
+.hi5-updates-version-correction button:disabled{opacity:.48;cursor:not-allowed}
+@media(max-width:680px){
+  .hi5-updates-versions article strong{font-size:15px;line-height:1.3;letter-spacing:-.02em}
+}
