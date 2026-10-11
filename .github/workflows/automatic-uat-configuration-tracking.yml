@@ -55,6 +55,8 @@ jobs:
         run: node test/automatic-configuration-release.mjs
       - name: Migrate schema and create configuration journal triggers
         run: npm run migrate
+      - name: Prove direct PostgreSQL writes are tracked without frontend instrumentation
+        run: node test/automatic-configuration-db.mjs
       - name: Assert database journal and dependency registry exist
         run: |
           node --input-type=module -e "
