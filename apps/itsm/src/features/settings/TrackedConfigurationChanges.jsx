@@ -32,6 +32,12 @@ export function TrackedConfigurationChanges({environment}){
   const changes=data?.changes||[]
   const events=data?.trackedEvents||[]
   const pending=changes.filter(x=>x.promotable&&!x.versionUpgradeRequired)
+  const readyToPromote=selected.length>0&&tested&&note.trim().length>=20&&!busy
+  const missingRequirements=[
+    !selected.length?'Select the change you want to promote.':null,
+    !tested?'Confirm that the selected change has been tested in UAT.':null,
+    note.trim().length<20?`Add test evidence (at least 20 characters; ${note.trim().length}/20 entered).`:null,
+  ].filter(Boolean)
   const seen=new Set()
   const recent=events.filter(item=>{
     const key=[item.source,item.recordKey,(item.path||[]).join('.')].join(':')
@@ -93,8 +99,14 @@ export function TrackedConfigurationChanges({environment}){
           <label><input type="checkbox" checked={tested} onChange={e=>setTested(e.target.checked)}/> I have tested the selected changes in UAT.</label>
           <textarea rows={3} maxLength={3000} value={note} onChange={e=>setNote(e.target.value)}
             placeholder="Describe what passed in UAT (minimum 20 characters)"/>
-          <button type="button" disabled={busy||!selected.length||!tested||note.trim().length<20}
-            onClick={promote}><ShieldCheck size={16}/> {busy?'Promoting…':`Promote ${selected.length} selected change(s)`}</button>
+          {!readyToPromote?<div className="hi5-tracked-config-prerequisites" role="status">
+            <strong>To enable promotion:</strong>
+            <ul>{missingRequirements.map(item=><li key={item}>{item}</li>)}</ul>
+          </div>:<p role="status" className="hi5-tracked-config-ready">Ready to promote the selected, tested UAT configuration.</p>}
+          <button type="button" disabled={!readyToPromote}
+            aria-describedby="hi5-promotion-help"
+            onClick={promote}><ShieldCheck size={16}/> {busy?'Promoting…':selected.length?`Promote ${selected.length} selected change(s)`:'Select changes to promote'}</button>
+          <small id="hi5-promotion-help">Production is not changed until you confirm this action.</small>
         </div>:null}
       </>}
     </div>
