@@ -1,0 +1,26 @@
+name: Managed vs Custom release policy validation
+on:
+  push:
+    branches: [feature/managed-release-no-customer-uat-20261011]
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: services/api}
+    env:
+      DATABASE_URL: postgresql://invalid:invalid@localhost:5432/unused
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/tenantRuntimeReleaseLifecycle.js && node --check src/runtimePoolManagedScheduler.js && node --check src/tenantRelease.js
+      - run: node test/tenant-runtime-release-lifecycle.mjs
+      - run: npm run build:runtime
