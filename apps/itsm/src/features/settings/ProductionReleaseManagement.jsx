@@ -135,6 +135,7 @@ function LiveProductionReleaseManagement() {
   const [liveChatRelease,setLiveChatRelease]=useState(null)
   const [uatEvidence,setUatEvidence]=useState('')
   const [platformAvailable,setPlatformAvailable]=useState(false)
+  const [platformApplicationDeployments,setPlatformApplicationDeployments]=useState(null)
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState('')
@@ -157,9 +158,15 @@ function LiveProductionReleaseManagement() {
       if(platformResult.status==='fulfilled') {
         setData(platformResult.value)
         setPlatformAvailable(true)
+        try {
+          setPlatformApplicationDeployments(await releaseApi('/application-deployments'))
+        } catch {
+          setPlatformApplicationDeployments(null)
+        }
         setPolicy(platformResult.value?.deploymentPolicy || tenantState.preference)
       } else {
         setPlatformAvailable(false)
+        setPlatformApplicationDeployments(null)
         setData({environments:[],features:[],changes:[],actions:[]})
         if(tenantState?.preference)setPolicy(tenantState.preference)
       }
@@ -249,6 +256,14 @@ function LiveProductionReleaseManagement() {
       actionName==='confirm-uat'?'UAT acceptance and evidence recorded.':
       'Live Chat enabled for this tenant in Live.')
     if(actionName==='confirm-uat')setUatEvidence('')
+  }
+
+  async function deployApplication(environment) {
+    const source=environment==='live'?'UAT':'Dev'
+    if(!window.confirm(`Queue the exact host-verified ${source} application revision for ${environment.toUpperCase()} deployment? This affects the shared API and ITSM used by all tenants.`))return
+    await action('app-deploy-'+environment,()=>releaseApi('/application-deployments/promote',{
+      method:'POST',body:JSON.stringify({environment}),
+    }), 'Application deployment queued. Wait for host verification before approving tenant feature activation.')
   }
 
   async function resetTest() {
@@ -342,6 +357,45 @@ function LiveProductionReleaseManagement() {
       </div>
     </section>
     ) : null}
+
+    {platformAvailable&&platformApplicationDeployments ? (
+      <section className="production-settings-panel" data-hi5-shared-app-deployments>
+        <header><div>
+          <h2>Shared application deployment</h2>
+          <p>Platform Admin only. Deploy exact verified API/ITSM revisions; tenant feature switches cannot upgrade shared application code.</p>
+        </div><button className="hi5-release-refresh" type="button" onClick={load}><RefreshCw size={15}/>Refresh</button></header>
+        <div className="production-settings-panel-body">
+          <div className="hi5-release-env-grid">
+            {['dev','uat','live'].map(environment=>{
+              const image=platformApplicationDeployments.environments?.[environment]
+              return <article className="hi5-release-env-card" key={environment}>
+                <header><div><span>{environment.toUpperCase()}</span>
+                  <strong>{image?.verified?'Host verified':image?.status==='stale'?'Verification expired':'Not verified'}</strong></div>
+                  <ResultPill value={image?.verified?'ready':'pending'} /></header>
+                <small>API {image?.apiSha?.slice(0,8)||'unknown'} · ITSM {image?.itsmSha?.slice(0,8)||'unknown'}</small>
+                <small>{image?.observedAt?'Verified: '+new Date(image.observedAt).toLocaleString():'Awaiting host report'}</small>
+                {environment!=='dev' ? <button type="button" disabled={Boolean(busy)||
+                  !platformApplicationDeployments.environments?.[environment==='live'?'uat':'dev']?.verified}
+                  onClick={()=>deployApplication(environment)}>
+                  <GitBranch size={15}/> Queue {environment==='live'?'UAT → Live':'Dev → UAT'} deployment
+                </button> : null}
+              </article>
+            })}
+          </div>
+          <div className="hi5-release-sandbox-guidance">
+            <strong>Recent platform deployment jobs</strong>
+            {(platformApplicationDeployments.jobs||[]).length?
+              <div className="hi5-release-history">{platformApplicationDeployments.jobs.slice(0,8).map(job=>
+                <div className="hi5-release-history-row" key={job.id}>
+                  <strong>{job.from_environment?.toUpperCase()} → {job.to_environment?.toUpperCase()} · {statusLabel(job.status)}</strong>
+                  <span>API {job.api_sha?.slice(0,8)} · ITSM {job.itsm_sha?.slice(0,8)} · {new Date(job.requested_at).toLocaleString()}</span>
+                  {job.error_message?<p>{job.error_message}</p>:null}
+                </div>)}</div>
+              :<p>No application deployments have been queued by Platform Admin yet.</p>}
+          </div>
+        </div>
+      </section>
+    ):null}
 
     {policy.updateMode==='admin_controlled' ? (
       <section className="production-settings-panel" data-hi5-tenant-feature-releases>
