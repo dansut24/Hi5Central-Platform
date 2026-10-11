@@ -76,7 +76,7 @@ function DevReleaseEditor({installed,onPublished}){
     setBusy(true);setError('');setSuccess('')
     try{
       const response=await api('/api/v1/updates/dev-notes/version',{
-        method:'PUT',body:JSON.stringify({versionLabel:notes.versionLabel})})
+        method:'PUT',body:JSON.stringify({buildSha:notes.buildSha,versionLabel:notes.versionLabel})})
       setNotes(current=>({...current,versionSyncState:'pending'}))
       setSuccess(response.message||'Customer version correction requested.')
     }catch(e){setError(e.message)}
@@ -136,6 +136,78 @@ function DevReleaseEditor({installed,onPublished}){
       :<small>Publication is in progress. Release notes cannot be changed after submission.</small>}
   </section>
 }
+function DevPublishedVersionManager(){
+  const [releases,setReleases]=useState([])
+  const [selected,setSelected]=useState('')
+  const [version,setVersion]=useState('')
+  const [error,setError]=useState('')
+  const [message,setMessage]=useState('')
+  const [busy,setBusy]=useState(false)
+  const [loading,setLoading]=useState(true)
+  async function load(){
+    setError('')
+    try{
+      const response=await api('/api/v1/updates/dev-notes/history')
+      const list=Array.isArray(response.releases)?response.releases:[]
+      setReleases(list)
+      const chosen=list.find(item=>item.buildSha===selected)||list[0]
+      setSelected(chosen?.buildSha||'')
+      setVersion(displayVersion(chosen?.versionLabel))
+    }catch(e){if(e.status!==403)setError(e.message)}
+    finally{setLoading(false)}
+  }
+  useEffect(()=>{load()},[])
+  const chosen=releases.find(item=>item.buildSha===selected)
+  async function save(){
+    if(!chosen||busy||!version.trim())return
+    if(!window.confirm('Change the published customer version for '+chosen.title+'? Its application build and release notes will not change.'))return
+    setBusy(true);setError('');setMessage('')
+    try{
+      const result=await api('/api/v1/updates/dev-notes/version',{
+        method:'PUT',body:JSON.stringify({buildSha:chosen.buildSha,versionLabel:version.trim()})})
+      setMessage(result.message||'The customer version is ready.')
+      await load()
+    }catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
+  if(loading)return null
+  if(!releases.length&&!error)return null
+  return <section className="hi5-updates-version-manager" aria-label="Manage published customer version numbers">
+    <div className="hi5-updates-change-header">
+      <div><h3>Manage published versions</h3>
+        <p>Correct a previous version number without changing its release notes or technical build.</p>
+      </div>
+      <button className="hi5-updates-add-note" type="button" onClick={load} title="Refresh published versions"><RefreshCw size={15}/></button>
+    </div>
+    {error?<p role="alert" className="hi5-updates-error">{error}</p>:null}
+    {message?<p role="status" className="hi5-updates-success">{message}</p>:null}
+    {releases.length?<div className="hi5-updates-editor-fields">
+      <label>Published release
+        <select value={selected} onChange={e=>{
+          const next=releases.find(item=>item.buildSha===e.target.value)
+          setSelected(next?.buildSha||'')
+          setVersion(displayVersion(next?.versionLabel))
+          setMessage('')
+        }}>
+          {releases.map(item=><option key={item.buildSha} value={item.buildSha}>
+            {displayVersion(item.versionLabel)} · {item.title} (build {short(item.buildSha)})
+          </option>)}
+        </select>
+      </label>
+      <label>Customer version number
+        <input maxLength={32} value={version} disabled={chosen?.versionSyncState==='pending'}
+          onChange={e=>setVersion(e.target.value)} placeholder="e.g. 1.0.1"/>
+        <small className="hi5-updates-field-hint">Build {short(chosen?.buildSha)} stays unchanged.</small>
+      </label>
+    </div>:null}
+    {chosen?.versionSyncState==='pending'
+      ?<small>The version correction is synchronising with the central customer catalogue. Refresh to check its status.</small>
+      :<button className="hi5-updates-version-save" type="button"
+        disabled={busy||!version.trim()||version.trim()===chosen?.versionLabel}
+        onClick={save}><Save size={15}/> Update customer version</button>}
+  </section>
+}
+
 export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
   const [data,setData]=useState(null)
   const [review,setReview]=useState(null)
@@ -177,7 +249,8 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   const installed=releases.find(release=>release.buildSha===data?.sha)
   const latest=releases[0]
   const candidate=releases.find(release=>release.buildSha===data?.sha)
-  const available=latest&&latest.buildSha!==data?.sha
+  const preview=ENV!=='live'&&!installed
+  const available=Boolean(ENV==='live'&&installed&&latest&&latest.buildSha!==data?.sha)
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
       <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
@@ -192,16 +265,19 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Installed version</span>
-          <strong>{displayVersion(installed?.versionLabel)||displayVersion(data.releaseName)||short(data.sha)}</strong>
+          <strong>{displayVersion(installed?.versionLabel)||(preview?'Preview build':'Not yet published')}</strong>
           <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
         <article><span className="hi5-updates-kicker">Latest published</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
         <article><span className="hi5-updates-kicker">Update status</span>
-          <strong>{available?'Available':latest?'Up to date':'No published update'}</strong>
-          <small>{available?'A version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
+          <strong>{preview?'Preview':available?'Available':installed?'Up to date':'No published update'}</strong>
+          <small>{preview?'This build has not been published to customers':available?'A newer version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
       </div>
-      {ENV==='dev'?<DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>:null}
+      {ENV==='dev'?<>
+        <DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>
+        <DevPublishedVersionManager/>
+      </>:null}
       {ENV==='uat'&&canReview?<div className="hi5-updates-approval">
         <div><strong><GitBranch size={17}/> UAT release review</strong>
           <small>{review?.status==='requested'?'Promotion requested':candidate?'Published candidate':'Awaiting Dev release'}</small></div>

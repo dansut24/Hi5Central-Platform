@@ -126,6 +126,24 @@ export function registerApplicationUpdatesRoutes(app){
       releases,latestPublished:releases[0]||null,
       availableReleases:releases.filter(item=>item.buildSha!==manifest.sha)})
   })
+  // Dev release authors can correct customer-facing version metadata of
+  // earlier published builds even after the Dev application itself upgrades.
+  app.get('/api/v1/updates/dev-notes/history',async c=>{
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    const result=await pool.query(`
+      SELECT build_sha,version_label,title,status,version_sync_state,
+             published_at,version_requested_at
+      FROM hi5central_release_note_drafts
+      WHERE status='published'
+      ORDER BY published_at DESC LIMIT 40`)
+    return c.json({releases:result.rows.map(row=>({
+      buildSha:row.build_sha,versionLabel:row.version_label,
+      title:row.title,status:row.status,versionSyncState:row.version_sync_state,
+      publishedAt:row.published_at,versionRequestedAt:row.version_requested_at,
+    }))})
+  })
+
   app.get('/api/v1/updates/dev-notes',async c=>{
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error
@@ -170,12 +188,14 @@ export function registerApplicationUpdatesRoutes(app){
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error
     const body=await c.req.json().catch(()=>null)
+    const buildSha=String(body?.buildSha||'').toLowerCase()
+    if(!SHA.test(buildSha))return c.json({error:'Choose a valid published release build.'},400)
     let version
     try { version=validateCustomerVersion(body?.versionLabel) }
     catch(e){return c.json({error:e.message},400)}
     const existing=await pool.query(
       'SELECT version_label,status,version_sync_state FROM hi5central_release_note_drafts WHERE build_sha=$1',
-      [manifest.sha])
+      [buildSha])
     if(!existing.rowCount||existing.rows[0].status!=='published')
       return c.json({error:'A published release is required before changing its version.'},409)
     if(existing.rows[0].version_sync_state==='pending')
@@ -188,7 +208,7 @@ export function registerApplicationUpdatesRoutes(app){
         version_requested_at=now(),edited_by=$3,edited_at=now()
       WHERE build_sha=$1 AND status='published' AND version_sync_state='synced'
       RETURNING build_sha,version_label,version_sync_state`,
-      [manifest.sha,version,auth.session.user_id])
+      [buildSha,version,auth.session.user_id])
     if(!result.rowCount)return c.json({error:'The release is already being updated. Refresh and try again.'},409)
     return c.json({status:'pending',versionLabel:version,
       message:'The new customer version number is queued for the central publication service. No application deployment is required.'},202)
