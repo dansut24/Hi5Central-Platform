@@ -18,10 +18,10 @@ async function request(path,options={}) {
 function groupChanges(data,baseline) {
   if(!data?.changes?.length)return []
   const all=data.changes
-  if(!baseline?.sha)return all.slice(0,40)
+  if(!baseline?.sha)return all
   if(baseline.sha===data.sha)return []
   const index=all.findIndex(item=>item.sha===baseline.sha)
-  return index<0?all.slice(0,40):all.slice(0,index)
+  return index<0?all:all.slice(0,index)
 }
 
 function short(sha){return String(sha||'').slice(0,8)||'Unknown'}
@@ -32,6 +32,7 @@ function UseUpdates() {
   const [data,setData]=useState(null)
   const [live,setLive]=useState(null)
   const [review,setReview]=useState(null)
+  const [reviewLoaded,setReviewLoaded]=useState(false)
   const [admin,setAdmin]=useState(false)
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
@@ -47,19 +48,20 @@ function UseUpdates() {
           const state=await request('/api/v1/updates/uat-review')
           setReview(state.review)
           setAdmin(true)
-        }catch(e){if(e.status===403)setAdmin(false);else throw e}
+          setReviewLoaded(true)
+        }catch(e){if(e.status===403){setAdmin(false);setReviewLoaded(true)}else throw e}
       }else{
         setLive(result)
       }
     }catch(e){setError(e.message)}finally{setLoading(false)}
   }
   useEffect(()=>{refresh()},[])
-  return {data,live,review,setReview,admin,loading,error,setError,refresh}
+  return {data,live,review,setReview,admin,reviewLoaded,loading,error,setError,refresh}
 }
 
 export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}) {
   const current=UseUpdates()
-  const {data,live,review,setReview,admin,loading,error,setError,refresh}=current
+  const {data,live,review,setReview,admin,reviewLoaded,loading,error,setError,refresh}=current
   const uat=deploymentConfig().runtimeEnvironment==='uat'
   const changes=useMemo(()=>groupChanges(data,live),[data,live])
   const [selected,setSelected]=useState([])
@@ -72,7 +74,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   const initialized=useRef('')
 
   useEffect(()=>{
-    if(!data||initialized.current===data.sha)return
+    if(!data||(uat&&!reviewLoaded)||initialized.current===data.sha)return
     initialized.current=data.sha
     setSelected(review?.buildSha===data.sha&&Array.isArray(review.approvedShas)
       ?review.approvedShas:[])
@@ -135,15 +137,19 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
         <textarea rows={2} aria-label="UAT test evidence" placeholder="Record what was tested, affected modules and results…" value={notes} onChange={e=>setNotes(e.target.value)}/>
         <div className="hi5-updates-approval-actions">
           <button type="button" disabled={busy||!selected.length} onClick={()=>save(false)}>Save UAT review</button>
-          <button className="is-primary" type="button" disabled={busy||!hasBaseline||same||!major.length||!allApproved||notes.trim().length<12} onClick={()=>save(true)}>
+          <button className="is-primary" type="button" disabled={busy||same||!major.length||!allApproved||notes.trim().length<12} onClick={()=>save(true)}>
             <Rocket size={15}/> Request Live promotion
           </button>
         </div>
         {review?.status==='requested'?<small>Promotion requested for this build. Shared API/ITSM deployment still requires approval through Platform Admin.</small>:null}
-        {!hasBaseline?<small>Live promotion requests are held until Production reports its version. Review can still be saved.</small>:null}
+        {!hasBaseline?<small>Production comparison is unavailable until Live has the version endpoint. You can submit an approval request; Platform Admin must still verify the matching build before deployment.</small>:null}
       </div>:null}
       <div className="hi5-updates-change-header">
         <h3>{uat?'Detected changes since Production':'What’s new in Hi5Central'}</h3>
+        {uat&&admin?<button className="hi5-updates-select-all" type="button"
+          onClick={()=>setSelected(selected.length===changes.length?[]:changes.map(x=>x.sha))}>
+          {selected.length===changes.length?'Uncheck all':'Mark all tested'}
+        </button>:null}
         <nav aria-label="Release changelog filters">
           {['changes','features','database'].map((item)=><button type="button" key={item} aria-pressed={filter===item}
             className={filter===item?'active':''} onClick={()=>setFilter(item)}>{item==='changes'?'All':item==='features'?'Features':'Migrations'}</button>)}
