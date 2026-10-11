@@ -266,6 +266,15 @@ function LiveProductionReleaseManagement() {
     }), 'Application deployment queued. Wait for host verification before approving tenant feature activation.')
   }
 
+  async function decideUatRequest(requestKey,decision){
+    if(!window.confirm(decision==='approve'
+      ?'Approve the requested UAT build and queue its matching API/ITSM images for Production?'
+      :'Reject this UAT release request?'))return
+    await action('uat-decision-'+requestKey,()=>releaseApi('/application-release-requests/decision',{
+      method:'POST',body:JSON.stringify({requestKey,decision}),
+    }),decision==='approve'?'Approved UAT build queued for verified deployment.':'UAT release request rejected.')
+  }
+
   async function resetTest() {
     if(!window.confirm('Reset Test to its default state? All Test data will be destroyed.'))return
     await action('reset',()=>releaseApi('/environments/test/reset',{method:'POST',body:'{}'}),'Test reset queued.')
@@ -381,6 +390,25 @@ function LiveProductionReleaseManagement() {
                 </button> : null}
               </article>
             })}
+          </div>
+          <div className="hi5-release-sandbox-guidance">
+            <strong>UAT change-review requests</strong>
+            {(platformApplicationDeployments.reviewRequests||[]).length?
+              <div className="hi5-release-history">{platformApplicationDeployments.reviewRequests.slice(0,15).map(req=>
+                <div className="hi5-release-history-row" key={req.request_key}>
+                  <strong>{req.source_tenant_slug} · Build {req.build_sha?.slice(0,8)} · {statusLabel(req.status)}</strong>
+                  <span>{Array.isArray(req.approved_change_shas)?req.approved_change_shas.length:0} changes tested · {new Date(req.received_at).toLocaleString()}</span>
+                  {req.evidence?<p>{req.evidence}</p>:null}
+                  {req.status==='pending'?<div className="hi5-updates-approval-actions">
+                    <button type="button" disabled={Boolean(busy)} onClick={()=>decideUatRequest(req.request_key,'approve')}>
+                      <CheckCircle2 size={15}/> Approve and queue Live
+                    </button>
+                    <button type="button" disabled={Boolean(busy)} onClick={()=>decideUatRequest(req.request_key,'reject')}>
+                      <XCircle size={15}/> Reject
+                    </button>
+                  </div>:null}
+                </div>)}</div>
+              :<p>No UAT application-release requests are awaiting review.</p>}
           </div>
           <div className="hi5-release-sandbox-guidance">
             <strong>Recent platform deployment jobs</strong>
