@@ -11,6 +11,9 @@ const error=(message,status=409)=>Object.assign(new Error(message),{status})
 const effective=row=>row?.configuration&&Object.keys(row.configuration).length
   ?row.configuration:row?.onboarding_data||{}
 const refPattern=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
+const pilotPaths=()=>new Set(String(process.env.CONFIGURATION_RELEASE_PILOT_PATHS||'')
+  .split(',').map(s=>s.trim()).filter(Boolean))
+
 
 async function admin(c){
   const s=await resolveSession(c)
@@ -130,8 +133,14 @@ export function registerConfigurationReleaseRoutes(app){
           events:await trackedEvents(db,tenantId),
         })),
       ])
+      const allChanges=differenceList(live,uat.configuration)
+      // A new pilot must not present provisioning/baseline differences as
+      // previously approved customer changes. The allowlist also constrains POST.
+      const reviewedChanges=allChanges.filter(change=>pilotPaths().has(change.id))
       return c.json({
-        environment:'live',changes:summarizeDiff(await requiredCapabilities(pool,differenceList(live,uat.configuration))),
+        environment:'live',
+        changes:summarizeDiff(await requiredCapabilities(pool,reviewedChanges)),
+        baselineExcludedCount:allChanges.length-reviewedChanges.length,
         trackedEvents:uat.events,
         promotionPolicy:'Select only tested settings; live changes are not overwritten without approval.',
       })
@@ -152,6 +161,8 @@ export function registerConfigurationReleaseRoutes(app){
       return c.json({error:'Confirm testing and provide 20–3000 characters of UAT evidence.'},400)
     if(!Array.isArray(body?.changes)||body.changes.length<1||body.changes.length>100)
       return c.json({error:'Select 1–100 tracked settings for this promotion.'},400)
+    if(!body.changes.every(item=>pilotPaths().has(item?.id)))
+      return c.json({error:'A selected setting is outside the approved configuration pilot scope.'},403)
     if(!body.changes.every(item=>typeof item?.id==='string'&&
       /^[A-Za-z0-9_.-]{1,600}$/.test(item.id)&&
       /^[a-f0-9]{64}$/.test(item.beforeHash||'')&&
