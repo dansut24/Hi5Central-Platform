@@ -39,8 +39,8 @@ const intent={
 const signature=sign(null,Buffer.from(canonicalRouteIntent(intent)),privateKey).toString('base64')
 const auth={intent,signature,publicKeyPem,now}
 assert.equal(verifyHostRouteIntent(auth),intent)
-assert.throws(()=>verifyHostRouteIntent({...auth,intent:{...intent,buildSha:'b'.repeat(40)}}),
- /invalid/)
+assert.throws(()=>verifyHostRouteIntent({...auth,intent:{...intent,buildSha:'c'.repeat(40)}}),
+ /signature is invalid/)
 assert.throws(()=>verifyHostRouteIntent({...auth,now:new Date('2026-10-11T23:00:00Z')}),/expired/)
 assert.throws(()=>verifyHostRouteIntent({...auth,intent:{...intent,tenantSlug:'another'}}),/approved tenant/)
 const candidate=renderVerifiedTenantRoute(source,intent)
