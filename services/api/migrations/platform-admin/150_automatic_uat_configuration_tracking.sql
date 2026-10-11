@@ -1,6 +1,12 @@
 -- Automatic UAT configuration-change journal. Triggered by database writes,
 -- not by a special button or a feature-specific frontend handler.
 -- Values, secrets, credentials and test records are never copied into the journal.
+CREATE TABLE IF NOT EXISTS tenant_configuration_tracking_pilots (
+  tenant_id uuid PRIMARY KEY REFERENCES tenants(id) ON DELETE CASCADE,
+  enabled boolean NOT NULL DEFAULT false,
+  enabled_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS tenant_configuration_change_events (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -53,6 +59,13 @@ BEGIN
   IF TG_OP='DELETE' THEN row_data=to_jsonb(OLD);
   ELSE row_data=to_jsonb(NEW); END IF;
   tenant=(row_data->>'tenant_id')::uuid;
+  -- Pilot isolation: recording is opt-in per tenant. This avoids installing
+  -- a fleet-wide change stream before the controlled pilot is completed.
+  IF NOT EXISTS(SELECT 1 FROM tenant_configuration_tracking_pilots
+    WHERE tenant_id=tenant AND enabled=true) THEN
+    IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+  END IF;
   source_id=COALESCE(row_data->>TG_ARGV[0],'');
   IF TG_TABLE_NAME='tenant_settings' THEN
     IF TG_OP='INSERT' THEN
