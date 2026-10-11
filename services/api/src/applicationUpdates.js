@@ -10,10 +10,20 @@ catch {manifest={schemaVersion:1,sha:'',version:'development',builtAt:null,commi
 const SHA=/^[0-9a-f]{40}$/
 const LIST_LIMIT=70
 const CATEGORIES=new Set(['feature','improvement','fix','security','other'])
+const CUSTOMER_VERSION_PATTERN=/^v?\d+(?:\.\d+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?\d+)?)?$/i
+export function customerVersionLabel(value) {
+  return String(value||'').trim().replace(/\+[a-f0-9]{8,40}$/i,'')
+}
+export function validateCustomerVersion(value) {
+  const version=String(value||'').trim()
+  if(!CUSTOMER_VERSION_PATTERN.test(version)||version.length>32)
+    throw new Error('Enter a customer version such as 1.0.1 or 2026.10.1. Build IDs are tracked separately.')
+  return version
+}
 function trimmed(value,max=250){return String(value??'').trim().slice(0,max)}
 export function validateReleaseNotes(input){
   const buildSha=trimmed(input?.buildSha,40).toLowerCase()
-  const versionLabel=trimmed(input?.versionLabel,64)
+  const versionLabel=validateCustomerVersion(input?.versionLabel)
   const title=trimmed(input?.title,180)
   const summary=trimmed(input?.summary,1200)
   if(!SHA.test(buildSha)||!versionLabel||!title)
@@ -75,7 +85,7 @@ async function requireHi5Developer(c){
   return auth
 }
 function publicItem(row){
-  return {buildSha:row.build_sha,versionLabel:row.version_label,title:row.title,
+  return {buildSha:row.build_sha,versionLabel:customerVersionLabel(row.version_label),title:row.title,
     summary:row.summary,entries:row.entries,publishedAt:row.published_at}
 }
 async function centralPublished(){
@@ -120,11 +130,12 @@ export function registerApplicationUpdatesRoutes(app){
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error
     const result=await pool.query(
-      'SELECT build_sha,version_label,title,summary,entries,status,edited_at,requested_at,published_at FROM hi5central_release_note_drafts WHERE build_sha=$1',
+      'SELECT build_sha,version_label,title,summary,entries,status,version_sync_state,edited_at,requested_at,published_at FROM hi5central_release_note_drafts WHERE build_sha=$1',
       [manifest.sha])
     const row=result.rows[0]
-    return c.json({buildSha:manifest.sha,defaultVersion:manifest.releaseName||manifest.version,
+    return c.json({buildSha:manifest.sha,defaultVersion:customerVersionLabel(manifest.releaseName||manifest.version),
       notes:row?{buildSha:row.build_sha,versionLabel:row.version_label,
+        versionSyncState:row.version_sync_state,
         title:row.title,summary:row.summary,entries:row.entries,status:row.status,
         editedAt:row.edited_at,requestedAt:row.requested_at,publishedAt:row.published_at}:null})
   })
@@ -152,6 +163,37 @@ export function registerApplicationUpdatesRoutes(app){
     if(!result.rowCount)return c.json({error:'The release was already submitted for publication and cannot be edited.'},409)
     return c.json({notes:result.rows[0]})
   })
+  // Version labels are editorial metadata. A correction to a published
+  // release is relayed separately to the Live catalogue by the host operator.
+  // Other notes and the immutable application SHA remain locked.
+  app.put('/api/v1/updates/dev-notes/version',async c=>{
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    const body=await c.req.json().catch(()=>null)
+    let version
+    try { version=validateCustomerVersion(body?.versionLabel) }
+    catch(e){return c.json({error:e.message},400)}
+    const existing=await pool.query(
+      'SELECT version_label,status,version_sync_state FROM hi5central_release_note_drafts WHERE build_sha=$1',
+      [manifest.sha])
+    if(!existing.rowCount||existing.rows[0].status!=='published')
+      return c.json({error:'A published release is required before changing its version.'},409)
+    if(existing.rows[0].version_sync_state==='pending')
+      return c.json({error:'A version correction is already pending publication.'},409)
+    if(existing.rows[0].version_label===version)
+      return c.json({status:'unchanged',versionLabel:version})
+    const result=await pool.query(`
+      UPDATE hi5central_release_note_drafts SET
+        version_label=$2,version_sync_state='pending',
+        version_requested_at=now(),edited_by=$3,edited_at=now()
+      WHERE build_sha=$1 AND status='published' AND version_sync_state='synced'
+      RETURNING build_sha,version_label,version_sync_state`,
+      [manifest.sha,version,auth.session.user_id])
+    if(!result.rowCount)return c.json({error:'The release is already being updated. Refresh and try again.'},409)
+    return c.json({status:'pending',versionLabel:version,
+      message:'The new customer version number is queued for the central publication service. No application deployment is required.'},202)
+  })
+
   app.post('/api/v1/updates/dev-notes/publish',async c=>{
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error

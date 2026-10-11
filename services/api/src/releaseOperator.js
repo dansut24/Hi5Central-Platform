@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
-import { validateReleaseNotes } from './applicationUpdates.js'
+import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -239,6 +239,44 @@ export function registerReleaseOperatorRoutes(app) {
       'INSERT INTO hi5central_published_release_notes(build_sha,version_label,title,summary,entries) VALUES($1,$2,$3,$4,$5::jsonb)',
       [notes.buildSha,notes.versionLabel,notes.title,notes.summary,JSON.stringify(notes.entries)])
     return c.json({published:true,buildSha:notes.buildSha},201)
+  })
+
+  // A trusted Dev-requested label correction updates ONLY customer-facing
+  // version metadata. Build SHA, changelog entries and publication date remain
+  // unchanged. Every actual label change is recorded for audit.
+  app.post('/api/platform-operator/v1/releases/version-correction',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Only the central release authority may correct customer versions.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const buildSha=String(body?.buildSha||'').toLowerCase()
+    if(!/^[a-f0-9]{40}$/.test(buildSha))
+      return c.json({error:'Invalid release build.'},400)
+    let nextLabel
+    try {nextLabel=validateCustomerVersion(body?.versionLabel)}
+    catch(e){return c.json({error:e.message},400)}
+    const outcome=await withTransaction(async db=>{
+      const selected=await db.query(
+        'SELECT version_label FROM hi5central_published_release_notes WHERE build_sha=$1 FOR UPDATE',
+        [buildSha])
+      if(!selected.rowCount)return {error:'Release has not been published.',status:404}
+      const previous=selected.rows[0].version_label
+      if(previous===nextLabel)return {corrected:true,alreadyCurrent:true,buildSha,versionLabel:nextLabel}
+      const conflict=await db.query(
+        'SELECT build_sha FROM hi5central_published_release_notes WHERE version_label=$1 AND build_sha<>$2 LIMIT 1',
+        [nextLabel,buildSha])
+      if(conflict.rowCount)return {error:'This customer version number belongs to another release.',status:409}
+      await db.query(
+        'UPDATE hi5central_published_release_notes SET version_label=$2 WHERE build_sha=$1',
+        [buildSha,nextLabel])
+      await db.query(
+        'INSERT INTO hi5central_published_version_label_audit(build_sha,previous_version_label,new_version_label) VALUES($1,$2,$3)',
+        [buildSha,previous,nextLabel])
+      return {corrected:true,buildSha,versionLabel:nextLabel}
+    })
+    if(outcome.error)return c.json({error:outcome.error},outcome.status)
+    return c.json(outcome)
   })
 
   // Only the authenticated host operator may report observed running images.
