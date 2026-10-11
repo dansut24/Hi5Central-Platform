@@ -22,6 +22,7 @@ jobs:
           --health-interval 5s --health-timeout 4s --health-retries 15
     env:
       DATABASE_URL: postgresql://hi5_ci:ci_only@localhost:5432/hi5_ai_record_ci
+      REDIS_URL: redis://localhost:6379
       RUNTIME_ENVIRONMENT: live
       DEPLOYMENT_MODE: managed
       TENANCY_MODE: multi
