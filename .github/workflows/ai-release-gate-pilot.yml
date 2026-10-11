@@ -1,0 +1,100 @@
+name: AI release acceptance pilot (no Production deployment)
+on:
+  push:
+    branches: [pilot/ai-release-gated-promotion-20261011]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  validate-api-and-schema:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_release_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_release_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_release_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    defaults:
+      run: {working-directory: services/api}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - run: node --check src/configurationRelease.js && node --check src/aiReleaseGate.js && node --check src/index.js
+      - run: node test/ai-release-gate.mjs
+      - run: npm run migrate
+      - name: Verify AI release registry and acceptance table
+        run: |
+          node --input-type=module -e "
+            import pg from 'pg';
+            const db=new pg.Client({connectionString:process.env.DATABASE_URL});
+            await db.connect();
+            const r=await db.query(\"SELECT component,capability_key FROM platform_configuration_capability_requirements WHERE path_prefix=ARRAY['itsm','aiAssistant']::text[] ORDER BY component\");
+            const a=await db.query(\"SELECT build_sha,component FROM platform_build_configuration_capabilities WHERE capability_key='itsm.ai_assist' ORDER BY component\");
+            const b=await db.query(\"SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name='tenant_ai_release_acceptances'\");
+            console.log('REQUIREMENTS',r.rows,'BUILD_CAPABILITIES',a.rows.length,'ACCEPTANCE_TABLE',b.rows[0].n);
+            if(r.rows.map(x=>x.component).join(',')!=='api,itsm'||a.rows.length!==2||b.rows[0].n!==1)process.exitCode=4;
+            await db.end();"
+      - run: npm run build:runtime
+  validate-frontend:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: apps/itsm}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: npm run build
+  package:
+    needs: [validate-api-and-schema,validate-frontend]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: api
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - kind: itsm
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:ai-release-gate-pilot-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            com.hi5central.purpose=testing-tenant-ai-acceptance-only

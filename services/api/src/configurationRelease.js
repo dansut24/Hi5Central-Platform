@@ -5,6 +5,7 @@ import {deployment,originMatchesTenant} from './deploymentConfig.js'
 import {resolveSession} from './session.js'
 import {recordSecurityEvent,requestIp,requestUserAgent} from './securityAudit.js'
 import {differenceList,applyReviewedChanges} from './configurationReleaseDiff.js'
+import {AI_CONFIG_PATH,TESTED_AI_BUILD_SHA,acceptedAiChange,verifiedAiProductionBuild,shouldApplyAiVersionGate} from './aiReleaseGate.js'
 
 const {Client}=pg
 const error=(message,status=409)=>Object.assign(new Error(message),{status})
@@ -86,6 +87,7 @@ async function requiredCapabilities(db,changes){
           AND b.capability_key=r.capability_key
           AND b.build_sha=CASE WHEN r.component='api' THEN d.api_sha ELSE d.itsm_sha END
           AND d.status='verified'
+          AND d.observed_at>=now()-interval '24 hours'
       ) AS installed
     FROM platform_configuration_capability_requirements r
   `)
@@ -97,6 +99,30 @@ async function requiredCapabilities(db,changes){
       requiredCapabilities:blocked.map(r=>({capability:r.capability_key,
         component:r.component,description:r.description}))}
   })
+}
+
+async function aiAcceptance(db,tenantId){
+  const a=await db.query(
+    'SELECT tested_build_sha,uat_configuration_hash,accepted_at FROM tenant_ai_release_acceptances WHERE tenant_id=$1',
+    [tenantId])
+  return a.rows[0]||null
+}
+async function verifiedLiveAiRuntime(db){
+  const r=await db.query(
+    "SELECT status,api_sha,itsm_sha,observed_at FROM platform_application_deployment_attestations WHERE environment='live'")
+  return verifiedAiProductionBuild({row:r.rows[0]})
+}
+async function checkDeployedUatAiBuild(){
+  // Pilot host is fixed; no user-controlled URL or redirect target.
+  const base='https://testing-uat.hi5central.com'
+  for(const path of ['/api/v1/updates/version','/release-manifest.json']){
+    const response=await fetch(base+path,{redirect:'error',cache:'no-store',
+      signal:AbortSignal.timeout(9000)})
+    if(!response.ok)throw error('Unable to verify the UAT application version.',503)
+    const body=await response.json()
+    if(body.sha!==TESTED_AI_BUILD_SHA)
+      throw error('The running UAT application differs from the tested AI build. Test it again before acceptance.')
+  }
 }
 
 function summarizeDiff(changes){
@@ -137,8 +163,19 @@ export function registerConfigurationReleaseRoutes(app){
       // A new pilot must not present provisioning/baseline differences as
       // previously approved customer changes. The allowlist also constrains POST.
       const reviewedChanges=allChanges.filter(change=>pilotPaths().has(change.id))
+      const [acceptance,liveAiReady]=await Promise.all([
+        aiAcceptance(pool,tenantId),verifiedLiveAiRuntime(pool),
+      ])
+      const aiDiff=reviewedChanges.find(c=>c.id===AI_CONFIG_PATH)
       return c.json({
         environment:'live',
+        aiRelease:aiDiff?{
+          testedBuildSha:TESTED_AI_BUILD_SHA,
+          uatAccepted:acceptedAiChange({change:aiDiff,acceptance}),
+          acceptedAt:acceptedAiChange({change:aiDiff,acceptance})?acceptance.accepted_at:null,
+          productionBuildReady:liveAiReady,
+          requiresSoftwareUpdate:shouldApplyAiVersionGate(aiDiff)&&!liveAiReady,
+        }:null,
         changes:summarizeDiff(await requiredCapabilities(pool,reviewedChanges)),
         baselineExcludedCount:allChanges.length-reviewedChanges.length,
         trackedEvents:uat.events,
@@ -147,6 +184,50 @@ export function registerConfigurationReleaseRoutes(app){
     }catch(e){
       return c.json({error:e.message||'Cannot inspect UAT changes.'},e.status||503)
     }
+  })
+
+  app.post('/api/v1/release-management/configuration-changes/accept-ai-uat',async c=>{
+    const auth=await admin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'UAT acceptance is recorded in the Production release centre.'},403)
+    let body
+    try{body=await c.req.json()}catch{return c.json({error:'Valid JSON required.'},400)}
+    const note=String(body?.note||'').trim()
+    if(body?.confirmed!==true||body?.tested!==true||note.length<20||note.length>3000)
+      return c.json({error:'Confirm the UAT test and provide 20–3000 characters of test evidence.'},400)
+    if(!pilotPaths().has(AI_CONFIG_PATH))
+      return c.json({error:'The AI release is not enabled for this pilot.'},404)
+    try{
+      await readyUat(auth.session.tenant_id)
+      await checkDeployedUatAiBuild()
+      const live=await configuration(pool,auth.session.tenant_id)
+      const uat=await withUat(db=>configuration(db,auth.session.tenant_id))
+      const change=differenceList(live,uat).find(x=>x.id===AI_CONFIG_PATH)
+      if(!change||change.to!==true||!change.promotable)
+        throw error('AI Assist must be enabled and tested in UAT, but remain pending in Production.')
+      await withTransaction(async db=>{
+        const locked=await configuration(db,auth.session.tenant_id,true)
+        const latest=differenceList(locked,uat).find(x=>x.id===AI_CONFIG_PATH)
+        if(!latest||latest.afterHash!==change.afterHash||latest.beforeHash!==change.beforeHash)
+          throw error('The configuration changed during approval. Refresh and retest.')
+        await db.query(
+          `INSERT INTO tenant_ai_release_acceptances
+             (tenant_id,tested_build_sha,uat_configuration_hash,evidence,accepted_by,accepted_at)
+           VALUES($1,$2,$3,$4,$5,now())
+           ON CONFLICT(tenant_id) DO UPDATE SET tested_build_sha=EXCLUDED.tested_build_sha,
+             uat_configuration_hash=EXCLUDED.uat_configuration_hash,
+             evidence=EXCLUDED.evidence,accepted_by=EXCLUDED.accepted_by,accepted_at=now()`,
+          [auth.session.tenant_id,TESTED_AI_BUILD_SHA,change.afterHash,note,auth.session.user_id])
+        await recordSecurityEvent({
+          db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+          sessionId:auth.session.session_id,eventType:'release.ai_software_uat_accepted',
+          ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+          metadata:{testedBuildSha:TESTED_AI_BUILD_SHA,configurationPath:AI_CONFIG_PATH},
+        })
+      })
+      return c.json({accepted:true,testedBuildSha:TESTED_AI_BUILD_SHA})
+    }catch(e){return c.json({error:e.message||'UAT release acceptance failed.'},e.status||409)}
   })
 
   app.post('/api/v1/release-management/configuration-changes/promote',async c=>{
@@ -177,6 +258,14 @@ export function registerConfigurationReleaseRoutes(app){
         const live=await configuration(db,auth.session.tenant_id,true)
         const differences=await requiredCapabilities(db,differenceList(live,uat))
         const indexed=new Map(differences.map(item=>[item.id,item]))
+        const ai=body.changes.find(change=>change.id===AI_CONFIG_PATH)
+        if(ai&&indexed.get(AI_CONFIG_PATH)?.to===true){
+          const acceptance=await aiAcceptance(db,auth.session.tenant_id)
+          if(!acceptedAiChange({change:indexed.get(AI_CONFIG_PATH),acceptance}))
+            throw error('The matching AI application release must be accepted in UAT before promotion.')
+          if(!(await verifiedLiveAiRuntime(db)))
+            throw error('Deploy and verify the exact UAT-tested AI API and ITSM build in Production first.')
+        }
         if(body.changes.some(change=>indexed.get(change.id)?.versionUpgradeRequired))
           throw error('A selected change requires a compatible Production application upgrade first.')
         const next=applyReviewedChanges(live,uat,body.changes)
