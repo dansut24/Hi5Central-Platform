@@ -18,7 +18,7 @@ import {
   requestUserAgent,
 } from './securityAudit.js'
 import { resolveSession, sessionPayload } from './session.js'
-import {readMasterLegalIdentity,applyMasterLegalIdentity,protectMasterLegalIdentity} from './masterLegalIdentity.js'
+import {readMasterLegalIdentity,applyMasterLegalIdentity,protectMasterLegalIdentity,registerMasterLegalIdentityRoutes} from './masterLegalIdentity.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerWorkflowRoutes } from './itsmWorkflows.js'
 
@@ -75,6 +75,7 @@ function normaliseSecurity(input, current) {
 }
 
 export function registerSettingsRoutes(app) {
+  registerMasterLegalIdentityRoutes(app)
   app.get('/api/v1/settings', async (c) => {
     const auth = await requirePermission(c, 'settings.view')
     if (auth.error) return auth.error
