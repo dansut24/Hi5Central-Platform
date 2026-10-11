@@ -57,7 +57,7 @@ export function verifiedRuntimePool(pool,now=new Date()){
     return {verified:false,reason:'Pool health attestation is stale.'}
   return {verified:true,reason:''}
 }
-export function tenantReleaseEligibility({preference,pool,environment,uatAccepted=false,published=false,now=new Date()}){
+export function tenantReleaseEligibility({preference,pool,environment,uatAccepted=false,uatAcceptedAt=null,published=false,now=new Date()}){
   if(!preference||!['admin_controlled','hi5_managed'].includes(preference.update_mode))
     return {state:'blocked',reason:'Tenant has no valid update preference.'}
   if(!['uat','live'].includes(environment))
@@ -76,6 +76,11 @@ export function tenantReleaseEligibility({preference,pool,environment,uatAccepte
   const minHours=Number(preference.live_delay_hours??24)
   if(!Number.isInteger(minHours)||minHours<0||minHours>720)
     return {state:'blocked',reason:'Invalid minimum release delay.'}
+  const acceptedTime=new Date(uatAcceptedAt||'').getTime()
+  if(!Number.isFinite(acceptedTime)||acceptedTime>now.getTime())
+    return {state:'blocked',reason:'Managed UAT approval timestamp is unavailable or in the future.'}
+  if(now.getTime()-acceptedTime<minHours*60*60*1000)
+    return {state:'pending_delay',reason:'Minimum managed release delay has not elapsed.'}
   const gate=maintenanceWindowStatus(preference.maintenance_window||{},now)
   return gate.allowed?{state:'eligible_for_scheduled_update',reason:'Maintenance window open; host activation still requires approval.'}
     :{state:'pending_maintenance',reason:gate.reason}
