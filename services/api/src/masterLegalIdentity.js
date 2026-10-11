@@ -61,8 +61,8 @@ export function registerMasterLegalIdentityRoutes(app,{
     ||tenantSlug!==pilot||!['test','uat'].includes(body?.environment))
    return c.json({error:'Unknown master identity request.'},404)
   const r=await database.query(
-   `SELECT CASE WHEN ts.configuration<>'{}'::jsonb THEN ts.configuration ELSE ts.onboarding_data END
-      #>> '{company,legalName}' AS legal_name
+   `SELECT COALESCE(NULLIF(ts.configuration #>> '{company,legalName}', ''),
+          NULLIF(ts.onboarding_data #>> '{company,legalName}', ''), '') AS legal_name
       FROM tenant_settings ts JOIN tenants t ON t.id=ts.tenant_id
       WHERE t.id=$1 AND t.slug=$2 AND t.status='active' LIMIT 1`,
    [tenantId,pilot])
