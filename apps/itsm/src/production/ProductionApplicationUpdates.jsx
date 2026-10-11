@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, CircleAlert, GitBranch, Plus, RefreshCw, Rocket, Save, Send, Trash2, X } from 'lucide-react'
+import { CheckCircle2, CircleAlert, ClipboardCheck, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import './ProductionApplicationUpdates.css'
 
@@ -208,6 +208,56 @@ function DevPublishedVersionManager(){
   </section>
 }
 
+
+const UAT_CHECKS=[
+  {id:'login',name:'Login, MFA and environment access',hint:'Check that only authorised testers can sign in'},
+  {id:'navigation',name:'New feature and navigation review',hint:'Open the changed areas and verify expected behaviour'},
+  {id:'records',name:'Existing record and workflow regression',hint:'Inspect an incident, task and service request in UAT'},
+  {id:'mobile',name:'Mobile layout and permissions',hint:'Check a small screen and the appropriate user roles'},
+]
+function encodeEvidence(checks,notes){
+  const lines=UAT_CHECKS.map(check=>`- [${checks.includes(check.id)?'x':' '}] ${check.name}`)
+  return ['UAT release acceptance checklist',...lines,'','Test evidence:',notes.trim()].join('\n')
+}
+function decodeEvidence(value){
+  const text=String(value||'')
+  if(!text.startsWith('UAT release acceptance checklist\n'))return {checks:[],notes:text}
+  const checks=UAT_CHECKS.filter(check=>text.includes(`- [x] ${check.name}`)).map(check=>check.id)
+  const noteStart=text.indexOf('\nTest evidence:\n')
+  return {checks,notes:noteStart>=0?text.slice(noteStart+'\nTest evidence:\n'.length):''}
+}
+function DevReleaseReadiness({data}){
+  const [uat,setUat]=useState(null)
+  const [checking,setChecking]=useState(true)
+  useEffect(()=>{
+    let active=true
+    fetch('https://uat-api.hi5central.com/api/v1/updates/version',{cache:'no-store'})
+      .then(response=>response.ok?response.json():null)
+      .then(version=>{if(active)setUat(version)})
+      .catch(()=>{})
+      .finally(()=>{if(active)setChecking(false)})
+    return()=>{active=false}
+  },[data?.sha])
+  const published=(data?.releases||[]).some(item=>item.buildSha===data?.sha)
+  const same=Boolean(uat?.sha&&uat.sha===data?.sha)
+  return <section className="hi5-release-readiness" aria-label="New feature: release readiness summary">
+    <div className="hi5-updates-change-header">
+      <div><h3><ShieldCheck size={16}/> Release readiness</h3>
+        <p>Track this Dev candidate before sending it to customer UAT environments.</p></div>
+      <span className="hi5-updates-status">New in Dev</span>
+    </div>
+    <div className="hi5-release-readiness-items">
+      <div><CheckCircle2 size={17}/><span><strong>Versioned build available</strong>
+        <small>Immutable build {short(data?.sha)} is running in Dev</small></span></div>
+      <div className={published?'is-ready':'is-pending'}>{published?<CheckCircle2 size={17}/>:<CircleAlert size={17}/>}
+        <span><strong>{published?'Release notes published':'Release notes awaiting publication'}</strong>
+          <small>Customers see release notes only after explicit Dev publication</small></span></div>
+      <div className={same?'is-ready':'is-pending'}>{same?<CheckCircle2 size={17}/>:<CircleAlert size={17}/>}
+        <span><strong>{checking?'Checking UAT application…':same?'UAT already on this build':'UAT staging required'}</strong>
+          <small>{same?'Ready for UAT testing and sign-off':uat?.sha?'UAT currently on '+short(uat.sha):'UAT version could not be verified'}</small></span></div>
+    </div>
+  </section>
+}
 export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
   const [data,setData]=useState(null)
   const [review,setReview]=useState(null)
@@ -215,6 +265,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
   const [evidence,setEvidence]=useState('')
+  const [uatChecks,setUatChecks]=useState([])
   const [busy,setBusy]=useState(false)
   const [expanded,setExpanded]=useState(null)
   async function refresh(){
@@ -225,7 +276,8 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
       if(ENV==='uat'){
         try{
           const {review:next}=await api('/api/v1/updates/uat-review')
-          setReview(next);setEvidence(next?.evidence||'');setCanReview(true)
+          const restored=decodeEvidence(next?.evidence)
+          setReview(next);setEvidence(restored.notes);setUatChecks(restored.checks);setCanReview(true)
         }catch(e){if(e.status===403)setCanReview(false);else throw e}
       }
     }catch(e){setError(e.message)}
@@ -233,13 +285,14 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   }
   useEffect(()=>{refresh()},[])
   async function requestLive(){
+    if(uatChecks.length!==UAT_CHECKS.length||evidence.trim().length<12){setError('Complete all UAT checks and enter test evidence before requesting promotion.');return}
     if(!data||busy||!window.confirm('Submit this tested UAT version for a Platform Admin to approve for Live? This will not deploy code automatically.'))return
     setBusy(true);setError('')
     try{
       const response=await fetch('https://api.hi5central.com/api/v1/updates/version',{cache:'no-store'})
       const live= response.ok?await response.json():{}
       await api('/api/v1/updates/uat-review',{method:'POST',body:JSON.stringify({
-        acceptWholeBuild:true,baselineSha:live.sha||'',evidence,requestLive:true})})
+        acceptWholeBuild:true,baselineSha:live.sha||'',evidence:encodeEvidence(uatChecks,evidence),requestLive:true})})
       setReview({status:'requested',buildSha:data.sha,evidence})
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
@@ -274,6 +327,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
           <strong>{preview?'Preview':available?'Available':installed?'Up to date':'No published update'}</strong>
           <small>{preview?'This build has not been published to customers':available?'A newer version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
       </div>
+      {ENV==='dev'?<DevReleaseReadiness data={data}/>:null}
       {ENV==='dev'?<>
         <DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>
         <DevPublishedVersionManager/>
@@ -283,10 +337,20 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
           <small>{review?.status==='requested'?'Promotion requested':candidate?'Published candidate':'Awaiting Dev release'}</small></div>
         <p>{candidate?'Review the Dev-authored release notes above and record testing before requesting Live deployment.':
           'The Dev team must release the customer-facing notes for this version before UAT can request promotion.'}</p>
+        <div className="hi5-release-acceptance-checklist" aria-label="New feature: UAT acceptance checklist">
+          <strong><ClipboardCheck size={16}/> UAT acceptance checklist</strong>
+          <small>Complete these checks against the running candidate before requesting Production promotion.</small>
+          {UAT_CHECKS.map(item=><label key={item.id}>
+            <input type="checkbox" checked={uatChecks.includes(item.id)}
+              onChange={e=>setUatChecks(old=>e.target.checked?[...old,item.id]:old.filter(id=>id!==item.id))}/>
+            <span><strong>{item.name}</strong><small>{item.hint}</small></span>
+          </label>)}
+          <span className="hi5-updates-kicker">{uatChecks.length} of {UAT_CHECKS.length} checks completed</span>
+        </div>
         <textarea rows={2} placeholder="What was tested in UAT, and what passed?" aria-label="UAT test evidence"
           value={evidence} onChange={e=>setEvidence(e.target.value)} />
         <div className="hi5-updates-approval-actions">
-          <button type="button" className="is-primary" disabled={busy||!candidate||review?.status==='requested'||evidence.trim().length<12}
+          <button type="button" className="is-primary" disabled={busy||!candidate||review?.status==='requested'||evidence.trim().length<12||uatChecks.length!==UAT_CHECKS.length}
             onClick={requestLive}><Rocket size={15}/> Request Live promotion</button>
         </div>
       </div>:null}
