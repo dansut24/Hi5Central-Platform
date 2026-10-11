@@ -40,7 +40,8 @@ export async function readMasterLegalIdentity(session,{environment=deployment.ru
 
 export function applyMasterLegalIdentity(payload,identity){
  if(!identity)return payload
- return {...payload,settings:{...payload.settings,
+ return {...payload,masterIdentity:{companyLegalNameReadOnly:true,source:'production'},
+  settings:{...payload.settings,
   company:{...(payload.settings?.company||{}),legalName:identity.legalName}}}
 }
 export function protectMasterLegalIdentity(company,identity){
