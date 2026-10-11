@@ -26,3 +26,17 @@ CREATE INDEX IF NOT EXISTS tenant_runtime_release_events_by_tenant
 
 -- Nothing is automatically due on migration. New offers remain pending
 -- a separately attested host route and explicit UAT acceptance.
+
+CREATE TABLE IF NOT EXISTS tenant_runtime_route_attestations (
+ tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+ environment text NOT NULL CHECK(environment IN ('uat','live')),
+ pool_id text NOT NULL,
+ build_sha text NOT NULL CHECK(build_sha ~ '^[a-f0-9]{40}$'),
+ public_host text NOT NULL,
+ state text NOT NULL CHECK(state IN ('active','rolled_back')),
+ checked_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(tenant_id,environment),
+ FOREIGN KEY(pool_id,environment) REFERENCES platform_runtime_pools(id,environment)
+);
+CREATE INDEX IF NOT EXISTS tenant_runtime_route_attestations_pool
+  ON tenant_runtime_route_attestations(pool_id,environment);
