@@ -5,6 +5,7 @@ import { pool, withTransaction } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 import { recordSecurityEvent, requestIp, requestUserAgent } from './securityAudit.js'
+import { applicationDeployments, applicationReadyForPromotion } from './applicationDeployment.js'
 
 export const LIVE_CHAT_FEATURE = 'itsm.live_chat'
 const { Client } = pg
@@ -72,11 +73,11 @@ async function setFeature(database, tenantId, userId, environment, enabled) {
 }
 
 export async function tenantLiveChatState(tenantId,{source=pool,targets={}}={}) {
-  const [live,uat,approval,history]=await Promise.all([
+  const [live,uat,approval,history,deployments]=await Promise.all([
     featureState(source,tenantId,'live'),
     withUatDatabase(db=>featureState(db,tenantId,'uat'),targets),
     source.query(
-      `SELECT state,release_ref,staged_at,verified_at,promoted_at
+      `SELECT state,release_ref,staged_at,verified_at,promoted_at,tested_api_sha,tested_itsm_sha
        FROM tenant_feature_release_approvals
        WHERE tenant_id=$1 AND feature_key=$2`,
       [tenantId,LIVE_CHAT_FEATURE]),
@@ -89,6 +90,7 @@ export async function tenantLiveChatState(tenantId,{source=pool,targets={}}={}) 
        WHERE e.tenant_id=$1 AND e.feature_key=$2
        ORDER BY e.recorded_at DESC,e.id DESC LIMIT 50`,
       [tenantId,LIVE_CHAT_FEATURE]),
+    applicationDeployments(source),
   ])
   return {
     featureKey:LIVE_CHAT_FEATURE,
@@ -101,6 +103,18 @@ export async function tenantLiveChatState(tenantId,{source=pool,targets={}}={}) 
     stagedAt:approval.rows[0]?.staged_at||null,
     verifiedAt:approval.rows[0]?.verified_at||null,
     promotedAt:approval.rows[0]?.promoted_at||null,
+    testedApiSha:approval.rows[0]?.tested_api_sha||null,
+    testedItsmSha:approval.rows[0]?.tested_itsm_sha||null,
+    applicationDeployment: {
+      uat:deployments.uat,
+      live:deployments.live,
+      ...applicationReadyForPromotion({
+        uat:deployments.uat,
+        live:deployments.live,
+        testedApiSha:approval.rows[0]?.tested_api_sha,
+        testedItsmSha:approval.rows[0]?.tested_itsm_sha,
+      }),
+    },
     history:history.rows,
   }
 }
@@ -159,7 +173,7 @@ export async function stageTenantLiveChat(tenantId,userId,opts={}) {
          VALUES($1,$2,'staged',$3,$4,now())
          ON CONFLICT (tenant_id,feature_key) DO UPDATE SET
            state='staged',release_ref=excluded.release_ref,staged_by=excluded.staged_by,
-           staged_at=now(),verified_by=NULL,verified_at=NULL,
+           staged_at=now(),verified_by=NULL,verified_at=NULL,tested_api_sha=NULL,tested_itsm_sha=NULL,
            promoted_by=NULL,promoted_at=NULL,updated_at=now()`,
         [tenantId,LIVE_CHAT_FEATURE,changeRef,userId])
       await live.query(
@@ -229,12 +243,17 @@ export async function verifyTenantLiveChatUat(tenantId,userId,opts={}) {
   const state=await tenantLiveChatState(tenantId,{source,targets})
   if(state.state!=='staged'||!state.uatEnabled)
     throw new Error('Stage and test Live Chat in UAT before confirming acceptance.')
+  const uatDeployment=state.applicationDeployment.uat
+  if (!uatDeployment?.verified) {
+    throw new Error('The UAT host must verify its running application revision before recording acceptance.')
+  }
   await withTransaction(async db=>{
     const result=await db.query(
       `UPDATE tenant_feature_release_approvals
-       SET state='uat_passed',verified_by=$3,verified_at=now(),updated_at=now()
+       SET state='uat_passed',verified_by=$3,verified_at=now(),updated_at=now(),
+           tested_api_sha=$4,tested_itsm_sha=$5
        WHERE tenant_id=$1 AND feature_key=$2 AND state='staged' RETURNING state`,
-      [tenantId,LIVE_CHAT_FEATURE,userId])
+      [tenantId,LIVE_CHAT_FEATURE,userId,uatDeployment.apiSha,uatDeployment.itsmSha])
     if(!result.rowCount)throw new Error('Live Chat UAT acceptance could not be recorded.')
     await db.query(
       `INSERT INTO tenant_feature_release_events
@@ -251,6 +270,10 @@ export async function promoteTenantLiveChat(tenantId,userId,opts={}) {
   const state=await tenantLiveChatState(tenantId,{source,targets})
   if(state.state!=='uat_passed'||!state.verifiedAt||!state.uatEnabled)
     throw new Error('Live Chat must pass UAT before promotion to Live.')
+  const gate=state.applicationDeployment
+  if (!gate.ready) {
+    throw new Error(gate.reason || 'The approved UAT application revision must be deployed and verified in Live before enabling the feature.')
+  }
   const notes=String(opts.notes||'').trim().slice(0,1000)
   return withTransaction(async client=>{
     const approval=await client.query(

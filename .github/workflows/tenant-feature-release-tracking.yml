@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'services/api/src/tenantFeatureRollouts.js'
+      - 'services/api/src/applicationDeployment.js'
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/migrations/platform-admin/144_verified_application_deployment.sql'
+      - 'services/api/test/application-deployment-gate.mjs'
       - 'services/api/migrations/platform-admin/143_tenant_feature_release_tracking.sql'
       - 'services/api/test/tenant-feature-release-tracking.mjs'
       - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
@@ -46,7 +51,7 @@ jobs:
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
       - name: Check API source syntax
-        run: node --check src/tenantFeatureRollouts.js && node --check src/index.js
+        run: node --check src/tenantFeatureRollouts.js && node --check src/applicationDeployment.js && node --check src/releaseOperator.js && node --check src/platformAdmin.js && node --check src/index.js
       - name: Create isolated Test and UAT databases
         env: {PGPASSWORD: ci_only_password}
         run: |
@@ -57,5 +62,7 @@ jobs:
           npm run migrate
           DATABASE_URL="$TENANT_TEST_DATABASE_URL" npm run migrate
           DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
+      - name: Test application deployment gate edge cases
+        run: node test/application-deployment-gate.mjs
       - name: Test failed-ledger rollback, staged rollout, acceptance and tenant isolation
         run: node test/tenant-feature-release-tracking.mjs

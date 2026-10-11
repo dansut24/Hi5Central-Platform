@@ -135,6 +135,7 @@ function LiveProductionReleaseManagement() {
   const [liveChatRelease,setLiveChatRelease]=useState(null)
   const [uatEvidence,setUatEvidence]=useState('')
   const [platformAvailable,setPlatformAvailable]=useState(false)
+  const [platformApplicationDeployments,setPlatformApplicationDeployments]=useState(null)
   const [policy,setPolicy]=useState({updateMode:'admin_controlled',releaseChannel:'stable',liveDelayHours:24,allowEmergencySecurityUpdates:true,maintenanceWindow:{timezone:'Europe/London',days:[],start:'02:00',end:'05:00'}})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState('')
@@ -157,9 +158,15 @@ function LiveProductionReleaseManagement() {
       if(platformResult.status==='fulfilled') {
         setData(platformResult.value)
         setPlatformAvailable(true)
+        try {
+          setPlatformApplicationDeployments(await releaseApi('/application-deployments'))
+        } catch {
+          setPlatformApplicationDeployments(null)
+        }
         setPolicy(platformResult.value?.deploymentPolicy || tenantState.preference)
       } else {
         setPlatformAvailable(false)
+        setPlatformApplicationDeployments(null)
         setData({environments:[],features:[],changes:[],actions:[]})
         if(tenantState?.preference)setPolicy(tenantState.preference)
       }
@@ -173,6 +180,9 @@ function LiveProductionReleaseManagement() {
   useEffect(()=>{load()},[])
 
   const liveSelected=useMemo(()=>data.changes.filter(item=>item.state==='selected_for_live'),[data.changes])
+  const appDeployment=liveChatRelease?.applicationDeployment
+  const deploymentMatches=appDeployment?.ready === true
+  const uatApplicationVerified=appDeployment?.uat?.verified === true
 
   async function action(key,fn,success='') {
     setBusy(key);setError('');setMessage('')
@@ -232,8 +242,12 @@ function LiveProductionReleaseManagement() {
       setError('Record what you tested in UAT (at least 10 characters).')
       return
     }
+    if (actionName==='promote-live' && !deploymentMatches) {
+      setError(appDeployment?.reason || 'The approved application must be deployed and verified in Production first.')
+      return
+    }
     if (actionName==='promote-live' &&
-      !window.confirm('Promote the UAT-approved Live Chat feature to this organisation’s Production workspace?')) return
+      !window.confirm('The approved application version is verified in Live. Enable the tested Live Chat feature for this organisation?')) return
     await action('live-chat-'+actionName,()=>tenantReleaseApi('/feature-rollouts/live-chat/'+actionName,{
       method:'POST',
       body:JSON.stringify({notes:actionName==='confirm-uat'?uatEvidence:
@@ -242,6 +256,14 @@ function LiveProductionReleaseManagement() {
       actionName==='confirm-uat'?'UAT acceptance and evidence recorded.':
       'Live Chat enabled for this tenant in Live.')
     if(actionName==='confirm-uat')setUatEvidence('')
+  }
+
+  async function deployApplication(environment) {
+    const source=environment==='live'?'UAT':'Dev'
+    if(!window.confirm(`Queue the exact host-verified ${source} application revision for ${environment.toUpperCase()} deployment? This affects the shared API and ITSM used by all tenants.`))return
+    await action('app-deploy-'+environment,()=>releaseApi('/application-deployments/promote',{
+      method:'POST',body:JSON.stringify({environment}),
+    }), 'Application deployment queued. Wait for host verification before approving tenant feature activation.')
   }
 
   async function resetTest() {
@@ -336,6 +358,45 @@ function LiveProductionReleaseManagement() {
     </section>
     ) : null}
 
+    {platformAvailable&&platformApplicationDeployments ? (
+      <section className="production-settings-panel" data-hi5-shared-app-deployments>
+        <header><div>
+          <h2>Shared application deployment</h2>
+          <p>Platform Admin only. Deploy exact verified API/ITSM revisions; tenant feature switches cannot upgrade shared application code.</p>
+        </div><button className="hi5-release-refresh" type="button" onClick={load}><RefreshCw size={15}/>Refresh</button></header>
+        <div className="production-settings-panel-body">
+          <div className="hi5-release-env-grid">
+            {['dev','uat','live'].map(environment=>{
+              const image=platformApplicationDeployments.environments?.[environment]
+              return <article className="hi5-release-env-card" key={environment}>
+                <header><div><span>{environment.toUpperCase()}</span>
+                  <strong>{image?.verified?'Host verified':image?.status==='stale'?'Verification expired':'Not verified'}</strong></div>
+                  <ResultPill value={image?.verified?'ready':'pending'} /></header>
+                <small>API {image?.apiSha?.slice(0,8)||'unknown'} · ITSM {image?.itsmSha?.slice(0,8)||'unknown'}</small>
+                <small>{image?.observedAt?'Verified: '+new Date(image.observedAt).toLocaleString():'Awaiting host report'}</small>
+                {environment!=='dev' ? <button type="button" disabled={Boolean(busy)||
+                  !platformApplicationDeployments.environments?.[environment==='live'?'uat':'dev']?.verified}
+                  onClick={()=>deployApplication(environment)}>
+                  <GitBranch size={15}/> Queue {environment==='live'?'UAT → Live':'Dev → UAT'} deployment
+                </button> : null}
+              </article>
+            })}
+          </div>
+          <div className="hi5-release-sandbox-guidance">
+            <strong>Recent platform deployment jobs</strong>
+            {(platformApplicationDeployments.jobs||[]).length?
+              <div className="hi5-release-history">{platformApplicationDeployments.jobs.slice(0,8).map(job=>
+                <div className="hi5-release-history-row" key={job.id}>
+                  <strong>{job.from_environment?.toUpperCase()} → {job.to_environment?.toUpperCase()} · {statusLabel(job.status)}</strong>
+                  <span>API {job.api_sha?.slice(0,8)} · ITSM {job.itsm_sha?.slice(0,8)} · {new Date(job.requested_at).toLocaleString()}</span>
+                  {job.error_message?<p>{job.error_message}</p>:null}
+                </div>)}</div>
+              :<p>No application deployments have been queued by Platform Admin yet.</p>}
+          </div>
+        </div>
+      </section>
+    ):null}
+
     {policy.updateMode==='admin_controlled' ? (
       <section className="production-settings-panel" data-hi5-tenant-feature-releases>
         <header><div>
@@ -360,18 +421,21 @@ function LiveProductionReleaseManagement() {
                 <textarea id="hi5-uat-livechat-evidence" rows={3} maxLength={2000}
                   value={uatEvidence} onChange={event=>setUatEvidence(event.target.value)}
                   placeholder="Describe the Live Chat actions checked in UAT and whether they worked."/>
-                <button type="button" disabled={Boolean(busy)||uatEvidence.trim().length<10}
+                <button type="button" disabled={Boolean(busy)||uatEvidence.trim().length<10||!uatApplicationVerified}
                   onClick={()=>manageLiveChat('confirm-uat')}>
                   <CheckCircle2 size={15}/>Mark UAT passed
                 </button>
               </>:null}
-              {liveChatRelease?.state==='uat_passed'?<small>UAT evidence accepted. Ready for administrator promotion.</small>:null}
+              {liveChatRelease?.state==='staged'&&!uatApplicationVerified
+                ?<small>The UAT host must report a verified application version before acceptance can be recorded.</small>:null}
+              {liveChatRelease?.state==='uat_passed'
+                ?<small>{deploymentMatches?'Approved application images match Live; you may enable the feature.':'UAT passed, but application deployment is pending or unverified.'}</small>:null}
             </article>
             <article className="hi5-release-env-card">
               <header><div><span>LIVE CHAT · LIVE</span><strong>{liveChatRelease?.liveEnabled?'Enabled':'Not enabled by this release'}</strong></div>
                 <ResultPill value={liveChatRelease?.liveEnabled?'ready':'available'}/></header>
-              <p>Production remains unchanged until a tenant administrator explicitly promotes a UAT-passed change.</p>
-              <button type="button" disabled={Boolean(busy)||liveChatRelease?.state!=='uat_passed'}
+              <p>The feature will be enabled only after the platform has deployed and verified the exact application revision approved in UAT.</p>
+              <button type="button" disabled={Boolean(busy)||liveChatRelease?.state!=='uat_passed'||!deploymentMatches}
                 onClick={()=>manageLiveChat('promote-live')}>
                 <CheckCircle2 size={15}/>Promote approved UAT change to Live
               </button>
@@ -379,12 +443,30 @@ function LiveProductionReleaseManagement() {
             </article>
           </div>
           <div className="hi5-release-sandbox-guidance">
+            <strong>Application deployment · shared across tenants</strong>
+            <p>Feature approval does not deploy code. Only the platform release operator deploys and verifies shared application images.</p>
+            <div className="hi5-release-env-grid">
+              {['uat','live'].map(env=>{
+                const report=appDeployment?.[env]
+                return <article key={env} className="hi5-release-env-card">
+                  <header><div><span>{env.toUpperCase()} APPLICATION</span><strong>{report?.verified?'Verified':report?.status==='stale'?'Verification expired':'Not verified'}</strong></div>
+                    <ResultPill value={report?.verified?'ready':'pending'}/></header>
+                  <small>API: {report?.apiSha?.slice(0,8)||'unknown'} · ITSM: {report?.itsmSha?.slice(0,8)||'unknown'}</small>
+                  <small>{report?.observedAt?'Last host check: '+new Date(report.observedAt).toLocaleString():'Awaiting first host verification'}</small>
+                </article>
+              })}
+            </div>
+            {liveChatRelease?.state==='uat_passed'&&!deploymentMatches
+              ?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{appDeployment?.reason||'Deploy and verify the approved images before enabling the Live feature.'}</p>
+              :null}
+          </div>
+          <div className="hi5-release-sandbox-guidance">
             <strong>Release history · Live Chat</strong>
             {(liveChatRelease?.history||[]).length ? (
               <div className="hi5-release-history">
                 {liveChatRelease.history.map(entry=><div className="hi5-release-history-row" key={entry.id}>
                   <strong>{entry.action==='staged_uat'?'Enabled in UAT':
-                    entry.action==='uat_passed'?'UAT passed':'Promoted to Live'}</strong>
+                    entry.action==='uat_passed'?'UAT passed':'Feature enabled in Live'}</strong>
                   <span>{entry.releaseRef} · {entry.actorName} · {new Date(entry.recordedAt).toLocaleString()}</span>
                   {entry.notes?<p>{entry.notes}</p>:null}
                 </div>)}

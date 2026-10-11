@@ -212,6 +212,43 @@ function actionPayload(row) {
 }
 
 export function registerReleaseOperatorRoutes(app) {
+  // Only the authenticated host operator may report observed running images.
+  // Never trust browser-supplied version strings for deployment status.
+  app.post('/api/platform-operator/v1/deployments/report', async (c) => {
+    const denied = requireOperator(c)
+    if (denied) return denied
+    if (deployment.runtimeEnvironment !== 'live') return c.json({ error:'Report to the central Live release authority.' },403)
+    let body
+    try { body=await c.req.json() } catch { return c.json({ error:'Valid JSON required.' },400) }
+    const environment=String(body?.environment||'').toLowerCase()
+    const status=String(body?.status||'').toLowerCase()
+    const apiSha=String(body?.apiSha||'').toLowerCase()
+    const itsmSha=String(body?.itsmSha||'').toLowerCase()
+    const releaseRef=String(body?.releaseRef||'').slice(0,300)
+    const detail=String(body?.detail||'').slice(0,1200)
+    if (!['dev','test','uat','live'].includes(environment) || !['verified','deploying','failed','rolled_back'].includes(status))
+      return c.json({ error:'Invalid environment or deployment status.' },400)
+    if (!/^[a-f0-9]{40}$/.test(apiSha) || !/^[a-f0-9]{40}$/.test(itsmSha))
+      return c.json({ error:'Both API and ITSM image revisions must be immutable 40-character commit SHAs.' },400)
+    const result=await withTransaction(async db=>{
+      const current=await db.query('SELECT * FROM platform_application_deployment_attestations WHERE environment=$1 FOR UPDATE',[environment])
+      // Event append and current state update are one DB transaction.
+      await db.query(`INSERT INTO platform_application_deployment_events
+         (environment,status,api_sha,itsm_sha,release_ref,detail)
+         VALUES($1,$2,$3,$4,$5,$6)`,[environment,status,apiSha,itsmSha,releaseRef,detail])
+      const updated=await db.query(`INSERT INTO platform_application_deployment_attestations
+         (environment,status,api_sha,itsm_sha,release_ref,detail,observed_at)
+         VALUES($1,$2,$3,$4,$5,$6,now())
+         ON CONFLICT(environment) DO UPDATE SET
+           status=EXCLUDED.status,api_sha=EXCLUDED.api_sha,itsm_sha=EXCLUDED.itsm_sha,
+           release_ref=EXCLUDED.release_ref,detail=EXCLUDED.detail,observed_at=now()
+         RETURNING environment,status,api_sha,itsm_sha,observed_at`,
+        [environment,status,apiSha,itsmSha,releaseRef,detail])
+      return updated.rows[0]
+    })
+    return c.json({ deployment:result },200)
+  })
+
   app.get('/api/platform-operator/v1/health', (c) => {
     const denied = requireOperator(c)
     if (denied) return denied
@@ -220,6 +257,68 @@ export function registerReleaseOperatorRoutes(app) {
       environment: deployment.runtimeEnvironment,
       operatorConfigured: true,
     })
+  })
+
+  // A separate queue handles managed-cloud API+ITSM deploys. It never
+  // claims tenant feature toggles or full-stack/RMM release actions.
+  app.post('/api/platform-operator/v1/deployments/claim', async (c) => {
+    const denied=requireOperator(c)
+    if(denied) return denied
+    if(deployment.runtimeEnvironment!=='live') return c.json({error:'Use the Live release authority.'},403)
+    const result=await withTransaction(async db=>{
+      const selected=await db.query(`SELECT * FROM platform_application_deployment_jobs
+        WHERE status='requested' ORDER BY requested_at,id
+        FOR UPDATE SKIP LOCKED LIMIT 1`)
+      if(!selected.rowCount) return null
+      const claim=await db.query(`UPDATE platform_application_deployment_jobs
+        SET status='running',started_at=now(),error_message=''
+        WHERE id=$1 AND status='requested' RETURNING *`,[selected.rows[0].id])
+      return claim.rows[0]||null
+    })
+    return c.json({job:result?{
+      id:result.id,
+      fromEnvironment:result.from_environment,
+      toEnvironment:result.to_environment,
+      apiSha:result.api_sha,
+      itsmSha:result.itsm_sha,
+      releaseRef:result.release_ref,
+    }:null})
+  })
+
+  app.post('/api/platform-operator/v1/deployments/jobs/:id/complete', async (c) => {
+    const denied=requireOperator(c)
+    if(denied) return denied
+    if(deployment.runtimeEnvironment!=='live') return c.json({error:'Use the Live release authority.'},403)
+    const id=String(c.req.param('id')||'')
+    if(!/^[a-f0-9-]{36}$/i.test(id)) return c.json({error:'Invalid job ID.'},400)
+    const body=await c.req.json().catch(()=>null)
+    const status=String(body?.status||'').toLowerCase()
+    if(!['succeeded','failed','rolled_back'].includes(status)) return c.json({error:'Invalid completion status.'},400)
+    const error=String(body?.error||'').slice(0,1600)
+    const detail=body?.detail && typeof body.detail==='object' && !Array.isArray(body.detail)
+      ? body.detail : {}
+    const result=await withTransaction(async db=>{
+      const existing=await db.query('SELECT * FROM platform_application_deployment_jobs WHERE id=$1 FOR UPDATE',[id])
+      const job=existing.rows[0]
+      if(!job)return {notFound:true}
+      if(job.status!=='running')return {conflict:job.status}
+      if(status==='succeeded'){
+        const observed=await db.query(`SELECT status,api_sha,itsm_sha,observed_at
+          FROM platform_application_deployment_attestations WHERE environment=$1`,[job.to_environment])
+        const row=observed.rows[0]
+        const age=row?Date.now()-new Date(row.observed_at).getTime():Infinity
+        if(!row||row.status!=='verified'||row.api_sha!==job.api_sha||row.itsm_sha!==job.itsm_sha||age<0||age>5*60*1000){
+          return {conflict:'Host image verification does not match the approved job.'}
+        }
+      }
+      await db.query(`UPDATE platform_application_deployment_jobs
+        SET status=$2,completed_at=now(),error_message=$3,detail=$4::jsonb WHERE id=$1`,
+        [id,status,error,JSON.stringify(detail)])
+      return {status}
+    })
+    if(result.notFound)return c.json({error:'Deployment job not found.'},404)
+    if(result.conflict)return c.json({error:result.conflict},409)
+    return c.json({status:result.status})
   })
 
   app.post('/api/platform-operator/v1/actions/claim', async (c) => {
