@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import { secureHeaders } from 'hono/secure-headers'
 import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
+import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -703,6 +704,7 @@ registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
+registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
 registerEnvironmentHandoffRoutes(app)
 registerTenantEnvironmentAccessRoutes(app)

@@ -261,6 +261,33 @@ export function registerReleaseOperatorRoutes(app) {
 
   // A separate queue handles managed-cloud API+ITSM deploys. It never
   // claims tenant feature toggles or full-stack/RMM release actions.
+  // UAT administrator reviews are delivered by the trusted host, never by
+  // unauthenticated UAT browsers. This records a PENDING proposal and cannot
+  // deploy or activate shared Production code.
+  app.post('/api/platform-operator/v1/uat-requests/relay', async (c) => {
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')return c.json({error:'Use central Live release authority.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const tenantId=String(body?.tenantId||'')
+    const slug=String(body?.tenantSlug||'').toLowerCase()
+    const sha=String(body?.buildSha||'').toLowerCase()
+    const approved=body?.approvedShas
+    const evidence=String(body?.evidence||'').slice(0,4000)
+    if(!/^[0-9a-f-]{36}$/.test(tenantId)||!/^[a-z0-9-]{1,80}$/.test(slug)
+      ||!/^[0-9a-f]{40}$/.test(sha)||!Array.isArray(approved)
+      ||approved.length>70||approved.some(v=>!/^[0-9a-f]{40}$/.test(String(v))))
+      return c.json({error:'Invalid UAT review report.'},400)
+    const key=tenantId+':'+sha
+    const row=await pool.query([
+      'INSERT INTO platform_application_release_requests',
+      '(request_key,source_tenant_slug,build_sha,approved_change_shas,evidence,reviewed_at)',
+      'VALUES($1,$2,$3,$4::jsonb,$5,$6)',
+      'ON CONFLICT(request_key) DO NOTHING RETURNING request_key,status',
+    ].join(' '),[key,slug,sha,JSON.stringify(approved),evidence,body.reviewedAt||new Date().toISOString()])
+    return c.json({received:true,requestKey:key,created:row.rowCount>0})
+  })
+
   app.post('/api/platform-operator/v1/deployments/claim', async (c) => {
     const denied=requireOperator(c)
     if(denied) return denied

@@ -17,6 +17,7 @@ RUN npm ci --omit=dev && npm cache clean --force \
     && apk add --no-cache binutils coreutils dpkg file findutils grep rpm tar
 
 COPY migrations ./migrations
+COPY release-manifest.json ./release-manifest.json
 COPY --from=build /app/dist ./dist
 
 ENV NODE_ENV=production

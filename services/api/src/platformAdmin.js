@@ -705,13 +705,14 @@ export function registerPlatformAdminRoutes(app) {
   app.get('/api/platform/v1/releases/application-deployments', async (c) => {
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
-    const [versions,jobs]=await Promise.all([
+    const [versions,jobs,requests]=await Promise.all([
       applicationDeployments(pool),
       pool.query(`SELECT id,from_environment,to_environment,api_sha,itsm_sha,
         release_ref,status,requested_at,started_at,completed_at,error_message
         FROM platform_application_deployment_jobs ORDER BY requested_at DESC LIMIT 30`),
+      pool.query("SELECT request_key,source_tenant_slug,build_sha,approved_change_shas,evidence,status,reviewed_at,received_at,decided_at FROM platform_application_release_requests ORDER BY received_at DESC LIMIT 40"),
     ])
-    return c.json({environments:versions,jobs:jobs.rows})
+    return c.json({environments:versions,jobs:jobs.rows,reviewRequests:requests.rows})
   })
 
   app.post('/api/platform/v1/releases/application-deployments/promote', async (c) => {
@@ -748,6 +749,48 @@ export function registerPlatformAdminRoutes(app) {
       if(error?.code==='23505')return c.json({error:'An application deployment is already queued or running for this environment.'},409)
       throw error
     }
+  })
+
+  app.post('/api/platform/v1/releases/application-release-requests/decision',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')return c.json({error:'Only the central release authority may approve shared releases.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const key=String(body?.requestKey||'')
+    const decision=String(body?.decision||'')
+    if(!/^[0-9a-f-]{36}:[0-9a-f]{40}$/.test(key)||!['approve','reject'].includes(decision))
+      return c.json({error:'Invalid request or decision.'},400)
+    const imageState=await applicationDeployments(pool)
+    const response=await withTransaction(async db=>{
+      const matching=await db.query('SELECT * FROM platform_application_release_requests WHERE request_key=$1 FOR UPDATE',[key])
+      if(!matching.rowCount)return {error:'Not found.',status:404}
+      const selected=matching.rows[0]
+      if(selected.status!=='pending')return {error:'This request has already been decided.',status:409}
+      if(decision==='reject'){
+        await db.query("UPDATE platform_application_release_requests SET status='rejected',decided_at=now(),reviewed_by=$2 WHERE request_key=$1",[key,auth.session.user_id])
+        return {status:'rejected'}
+      }
+      if(!imageState.uat?.verified||imageState.uat.apiSha!==selected.build_sha||imageState.uat.itsmSha!==selected.build_sha)
+        return {error:'UAT no longer runs the tested build, or the host verification has expired.',status:409}
+      const alreadyLive=imageState.live?.verified&&imageState.live.apiSha===selected.build_sha&&imageState.live.itsmSha===selected.build_sha
+      if(alreadyLive){
+        await db.query("UPDATE platform_application_release_requests SET status='approved',decided_at=now(),reviewed_by=$2 WHERE request_key=$1",[key,auth.session.user_id])
+        return {status:'already_deployed'}
+      }
+      const job=await db.query([
+        'INSERT INTO platform_application_deployment_jobs',
+        '(from_environment,to_environment,api_sha,itsm_sha,release_ref,requested_by)',
+        "VALUES('uat','live',$1,$1,$2,$3) RETURNING id",
+      ].join(' '),[selected.build_sha,'uat-approved-'+selected.build_sha.slice(0,12),auth.session.user_id])
+      await db.query("UPDATE platform_application_release_requests SET status='queued',decided_at=now(),reviewed_by=$2 WHERE request_key=$1",[key,auth.session.user_id])
+      return {status:'queued',jobId:job.rows[0].id}
+    }).catch(error=>{
+      if(error?.code==='23505')return {error:'Another Production deployment is already pending.',status:409}
+      throw error
+    })
+    if(response.error)return c.json({error:response.error},response.status)
+    await audit(c,auth.session,'release.uat_request.'+response.status,'uat_review',key,{sha:key.split(':')[1]})
+    return c.json(response,response.status==='queued'?202:200)
   })
 
   app.post('/api/platform/v1/releases/features', async (c) => {
