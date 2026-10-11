@@ -17,6 +17,7 @@ import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
+import {registerEnvironmentReferenceSyncRoutes,startReferenceSyncScheduler} from './environmentReferenceSync.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { registerTenantEnvironmentAccessRoutes } from './tenantEnvironmentAccess.js'
 import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliverySettings, saveTenantDeliverySettings, verifyTenantDomain, verifyTenantSmtp } from './tenantDelivery.js'
@@ -726,6 +727,7 @@ registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
 registerEnvironmentHandoffRoutes(app)
 registerTenantEnvironmentAccessRoutes(app)
+registerEnvironmentReferenceSyncRoutes(app)
 registerApiTokenRoutes(app)
 registerCatalogueRoutes(app)
 registerCmdbRoutes(app)
@@ -767,6 +769,7 @@ await initializeAgentBroker()
 console.log('[API] RMM agent broker initialized; starting schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
+startReferenceSyncScheduler()
 if (backgroundWorkersEnabled) {
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
