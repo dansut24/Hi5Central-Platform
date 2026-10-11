@@ -28,7 +28,7 @@ export function valueAtPath(config,path) {
 export function safeToPromote(path){
   if(!Array.isArray(path)||!path.length||path.length>MAX_DEPTH)return false
   if(!path.every(x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,100}$/.test(x)))return false
-  if(excludedAreas.has(path[0])||path.some(x=>derivedFields.has(x)))return false
+  if(excludedAreas.has(path[0])||path.some(x=>derivedFields.has(x)||['__proto__','prototype','constructor'].includes(x)))return false
   return !path.some(key=>sensitiveKey.test(key))
 }
 export function differenceList(live,uat){
