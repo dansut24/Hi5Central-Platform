@@ -21,7 +21,7 @@ INSERT INTO platform_configuration_capability_requirements
 VALUES
   (ARRAY['itsm','aiAssistant'],'itsm.ai_assist','api','AI Assist API runtime'),
   (ARRAY['itsm','aiAssistant'],'itsm.ai_assist','itsm','AI Assist technician UI')
-ON CONFLICT (path_prefix) DO NOTHING;
+ON CONFLICT (path_prefix,component) DO NOTHING;
 INSERT INTO platform_build_configuration_capabilities (build_sha,component,capability_key)
 VALUES
   ('27a8974dc337dcb255c9f561e7954281453d60f6','api','itsm.ai_assist'),
