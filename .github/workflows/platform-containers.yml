@@ -9,7 +9,7 @@ on:
       - '.github/scripts/generate-release-manifest.mjs'
       - '.github/workflows/platform-containers.yml'
   push:
-    branches: [main]
+    branches: [main, integration/release-automation-legal-identity-rollback-20261011]
     paths:
       - 'apps/**'
       - 'services/**'
