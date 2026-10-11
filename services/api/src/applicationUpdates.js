@@ -17,6 +17,7 @@ export function releaseCatalog(version=manifest) {
   const commits=Array.isArray(version.commits)?version.commits:[]
   return {
     version:String(version.version||'development'),
+    releaseName:String(version.releaseName||version.version||'Development build'),
     sha:String(version.sha||''),
     builtAt:version.builtAt||null,
     changes:commits.filter(c=>c.sha&&SHA.test(c.sha))
@@ -56,6 +57,7 @@ export function registerApplicationUpdatesRoutes(app) {
   app.get('/api/v1/updates/version', c=>c.json({
     sha:manifest.sha,
     version:manifest.version,
+    releaseName:manifest.releaseName||manifest.version,
     builtAt:manifest.builtAt,
     environment:deployment.runtimeEnvironment,
   }))
@@ -94,17 +96,33 @@ export function registerApplicationUpdatesRoutes(app) {
     const approved=Array.isArray(body?.approvedShas)?[...new Set(body.approvedShas.map(String))]:[]
     const evidence=String(body?.evidence||'').trim().slice(0,4000)
     const request=body?.requestLive===true
+    const baselineSha=String(body?.baselineSha||'')
     const known=new Set(releaseCatalog().changes.map(change=>change.sha))
     if(approved.length>LIST_LIMIT||approved.some(sha=>!SHA.test(sha)||!known.has(sha)))
       return c.json({error:'The review includes changes not present in this build.'},400)
     if(request&&evidence.length<12)
       return c.json({error:'Record what was tested in UAT before requesting promotion.'},400)
     if(request) {
-      // Every commit in the immutable artifact is included, including
-      // maintenance changes. A change list is not a source-code cherry-pick.
-      const required=releaseCatalog().changes.map(change=>change.sha)
-      if(required.some(sha=>!approved.includes(sha)))
-        return c.json({error:'All code and schema changes in the build must be accepted. Excluding code requires a new release build.'},409)
+      // Verify Production's actual version rather than accepting a baseline
+      // chosen by the requester. Missing Live version reporting falls back
+      // to reviewing the entire bounded manifest (no implicit omissions).
+      let verifiedProductionSha=''
+      if(deployment.deploymentMode==='managed'){
+        try{
+          const live=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/version',
+            {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
+          if(live.ok)verifiedProductionSha=String((await live.json()).sha||'')
+        }catch{ /* existing Live version may predate this endpoint */ }
+      }
+      if(verifiedProductionSha&&verifiedProductionSha!==baselineSha)
+        return c.json({error:'Production changed during UAT review. Refresh and compare the releases again.'},409)
+      const comparison=verifiedProductionSha
+        ?changesSince(releaseCatalog(),verifiedProductionSha):{knownBaseline:false,changes:releaseCatalog().changes}
+      const required=comparison.knownBaseline?comparison.changes:releaseCatalog().changes
+      if(required.some(change=>!approved.includes(change.sha)))
+        return c.json({error:'Every code change in this immutable build must be tested; excluding code requires a new release build.'},409)
+      if(verifiedProductionSha===manifest.sha)
+        return c.json({error:'This build is already running in Production.'},409)
     }
     const sql=[
       'INSERT INTO tenant_application_release_reviews',
