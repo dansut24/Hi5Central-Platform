@@ -219,6 +219,11 @@ export function registerConfigurationReleaseRoutes(app){
              uat_configuration_hash=EXCLUDED.uat_configuration_hash,
              evidence=EXCLUDED.evidence,accepted_by=EXCLUDED.accepted_by,accepted_at=now()`,
           [auth.session.tenant_id,TESTED_AI_BUILD_SHA,change.afterHash,note,auth.session.user_id])
+        await db.query(
+          `INSERT INTO tenant_ai_release_acceptance_history
+             (tenant_id,tested_build_sha,uat_configuration_hash,evidence,accepted_by,accepted_at)
+           VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT DO NOTHING`,
+          [auth.session.tenant_id,TESTED_AI_BUILD_SHA,change.afterHash,note,auth.session.user_id])
         await recordSecurityEvent({
           db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
           sessionId:auth.session.session_id,eventType:'release.ai_software_uat_accepted',
