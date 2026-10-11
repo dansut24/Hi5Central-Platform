@@ -7,6 +7,7 @@ import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import { applicationDeployments } from './applicationDeployment.js'
+import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -702,6 +703,43 @@ export function registerPlatformAdminRoutes(app) {
 
   // Platform-wide application releases are not tenant permissions. Only
   // Platform Admin can schedule the operator to deploy the UAT-verified SHA.
+  // Preview-only runtime-pool control. Tenants cannot choose Docker upstreams
+  // or activate routes from a browser. Platform Admin can prepare one offer
+  // for one tenant; the host operator must attest and activate infrastructure.
+  app.get('/api/platform/v1/releases/runtime-pools',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Runtime pool assignments are owned by the central Live release authority.'},403)
+    return c.json(await runtimePoolsOverview(pool))
+  })
+
+  app.post('/api/platform/v1/releases/runtime-pools/offer',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Only the central Live release authority can prepare customer updates.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const tenantId=String(body?.tenantId||'')
+    const poolId=String(body?.poolId||'')
+    const environment=String(body?.environment||'')
+    if(!/^[a-f0-9-]{36}$/i.test(tenantId)||!['uat','live'].includes(environment)
+      ||!/^[a-z][a-z0-9-]{2,62}$/.test(poolId))
+      return c.json({error:'Choose a valid customer, environment and verified runtime pool.'},400)
+    try{
+      const result=await withTransaction(db=>preparePoolOffer({
+        db,tenantId,environment,poolId,
+      }))
+      await audit(c,auth.session,'runtime_pool.offer.prepared','tenant',tenantId,
+        {poolId,environment,buildSha:result.offer.build_sha})
+      return c.json({offer:result.offer,eligibility:result.eligibility,
+        routingChanged:false,message:'Update offer prepared. Customer routing is unchanged until an approved host activation.'},202)
+    }catch(error){
+      if(error?.code==='23505')return c.json({error:'A pending update already exists for this tenant and environment.'},409)
+      return c.json({error:String(error?.message||'Runtime pool offer could not be prepared.')},409)
+    }
+  })
+
   app.get('/api/platform/v1/releases/application-deployments', async (c) => {
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error

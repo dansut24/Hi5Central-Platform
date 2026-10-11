@@ -5,6 +5,7 @@ import { recordSecurityEvent, requestIp, requestUserAgent } from './securityAudi
 import { provisionTenantSandboxes, tenantSandboxUrl } from './tenantEnvironmentProvisioner.js'
 import { issueEnvironmentTicket } from './environmentHandoff.js'
 import { establishEnvironmentSession } from './environmentDirectSession.js'
+import { tenantRuntimePoolState } from './runtimePoolControl.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -125,6 +126,16 @@ export async function tenantReleaseState(tenantId, slug = '') {
 }
 
 export function registerTenantReleaseRoutes(app) {
+  // Inform customer owners of their installed runtime assignment and
+  // pending version offers; this route cannot select or activate a pool.
+  app.get('/api/v1/release-management/runtime-updates',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Check your Production workspace for customer-specific release assignments.'},403)
+    return c.json(await tenantRuntimePoolState(pool,auth.session.tenant_id))
+  })
+
   app.get('/api/v1/release-management', async (c) => {
     const auth = await requireTenantAdmin(c)
     if (auth.error) return auth.error
