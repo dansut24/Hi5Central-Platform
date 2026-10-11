@@ -7,7 +7,7 @@ const target=new Client({connectionString:process.env.TENANT_UAT_DATABASE_URL})
 const tenantId='aaaaaaaa-1234-4321-8123-000000000011'
 const slug='sync-tenant'
 const targetUrl=()=>process.env.TENANT_UAT_DATABASE_URL
-const readPhone=async db=target=>(await db.query(
+const readPhone=async (db=target)=>(await db.query(
   "SELECT phone FROM organisation_people WHERE tenant_id=$1 AND external_key='PERSON-1'",[tenantId])).rows[0]?.phone
 async function provision(db,env){
   await db.query(
