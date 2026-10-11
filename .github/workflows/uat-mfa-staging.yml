@@ -21,6 +21,9 @@ jobs:
       - run: npm ci
       - run: node --check src/sandboxCredentialLogin.js && node --check src/sandboxMfaPolicy.js
       - run: node test/sandbox-mfa-policy.mjs && node test/runtime-pool-tenant-guard.mjs
+        env:
+          # Unit tests inject the DB client and make no real DB connection.
+          DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
   package:
     needs: test
     runs-on: ubuntu-latest
