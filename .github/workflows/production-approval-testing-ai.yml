@@ -1,0 +1,99 @@
+name: Production approval - testing AI pilot
+run-name: "Production approval · ${{ github.actor }} · ${{ inputs.tenant_slug }} · ${{ inputs.build_sha }}"
+on:
+  workflow_dispatch:
+    inputs:
+      tenant_slug:
+        description: 'Tenant to approve (pilot must be testing)'
+        type: string
+        required: true
+        default: testing
+      build_sha:
+        description: 'Exact UAT-approved immutable revision'
+        type: string
+        required: true
+        default: edfc90c119ce57695012e72fe7d3ea5dbbcb1839
+      approval_note:
+        description: 'Human sign-off purpose, at least 20 characters'
+        type: string
+        required: true
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: production-approval-testing-ai-pilot
+  cancel-in-progress: false
+jobs:
+  approve-pinned-artifact:
+    name: Verify explicitly selected testing AI release
+    # The environment may lack Required reviewers on private GitHub repos.
+    # A manually dispatched approval is auditable, but it is not equivalent
+    # to GitHub-enforced two-person approval. This job cannot deploy.
+    environment:
+      name: production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check manual approval scope, revision, and branch
+        shell: bash
+        env:
+          TARGET_TENANT: ${{ inputs.tenant_slug }}
+          TARGET_SHA: ${{ inputs.build_sha }}
+          SIGNOFF_NOTE: ${{ inputs.approval_note }}
+          EXPECTED_SHA: edfc90c119ce57695012e72fe7d3ea5dbbcb1839
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF_NAME" = main
+          test "$TARGET_TENANT" = testing
+          test "$TARGET_SHA" = "$EXPECTED_SHA"
+          test "${#SIGNOFF_NOTE}" -ge 20
+          test "${#SIGNOFF_NOTE}" -le 1000
+          echo "Manually requested by $GITHUB_ACTOR, testing pilot only; no deployment performed."
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.build_sha }}
+          persist-credentials: false
+      - name: Verify immutable source commit
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.build_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+      - name: Authenticate to private image registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify API and ITSM image revision labels
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.build_sha }}
+        run: |
+          set -euo pipefail
+          for component in api itsm; do
+            image="ghcr.io/dansut24/hi5central-platform-${component}:unified-ai-release-${TARGET_SHA}"
+            docker pull "$image" >/dev/null
+            revision="$(docker image inspect "$image" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')"
+            test "$revision" = "$TARGET_SHA"
+            echo "Pinned ${component} image verified."
+          done
+      - name: Record approval checkpoint only
+        shell: bash
+        env:
+          TARGET_SHA: ${{ inputs.build_sha }}
+          SIGNOFF_NOTE: ${{ inputs.approval_note }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Verified Production pilot approval checkpoint"
+            echo "Requested by: ${GITHUB_ACTOR}"
+            echo "Tenant: testing"
+            echo "Build: ${TARGET_SHA}"
+            echo "Reason: ${SIGNOFF_NOTE}"
+            echo ""
+            echo "**No VPS deployment, tenant routing change, or AI configuration promotion occurs in this workflow.**"
+            echo "A separate explicit cutover authorisation and host-side rollback checks are still required."
+          } >> "$GITHUB_STEP_SUMMARY"
