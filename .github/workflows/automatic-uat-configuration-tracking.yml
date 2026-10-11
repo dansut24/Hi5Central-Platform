@@ -63,10 +63,10 @@ jobs:
             import pg from 'pg';
             const c=new pg.Client({connectionString:process.env.DATABASE_URL});
             await c.connect();
-            const q=await c.query(\"SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenant_configuration_change_events','tenant_configuration_promotions','platform_build_configuration_capabilities','platform_configuration_capability_requirements')\");
+            const q=await c.query(\"SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenant_configuration_change_events','tenant_configuration_promotions','platform_build_configuration_capabilities','platform_configuration_capability_requirements','tenant_configuration_tracking_pilots')\");
             const t=await c.query(\"SELECT count(*)::int AS count FROM pg_trigger WHERE tgname='hi5_track_tenant_settings' AND NOT tgisinternal\");
             console.log('TABLES',q.rows[0].count,'TRIGGERS',t.rows[0].count);
-            if(q.rows[0].count!==4||t.rows[0].count!==1)process.exitCode=1;
+            if(q.rows[0].count!==5||t.rows[0].count!==1)process.exitCode=1;
             await c.end();"
   itsm-build:
     runs-on: ubuntu-24.04
