@@ -105,7 +105,7 @@ export function TrackedConfigurationChanges({environment}){
           <strong>AI Assist — application release requirement</strong>
           <p>UAT-tested application revision: <code>{aiRelease.testedBuildSha.slice(0,12)}</code>. Both the API and ITSM interface must be on this verified version before the AI setting can be promoted.</p>
           {aiRelease.uatAccepted?<p role="status">UAT acceptance recorded. {aiRelease.productionBuildReady?'The matching Production application build is verified; the configuration can be selected for promotion.':'Awaiting the approved application deployment to Production.'}</p>:<>
-            <label><input type="checkbox" checked={aiTested} onChange={e=>setAiTested(e.target.checked)} disabled={busy}/> The AI Assist feature was successfully tested in UAT.</label>
+            <label className="hi5-tracked-config-check"><input type="checkbox" checked={aiTested} onChange={e=>setAiTested(e.target.checked)} disabled={busy}/><span>The AI Assist feature was successfully tested in UAT.</span></label>
             <textarea rows={3} value={aiEvidence} maxLength={3000}
               onChange={e=>setAiEvidence(e.target.value)}
               placeholder="Describe the tested AI result (minimum 20 characters)"/>
@@ -119,7 +119,7 @@ export function TrackedConfigurationChanges({environment}){
             <input type="checkbox" checked={selected.includes(x.id)}
               disabled={!x.promotable||x.versionUpgradeRequired||busy}
               onChange={e=>setSelected(old=>e.target.checked?[...old,x.id]:old.filter(id=>id!==x.id))}/>
-            <span><strong>{x.title}</strong>
+            <span className="hi5-tracked-config-copy"><strong>{x.title}</strong>
               <small>{x.category} · {x.from!==null||x.to!==null?`${String(x.from)} → ${String(x.to)}`:'Setting updated'}</small>
             </span>
           </span>
@@ -127,7 +127,7 @@ export function TrackedConfigurationChanges({environment}){
           {!x.promotable?<small>Tracked; a safe promotion handler is not yet available for this setting.</small>:null}
         </label>)}
         {pending.length?<div className="hi5-tracked-config-approval">
-          <label><input type="checkbox" checked={tested} onChange={e=>setTested(e.target.checked)}/> I have tested the selected changes in UAT.</label>
+          <label className="hi5-tracked-config-check"><input type="checkbox" checked={tested} onChange={e=>setTested(e.target.checked)}/><span>I have tested the selected changes in UAT.</span></label>
           <textarea rows={3} maxLength={3000} value={note} onChange={e=>setNote(e.target.value)}
             placeholder="Describe what passed in UAT (minimum 20 characters)"/>
           {!readyToPromote?<div className="hi5-tracked-config-prerequisites" role="status">
