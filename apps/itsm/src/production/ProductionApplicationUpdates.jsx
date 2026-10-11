@@ -69,7 +69,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   const [busy,setBusy]=useState(false)
   const [filter,setFilter]=useState('changes')
   const reviewReady=review?.buildSha===data?.sha
-  const required=changes.filter(item=>item.category!=='maintenance'||item.migrations?.length)
+  const required=changes
   const allApproved=required.every(item=>selected.includes(item.sha))
   const initialized=useRef('')
 
