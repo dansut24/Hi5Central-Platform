@@ -251,7 +251,7 @@ export function registerTenantReleaseRoutes(app) {
 
     const maintenanceWindow = object(body?.maintenanceWindow)
     const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
+      ? { uatAutoStage: false, liveAutoPromote: true }
       : { uatAutoStage: false, liveAutoPromote: false }
 
     await ensurePreference(auth.session.tenant_id)
