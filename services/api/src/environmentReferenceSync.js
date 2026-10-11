@@ -221,6 +221,10 @@ export function startReferenceSyncScheduler(){
       }
     }finally{running=false}
   }
+  // Validate and bootstrap an opted-in tenant shortly after startup, then
+  // reconcile incrementally every five minutes without an external cron job.
+  const initial=setTimeout(()=>{void tick()},15_000)
+  initial.unref?.()
   const timer=setInterval(()=>{void tick()},REFRESH_INTERVAL_MS)
   timer.unref?.()
   return {enabled:true,intervalMs:REFRESH_INTERVAL_MS}
