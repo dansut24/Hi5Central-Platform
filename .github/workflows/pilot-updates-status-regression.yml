@@ -1,0 +1,22 @@
+name: Pilot updates status regression
+on:
+  push:
+    branches: [hotfix/updates-pilot-channel-status-20261011]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: apps/itsm}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: node test/update-publication-status.mjs
+      - run: node test/release-tracking-layout.mjs
+      - run: npm run build
