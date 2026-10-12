@@ -247,11 +247,11 @@ export async function sendOnboardingCompletionEmail({
     'Hi5Central'
   ].join('\n')
   const linkRows = links.map(({ environment, url }) =>
-    `<tr><td style="padding:12px 0;border-bottom:1px solid #e3eaf3">
+    `<span style="display:block;padding:12px 0;border-bottom:1px solid #e3eaf3">
       <strong style="color:#10213f;font-size:15px">${escapeHtml(environment === 'live' ? 'Production' : environment.toUpperCase())}</strong>
-      <div style="margin-top:4px;font-size:13px;color:#5b7089">${escapeHtml(descriptions[environment])}</div>
+      <span style="display:block;margin-top:4px;font-size:13px;color:#5b7089">${escapeHtml(descriptions[environment])}</span>
       <a href="${escapeHtml(url)}" style="display:block;margin-top:6px;overflow-wrap:anywhere;color:#086eb3;font-size:14px">${escapeHtml(url)}</a>
-    </td></tr>`
+    </span>`
   ).join('')
   const notice = managed
     ? 'Hi5Central manages Production update scheduling; Test is a restricted preview.'
@@ -268,7 +268,7 @@ export async function sendOnboardingCompletionEmail({
       kicker: 'Onboarding complete',
       title,
       body: `Your workspace for <strong>${escapeHtml(safeCompany)}</strong> is ready.
-        <table width="100%" cellspacing="0" cellpadding="0" role="presentation">${linkRows}</table>
+        <span style="display:block;margin-top:15px">${linkRows}</span>
         <span style="display:block;margin-top:18px;color:#5b7089;font-size:13px">${escapeHtml(notice)}</span>`,
       actionLabel: 'Open Production workspace',
       actionUrl: links.find(item => item.environment === 'live')?.url || 'https://hi5central.com',
