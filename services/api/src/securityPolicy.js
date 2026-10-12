@@ -16,7 +16,7 @@ export function securitySettings(row) {
   const sessionHours = allowedSessionHours.has(requestedHours) ? requestedHours : 12
 
   return {
-    requireMfa: Boolean(security.requireMfa),
+    requireMfa: true,
     sessionHours,
     passwordPolicy: security.passwordPolicy === 'standard' ? 'standard' : 'strong',
     auditRetention: ['90', '365', '730'].includes(String(security.auditRetention || '365'))
@@ -26,22 +26,20 @@ export function securitySettings(row) {
   }
 }
 
+// MFA is a platform-wide, centrally enforced identity requirement. A
+// tenant's older per-environment configuration must never disable it.
+// Prior to completed onboarding, the bootstrap session can finish setup;
+// completed accounts must enrol or verify MFA before receiving a session.
 export function mfaRequiredFor(row) {
-  if (!row?.onboarding_completed_at) return false
-  const security = securitySettings(row)
-  return security.requireMfa && ['owner', 'admin'].includes(row.tenant_role)
+  return Boolean(row?.onboarding_completed_at)
 }
 
-// UAT/Test may require stronger MFA than Production. A requested sandbox
-// step-up only adds verification; it can never override normal Live MFA policy.
-export function loginRequiresMfa(row,forceSandboxMfa=false) {
-  if (mfaRequiredFor(row)) return true
-  return forceSandboxMfa===true && Boolean(row?.onboarding_completed_at)
-    && ['owner','admin'].includes(row?.tenant_role)
+export function loginRequiresMfa(row) {
+  return mfaRequiredFor(row)
 }
 
 export function sandboxPolicyRequiresMfa(row) {
-  return securitySettings(row).requireMfa === true
+  return mfaRequiredFor(row)
 }
 
 export function sessionTtlSeconds(row) {
