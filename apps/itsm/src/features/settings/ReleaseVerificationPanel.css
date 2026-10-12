@@ -1,0 +1,14 @@
+.hi5-release-verification .production-settings-panel-body { display:grid; gap:13px; }
+.hi5-release-verification-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.hi5-release-verification-grid>div { min-width:0; display:grid; align-content:start; gap:6px; padding:13px; border:1px solid var(--line); border-radius:10px; background:var(--surface-soft); }
+.hi5-release-verification-grid small { font-size:10px; font-weight:750; color:var(--muted); }
+.hi5-release-verification-grid strong { display:flex; align-items:center; gap:6px; min-width:0; font-size:13px; color:var(--ink); }
+.hi5-release-verification-grid .is-verified { color:#177245; }
+.hi5-release-verification-grid .is-error { color:#b42318; }
+.hi5-release-verification-host { overflow-wrap:anywhere; }
+.hi5-release-verification-sha, .hi5-release-verification-note { margin:0; color:var(--muted); font-size:11px; line-height:1.5; }
+.hi5-release-verification-sha code { color:var(--ink); overflow-wrap:anywhere; user-select:all; }
+.hi5-release-verification-actions { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.hi5-release-verification-actions span { color:var(--muted); font-size:11px; }
+@media (max-width:1050px) { .hi5-release-verification-grid {grid-template-columns:repeat(2,minmax(0,1fr));} }
+@media (max-width:580px) { .hi5-release-verification-grid {grid-template-columns:1fr;} .hi5-release-verification-actions button {width:100%;justify-content:center;} }
