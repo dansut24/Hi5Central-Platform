@@ -624,12 +624,15 @@ function Security({ config, update }) {
   return <>
     <Panel title="Security policy" description="Tenant-wide authentication, session, password and audit controls. Personal account security is managed from Profile.">
       <div className="production-settings-toggle-list">
-        <Toggle
-          checked={Boolean(config.requireMfa)}
-          onChange={(value) => update('requireMfa', value)}
-          title="Require administrator MFA"
-          description="Require tenant owners and administrators to complete authenticator MFA. This policy is enforced by the production authentication service."
-        />
+        <div className="production-settings-mfa-mandatory" role="status">
+          <ShieldCheck size={21} />
+          <div><strong>Multi-factor authentication is always on</strong>
+            <p>MFA is required for all users in Production, UAT and Test. It cannot be disabled.
+              Accounts and authenticator enrolment are managed centrally.
+              {deploymentConfig().runtimeEnvironment!=='live'?' Manage security settings in Production.':''}
+            </p>
+          </div>
+        </div>
       </div>
       <div className="production-settings-grid">
         <Field label="Session length"><select value={config.sessionHours || '12'} onChange={(event) => update('sessionHours', event.target.value)}><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select></Field>
