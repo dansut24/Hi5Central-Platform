@@ -581,6 +581,9 @@ async function handleSsoCallback(c, state, query) {
   if (row.tenant_status !== 'active' || row.membership_status !== 'active') return c.redirect(`${tenantUrl}/?microsoft=inactive`, 302)
   const amr = Array.isArray(claims.amr) ? claims.amr.map(String) : []
   const microsoftMfa = amr.includes('mfa')
+  // Mandatory MFA must also be satisfied for Microsoft SSO. If Entra does
+  // not attest to MFA, return to sign-in rather than issuing a session.
+  if(!microsoftMfa) return c.redirect(`${tenantUrl}/?microsoft=mfa_required`,302)
   const requestedSurface = ['portal','rmm'].includes(state.surface) ? state.surface : 'workspace'
   const sessionSurface = row.tenant_role === 'requester' || requestedSurface === 'portal' ? 'portal' : 'workspace'
   const sessionToken = await withTransaction(async (client) => {
