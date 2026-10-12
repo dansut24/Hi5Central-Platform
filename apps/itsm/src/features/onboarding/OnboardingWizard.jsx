@@ -438,6 +438,23 @@ export function OnboardingWizard({ session, onSessionChange }) {
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'We could not complete onboarding.')
+      if (payload.requiresSecureSignIn) {
+        // A signup-only session must not be promoted past mandatory MFA.
+        // The first-login handoff survives the secure login redirect without
+        // exposing or persisting authentication credentials in browser storage.
+        try {
+          window.sessionStorage.setItem('hi5central-first-login-required-v1', JSON.stringify({
+            tenantSlug: session.tenant.slug,
+            userId: session.user.id,
+            createdAt: Date.now(),
+          }))
+          window.localStorage.removeItem('hi5central-onboarding-snapshot-v1')
+        } catch {
+          // A fresh authenticated session will still detect tenant first login.
+        }
+        window.location.replace('/login?onboarding=complete')
+        return
+      }
       onSessionChange(payload)
     } catch (completeError) {
       setError(completeError.message)
