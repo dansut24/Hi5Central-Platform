@@ -109,7 +109,12 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
       : flow==='setup'
         ? {challengeToken:body?.challengeToken}
         : {challengeToken:body?.challengeToken,code:body?.code}
-    const upstream=await sendLive(ALLOWED_FLOWS[flow],livePayload,liveOrigin)
+    // A dedicated Live gateway route can distinguish an explicit sandbox
+    // step-up from an ordinary Production login. Never send this header when
+    // the sandbox policy does not require MFA.
+    const stepUpHeaders=flow==='login'&&livePayload.forceSandboxMfa
+      ? {'x-hi5-sandbox-mfa-environment':tenant.environment} : {}
+    const upstream=await sendLive(ALLOWED_FLOWS[flow],livePayload,liveOrigin,stepUpHeaders)
     if(upstream.status !== 200) {
       return c.json({error:upstream.payload.error || 'Sign-in could not be completed.'},
         upstream.status >= 400 && upstream.status < 500 ? upstream.status : 503)
