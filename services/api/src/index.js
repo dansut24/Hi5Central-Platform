@@ -668,7 +668,13 @@ app.post('/api/v1/onboarding/complete', async (c) => {
   const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ error: 'Authentication required.' }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
-  if (session.onboarding_completed_at) return c.json(sessionPayload(session))
+  if (session.onboarding_completed_at) {
+    const verified = await resolveSession(c)
+    return verified ? c.json(sessionPayload(verified)) : c.json({
+      onboardingCompleted:true, requiresSecureSignIn:true, nextPath:'/login',
+      message:'Sign in with MFA to personalise your workspace.',
+    })
+  }
   if (session.onboarding_step !== 'finish') return c.json({ error: 'Complete the remaining onboarding steps first.' }, 409)
   const client = await pool.connect()
   try {
