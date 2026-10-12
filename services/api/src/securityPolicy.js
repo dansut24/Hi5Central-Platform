@@ -56,18 +56,8 @@ export function mfaGraceEndsAt(row) {
   return new Date(timestamp + MFA_GRACE_MINUTES * 60 * 1000)
 }
 
-export function sessionNeedsMfa(row, now = new Date()) {
-  if (!mfaRequiredFor(row)) return false
-  if (row?.mfa_verified_at) return false
-
-  const graceEndsAt = mfaGraceEndsAt(row)
-  if (!graceEndsAt) return true
-
-  const sessionCreatedAt = row?.session_created_at || row?.created_at
-  const enforcedAt = securitySettings(row).mfaEnforcedAt || row.onboarding_completed_at
-  const createdBeforeEnforcement = sessionCreatedAt && enforcedAt
-    ? new Date(sessionCreatedAt).getTime() <= new Date(enforcedAt).getTime()
-    : false
-
-  return !(createdBeforeEnforcement && now.getTime() < graceEndsAt.getTime())
+// No grace period for a completed tenant: legacy unverified sessions cannot
+// be restored after mandatory MFA goes live. The next login offers setup.
+export function sessionNeedsMfa(row) {
+  return mfaRequiredFor(row) && !Boolean(row?.mfa_verified_at)
 }
