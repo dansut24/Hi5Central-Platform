@@ -11,12 +11,12 @@ export function workspaceLinks(slug, mode, rootDomain = 'hi5central.com') {
       !/^[a-z0-9.-]+$/.test(String(rootDomain))) throw new Error('Invalid workspace host')
   const root = String(rootDomain).toLowerCase()
   return [
-    { environment:'live', label:'Production', url:`https://${{slug}.${{root}`,
+    { environment:'live', label:'Production', url:`https://${slug}.${root}`,
       description:'Your day-to-day workspace for real work and requests' },
-    { environment:'test', label:'Test', url:`https://${{slug}-test.${{root}`,
+    { environment:'test', label:'Test', url:`https://${slug}-test.${root}`,
       description:'Restricted preview of the latest features — not a separate working ITSM environment' },
     ...(mode === 'admin_controlled' ? [{
-      environment:'uat', label:'UAT', url:`https://${{slug}-uat.${{root}`,
+      environment:'uat', label:'UAT', url:`https://${slug}-uat.${root}`,
       description:'Test and approve releases here before moving them to Production',
     }] : []),
   ]
