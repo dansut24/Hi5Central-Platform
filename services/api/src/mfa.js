@@ -10,6 +10,7 @@ import { attachAccess, effectiveAccessForUser } from './access.js'
 import { pool, withTransaction } from './db.js'
 import { verifyPassword } from './password.js'
 import { deployment } from './deploymentConfig.js'
+import {totpProvisioningUri,authenticatorAccount} from './totpIdentity.js'
 import { sandboxCredentialLogin } from './sandboxCredentialLogin.js'
 import { ensureRedisConnected } from './redis.js'
 import {
@@ -210,10 +211,8 @@ function createRecoveryCodes() {
   return { codes, hashes: codes.map(recoveryHash) }
 }
 
-function otpauthUri({ secret, companyName, email }) {
-  const issuer = 'Hi5Central'
-  const account = `${companyName || 'Hi5Central'}:${email}`
-  return `otpauth://totp/${encodeURIComponent(account)}?secret=${encodeURIComponent(secret)}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`
+function otpauthUri({ secret, email }) {
+  return totpProvisioningUri(secret,email)
 }
 
 async function accountByCredentials(tenantSlug, email) {
@@ -550,7 +549,7 @@ export function registerMfaRoutes(app) {
         secret: material.secret,
         otpauthUri: material.uri,
         issuer: 'Hi5Central',
-        account: `${material.account.company_name}:${material.account.email}`,
+        account: authenticatorAccount(material.account.email),
       })
     } catch (error) {
       if (error?.status) return c.json({ error: error.message }, error.status)
@@ -674,7 +673,7 @@ export function registerMfaRoutes(app) {
         setupToken: result.setupToken,
         otpauthUri: result.uri,
         issuer: 'Hi5Central',
-        account: `${auth.session.company_name}:${auth.session.email}`,
+        account: authenticatorAccount(auth.session.email),
       })
     } catch (error) {
       if (error?.status) return c.json({ error: error.message }, error.status)
