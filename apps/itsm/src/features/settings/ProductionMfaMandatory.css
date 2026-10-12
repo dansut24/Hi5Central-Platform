@@ -1,0 +1,4 @@
+.production-settings-mfa-mandatory{display:flex;align-items:flex-start;gap:12px;padding:16px;border:1px solid #b9e6ec;background:rgba(0,182,209,.07);border-radius:14px;color:var(--text-primary,#142b45)}
+.production-settings-mfa-mandatory>svg{color:#0898b6;flex-shrink:0;margin-top:2px}
+.production-settings-mfa-mandatory strong{font-size:15px;line-height:1.4}
+.production-settings-mfa-mandatory p{font-size:13px;line-height:1.55;margin:5px 0 0;opacity:.85}
