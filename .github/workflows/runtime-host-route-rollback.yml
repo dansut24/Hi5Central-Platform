@@ -37,4 +37,4 @@ jobs:
       - name: Verify dry-run QA scope and no authorisation
         run: node --test test/qa-release-dry-run.mjs && node --check scripts/host/qa-release-dry-run.mjs
       - name: Verify signed QA host gateway gate and rollback
-        run: node --test test/qa-sandbox-host-release.mjs
+        run: node --test test/qa-sandbox-host-release.mjs && node --check scripts/host/qa-sandbox-route-apply.mjs
