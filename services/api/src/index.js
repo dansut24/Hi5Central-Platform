@@ -689,6 +689,14 @@ app.post('/api/v1/onboarding/complete', async (c) => {
        ON CONFLICT (user_id) DO NOTHING`,
       [session.user_id],
     )
+    // Reconcile saved policies written by older onboarding builds before
+    // provisioning any environment. Keep the policy change atomic with Finish.
+    if (session.onboarding_data?.updates?.updateMode) {
+      await persistOnboardingUpdatePreference(client, {
+        tenantId: session.tenant_id, userId: session.user_id,
+        data: session.onboarding_data.updates,
+      })
+    }
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK')
