@@ -1,0 +1,68 @@
+name: QA Release Plan (Read-Only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Full immutable commit SHA of this workflow branch HEAD (blank uses HEAD)'
+        required: false
+        type: string
+      version_label:
+        description: 'Customer-visible release version'
+        required: true
+        default: '2026.10.12-QA1'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-release-plan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dry_run:
+    name: Inspect exact QA hosts and produce unsigned proposal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout release candidate
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify exact workflow commit and QA-only scope
+        shell: bash
+        env:
+          INPUT_SHA: ${{ inputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          expected="${INPUT_SHA:-$GITHUB_SHA}"
+          actual="$(git rev-parse HEAD)"
+          if [ "$expected" != "$GITHUB_SHA" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::Selected candidate must be the exact workflow branch commit; no implicit SHA substitution."
+            exit 1
+          fi
+          node --test services/api/test/qa-release-dry-run.mjs
+          echo "Verified exact workflow SHA: $actual"
+      - name: Prepare read-only customer release proposal
+        shell: bash
+        env:
+          VERSION_LABEL: ${{ inputs.version_label }}
+        run: |
+          set -euo pipefail
+          node services/api/scripts/host/qa-release-dry-run.mjs \
+            --sha "$GITHUB_SHA" \
+            --version "$VERSION_LABEL" \
+            --output qa-release-evidence
+          cat qa-release-evidence/qa-release-plan.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Archive non-authorising release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-release-dry-run-${{ github.sha }}
+          path: qa-release-evidence/
+          if-no-files-found: error
+          retention-days: 14
