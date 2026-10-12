@@ -8,7 +8,7 @@ import './ProductionMfaEnrollmentModal.css'
 // image/QR endpoint receives this user's provisioning URL.
 export function ProductionMfaEnrollmentModal({
   flow,setup,code,onCodeChange,recoveryCodes=[],error='',busy=false,
-  onVerify,onCancel,onContinue,
+  onVerify,onCancel,onContinue,recoveryUrl=null,
 }) {
   const [copied,setCopied]=useState(false)
   useEffect(()=>{setCopied(false)},[setup?.secret])
@@ -90,7 +90,7 @@ export function ProductionMfaEnrollmentModal({
               {busy?'Verifying…':enrolling?'Verify and enable MFA':'Verify and sign in'}
             </button>
             <button className="hi5-mfa-secondary" type="button" onClick={close} disabled={busy}>Back to sign in</button>
-            {/^testing(?:-test|-uat)?\.hi5central\.com$/i.test(window.location.hostname) ? <a className="hi5-mfa-secondary" href="https://api.hi5central.com/api/v1/auth/mfa-recovery/start" rel="noreferrer">Lost your authenticator and recovery codes?</a> : null}
+            {recoveryUrl ? <a className="hi5-mfa-secondary" href={recoveryUrl} rel="noreferrer">New phone or lost authenticator? Reset authentication</a> : null}
           </form>
         )}
       </section>
