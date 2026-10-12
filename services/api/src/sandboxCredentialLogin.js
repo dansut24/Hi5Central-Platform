@@ -1,4 +1,6 @@
 import { deployment, originMatchesTenant, portalRequestFromHeaders, originMatchesPortalTenant } from './deploymentConfig.js'
+import {pool} from './db.js'
+import {sandboxPolicyRequiresMfa} from './securityPolicy.js'
 
 const ALLOWED_FLOWS = Object.freeze({
   login: '/api/v1/auth/login-secure',
@@ -16,6 +18,18 @@ function sandboxTenant(body) {
   if (!/^[a-z0-9][a-z0-9-]{1,41}[a-z0-9]$/.test(liveSlug)
     || liveSlug.includes('--')) return null
   return { liveSlug, sandboxSlug:slug, environment }
+}
+
+// Read the target environment's own security policy. This is deliberately
+// performed before Live authenticates so a stronger UAT requirement can
+// request a Live MFA challenge instead of failing session creation later.
+async function requiresSandboxStepUp(sandboxSlug) {
+  const result=await pool.query(
+    `SELECT ts.configuration,ts.onboarding_data
+       FROM tenant_settings ts JOIN tenants t ON t.id=ts.tenant_id
+      WHERE t.slug=$1 AND t.status='active' LIMIT 1`,[sandboxSlug])
+  if(result.rowCount!==1)throw Error('Sandbox security policy is unavailable.')
+  return sandboxPolicyRequiresMfa(result.rows[0])
 }
 
 function liveEndpoint() {
@@ -90,7 +104,8 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
 
   try {
     const livePayload = flow==='login'
-      ? {tenantSlug:tenant.liveSlug,email:body?.email,password:body?.password}
+      ? {tenantSlug:tenant.liveSlug,email:body?.email,password:body?.password,
+          forceSandboxMfa:await requiresSandboxStepUp(tenant.sandboxSlug)}
       : flow==='setup'
         ? {challengeToken:body?.challengeToken}
         : {challengeToken:body?.challengeToken,code:body?.code}
