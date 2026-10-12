@@ -342,6 +342,9 @@ function LoadingScreen({ delayed, onRetry }) {
 }
 
 function ProductionLogin({ tenant, onAuthenticated }) {
+  const recoveryUrl = /^testing(?:-(?:test|uat))?$/.test(tenant.slug)
+    ? 'https://api.hi5central.com/api/v1/auth/mfa-recovery/start'
+    : null
   const [form, setForm] = useState({ email: '', password: '' })
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -565,8 +568,8 @@ function ProductionLogin({ tenant, onAuthenticated }) {
                 {!submitting ? <ArrowRight size={17} /> : null}
               </button>
               {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={resetPasswordSignIn}>Use a different email</button> : null}
-              {/^testing(?:-(?:uat|test))?$/.test(tenant.slug) ? (
-                <a className="production-auth-secondary-action" href="https://api.hi5central.com/api/v1/auth/mfa-recovery/start" rel="noreferrer" aria-label="Reset authenticator using verified email and account password">
+              {recoveryUrl ? (
+                <a className="production-auth-secondary-action" href={recoveryUrl} rel="noreferrer" aria-label="Reset authenticator using verified email and account password">
                   New phone or lost authenticator? Reset authentication
                 </a>
               ) : null}
@@ -588,6 +591,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
           onVerify={verifyMfa}
           onCancel={resetPasswordSignIn}
           onContinue={continueAfterRecoveryCodes}
+          recoveryUrl={recoveryUrl}
         />
       </div>
     </div>
