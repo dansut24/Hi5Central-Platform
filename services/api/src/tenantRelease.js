@@ -61,7 +61,14 @@ async function ensurePreference(tenantId) {
   )
   await pool.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
-     VALUES ($1,'test','available'),($1,'uat','available'),($1,'live','ready')
+     VALUES ($1,'test','available'),($1,'live','ready')
+     ON CONFLICT (tenant_id,environment) DO NOTHING`,
+    [tenantId],
+  )
+  await pool.query(
+    `INSERT INTO tenant_environment_state (tenant_id,environment,status)
+     SELECT $1,'uat','available'
+     WHERE EXISTS (SELECT 1 FROM tenant_release_preferences WHERE tenant_id=$1 AND update_mode='admin_controlled')
      ON CONFLICT (tenant_id,environment) DO NOTHING`,
     [tenantId],
   )
@@ -104,10 +111,21 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
-     VALUES ($1,'test','available'),($1,'uat','available'),($1,'live','ready')
+     VALUES ($1,'test','available'),($1,'live','ready')
      ON CONFLICT (tenant_id,environment) DO NOTHING`,
     [tenantId],
   )
+  if (managed) {
+    await client.query(
+      "DELETE FROM tenant_environment_state WHERE tenant_id=$1 AND environment='uat' AND status='available'",
+      [tenantId],
+    )
+  } else {
+    await client.query(
+      "INSERT INTO tenant_environment_state (tenant_id,environment,status) VALUES ($1,'uat','available') ON CONFLICT (tenant_id,environment) DO NOTHING",
+      [tenantId],
+    )
+  }
 }
 
 export async function tenantReleaseState(tenantId, slug = '') {
