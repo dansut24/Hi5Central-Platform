@@ -181,3 +181,32 @@ export async function verifySmtpConnection() {
   await transporter.verify()
   return true
 }
+
+export async function sendMfaRecoveryEmail({ to, name, token }) {
+  const transporter = nodemailer.createTransport(smtpConfig())
+  // The secret is in the URL fragment; browsers never transmit fragments to
+  // HTTP servers, proxies, or ordinary access logs.
+  const recoveryUrl = `${deployment.apiUrl}/api/v1/auth/mfa-recovery/confirm#token=${encodeURIComponent(token)}`
+  return transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: 'Hi5Central account authenticator recovery',
+    text: [
+      `Hi ${name},`, '',
+      'A request was made to replace your Hi5Central authenticator.',
+      `Open this secure recovery link: ${recoveryUrl}`,
+      '',
+      'This link expires after 15 minutes and can only be used once.',
+      'You will need your current account password again to continue.',
+      'If this was not you, ignore the email and contact Hi5Central support.'
+    ].join('\\n'),
+    html: emailShell({
+      kicker:'Account security recovery',
+      title:'Replace your Hi5Central authenticator',
+      body:'A request was made to replace the authenticator protecting your account. You will be asked to confirm your existing password before your old factor is invalidated.',
+      actionLabel:'Continue secure recovery',
+      actionUrl:recoveryUrl,
+      footer:'This link expires after 15 minutes and can only be used once. If you did not request this, ignore this email and contact support.'
+    })
+  })
+}
