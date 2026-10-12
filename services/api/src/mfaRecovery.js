@@ -78,6 +78,11 @@ export function registerMfaRecoveryRoutes(app) {
    const token=String(body?.token||''),password=String(body?.password||'')
    if(!validToken(token)||!password||password.length>1024)return c.json(invalid,400)
    const redis=await ensureRedisConnected(),key=tokenKey(token)
+   // A stolen link never permits unlimited online password guesses.
+   const guessKey='hi5:mfa-recovery:confirm:'+digest(token)
+   const guesses=await redis.incr(guessKey)
+   if(guesses===1)await redis.expire(guessKey,EXPIRE_SECONDS)
+   if(guesses>5)return c.json(invalid,429)
    const stored=await redis.get(key)
    if(!stored)return c.json(invalid,400)
    let target
