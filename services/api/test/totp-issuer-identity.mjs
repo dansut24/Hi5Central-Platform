@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict'
+import {MFA_ISSUER,authenticatorAccount,totpProvisioningUri} from '../src/totpIdentity.js'
+assert.equal(MFA_ISSUER,'Hi5Central')
+assert.equal(authenticatorAccount(' Person@Example.com '),'person@example.com')
+const uri=new URL(totpProvisioningUri('JBSWY3DPEHPK3PXP','Person@Example.com'))
+assert.equal(uri.protocol,'otpauth:')
+assert.equal(uri.hostname,'totp')
+assert.equal(decodeURIComponent(uri.pathname),'/Hi5Central:person@example.com')
+assert.equal(uri.searchParams.get('issuer'),'Hi5Central')
+assert.equal(uri.searchParams.get('secret'),'JBSWY3DPEHPK3PXP')
+assert.equal(uri.searchParams.get('algorithm'),'SHA1')
+assert.equal(uri.searchParams.get('digits'),'6')
+assert.equal(uri.searchParams.get('period'),'30')
+assert.throws(()=>totpProvisioningUri('wrong','person@example.com'),/Invalid MFA/)
+assert.throws(()=>totpProvisioningUri('JBSWY3DPEHPK3PXP','bad-email'),/Valid email/)
+console.log('PASS: authenticator label Hi5Central and correct account email')
