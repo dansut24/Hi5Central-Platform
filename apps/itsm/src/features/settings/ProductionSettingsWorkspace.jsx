@@ -622,8 +622,10 @@ function TeamsDepartments({ config, update }) { return <Panel title="Teams & dep
 function RolesPermissions({ config, update }) { return <><Panel title="Roles & permissions" description="Tenant-wide RBAC starting model."><div className="production-settings-grid"><Field label="Permission preset"><select value={config.preset || 'balanced'} onChange={(e) => update('preset', e.target.value)}><option value="balanced">Balanced</option><option value="restricted">Restricted</option><option value="open">Open collaboration</option></select></Field><Field label="Requester access"><select value={config.requesterAccess || 'portal'} onChange={(e) => update('requesterAccess', e.target.value)}><option value="portal">Portal only</option><option value="portal-approvals">Portal + approvals</option></select></Field><Field label="Change approval role"><select value={config.changeApprovalRole || 'admin-change'} onChange={(e) => update('changeApprovalRole', e.target.value)}><option value="admin-change">Admins + change managers</option><option value="change-only">Change managers only</option><option value="cab">CAB members</option></select></Field></div></Panel><Panel title="Role model"><div className="production-role-cards"><div><strong>Owner</strong><span>Tenant, subscription and security control</span></div><div><strong>Administrator</strong><span>Platform configuration without ownership transfer</span></div><div><strong>Analyst</strong><span>Operational ITSM work according to assigned permissions</span></div><div><strong>Requester</strong><span>Portal, own requests and assigned approvals</span></div></div></Panel></> }
 
 function Security({ config, update }) {
+  const central=deploymentConfig().runtimeEnvironment!=='live'
   return <>
     <Panel title="Security policy" description="Tenant-wide authentication, session, password and audit controls. Personal account security is managed from Profile.">
+      {central?<p className="production-settings-security-central-hint">This policy is managed centrally in Production. Sign in to Production to change these settings.</p>:null}
       <div className="production-settings-toggle-list">
         <div className="production-settings-mfa-mandatory" role="status">
           <ShieldCheck size={21} />
@@ -636,9 +638,9 @@ function Security({ config, update }) {
         </div>
       </div>
       <div className="production-settings-grid">
-        <Field label="Session length"><select value={config.sessionHours || '12'} onChange={(event) => update('sessionHours', event.target.value)}><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select></Field>
-        <Field label="Password policy"><select value={config.passwordPolicy || 'strong'} onChange={(event) => update('passwordPolicy', event.target.value)}><option value="strong">Strong</option><option value="standard">Standard</option></select></Field>
-        <Field label="Audit retention"><select value={config.auditRetention || '365'} onChange={(event) => update('auditRetention', event.target.value)}><option value="90">90 days</option><option value="365">365 days</option><option value="730">730 days</option></select></Field>
+        <Field label="Session length"><select disabled={central} value={config.sessionHours || '12'} onChange={(event) => update('sessionHours', event.target.value)}><option value="8">8 hours</option><option value="12">12 hours</option><option value="24">24 hours</option></select></Field>
+        <Field label="Password policy"><select disabled={central} value={config.passwordPolicy || 'strong'} onChange={(event) => update('passwordPolicy', event.target.value)}><option value="strong">Strong</option><option value="standard">Standard</option></select></Field>
+        <Field label="Audit retention"><select disabled={central} value={config.auditRetention || '365'} onChange={(event) => update('auditRetention', event.target.value)}><option value="90">90 days</option><option value="365">365 days</option><option value="730">730 days</option></select></Field>
       </div>
     </Panel>
     <ProductionTenantSecurityAudit />
