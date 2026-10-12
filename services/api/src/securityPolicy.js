@@ -32,6 +32,18 @@ export function mfaRequiredFor(row) {
   return security.requireMfa && ['owner', 'admin'].includes(row.tenant_role)
 }
 
+// UAT/Test may require stronger MFA than Production. A requested sandbox
+// step-up only adds verification; it can never override normal Live MFA policy.
+export function loginRequiresMfa(row,forceSandboxMfa=false) {
+  if (mfaRequiredFor(row)) return true
+  return forceSandboxMfa===true && Boolean(row?.onboarding_completed_at)
+    && ['owner','admin'].includes(row?.tenant_role)
+}
+
+export function sandboxPolicyRequiresMfa(row) {
+  return securitySettings(row).requireMfa === true
+}
+
 export function sessionTtlSeconds(row) {
   return securitySettings(row).sessionHours * 60 * 60
 }
