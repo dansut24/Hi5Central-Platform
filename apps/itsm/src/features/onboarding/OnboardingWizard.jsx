@@ -249,6 +249,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
   const [viewStep, setViewStep] = useState(canonicalStep)
   const [data, setData] = useState(() => defaultData(canonicalStep, session))
   const [saving, setSaving] = useState(false)
+  const [completion, setCompletion] = useState(null)
   const [error, setError] = useState('')
   const [smtpPassword, setSmtpPassword] = useState('')
   const [deliveryBusy, setDeliveryBusy] = useState(false)
@@ -439,9 +440,8 @@ export function OnboardingWizard({ session, onSessionChange }) {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'We could not complete onboarding.')
       if (payload.requiresSecureSignIn) {
-        // A signup-only session must not be promoted past mandatory MFA.
-        // The first-login handoff survives the secure login redirect without
-        // exposing or persisting authentication credentials in browser storage.
+        // Preserve the first-login handoff while displaying workspace links.
+        // A provisional signup session is never treated as authenticated.
         try {
           window.sessionStorage.setItem('hi5central-first-login-required-v1', JSON.stringify({
             tenantSlug: session.tenant.slug,
@@ -450,12 +450,10 @@ export function OnboardingWizard({ session, onSessionChange }) {
           }))
           window.localStorage.removeItem('hi5central-onboarding-snapshot-v1')
         } catch {
-          // A fresh authenticated session will still detect tenant first login.
+          // The next secure login also reads tenant-specific first-login state.
         }
-        window.location.replace('/login?onboarding=complete')
-        return
       }
-      onSessionChange(payload)
+      setCompletion(payload)
     } catch (completeError) {
       setError(completeError.message)
     } finally {
@@ -469,6 +467,19 @@ export function OnboardingWizard({ session, onSessionChange }) {
   const defaultWorkspaceAddress = session?.tenant?.tenantUrl
     || DEPLOYMENT.appUrl
     || `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`
+
+  const managedUpdates = savedUpdates.updateMode === 'hi5_managed'
+  const root = DEPLOYMENT.rootDomain
+  const workspaceAddresses = [
+    { environment:'Production', label:'Live', url: defaultWorkspaceAddress.startsWith('http') ? defaultWorkspaceAddress : `https://${defaultWorkspaceAddress}`,
+      description:'Your everyday workspace for live tickets, requests and operations' },
+    ...(!SELF_HOSTED ? [
+      { environment:'Test', label:'Preview', url:`https://${session.tenant.slug}-test.${root}`,
+        description:'Restricted preview of upcoming features — not for day-to-day service desk work' },
+      ...(!managedUpdates ? [{ environment:'UAT', label:'Approval', url:`https://${session.tenant.slug}-uat.${root}`,
+        description:'Validate updates here, then approve promotion to Production' }] : []),
+    ] : []),
+  ]
   const defaultSupportDomain = DEPLOYMENT.runtimeEnvironment === 'dev'
     ? 'local.hi5central.test'
     : (SELF_HOSTED ? DEPLOYMENT.rootDomain : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`)
@@ -817,8 +828,34 @@ export function OnboardingWizard({ session, onSessionChange }) {
           {viewStep === 'finish' ? (
             <div className="onboarding-finish">
               <span><Sparkles size={24} /></span>
-              <h2>Your workspace is ready.</h2>
-              <p>Open Hi5Central with the owner account and the tenant defaults you configured during onboarding.</p>
+              <h2>{completion ? 'Onboarding complete!' : 'Your workspace is ready.'}</h2>
+              <p>{completion
+                ? 'Your workspaces are ready. Save these addresses and continue with secure sign-in.'
+                : 'Review the environment addresses before opening Hi5Central. We will also email them to the verified owner when setup completes.'}</p>
+              <section className="onboarding-environments" aria-label="Your workspace environment addresses">
+                <div className="onboarding-environments-heading">
+                  <h3>Your environment addresses</h3>
+                  <p>Each environment has its own URL and a clear purpose.</p>
+                </div>
+                <div className="onboarding-environment-list">
+                  {workspaceAddresses.map((workspace) => (
+                    <div className="onboarding-environment" key={workspace.environment}>
+                      <div className="onboarding-environment-copy">
+                        <strong>{workspace.environment}</strong>
+                        <small>{workspace.description}</small>
+                        <a href={workspace.url} target="_blank" rel="noopener noreferrer">{workspace.url}</a>
+                      </div>
+                      <a className="onboarding-environment-open" href={workspace.url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${workspace.environment} in a new tab`}>Open <ArrowRight size={14} /></a>
+                    </div>
+                  ))}
+                </div>
+                <div className="onboarding-environment-notice">
+                  <Mail size={17} />
+                  <span>{completion
+                    ? `A completion email with these links has been queued for ${session.user.email}. Email delivery does not affect access to your workspaces.`
+                    : `When you finish, we will send these links to ${session.user.email} for future reference.`}</span>
+                </div>
+              </section>
               <div className="onboarding-summary onboarding-summary-expanded">
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
@@ -838,7 +875,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
           <div className="onboarding-actions">
             <span className="onboarding-saved">Changes are saved as you move between steps.</span>
             <div className="onboarding-action-buttons">
-              {viewIndex > 0 ? (
+              {viewIndex > 0 && !completion ? (
                 <button className="onboarding-secondary" disabled={saving} onClick={goPrevious} type="button">
                   <ArrowLeft size={16} /> Previous
                 </button>
@@ -846,10 +883,14 @@ export function OnboardingWizard({ session, onSessionChange }) {
               <button
                 className="onboarding-primary"
                 disabled={saving}
-                onClick={viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
+                onClick={completion
+                  ? () => completion.requiresSecureSignIn
+                    ? window.location.replace('/login?onboarding=complete')
+                    : onSessionChange(completion)
+                  : viewStep === 'finish' && viewStep === canonicalStep ? complete : continueStep}
                 type="button"
               >
-                {saving ? 'Saving…' : viewStep === 'finish' && viewStep === canonicalStep ? 'Open Hi5Central' : 'Next'}
+                {saving ? 'Saving…' : completion ? (completion.requiresSecureSignIn ? 'Continue to secure sign-in' : 'Open your workspace') : viewStep === 'finish' && viewStep === canonicalStep ? 'Finish onboarding' : 'Next'}
                 {!saving ? <ArrowRight size={17} /> : null}
               </button>
             </div>
