@@ -7,6 +7,10 @@ on:
       - 'services/api/src/runtimeHostRouteTransaction.js'
       - 'services/api/scripts/host/runtime-route-apply.mjs'
       - 'services/api/test/runtime-host-route-transaction.mjs'
+      - 'services/api/src/qaReleasePlan.js'
+      - 'services/api/test/qa-release-dry-run.mjs'
+      - 'services/api/scripts/host/qa-release-dry-run.mjs'
+      - '.github/workflows/qa-release-plan.yml'
 permissions: {contents: read}
 jobs:
   transaction:
@@ -26,3 +30,5 @@ jobs:
         run: node test/runtime-host-route-transaction.mjs
       - name: Test runtime pool maintenance and UAT acceptance gates
         run: node test/runtime-pool-policy.mjs && node test/tenant-runtime-release-lifecycle.mjs
+      - name: Verify dry-run QA scope and no authorisation
+        run: node --test test/qa-release-dry-run.mjs && node --check scripts/host/qa-release-dry-run.mjs
