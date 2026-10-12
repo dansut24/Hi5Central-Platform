@@ -623,3 +623,24 @@
 .onboarding-accent-presets button{width:30px;height:30px;display:grid;place-items:center;border:2px solid transparent;border-radius:999px;padding:3px;background:transparent;cursor:pointer}
 .onboarding-accent-presets button.is-selected{border-color:#10213f}
 .onboarding-accent-presets button span{width:100%;height:100%;border-radius:999px;background:var(--preset-colour);box-shadow:inset 0 0 0 1px rgba(16,33,63,.12)}
+
+
+/* Confirmation links remain legible at mobile widths and after onboarding. */
+.onboarding-environments { margin-top: 26px; text-align: left; }
+.onboarding-environments-heading h3 { margin: 0 0 3px; font-size: 17px; color: #10213f; }
+.onboarding-environments-heading p { margin: 0 0 14px; font-size: 12px; color: #63748c; }
+.onboarding-environment-list { display: grid; gap: 11px; }
+.onboarding-environment { display: flex; align-items: center; gap: 14px; justify-content: space-between; padding: 16px; background: #f5f8fc; border: 1px solid #dbe5ef; border-radius: 12px; min-width: 0; }
+.onboarding-environment-copy { display: grid; gap: 4px; min-width: 0; }
+.onboarding-environment-copy strong { color: #10213f; font-size: 15px; }
+.onboarding-environment-copy small { color: #62748c; line-height: 1.45; font-size: 12px; }
+.onboarding-environment-copy a { color: #1371a8; overflow-wrap: anywhere; font-size: 13px; }
+.onboarding-environment-open { display: inline-flex; align-items: center; gap: 5px; flex: none; border: 1px solid #d6e2ee; padding: 9px 12px; border-radius: 9px; background: #fff; color: #163e66; text-decoration: none; font-weight: 750; font-size: 12px; }
+.onboarding-environment-open:hover { border-color: var(--onboarding-accent); }
+.onboarding-environment-notice { display: flex; align-items: flex-start; gap: 11px; margin-top: 13px; padding: 12px 14px; border-radius: 10px; border: 1px solid #cfe2f4; background: #eff7ff; color: #365675; font-size: 12px; line-height: 1.55; }
+.onboarding-environment-notice svg { flex: none; margin-top: 1px; }
+@media (max-width: 520px) {
+  .onboarding-environment { align-items: stretch; flex-direction: column; }
+  .onboarding-environment-open { align-self: flex-start; }
+  .onboarding-environments-heading h3 { font-size: 16px; }
+}
