@@ -6,6 +6,10 @@ on:
     paths:
       - 'services/api/src/masterLegalIdentity.js'
       - 'services/api/src/settings.js'
+      - 'services/api/src/securityPolicy.js'
+      - 'services/api/src/sandboxCredentialLogin.js'
+      - 'services/api/src/mfa.js'
+      - 'services/api/test/sandbox-mfa-stepup.mjs'
       - 'services/api/test/master-legal-identity.mjs'
       - 'apps/itsm/src/features/settings/ProductionSettingsWorkspace.jsx'
 permissions: {contents: read}
@@ -24,8 +28,8 @@ jobs:
           cache: npm
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
-      - run: node --check src/masterLegalIdentity.js && node --check src/settings.js
-      - run: node test/master-legal-identity.mjs
+      - run: node --check src/masterLegalIdentity.js && node --check src/settings.js && node --check src/securityPolicy.js && node --check src/sandboxCredentialLogin.js && node --check src/mfa.js
+      - run: node test/master-legal-identity.mjs && node test/sandbox-mfa-stepup.mjs
       - run: npm run build:runtime
   itsm:
     runs-on: ubuntu-24.04
