@@ -28,6 +28,7 @@ import { ProductionReleaseManagement } from './ProductionReleaseManagement.jsx'
 import { Hi5CentralUpdatesPanel } from '../../production/ProductionApplicationUpdates.jsx'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './ProductionSettingsWorkspace.css'
+import './ProductionMfaMandatory.css'
 
 const API_BASE = window.__HI5_API_BASE__
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
