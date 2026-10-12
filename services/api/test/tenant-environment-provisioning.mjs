@@ -9,6 +9,8 @@ import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../s
 import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
 import { persistOnboardingUpdatePreference, tenantReleaseState } from '../src/tenantRelease.js'
 import { establishEnvironmentSession } from '../src/environmentDirectSession.js'
+import { patchUserExperience, readUserExperience } from '../src/userPreferences.js'
+import { tenantExperienceSnapshot } from '../src/tenantExperience.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -232,6 +234,31 @@ try {
   assert.equal(managedUat.rowCount,0,'Managed tenant must not be copied into customer UAT database')
   assert.equal(await permittedTenantEnvironment(managedId,userId,'uat'),false)
   assert.equal(await permittedTenantEnvironment(managedId,userId,'test'),true)
+  // One central identity, independent tenant themes and first-login state.
+  const legacyAppearance={appearance:{theme:'dark',accentMode:'personal',accent:'#d38301'}}
+  await source.query(
+    `INSERT INTO user_experience_preferences(user_id,preferences,first_login_completed_at)
+       VALUES($1,$2::jsonb,now()-interval '2 days')
+       ON CONFLICT(user_id) DO UPDATE SET preferences=EXCLUDED.preferences,
+         first_login_completed_at=EXCLUDED.first_login_completed_at`,
+    [userId,JSON.stringify(legacyAppearance)],
+  )
+  const beforePersonalisation=await readUserExperience(userId)
+  const managedOnboarded=new Date()
+  assert.equal(tenantExperienceSnapshot(beforePersonalisation,managedId,managedOnboarded).firstLoginCompletedAt,null)
+  assert.equal(tenantExperienceSnapshot(beforePersonalisation,managedId,managedOnboarded).preferences,null)
+  const managedAppearance={appearance:{theme:'light',accentMode:'tenant',accent:'#f43f5e'}}
+  await patchUserExperience(userId,{preferences:managedAppearance,firstLoginComplete:true},
+    {tenantId:managedId,tenantOnboardingCompletedAt:managedOnboarded})
+  const afterPersonalisation=await readUserExperience(userId)
+  const managedPersonalisation=tenantExperienceSnapshot(afterPersonalisation,managedId,managedOnboarded)
+  assert.equal(managedPersonalisation.preferences.appearance.accent,'#f43f5e')
+  assert.ok(managedPersonalisation.firstLoginCompletedAt)
+  assert.equal(tenantExperienceSnapshot(afterPersonalisation,tenantId,
+    new Date('2026-09-01')).preferences.appearance.accent,'#d38301',
+    'Personalising Managed must not override an existing Custom tenant')
+  console.log('PASS: tenant-specific preference storage cannot overwrite another tenant theme')
+
   console.log('PASS: Managed has Test + Live only; Custom retains UAT, email identities remain shared')
 
   console.log('PASS: 2 environment DBs, separate tenant data, owner login identity, correct URLs, retry preservation, no unrelated tenant copy')
