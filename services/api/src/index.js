@@ -47,6 +47,7 @@ import {
 } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { sendVerificationEmail, verifySmtpConnection } from './mailer.js'
+import { queueOnboardingCompletionEmail, processOnboardingCompletionEmails, startOnboardingCompletionMailer } from './onboardingCompletionEmail.js'
 import { registerOrganisationRoutes } from './organisation.js'
 import { buildOpenApiDocument } from './openapi.js'
 import { registerPlatformAdminRoutes } from './platformAdmin.js'
@@ -703,6 +704,9 @@ app.post('/api/v1/onboarding/complete', async (c) => {
         data: session.onboarding_data.updates,
       })
     }
+    // Commit the mail notification with onboarding, not with SMTP delivery.
+    // The owner only receives an email once the eligible environments are ready.
+    await queueOnboardingCompletionEmail(client,session.tenant_id,session.user_id)
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK')
@@ -717,12 +721,16 @@ app.post('/api/v1/onboarding/complete', async (c) => {
       console.error('Onboarding environment setup failed', {tenantId:session.tenant_id, code:error.code || 'UNKNOWN'})
       return { test:{status:'error'}, uat:{status:'error'} }
     })
+  // Email delivery is independent of the Finish response or mandatory MFA.
+  void processOnboardingCompletionEmails().catch(error =>
+    console.error('Onboarding completion delivery queued',{code:error.code || 'UNKNOWN'}))
   if (!refreshed) {
     // Email-verification signup creates a provisional onboarding session.
     // Once onboarding completes mandatory MFA requires a fresh secure login.
     // Never represent that provisional session as a verified workspace session.
     return c.json({
       onboardingCompleted:true,
+      onboardingEmail:'queued',
       requiresSecureSignIn:true,
       nextPath:'/login',
       environments,
@@ -798,6 +806,7 @@ console.log('[API] RMM agent broker initialized; starting schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
 if (backgroundWorkersEnabled) {
+  startOnboardingCompletionMailer()
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
   startSoftwareVendorSyncScheduler()
