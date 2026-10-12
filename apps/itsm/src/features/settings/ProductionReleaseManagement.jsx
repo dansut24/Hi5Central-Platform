@@ -334,11 +334,11 @@ function LiveProductionReleaseManagement() {
             <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>Hi5Central publishes the update to Test, but your admin chooses what enters UAT and exactly what is promoted to Production.</small></span>
           </button>
           <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('hi5_managed')} type="button">
-            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>The local release operator follows Hi5Central's signed release feed, stages UAT automatically and promotes approved releases inside your update window.</small></span>
+            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>Hi5Central publishes previews to Test and schedules Production updates after your configured delay and maintenance window. No customer UAT is required.</small></span>
           </button>
         </div>
         <div className="hi5-release-policy-fields">
-          <label>Production delay after UAT
+          <label>{policy.updateMode==='hi5_managed'?'Production delay after release publication':'Configured release delay'}
             <div><input type="number" min="0" max="720" value={policy.liveDelayHours??24} onChange={e=>setPolicy({...policy,liveDelayHours:e.target.value})}/><span>hours</span></div>
           </label>
           <label>Maintenance window start
@@ -513,13 +513,13 @@ function LiveProductionReleaseManagement() {
     ):null}
 
     <section className="production-settings-panel">
-      <header><div><h2>Your organisation environments</h2><p>Live, UAT and Test use tenant-isolated records. Each sandbox shares the relevant environment's application infrastructure, not a separate installation.</p></div>
+      <header><div><h2>Your organisation environments</h2><p>{policy.updateMode==='hi5_managed'?'Managed customers have Production and restricted Test only; Hi5Central schedules approved updates.':'Custom customers have Production, UAT and restricted Test; UAT approval controls Production promotion.'}</p></div>
         <button disabled={Boolean(busy)} onClick={provisionEnvironments} type="button"><RefreshCw size={15}/>Provision / retry</button></header>
       <div className="production-settings-panel-body">
         {error?<div className="hi5-release-message is-error"><CircleAlert size={16}/>{error}</div>:null}
         {message?<div className="hi5-release-message is-success"><CheckCircle2 size={16}/>{message}</div>:null}
         <div className="hi5-release-env-grid">
-          {['test','uat','live'].map(name=>{
+          {(policy.updateMode==='hi5_managed'?['test','live']:['test','uat','live']).map(name=>{
             const env=tenantEnvironments.find(item=>item.environment===name)
             return <article key={name} className="hi5-release-env-card">
               <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance':name==='test'?'Sandbox':'Production'}</strong></div><ResultPill value={env?.status || 'available'} /></header>
