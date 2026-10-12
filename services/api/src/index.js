@@ -55,6 +55,7 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { validExistingTenantSlug, validNewTenantSlug } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
+import {mfaRequiredFor} from './securityPolicy.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
@@ -278,6 +279,7 @@ app.post('/api/v1/auth/login', async (c) => {
   const valid = await verifyPassword(password, account.password_hash)
   if (!valid) return c.json({ error: 'Email address or password is incorrect.' }, 401)
 
+  if (mfaRequiredFor(account)) return c.json({error:'Please use secure sign-in with MFA.',code:'MFA_REQUIRED'},403)
   const access = await effectiveAccessForUser(pool, account.tenant_id, account.user_id, account.tenant_role)
   if (!access.workspaceAccess) return c.json({ error: 'Your Hi5Central roles do not include access to this workspace. Use the requester portal instead.' }, 403)
   const resolvedAccount = attachAccess(account, access, 'workspace')
