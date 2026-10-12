@@ -210,3 +210,69 @@ export async function sendMfaRecoveryEmail({ to, name, token }) {
     })
   })
 }
+
+
+export async function sendOnboardingCompletionEmail({
+  to, name, companyName, updateMode, environments,
+}) {
+  const safeCompany = String(companyName || 'your organisation').slice(0, 160)
+  const safeName = String(name || 'there').slice(0, 160)
+  const managed = updateMode === 'hi5_managed'
+  const descriptions = {
+    live: 'Your everyday Production workspace',
+    test: 'Restricted evaluation area with the latest features — not for everyday tickets',
+    uat: 'Review and approve updates before releasing them into Production',
+  }
+  const links = environments.filter(item =>
+    ['live', 'test', 'uat'].includes(item.environment) &&
+    /^https:\/\/[a-z0-9-]+\.hi5central\.com$/i.test(String(item.url || ''))
+  )
+  const title = 'Your Hi5Central workspaces are ready'
+  const body = [
+    `Hello ${safeName},`, '',
+    `Onboarding for ${safeCompany} is complete.`,
+    '',
+    ...links.flatMap(({ environment, url }) => [
+      `${environment === 'live' ? 'Production' : environment.toUpperCase()}: ${url}`,
+      descriptions[environment],
+      '',
+    ]),
+    managed
+      ? 'Updates: Hi5Central-managed. Approved Production releases are scheduled during your maintenance window. You do not have a customer UAT workspace.'
+      : 'Updates: Customer-controlled. Test releases in UAT, then approve promotion to Production when ready.',
+    '',
+    'You can find these links again under Releases / Environments in your Production workspace.',
+    'Use your existing Hi5Central login and required multi-factor authentication to access permitted environments.',
+    '',
+    'Hi5Central'
+  ].join('\n')
+  const linkRows = links.map(({ environment, url }) =>
+    `<tr><td style="padding:12px 0;border-bottom:1px solid #e3eaf3">
+      <strong style="color:#10213f;font-size:15px">${escapeHtml(environment === 'live' ? 'Production' : environment.toUpperCase())}</strong>
+      <div style="margin-top:4px;font-size:13px;color:#5b7089">${escapeHtml(descriptions[environment])}</div>
+      <a href="${escapeHtml(url)}" style="display:block;margin-top:6px;overflow-wrap:anywhere;color:#086eb3;font-size:14px">${escapeHtml(url)}</a>
+    </td></tr>`
+  ).join('')
+  const notice = managed
+    ? 'Hi5Central manages Production update scheduling; Test is a restricted preview.'
+    : 'Approve your tested UAT changes before they enter Production.'
+  const transporter = nodemailer.createTransport({
+    ...smtpConfig(), connectionTimeout: 7000, greetingTimeout: 7000, socketTimeout: 10000,
+  })
+  return transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Your ${safeCompany} Hi5Central workspaces are ready`,
+    text: body,
+    html: emailShell({
+      kicker: 'Onboarding complete',
+      title,
+      body: `Your workspace for <strong>${escapeHtml(safeCompany)}</strong> is ready.
+        <table width="100%" cellspacing="0" cellpadding="0" role="presentation">${linkRows}</table>
+        <span style="display:block;margin-top:18px;color:#5b7089;font-size:13px">${escapeHtml(notice)}</span>`,
+      actionLabel: 'Open Production workspace',
+      actionUrl: links.find(item => item.environment === 'live')?.url || 'https://hi5central.com',
+      footer: 'Keep this email for reference. All access requires your existing credentials and MFA; no passwords or security codes are included.',
+    }),
+  })
+}
