@@ -7,7 +7,7 @@ export const QA_RELEASE_TARGETS=Object.freeze([
 ])
 
 const sha=/^[0-9a-f]{40}$/
-const label=/^v?\\d+(?:\\.\\d+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?\\d+)?)?$/i
+const label=/^v?\d+(?:\.\d+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?\d+)?)?$/i
 const slugs=new Set(QA_RELEASE_TARGETS.map(x=>x.tenantSlug))
 export function releaseTargetHost(item) {
   if(!item||!slugs.has(item.tenantSlug)||
