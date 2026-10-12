@@ -59,7 +59,8 @@ function normaliseSecurity(input, current) {
   const previous = asObject(current)
   const sessionHours = ['8','12','24'].includes(String(data.sessionHours || '12')) ? String(data.sessionHours || '12') : '12'
   const auditRetention = ['90','365','730'].includes(String(data.auditRetention || '365')) ? String(data.auditRetention || '365') : '365'
-  const requireMfa = Boolean(data.requireMfa)
+  // Authentication is a Production-owned platform policy, never an option.
+  const requireMfa = true
   const wasRequired = Boolean(previous.requireMfa)
   return {
     data: {
@@ -90,6 +91,8 @@ export function registerSettingsRoutes(app) {
   app.post('/api/v1/settings/:area', async (c) => {
     const area = String(c.req.param('area') || '').trim()
     if (!writableAreas.has(area)) return c.json({ error: 'Unknown settings area.' }, 404)
+    if(area==='security' && process.env.RUNTIME_ENVIRONMENT && process.env.RUNTIME_ENVIRONMENT!=='live')
+      return c.json({error:'Authentication and MFA policy is managed in Production for all environments.'},409)
     const auth = await requirePermission(c, areaPermission[area] || 'settings.view')
     if (auth.error) return auth.error
 
