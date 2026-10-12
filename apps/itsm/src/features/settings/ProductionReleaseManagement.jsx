@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
+import {ReleaseVerificationPanel} from './ReleaseVerificationPanel.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -125,9 +126,12 @@ function SandboxReleaseOverview() {
 
 export function ProductionReleaseManagement() {
   const environment=deploymentConfig().runtimeEnvironment
-  return environment==='uat'||environment==='test'
-    ? <SandboxReleaseOverview/>
-    : <LiveProductionReleaseManagement/>
+  return <>
+    <ReleaseVerificationPanel/>
+    {environment==='uat'||environment==='test'
+      ? <SandboxReleaseOverview/>
+      : <LiveProductionReleaseManagement/>}
+  </>
 }
 
 function LiveProductionReleaseManagement() {
