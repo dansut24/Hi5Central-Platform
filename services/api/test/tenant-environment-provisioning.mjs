@@ -7,6 +7,7 @@ import { hashPassword } from '../src/password.js'
 import { pool } from '../src/db.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
 import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
+import { persistOnboardingUpdatePreference, tenantReleaseState } from '../src/tenantRelease.js'
 import { establishEnvironmentSession } from '../src/environmentDirectSession.js'
 
 const { Client }=pg
@@ -192,6 +193,47 @@ try {
   }
   const repeatBackfill=await backfillCompletedTenantSandboxes({source})
   assert.equal(repeatBackfill.tenants,0,'reconciliation must not create duplicate work')
+
+  // Managed release policy is not an alias for customer UAT. This test starts
+  // with an old available UAT placeholder to exercise migration-on-save.
+  const managedSlug = slug+'-managed'
+  const managed = await source.query(
+    "INSERT INTO tenants(slug,company_name,status) VALUES($1,'Managed CI Organisation','active') RETURNING id",
+    [managedSlug],
+  )
+  const managedId = managed.rows[0].id
+  await source.query(
+    "INSERT INTO tenant_memberships(tenant_id,user_id,role,status) VALUES($1,$2,'owner','active')",
+    [managedId,userId],
+  )
+  await source.query(
+    `INSERT INTO tenant_settings(tenant_id,modules,onboarding_step,onboarding_completed_at,onboarding_data,configuration,tenant_url,portal_url)
+     VALUES ($1,'{"itsm":true,"rmm":false}'::jsonb,'complete',now(),'{}'::jsonb,'{}'::jsonb,$2,$3)`,
+    [managedId,'https://'+managedSlug+'.hi5central.com','https://'+managedSlug+'-portal.hi5central.com'],
+  )
+  await source.query(
+    "INSERT INTO tenant_environment_state(tenant_id,environment,status) VALUES($1,'test','available'),($1,'uat','available'),($1,'live','ready') ON CONFLICT(tenant_id,environment) DO NOTHING",
+    [managedId],
+  )
+  await persistOnboardingUpdatePreference(source,{
+    tenantId:managedId,userId,
+    data:{updateMode:'hi5_managed',liveDelayHours:24,allowEmergencySecurityUpdates:true},
+  })
+  const state = await tenantReleaseState(managedId,managedSlug)
+  assert.equal(state.preference.updateMode,'hi5_managed')
+  assert.equal(state.preference.uatAutoStage,false)
+  assert.equal(state.preference.liveAutoPromote,true)
+  assert.deepEqual(state.environments.map(e=>e.environment).sort(),['live','test'],
+    'Managed must never show or recreate a customer UAT environment')
+  const managedReady=await provisionTenantSandboxes(managedId,cfg)
+  assert.equal(managedReady.test.status,'ready')
+  assert(!Object.hasOwn(managedReady,'uat'),'Managed provisioning cannot attempt UAT')
+  const managedUat=await clients[1].query('SELECT id FROM tenants WHERE id=$1',[managedId])
+  assert.equal(managedUat.rowCount,0,'Managed tenant must not be copied into customer UAT database')
+  assert.equal(await permittedTenantEnvironment(managedId,userId,'uat'),false)
+  assert.equal(await permittedTenantEnvironment(managedId,userId,'test'),true)
+  console.log('PASS: Managed has Test + Live only; Custom retains UAT, email identities remain shared')
+
   console.log('PASS: 2 environment DBs, separate tenant data, owner login identity, correct URLs, retry preservation, no unrelated tenant copy')
 }finally {
   for(const c of clients)await c.end().catch(()=>{})
