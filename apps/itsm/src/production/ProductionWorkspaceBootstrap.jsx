@@ -565,6 +565,11 @@ function ProductionLogin({ tenant, onAuthenticated }) {
                 {!submitting ? <ArrowRight size={17} /> : null}
               </button>
               {passwordStep ? <button className="production-auth-secondary-action" type="button" onClick={resetPasswordSignIn}>Use a different email</button> : null}
+              {/^testing(?:-(?:uat|test))?$/.test(tenant.slug) ? (
+                <a className="production-auth-secondary-action" href="https://api.hi5central.com/api/v1/auth/mfa-recovery/start" rel="noreferrer" aria-label="Reset authenticator using verified email and account password">
+                  New phone or lost authenticator? Reset authentication
+                </a>
+              ) : null}
               {microsoftAvailable ? <>
                 <div className="production-auth-divider"><span>or</span></div>
                 <button className="production-auth-microsoft" type="button" onClick={() => { const params = new URLSearchParams({ tenantSlug: tenant.slug, returnTo: window.location.pathname || '/' }); window.location.href = `${API_BASE}/api/v1/auth/microsoft/start?${params.toString()}` }}><Cloud size={17} /> Sign in with Microsoft</button>
