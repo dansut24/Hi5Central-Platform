@@ -7,6 +7,7 @@ import { ProductionSettingsWorkspace } from '../features/settings/ProductionSett
 import { ProductionIdentityBridge } from './ProductionIdentityBridge.jsx'
 import { ProductionFirstLoginExperience } from './ProductionFirstLoginExperience.jsx'
 import { ProductionProfileWorkspace } from './ProductionProfileWorkspace.jsx'
+import { ProductionMfaEnrollmentModal } from './ProductionMfaEnrollmentModal.jsx'
 import { resolveTenantSurface } from '../lib/tenantSurface.js'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import {
@@ -532,7 +533,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
           </div>
         </section>
 
-        <form className="production-auth-card" onSubmit={mfaFlow ? verifyMfa : submit}>
+        <form className="production-auth-card" onSubmit={submit}>
           <div className="production-auth-card-heading">
             <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
             <div>
@@ -545,58 +546,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
             <div className="production-auth-notice">This workspace is waiting for its owner email to be verified. Use the verification email sent during signup before signing in.</div>
           ) : null}
 
-          {recoveryCodes.length ? (
-            <>
-              <div className="production-auth-notice">
-                MFA is enabled. Save these recovery codes somewhere secure. Each code can be used once.
-              </div>
-              <div className="production-auth-recovery-grid">
-                {recoveryCodes.map((code) => <code key={code}>{code}</code>)}
-              </div>
-              {error ? <div className="production-auth-error">{error}</div> : null}
-              <button disabled={submitting} onClick={continueAfterRecoveryCodes} type="button">
-                {submitting ? 'Opening Hi5Central…' : 'I have saved these codes'}{!submitting ? <ArrowRight size={17} /> : null}
-              </button>
-            </>
-          ) : mfaFlow ? (
-            <>
-              <p className="production-auth-method-note">
-                {mfaFlow.setupRequired
-                  ? 'Add Hi5Central to your authenticator app, then enter the six-digit code to finish setup.'
-                  : 'Enter the six-digit code from your authenticator app, or an unused recovery code.'}
-              </p>
-              {mfaFlow.setupRequired ? (
-                mfaSetup ? (
-                  <div className="production-auth-mfa-setup">
-                    <span>Authenticator setup key</span>
-                    <code>{mfaSetup.secret}</code>
-                    <small>Issuer: Hi5Central · Account: {mfaSetup.account}</small>
-                    <a href={mfaSetup.otpauthUri}>Open in authenticator app</a>
-                  </div>
-                ) : <div className="production-auth-notice">Preparing authenticator setup…</div>
-              ) : null}
-              <label>
-                <span>{mfaFlow.setupRequired ? 'Six-digit authenticator code' : 'Authenticator or recovery code'}</span>
-                <input
-                  autoComplete="one-time-code"
-                  autoFocus
-                  inputMode={mfaFlow.setupRequired ? 'numeric' : 'text'}
-                  maxLength={mfaFlow.setupRequired ? 6 : 20}
-                  placeholder={mfaFlow.setupRequired ? '000000' : '000000 or recovery code'}
-                  required
-                  value={mfaCode}
-                  onChange={(event) => setMfaCode(event.target.value)}
-                />
-              </label>
-              {error ? <div className="production-auth-error">{error}</div> : null}
-              <button disabled={submitting || !mfaCode.trim() || (mfaFlow.setupRequired && !mfaSetup)} type="submit">
-                {submitting ? 'Verifying…' : mfaFlow.setupRequired ? 'Verify and enable MFA' : 'Verify and sign in'}
-                {!submitting ? <ArrowRight size={17} /> : null}
-              </button>
-              <button className="production-auth-secondary-action" disabled={submitting} onClick={resetPasswordSignIn} type="button">Back to sign in</button>
-            </>
-          ) : (
-            <>
+          <>
               <label>
                 <span>Email address</span>
                 <input type="email" autoComplete="username" required value={form.email} onChange={(event) => { setForm((current) => ({ ...current, email: event.target.value })); if (passwordStep) setPasswordStep(false); setError('') }} />
@@ -620,8 +570,19 @@ function ProductionLogin({ tenant, onAuthenticated }) {
               </> : null}
               <a href="https://hi5central.com">Back to hi5central.com</a>
             </>
-          )}
         </form>
+        <ProductionMfaEnrollmentModal
+          flow={mfaFlow}
+          setup={mfaSetup}
+          code={mfaCode}
+          onCodeChange={setMfaCode}
+          recoveryCodes={recoveryCodes}
+          busy={submitting}
+          error={error}
+          onVerify={verifyMfa}
+          onCancel={resetPasswordSignIn}
+          onContinue={continueAfterRecoveryCodes}
+        />
       </div>
     </div>
   )
