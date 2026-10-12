@@ -16,10 +16,12 @@ export async function permittedTenantEnvironment(tenantId,userId,environment,{db
        FROM tenant_memberships m
        JOIN tenants t ON t.id=m.tenant_id
        JOIN tenant_environment_state e ON e.tenant_id=m.tenant_id AND e.environment=$3
+       JOIN tenant_release_preferences p ON p.tenant_id=m.tenant_id
        LEFT JOIN tenant_member_environment_access a
          ON a.tenant_id=m.tenant_id AND a.user_id=m.user_id AND a.environment=$3
       WHERE m.tenant_id=$1 AND m.user_id=$2
-        AND t.status='active' AND m.status='active' AND e.status='ready'`,
+        AND t.status='active' AND m.status='active' AND e.status='ready'
+        AND ($3<>'uat' OR p.update_mode='admin_controlled')`,
     [tenantId,userId,environment],
   )
   return result.rowCount>0 && (result.rows[0].role==='owner'||result.rows[0].explicit_grant===true)
@@ -29,8 +31,9 @@ export async function environmentMembers(tenantId,{db=pool}={}){
   const result=await db.query(
     `SELECT m.user_id AS "userId",u.email,u.name,m.role,m.status,
             m.role='owner' OR COALESCE(a_test.granted,false) AS test,
-            m.role='owner' OR COALESCE(a_uat.granted,false) AS uat
+            (p.update_mode='admin_controlled' AND (m.role='owner' OR COALESCE(a_uat.granted,false))) AS uat
        FROM tenant_memberships m JOIN users u ON u.id=m.user_id
+       JOIN tenant_release_preferences p ON p.tenant_id=m.tenant_id
        LEFT JOIN tenant_member_environment_access a_test
          ON a_test.tenant_id=m.tenant_id AND a_test.user_id=m.user_id AND a_test.environment='test'
        LEFT JOIN tenant_member_environment_access a_uat
@@ -73,7 +76,14 @@ export async function assignEnvironmentPermissions(
     error.status=404
     throw error
   }
-  if(target.rows[0].role==='owner'&&(!test||!uat)){
+  const policy=await db.query('SELECT update_mode FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId])
+  const managed=policy.rows[0]?.update_mode==='hi5_managed'
+  if(managed&&uat){
+    const error=new Error('Customer UAT is unavailable under Managed updates.')
+    error.status=409
+    throw error
+  }
+  if(target.rows[0].role==='owner'&&(!test||(!managed&&!uat))){
     const error=new Error('Organisation owners must retain both Test and UAT access.')
     error.status=403
     throw error
@@ -92,7 +102,7 @@ export async function assignEnvironmentPermissions(
     // Reconcile the account in shared Test/UAT first (existing local sandbox
     // data is retained). Never replicate password hashes or user MFA secrets.
     const result=await provisionTenantSandboxes(tenantId,{source:db})
-    for(const environment of SANDBOXES){
+    for(const environment of (managed?['test']:SANDBOXES)){
       if(result[environment]?.status!=='ready'){
         const error=new Error(`${environment.toUpperCase()} account synchronisation failed.`)
         error.status=503
@@ -100,7 +110,7 @@ export async function assignEnvironmentPermissions(
       }
     }
     // Ensure existing sessions cannot outlive an administrator's revocation.
-    for(const [environment,allowed] of [['test',test],['uat',uat]]){
+    for(const [environment,allowed] of (managed?[['test',test]]:[['test',test],['uat',uat]])) {
       if(!allowed)await revokeEnvironmentSessions(tenantId,userId,environment)
     }
   }
