@@ -55,6 +55,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 120
+      - name: Validate customer release verification receipts
+        if: matrix.name == 'ITSM'
+        run: node --test apps/itsm/src/features/settings/releaseVerification.test.mjs
       - name: Generate tracked application changelog
         run: node .github/scripts/generate-release-manifest.mjs
       - uses: docker/setup-buildx-action@v3
