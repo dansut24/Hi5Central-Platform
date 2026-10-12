@@ -3,7 +3,7 @@ import {test} from 'node:test'
 import {QA_RELEASE_TARGETS,releaseTargetHost,makeQaReleasePlan,assessPublicRelease} from '../src/qaReleasePlan.js'
 
 const sha='a'.repeat(40)
-const candidate=()=>makeQaReleasePlan({buildSha:sha,versionLabel:'2026.10.12-QA1',
+const candidate=()=>makeQaReleasePlan({buildSha:sha,versionLabel:'2026.10.12-rc1',
   now:new Date('2026-10-12T21:00:00Z')})
 
 test('QA proposal has exactly Managed Test, Custom Test and Custom UAT; no Production hosts',()=>{
@@ -32,9 +32,9 @@ test('rejects non-QA hosts, Managed UAT, Production and arbitrary tenant policie
 })
 
 test('malformed SHA, unsafe label or invalid timestamp cannot create a plan',()=>{
-  assert.throws(()=>makeQaReleasePlan({buildSha:'a'.repeat(8),versionLabel:'2026.10.12-QA1'}),/immutable/)
+  assert.throws(()=>makeQaReleasePlan({buildSha:'a'.repeat(8),versionLabel:'2026.10.12-rc1'}),/immutable/)
   assert.throws(()=>makeQaReleasePlan({buildSha:sha,versionLabel:'./oops'}),/version/)
-  assert.throws(()=>makeQaReleasePlan({buildSha:sha,versionLabel:'2026.10.12-QA1',now:'bad-date'}),/date/)
+  assert.throws(()=>makeQaReleasePlan({buildSha:sha,versionLabel:'2026.10.12-rc1',now:'bad-date'}),/date/)
 })
 
 test('even matching public frontend SHA never implies host/API or UAT approval',()=>{
