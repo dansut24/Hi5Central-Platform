@@ -347,7 +347,10 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
   const [settingsNavVisible, setSettingsNavVisible] = useState(loadSettingsNavVisible)
   const [legalIdentityLoaded,setLegalIdentityLoaded]=useState(false)
   const [legalIdentityReadOnly,setLegalIdentityReadOnly]=useState(false)
+  const [verifiedMasterLegalName,setVerifiedMasterLegalName]=useState(null)
   const sandboxHostname=/(?:-uat|-test)\.hi5central\.com$/i.test(window.location.hostname)
+  // Master identity read-through is currently restricted to this pilot tenant.
+  const masterIdentityPilot=/^testing-(?:uat|test)\.hi5central\.com$/i.test(window.location.hostname)
   const activeId = sectionFromPath(currentPath)
   const active = sections[activeId]
   const modules = session?.tenant?.modules || {}
@@ -364,20 +367,26 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
     if(activeId!=='organisation')return
     let active=true
     setLegalIdentityLoaded(false)
+    setLegalIdentityReadOnly(masterIdentityPilot)
+    setVerifiedMasterLegalName(null)
     fetch(`${API_BASE}/api/v1/settings`,{credentials:'include',cache:'no-store'})
       .then(async response=>{
         const result=await response.json().catch(()=>({}))
         if(!response.ok)throw Error(result.error||'Could not verify organisation identity.')
         if(!active)return
-        setLegalIdentityReadOnly(Boolean(result.masterIdentity?.companyLegalNameReadOnly))
         const legalName=result.settings?.company?.legalName
+        if(masterIdentityPilot && (result.masterIdentity?.companyLegalNameReadOnly!==true
+          || result.masterIdentity?.source!=='production' || typeof legalName!=='string' || !legalName.trim()))
+          throw Error('Production legal identity could not be verified. Changes are disabled.')
+        setLegalIdentityReadOnly(masterIdentityPilot||Boolean(result.masterIdentity?.companyLegalNameReadOnly))
+        if(masterIdentityPilot)setVerifiedMasterLegalName(legalName)
         if(typeof legalName==='string')
           setConfig(previous=>({...previous,company:{...previous.company,legalName}}))
         setLegalIdentityLoaded(true)
       })
       .catch(e=>{if(active&&sandboxHostname)setError(e.message)})
     return()=>{active=false}
-  },[activeId,session?.tenant?.id,sandboxHostname])
+  },[activeId,session?.tenant?.id,sandboxHostname,masterIdentityPilot])
 
   useEffect(() => {
     let active = true
@@ -541,7 +550,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
           <div className="production-settings-save-state">
             {saved ? <span className="is-saved"><Check size={14} /> {saved}</span> : null}
             {error ? <span className="is-error">{error}</span> : null}
-            {!['release-management','platform-updates'].includes(activeId) ? <button disabled={saving||(activeId==='organisation'&&sandboxHostname&&!legalIdentityLoaded)} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
+            {!['release-management','platform-updates'].includes(activeId) ? <button disabled={saving||(activeId==='organisation'&&masterIdentityPilot&&!legalIdentityLoaded)} onClick={saveActive} type="button"><Save size={16} /> {saving ? 'Saving…' : 'Save changes'}</button> : null}
           </div>
         </header>
 
@@ -549,7 +558,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
 
         <div className="production-settings-scroll-region">
           <div className="production-settings-content">
-            {activeId === 'organisation' ? <Organisation config={config.company} legalNameReadOnly={legalIdentityReadOnly} legalNameLoading={sandboxHostname&&!legalIdentityLoaded} update={(f, v) => updateArea('company', f, v)} /> : null}
+            {activeId === 'organisation' ? <Organisation config={masterIdentityPilot?{...config.company,legalName:legalIdentityLoaded?verifiedMasterLegalName:''}:config.company} legalNameReadOnly={masterIdentityPilot||legalIdentityReadOnly} legalNameLoading={masterIdentityPilot&&!legalIdentityLoaded} update={(f, v) => updateArea('company', f, v)} /> : null}
             {activeId === 'appearance' ? <Appearance config={config.theme} update={(f, v) => updateArea('theme', f, v)} /> : null}
             {activeId === 'directory' ? <Directory config={config.users} update={(f, v) => updateArea('users', f, v)} updateNested={(p, f, v) => updateNested('users', p, f, v)} /> : null}
             {activeId === 'teams' ? <TeamsDepartments config={config.groups} update={(f, v) => updateArea('groups', f, v)} /> : null}
