@@ -8,6 +8,7 @@ import {mfaRecoveryStartHtml,mfaRecoveryConfirmHtml} from './mfaRecoveryPages.js
 
 const PILOT_SLUG=String(process.env.MFA_RECOVERY_PILOT_TENANT_SLUG||'').trim().toLowerCase()
 const PILOT_ORIGIN='https://api.hi5central.com'
+// The central identity pilot is deliberately disabled unless explicitly scoped.
 const EXPIRE_SECONDS=15*60
 const generic={status:'accepted',message:'If those credentials match the active account, a recovery email will arrive shortly.'}
 const digest=s=>createHash('sha256').update(String(s||'')).digest('hex')
