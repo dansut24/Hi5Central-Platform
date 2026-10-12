@@ -711,6 +711,18 @@ app.post('/api/v1/onboarding/complete', async (c) => {
       console.error('Onboarding environment setup failed', {tenantId:session.tenant_id, code:error.code || 'UNKNOWN'})
       return { test:{status:'error'}, uat:{status:'error'} }
     })
+  if (!refreshed) {
+    // Email-verification signup creates a provisional onboarding session.
+    // Once onboarding completes mandatory MFA requires a fresh secure login.
+    // Never represent that provisional session as a verified workspace session.
+    return c.json({
+      onboardingCompleted:true,
+      requiresSecureSignIn:true,
+      nextPath:'/login',
+      environments,
+      message:'Your organisation is ready. Sign in with MFA to personalise your workspace.',
+    })
+  }
   return c.json({ ...sessionPayload(refreshed), environments })
 })
 
