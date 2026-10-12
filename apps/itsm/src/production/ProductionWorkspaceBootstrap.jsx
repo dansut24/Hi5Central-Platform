@@ -365,7 +365,8 @@ function ProductionLogin({ tenant, onAuthenticated }) {
 
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get('microsoft')
-    if (reason === 'not_assigned') setError('That Microsoft account is not linked to a Hi5Central user with workspace access.')
+    if (reason === 'mfa_required') setError('Multi-factor authentication is mandatory. Enable MFA in your Microsoft account or sign in with your Hi5Central password to set up an authenticator.')
+    else if (reason === 'not_assigned') setError('That Microsoft account is not linked to a Hi5Central user with workspace access.')
     else if (reason && reason !== 'connected') setError('Microsoft sign-in could not be completed. Try again or use your Hi5Central password.')
   }, [])
 
