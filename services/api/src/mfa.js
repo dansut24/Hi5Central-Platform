@@ -23,6 +23,7 @@ import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTena
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
+  loginRequiresMfa,
   securitySettings,
   sessionTtlSeconds,
 } from './securityPolicy.js'
@@ -477,7 +478,10 @@ export function registerMfaRoutes(app) {
     if (surface === 'portal' && !access.portalAccess) return c.json({error:'Requester Portal access required.'},403)
     if (surface === 'workspace' && !access.workspaceAccess) return c.json({error:'Workspace access required.'},403)
     const ttl = sessionTtlSeconds(account)
-    if (!mfaRequiredFor(account)) {
+    // A stronger UAT/Test policy can request MFA from Live without changing
+    // Production's own requireMfa setting. Verification is still required
+    // before the isolated environment session is issued.
+    if (!loginRequiresMfa(account,body?.forceSandboxMfa===true)) {
       const token = await withTransaction((client) => createSession(client, {
         tenantId: account.tenant_id,
         userId: account.user_id,
