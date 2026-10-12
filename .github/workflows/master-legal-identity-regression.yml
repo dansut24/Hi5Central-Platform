@@ -13,6 +13,11 @@ on:
       - 'services/api/src/totpIdentity.js'
       - 'services/api/src/runtimePoolTenantGuard.js'
       - 'services/api/test/runtime-pool-mfa-boundary.mjs'
+      - 'services/api/src/userPreferences.js'
+      - 'services/api/src/tenantExperience.js'
+      - 'services/api/src/session.js'
+      - 'services/api/test/tenant-first-login.mjs'
+      - 'apps/itsm/src/features/onboarding/OnboardingWizard.jsx'
       - 'services/api/src/mfaRecovery.js'
       - 'services/api/src/mfaRecoveryPages.js'
       - 'services/api/src/mailer.js'
@@ -40,7 +45,7 @@ jobs:
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
       - run: node --check src/masterLegalIdentity.js && node --check src/settings.js && node --check src/securityPolicy.js && node --check src/sandboxCredentialLogin.js && node --check src/mfa.js
-      - run: node test/master-legal-identity.mjs && node test/sandbox-mfa-stepup.mjs && node test/totp-issuer-identity.mjs && node test/runtime-pool-mfa-boundary.mjs && node test/mfa-owner-recovery.mjs
+      - run: node test/master-legal-identity.mjs && node test/sandbox-mfa-stepup.mjs && node test/totp-issuer-identity.mjs && node test/runtime-pool-mfa-boundary.mjs && node test/mfa-owner-recovery.mjs && node test/tenant-first-login.mjs
       - run: npm run build:runtime
   itsm:
     runs-on: ubuntu-24.04
