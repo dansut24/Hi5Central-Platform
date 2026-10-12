@@ -23,6 +23,7 @@ import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliveryS
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
 import { registerMfaRoutes } from './mfa.js'
+import {registerMfaRecoveryRoutes} from './mfaRecovery.js'
 import { attachRmmAgentWebSocket, initializeAgentBroker, registerRmmAgentRoutes, shutdownAgentBroker } from './rmmAgent.js'
 import { registerRmmAutomationRoutes } from './rmmAutomation.js'
 import { registerRmmActivityRoutes } from './rmmActivity.js'
@@ -737,6 +738,7 @@ registerSettingsRoutes(app)
 registerUserPreferenceRoutes(app)
 registerSecurityRoutes(app)
 registerMfaRoutes(app)
+registerMfaRecoveryRoutes(app)
 registerProjectRoutes(app)
 registerMicrosoftRoutes(app)
 registerRmmAgentRoutes(app)
