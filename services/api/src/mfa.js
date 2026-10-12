@@ -478,10 +478,9 @@ export function registerMfaRoutes(app) {
     if (surface === 'portal' && !access.portalAccess) return c.json({error:'Requester Portal access required.'},403)
     if (surface === 'workspace' && !access.workspaceAccess) return c.json({error:'Workspace access required.'},403)
     const ttl = sessionTtlSeconds(account)
-    // A stronger UAT/Test policy can request MFA from Live without changing
-    // Production's own requireMfa setting. Verification is still required
-    // before the isolated environment session is issued.
-    if (!loginRequiresMfa(account,body?.forceSandboxMfa===true)) {
+    // All active, onboarded users (staff and requesters) share a single
+    // Production MFA enrolment and verification across Live, UAT and Test.
+    if (!loginRequiresMfa(account)) {
       const token = await withTransaction((client) => createSession(client, {
         tenantId: account.tenant_id,
         userId: account.user_id,
@@ -769,36 +768,12 @@ export function registerMfaRoutes(app) {
     return c.json({ recoveryCodes: result.recoveryCodes })
   })
 
+  // MFA cannot be disabled through an old client, API call or UI.
+  // A verified recovery or administrative re-enrolment flow must keep a
+  // second factor active at every point in the account lifecycle.
   app.post('/api/v1/mfa/disable', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
-    if (mfaRequiredFor(auth.session)) {
-      return c.json({ error: 'This tenant requires MFA for your role. Disable the tenant policy before removing your authenticator.' }, 409)
-    }
-
-    let body
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'A valid JSON request body is required.' }, 400)
-    }
-    const code = text(body?.code, 64)
-    if (!code) return c.json({ error: 'Enter your authenticator or recovery code.' }, 400)
-
-    const result = await withTransaction(async (client) => {
-      const method = await enabledMethod(client, auth.session.tenant_id, auth.session.user_id)
-      if (!method?.enabled) return { ok: false, status: 409, error: 'MFA is not enrolled.' }
-      const verification = verifyMethodCode(method, code)
-      if (!verification.ok) return { ok: false, status: 401, error: 'That MFA code is not valid.' }
-      await client.query(
-        `DELETE FROM user_mfa_methods
-         WHERE tenant_id = $1 AND user_id = $2 AND method = 'totp'`,
-        [auth.session.tenant_id, auth.session.user_id],
-      )
-      await client.query('UPDATE auth_sessions SET mfa_verified_at = NULL WHERE id = $1', [auth.session.session_id])
-      return { ok: true }
-    })
-    if (!result.ok) return c.json({ error: result.error }, result.status)
-    return c.json({ disabled: true })
+    return c.json({ error: 'Multi-factor authentication is mandatory and cannot be disabled. Use account recovery or factor replacement instead.' }, 409)
   })
 }
