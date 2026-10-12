@@ -199,7 +199,7 @@ export async function sendMfaRecoveryEmail({ to, name, token }) {
       'This link expires after 15 minutes and can only be used once.',
       'You will need your current account password again to continue.',
       'If this was not you, ignore the email and contact Hi5Central support.'
-    ].join('\\n'),
+    ].join('\n'),
     html: emailShell({
       kicker:'Account security recovery',
       title:'Replace your Hi5Central authenticator',
