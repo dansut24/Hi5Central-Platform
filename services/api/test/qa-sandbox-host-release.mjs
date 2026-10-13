@@ -2,7 +2,7 @@ import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash,generateKeyPairSync,sign} from 'node:crypto'
 import {canonicalRouteIntent} from '../src/runtimeHostRouteTransaction.js'
-import {validateQaSandboxHostIntent,inspectQaSandboxGatewayRoutes,runQaSandboxHostTransaction} from '../src/qaSandboxHostRelease.js'
+import {validateQaSandboxHostIntent,inspectQaSandboxGatewayRoutes,runQaSandboxHostTransaction,assertQaSandboxRuntimeIdentity} from '../src/qaSandboxHostRelease.js'
 
 const now=new Date('2026-10-12T22:30:00Z')
 const {privateKey,publicKey}=generateKeyPairSync('ed25519')
@@ -105,4 +105,19 @@ test('default signed host operation dry-runs without activating; public failure 
   await assert.rejects(()=>runQaSandboxHostTransaction({...auth,adapter:{...adapter(),
     gateway:'hi5central-web'},applyEnabled:true}),/gateway does not match/)
   assert.deepEqual(calls,[])
+})
+
+
+test('signed sandbox runtime identity rejects cross-tenant and wrong-environment API pools',()=>{
+  for(const environment of ['test','uat']){
+    const scope={tenantSlug:'h5c-custom-qa26',environment}
+    assert.doesNotThrow(()=>assertQaSandboxRuntimeIdentity({scope,
+      runtimeEnvironment:environment,runtimeTenantSlug:`h5c-custom-qa26-${environment}`}))
+    for(const runtimeTenantSlug of ['testing-'+environment,'h5c-managed-qa26-'+environment,'h5c-custom-qa26']){
+      assert.throws(()=>assertQaSandboxRuntimeIdentity({scope,
+        runtimeEnvironment:environment,runtimeTenantSlug}),/tenant and environment isolation/)
+    }
+    assert.throws(()=>assertQaSandboxRuntimeIdentity({scope,
+      runtimeEnvironment:'live',runtimeTenantSlug:`h5c-custom-qa26-${environment}`}),/tenant and environment isolation/)
+  }
 })
