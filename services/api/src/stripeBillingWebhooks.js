@@ -61,6 +61,8 @@ export function normaliseStripeWebhookEvent(event) {
     || Array.isArray(event.data.object)) return null
   const item = event.data.object
   const subscriptionId = validId(item.subscription, STRIPE_SUBSCRIPTION_ID)
+    || validId(item.parent?.subscription_details?.subscription, STRIPE_SUBSCRIPTION_ID)
+    || validId(item.subscription_details?.subscription, STRIPE_SUBSCRIPTION_ID)
     || (event.type.startsWith('customer.subscription.') ? validId(item.id, STRIPE_SUBSCRIPTION_ID) : null)
   const invoiceId = validId(item.invoice, STRIPE_INVOICE_ID)
     || (event.type.startsWith('invoice.') ? validId(item.id, STRIPE_INVOICE_ID) : null)
@@ -131,13 +133,15 @@ export async function recordVerifiedSandboxStripeEvent(event, payloadSha256) {
       return { duplicate: true, resolution: previous.rows[0].resolution }
     }
     let tenantId = null
-    if (normalised.supported && normalised.customerId) {
+    // A customer ID alone does not establish which subscription/invoice belongs
+    // to a tenant. Fail closed for one-off invoices or payment intents without
+    // a verifiable subscription link. These receipts remain 'unmapped'.
+    if (normalised.supported && normalised.customerId && normalised.subscriptionId) {
       const link = await db.query(
         `SELECT link.tenant_id FROM tenant_stripe_billing_links link
           WHERE link.mode='test' AND link.stripe_customer_id=$1
             AND (
-              $2::text IS NULL
-              OR link.stripe_subscription_id=$2
+              link.stripe_subscription_id=$2
               OR EXISTS (
                 SELECT 1 FROM tenant_stripe_subscription_links subscribed
                  WHERE subscribed.tenant_id=link.tenant_id AND subscribed.mode='test'
