@@ -8,7 +8,7 @@ import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,rmSync,appendFileSync} 
 import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {createHash} from 'node:crypto'
-import {runQaSandboxHostTransaction,validateQaSandboxHostIntent} from '../../src/qaSandboxHostRelease.js'
+import {runQaSandboxHostTransaction,validateQaSandboxHostIntent,assertQaSandboxRuntimeIdentity} from '../../src/qaSandboxHostRelease.js'
 
 const argv=process.argv.slice(2)
 const value=k=>{const n=argv.indexOf(k);return n<0?null:argv[n+1]}
@@ -51,8 +51,8 @@ const findContainer=upstream=>{
     ||row.Config.Labels?.['org.opencontainers.image.revision']!==intent.buildSha)
     throw Error('Unhealthy, wrong revision or wrong signed local image ID: '+name)
   const env=Object.fromEntries((row.Config.Env||[]).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),x.slice(i+1)]}))
-  if(env.RUNTIME_ENVIRONMENT!==scope.environment||env.VERSIONED_POOL_TENANT_SLUG!==`${scope.tenantSlug}-${scope.environment}`)
-    throw Error('Candidate pool lacks tenant and environment isolation: '+name)
+  assertQaSandboxRuntimeIdentity({scope,runtimeEnvironment:env.RUNTIME_ENVIRONMENT,
+    runtimeTenantSlug:env.VERSIONED_POOL_TENANT_SLUG})
   const gw=JSON.parse(docker(['inspect',gateway]))[0]
   if(!Object.keys(row.NetworkSettings.Networks||{}).some(x=>Object.hasOwn(gw.NetworkSettings.Networks||{},x)))
     throw Error('Candidate is not reachable by its authorised sandbox gateway.')
