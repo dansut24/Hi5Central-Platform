@@ -7,7 +7,7 @@ import {
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
-import { StripeSandboxStatus, RmmBillingPreview } from './StripeBillingSandbox.jsx'
+import { StripeSandboxStatus, StripeWebhookReceipts, RmmBillingPreview } from './StripeBillingSandbox.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -432,6 +432,7 @@ function Billing({ items, refresh, query }) {
   return <>
     <PageHeading view="billing" action={<button className="rmm-primary compact" onClick={refresh}><RefreshCw size={14}/>Refresh</button>}/>
     <StripeSandboxStatus request={api}/>
+    <StripeWebhookReceipts request={api}/>
     <div className="rmm-metric-grid">
       <button type="button"><span className="rmm-metric-icon green"><CreditCard size={18}/></span><div><span>Active billing</span><strong>{active}</strong><small>{items.length} tenants</small></div></button>
       <button type="button"><span className="rmm-metric-icon red"><AlertTriangle size={18}/></span><div><span>Past due</span><strong>{pastDue}</strong><small>Requires review</small></div></button>
