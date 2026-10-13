@@ -400,6 +400,9 @@ function BillingEditor({ tenant, onSaved }) {
     billingCycle:tenant.billing_cycle||'monthly',
     currency:tenant.currency||'GBP',
     monthlyPrice:tenant.monthly_price_pence==null?'':String(Number(tenant.monthly_price_pence)/100),
+    baseMonthlyPrice:tenant.base_monthly_price_pence==null?'':String(Number(tenant.base_monthly_price_pence)/100),
+    rmmDevicePrice:tenant.rmm_device_price_pence==null?'':String(Number(tenant.rmm_device_price_pence)/100),
+    nextInvoiceAt:dateInput(tenant.next_invoice_at),
     trialEndsAt:dateInput(tenant.trial_ends_at),
     renewalAt:dateInput(tenant.renewal_at),
     billingNotes:tenant.billing_notes||'',
@@ -414,6 +417,9 @@ function BillingEditor({ tenant, onSaved }) {
         planKey:draft.planKey,billingStatus:draft.billingStatus,billingCycle:draft.billingCycle,
         currency:draft.currency,monthlyPricePence,trialEndsAt:dateToIso(draft.trialEndsAt),
         renewalAt:dateToIso(draft.renewalAt),billingNotes:draft.billingNotes,
+        baseMonthlyPricePence:draft.baseMonthlyPrice===''?null:Math.max(0,Math.round(Number(draft.baseMonthlyPrice)*100)),
+        rmmDevicePricePence:draft.rmmDevicePrice===''?null:Math.max(0,Math.round(Number(draft.rmmDevicePrice)*100)),
+        nextInvoiceAt:dateToIso(draft.nextInvoiceAt),
       })})
       await onSaved()
     }catch(err){setError(err.message)}finally{setBusy(false)}
@@ -425,7 +431,10 @@ function BillingEditor({ tenant, onSaved }) {
       <label>Billing status<select value={draft.billingStatus} onChange={e=>setDraft({...draft,billingStatus:e.target.value})}><option value="trial">Trial</option><option value="active">Active</option><option value="past_due">Past due</option><option value="suspended">Suspended</option><option value="cancelled">Cancelled</option></select></label>
       <label>Cycle<select value={draft.billingCycle} onChange={e=>setDraft({...draft,billingCycle:e.target.value})}><option value="monthly">Monthly</option><option value="annual">Annual</option><option value="custom">Custom</option></select></label>
       <label>Currency<input maxLength={3} value={draft.currency} onChange={e=>setDraft({...draft,currency:e.target.value.toUpperCase()})}/></label>
-      <label>Monthly price<input type="number" min="0" step="0.01" value={draft.monthlyPrice} onChange={e=>setDraft({...draft,monthlyPrice:e.target.value})}/></label>
+      <label>Current monthly amount<input type="number" min="0" step="0.01" value={draft.monthlyPrice} onChange={e=>setDraft({...draft,monthlyPrice:e.target.value})}/></label>
+      <label>Base monthly subscription (£)<input type="number" min="0" step="0.01" value={draft.baseMonthlyPrice} onChange={e=>setDraft({...draft,baseMonthlyPrice:e.target.value})}/></label>
+      <label>RMM price per billable device (£)<input type="number" min="0" step="0.01" value={draft.rmmDevicePrice} onChange={e=>setDraft({...draft,rmmDevicePrice:e.target.value})}/></label>
+      <label>Next invoice date<input type="date" value={draft.nextInvoiceAt} onChange={e=>setDraft({...draft,nextInvoiceAt:e.target.value})}/></label>
       <label>Trial ends<input type="date" value={draft.trialEndsAt} onChange={e=>setDraft({...draft,trialEndsAt:e.target.value})}/></label>
       <label>Renewal<input type="date" value={draft.renewalAt} onChange={e=>setDraft({...draft,renewalAt:e.target.value})}/></label>
     </div>
