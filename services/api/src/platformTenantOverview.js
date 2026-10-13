@@ -63,7 +63,7 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
       WHERE t.id=$1 LIMIT 1`,[id])
     if(!tenant.rowCount)return c.json({error:'Tenant not found.'},404)
     const t=tenant.rows[0]
-    const [devices,envs,offers,backups,invoices,featureApprovals,appReviews]=await Promise.all([
+    const [devices,envs,offers,backups,invoices,featureApprovals,appReviews,sharedBackup]=await Promise.all([
       pool.query(`SELECT id,disabled_at,last_telemetry_at,last_authenticated_at,
         websocket_connected_at,websocket_status FROM rmm_agent_devices WHERE tenant_id=$1`,[id]),
       pool.query(`SELECT e.environment,e.status,e.active_release_ref,
@@ -96,6 +96,10 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         reviewed_at FROM tenant_application_release_reviews
         WHERE tenant_id=$1 AND status NOT IN ('approved','rejected','cancelled','completed')
         ORDER BY updated_at DESC LIMIT 15`,[id]),
+      pool.query(`SELECT environment,coverage,archive_created_at,archive_bytes,
+        inspection,inspected_at,restore_tested_at,source_label
+        FROM platform_database_backup_evidence WHERE environment='live'
+        ORDER BY archive_created_at DESC LIMIT 1`),
     ])
     const asOf=new Date()
     const rmmEnabled=Boolean(t.modules?.rmm)
@@ -141,7 +145,19 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         liveAutoPromote:t.live_auto_promote,liveDelayHours:t.live_delay_hours,
         maintenanceWindow:t.maintenance_window||{}},
       backup:{availability:backups.rows.length?'verified_records':'no_verified_backup_records',
-        environments:latestBackup},
+        environments:latestBackup,
+        sharedPlatformDatabase:sharedBackup.rows[0] ? {
+          coverage:'shared_production_database',
+          archiveAt:sharedBackup.rows[0].archive_created_at,
+          sizeBytes:sharedBackup.rows[0].archive_bytes,
+          inspection:sharedBackup.rows[0].inspection,
+          inspectedAt:sharedBackup.rows[0].inspected_at,
+          isolatedRestoreTested:sharedBackup.rows[0].inspection==='isolated_restore_tested',
+          restoreTestedAt:sharedBackup.rows[0].restore_tested_at,
+          sourceLabel:sharedBackup.rows[0].source_label,
+          perTenantRestorePoint:false,
+          includesSandboxEnvironments:false,
+        } : null},
       invoices:{items:invoices.rows,source:invoices.rows.length?'external_verified':'no_issued_invoices_recorded'},
       lifecycle:{state:t.lifecycle_state||t.status,archivedAt:t.archived_at,
         restoreDeadline:t.restore_deadline,legalHold:Boolean(t.legal_hold),
