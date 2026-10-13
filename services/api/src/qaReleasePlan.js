@@ -57,11 +57,20 @@ export function assessPublicRelease(plan,results){
   return results.map(item=>{
     const observed=String(item.frontendSha||'').trim().toLowerCase()
     const verified=sha.test(observed)&&observed===plan.buildSha&&item.httpStatus===200
+    const api=String(item.apiSha||'').trim().toLowerCase()
+    const apiMatches=sha.test(api)&&api===plan.buildSha&&item.apiHttpStatus===200
+    const apiHealthy=sha.test(api)&&item.apiHttpStatus===200
+    const state=!verified?'not_yet_staged':!apiMatches?'api_unavailable_or_mismatch':'public_manifests_match'
     return {host:item.host,frontendSha:sha.test(observed)?observed:null,
       publicFrontendMatches:verified,
-      state:verified?'frontend_manifest_matches':'not_yet_staged',
+      apiSha:sha.test(api)?api:null,apiHttpStatus:item.apiHttpStatus??null,
+      publicApiMatches:apiMatches,publicApiHealthy:apiHealthy,
+      state,
       apiVerified:false,hostRouteVerified:false,uatApproved:false,
-      note:verified?'Frontend manifest matches; host API, route and approval are still unverified.':
-        'Public frontend does not serve the candidate SHA yet; do not treat staging as complete.'}
+      note:state==='public_manifests_match'
+        ?'Public API and frontend manifest SHAs match; signed host routing, authentication and approval still require independent verification.'
+        :state==='api_unavailable_or_mismatch'
+          ?'Frontend matches but public API metadata is missing or mismatched. Block acceptance and check sandbox routing.'
+          :'Public frontend does not serve the candidate SHA yet; do not treat staging as complete.'}
   })
 }
