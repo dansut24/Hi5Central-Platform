@@ -313,7 +313,7 @@ function TenantEditor({ tenant, onSaved }) {
     try{await action();await onSaved()}catch(err){setError(err.message)}finally{setBusy('')}
   }
   async function save(){
-    await run('save',()=>api(`/tenants/${tenant.id}`,{method:'PATCH',body:JSON.stringify(draft)}))
+    await run('save',()=>api(`/tenants/${tenant.id}`,{method:'PATCH',body:JSON.stringify({companyName:draft.companyName,modules:draft.modules})}))
   }
   async function requestTransfer(){
     await run('owner',async()=>{
@@ -344,7 +344,7 @@ function TenantEditor({ tenant, onSaved }) {
     </div>
     <div className="h5a-tenant-edit-grid">
       <label>Company name<input value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})}/></label>
-      <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value})}><option value="active">Active</option><option value="pending_verification">Pending</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></label>
+      <label>Status<input value={tenant.status} readOnly title="Tenant access states are managed through the audited lifecycle controls."/></label>
       <label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label>
       <label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label>
       <button className="rmm-primary compact" onClick={save} disabled={Boolean(busy)}>{busy==='save'?'Saving…':'Save tenant'}</button>
