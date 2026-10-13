@@ -8,6 +8,7 @@ on:
       - 'services/api/migrations/platform-admin/153_shared_database_backup_evidence.sql'
       - 'services/api/test/platform-tenant-overview.mjs'
       - 'services/api/test/platform-tenant-overview-routes.mjs'
+      - 'services/api/test/platform-tenant-lifecycle-safety.mjs'
       - 'services/api/test/onboarding-resume-release.mjs'
       - 'services/api/test/onboarding-completion-email.mjs'
       - 'services/api/migrations/identity-access/150_onboarding_completion_emails.sql'
@@ -66,7 +67,7 @@ jobs:
       - run: npm ci
       - run: node --check src/index.js && node --check src/tenantRelease.js && node --check src/onboardingCompletionEmail.js && node --check src/mailer.js
       - name: Validate Admin tenant detail and lifecycle modules
-        run: node --check src/platformTenantOverview.js && node --check src/platformTenantLifecycle.js && node --test test/platform-tenant-overview.mjs test/platform-tenant-overview-routes.mjs
+        run: node --check src/platformTenantOverview.js && node --check src/platformTenantLifecycle.js && node --test test/platform-tenant-overview.mjs test/platform-tenant-overview-routes.mjs test/platform-tenant-lifecycle-safety.mjs
       - run: npm run migrate
       - name: Start API with no background workers
         run: |
