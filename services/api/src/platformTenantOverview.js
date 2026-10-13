@@ -58,7 +58,7 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
       WHERE t.id=$1 LIMIT 1`,[id])
     if(!tenant.rowCount)return c.json({error:'Tenant not found.'},404)
     const t=tenant.rows[0]
-    const [devices,envs,offers,backups,invoices]=await Promise.all([
+    const [devices,envs,offers,backups,invoices,featureApprovals,appReviews]=await Promise.all([
       pool.query(`SELECT id,disabled_at,last_telemetry_at,last_authenticated_at,
         websocket_connected_at,websocket_status FROM rmm_agent_devices WHERE tenant_id=$1`,[id]),
       pool.query(`SELECT e.environment,e.status,e.active_release_ref,
@@ -83,6 +83,14 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         total_pence,status,source
         FROM platform_tenant_invoice_records WHERE tenant_id=$1
         ORDER BY issued_at DESC LIMIT 12`,[id]),
+      pool.query(`SELECT feature_key,state,release_ref,staged_at,verified_at,
+        promoted_at,updated_at FROM tenant_feature_release_approvals
+        WHERE tenant_id=$1 AND state NOT IN ('promoted','cancelled')
+        ORDER BY updated_at DESC LIMIT 40`,[id]),
+      pool.query(`SELECT build_sha,status,requested_at,updated_at,
+        reviewed_at FROM tenant_application_release_reviews
+        WHERE tenant_id=$1 AND status NOT IN ('approved','rejected','cancelled','completed')
+        ORDER BY updated_at DESC LIMIT 15`,[id]),
     ])
     const rmmEnabled=Boolean(t.modules?.rmm)
     const total=devices.rows.length
@@ -120,6 +128,11 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         pendingUpdates:pending.filter(o=>o.environment===e.environment),
         lastVerifiedBackup:latestBackup[e.environment]||null,
       })),
+      pendingReleaseReviews:{
+        featureApprovals:featureApprovals.rows,
+        applicationReviews:appReviews.rows,
+        total:featureApprovals.rows.length+appReviews.rows.length+pending.length,
+      },
       updatePolicy:{mode:t.update_mode||'unknown',
         testAutoSync:t.test_auto_sync,uatAutoStage:t.uat_auto_stage,
         liveAutoPromote:t.live_auto_promote,liveDelayHours:t.live_delay_hours,
