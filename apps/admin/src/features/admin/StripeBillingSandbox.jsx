@@ -50,6 +50,7 @@ export function RmmBillingPreview({ tenant, request }) {
     {error ? <div className="h5a-page-error">{error}</div> : null}
     {result ? <div className="h5a-billing-grid">
       <div><small>Billable RMM devices</small><strong>{result.rmm.billable_devices}</strong></div>
+      <div><small>RMM not enabled</small><strong>{result.rmm.module_disabled_devices}</strong></div>
       <div><small>Disabled</small><strong>{result.rmm.disabled_devices}</strong></div>
       <div><small>Offline over 30 days</small><strong>{result.rmm.stale_devices}</strong></div>
       <div><small>Never checked in</small><strong>{result.rmm.never_checked_in_devices}</strong></div>
