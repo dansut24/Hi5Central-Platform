@@ -48,7 +48,7 @@ export function registerPlatformTenantLifecycleRoutes(app,{pool,withTransaction,
       canRequestPurge:purgeEligible({state,deadline:row.restore_deadline,
         legalHold:row.legal_hold,exportCompleted:exportDone}),
       requests:requests.rows,canManage:writeRoles.has(auth.session.role),
-      canRequestPurge:auth.session.role==='owner',executionMode:'review_required_for_data_operations'})
+      canApprovePurgeRequest:auth.session.role==='owner',executionMode:'review_required_for_data_operations'})
   })
   app.post('/api/platform/v1/tenants/:id/lifecycle/:action',async c=>{
     const action=String(c.req.param('action')||'')
