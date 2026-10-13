@@ -80,19 +80,37 @@ export function normaliseStripeWebhookEvent(event) {
   }
 }
 
-export function stripeWebhookConfiguration(env = process.env) {
-  const sandbox = stripeSandboxConfiguration(env)
-  if (!sandbox.configured) return { enabled: false, reason: sandbox.reason }
-  // Never accept Stripe events in UAT, Test pool, or self-hosted runtime.
-  if (deployment.deploymentMode !== 'managed' || deployment.runtimeEnvironment !== 'live') {
-    return { enabled: false, reason: 'central_managed_api_only' }
+export function stripeWebhookConfiguration(env = process.env, runtime = deployment) {
+  if (String(env.STRIPE_BILLING_MODE || '').trim().toLowerCase() !== 'sandbox') {
+    return { enabled: false, reason: 'sandbox_disabled' }
   }
-  if (String(env.STRIPE_WEBHOOK_ENABLED || '').toLowerCase() !== 'true') {
+  const expectedAccountId = String(env.STRIPE_EXPECTED_ACCOUNT_ID || '').trim()
+  if (!/^acct_[A-Za-z0-9]+$/.test(expectedAccountId)) {
+    return { enabled: false, reason: 'expected_account_required' }
+  }
+  const central = runtime.deploymentMode === 'managed'
+    && runtime.runtimeEnvironment === 'live'
+  const isolatedTest = runtime.deploymentMode === 'managed'
+    && runtime.runtimeEnvironment === 'test'
+    && String(env.STRIPE_WEBHOOK_ISOLATED_TEST || '').trim().toLowerCase() === 'true'
+  if (!central && !isolatedTest) {
+    return { enabled: false, reason: 'central_or_isolated_test_only' }
+  }
+  if (central) {
+    // The managed central API must also prove possession of a pinned test-mode Stripe key.
+    const sandbox = stripeSandboxConfiguration(env)
+    if (!sandbox.configured) return { enabled: false, reason: sandbox.reason }
+  }
+  // An isolated Test-only webhook receiver needs only the webhook HMAC secret and pinned
+  // account ID; it deliberately cannot make Stripe API calls or generate charges.
+  if (String(env.STRIPE_WEBHOOK_ENABLED || '').trim().toLowerCase() !== 'true') {
     return { enabled: false, reason: 'webhook_disabled' }
   }
   const secret = String(env.STRIPE_WEBHOOK_SECRET || '').trim()
-  if (!/^whsec_[A-Za-z0-9_-]+$/.test(secret)) return { enabled: false, reason: 'webhook_secret_required' }
-  return { enabled: true, secret, expectedAccountId: sandbox.expectedAccountId }
+  if (!/^whsec_[A-Za-z0-9_-]+$/.test(secret)) {
+    return { enabled: false, reason: 'webhook_secret_required' }
+  }
+  return { enabled: true, secret, expectedAccountId, isolatedTest }
 }
 
 /** Record verified sandbox events once. No entitlements, commercial tables, or Stripe writes. */
