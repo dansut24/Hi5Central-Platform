@@ -67,10 +67,12 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
       [tenantId],
     )
     if (!tenant.rowCount) return c.json({ error: 'Tenant not found.' }, 404)
+    const modules = tenant.rows[0].modules || {}
     const [usage, link] = await Promise.all([
       pool.query(
         `WITH classified AS (
            SELECT CASE
+             WHEN NOT $2::boolean THEN 'module_disabled'
              WHEN disabled_at IS NOT NULL THEN 'disabled'
              WHEN GREATEST(last_authenticated_at,last_telemetry_at,websocket_connected_at) IS NULL
                THEN 'never_checked_in'
@@ -82,12 +84,13 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
          )
          SELECT count(*)::int AS total_devices,
                 count(*) FILTER (WHERE reason='billable')::int AS billable_devices,
+                count(*) FILTER (WHERE reason='module_disabled')::int AS module_disabled_devices,
                 count(*) FILTER (WHERE reason='disabled')::int AS disabled_devices,
                 count(*) FILTER (WHERE reason='stale')::int AS stale_devices,
                 count(*) FILTER (WHERE reason='never_checked_in')::int AS never_checked_in_devices,
                 now() AS as_of, now() - interval '30 days' AS eligible_since
          FROM classified`,
-        [tenantId],
+        [tenantId, Boolean(modules.rmm)],
       ),
       pool.query(
         `SELECT mode, stripe_customer_id, stripe_subscription_id, updated_at
@@ -95,7 +98,6 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
         [tenantId],
       ),
     ])
-    const modules = tenant.rows[0].modules || {}
     return c.json({
       tenant: {
         id: tenant.rows[0].id,
