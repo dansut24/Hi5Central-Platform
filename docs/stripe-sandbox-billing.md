@@ -30,3 +30,18 @@ Eligibility preview: devices are excluded when the tenant does not have RMM enab
 5. QA isolated Managed/Custom tenant paths, staging/rollback, and **separately authorize** any live-mode enablement.
 
 Do not apply this branch to production until migrations, CI and review gates pass.
+
+## Signed event and read-only reconciliation increment
+
+Draft PR #64 adds migrations `151_stripe_sandbox_webhook_ledger.sql` and `152_stripe_multi_subscription_links.sql`. The latter allows one test customer to have an independently linked ITSM, RMM, or combined Stripe subscription; it does **not** link any tenant automatically.
+
+Authenticated Platform Billing read-only endpoints (requires owner/admin/billing role):
+
+- `GET /api/platform/v1/billing/stripe/payments`: freshly retrieves current test-mode PaymentIntents from the pinned Stripe sandbox; **no production payment access**.
+- `GET /api/platform/v1/billing/stripe/events`: lists signed webhook receipt audit rows stored locally; may be empty before a configured webhook destination delivers events.
+- `GET /api/platform/v1/billing/tenants/:tenantId/stripe/reconcile-preview`: reads linked customer subscriptions and invoices directly from Stripe, returning a safe `linked:false` response otherwise. Shows subscription status, quantities, totals, invoice paid/remaining, but does **not** write any commercial settings.
+- `POST /api/platform/v1/billing/stripe/webhook`: **not yet activated** signed Stripe endpoint, guarded by sandbox key, account pinning, runtime, enable switch and signing secret; no tenant entitlements are changed.
+
+The webhook ledger only treats a subscription-scoped event as linked if both the test-mode Stripe customer and subscription associations match the same tenant. Signed event receipt does not imply an entitlement. No customer/subscription mappings have been created for real QA tenants yet. Actual billing synchronization, migration rollout, VAT configuration, subscription upgrades/cancellation, checkout integration into onboarding and live payments remain blocked on additional QA and approval.
+
+**Do not merge or deploy until the full PR CI checks pass.**
