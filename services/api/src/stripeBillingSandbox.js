@@ -52,6 +52,33 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
     }
   })
 
+  app.get('/api/platform/v1/billing/stripe/payments', async c => {
+    const auth = await requireAdmin(c, ROLES)
+    if (auth.error) return auth.error
+    const cfg = stripeSandboxConfiguration()
+    if (!cfg.configured) return c.json({ error: 'Stripe sandbox is not configured.', reason: cfg.reason }, 409)
+    const max = Number(c.req.query('limit') || 20)
+    const limit = Number.isInteger(max) ? Math.max(1,Math.min(max,40)) : 20
+    try {
+      await readStripeAccount(cfg) // Pin API key to the explicitly authorized sandbox.
+      const response = await fetch('https://api.stripe.com/v1/payment_intents?limit=' + limit, {
+        method:'GET',headers:{Authorization:'Bearer ' + cfg.secretKey},signal:AbortSignal.timeout(8000),
+      })
+      if (!response.ok) return c.json({ error: 'Stripe sandbox payments unavailable.' }, 503)
+      const page = await response.json()
+      const payments = (page.data || []).filter(item => item.livemode === false)
+        .map(item => ({
+          id: item.id, status: item.status, currency: item.currency,
+          amountPence: Number(item.amount || 0), amountReceivedPence: Number(item.amount_received || 0),
+          customerId: typeof item.customer === 'string' ? item.customer : null,
+          createdAt: item.created ? new Date(item.created * 1000).toISOString() : null,
+        }))
+      return c.json({ mode:'sandbox', payments, hasMore:Boolean(page.has_more) })
+    } catch {
+      return c.json({ error: 'Stripe sandbox payments unavailable.' }, 503)
+    }
+  })
+
   app.get('/api/platform/v1/billing/stripe/events', async c => {
     const auth = await requireAdmin(c, ROLES)
     if (auth.error) return auth.error
