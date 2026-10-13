@@ -127,7 +127,7 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         ...e,verifiedBuildSha:e.pool_verified_at&&e.assigned_build_sha===e.pool_build_sha
           ?e.assigned_build_sha:null,
         versionConfidence:e.pool_verified_at&&e.assigned_build_sha===e.pool_build_sha
-          ?'host_recorded':'unverified',
+          ?'pool_record_only':'unverified',
         pendingUpdates:pending.filter(o=>o.environment===e.environment),
         lastVerifiedBackup:latestBackup[e.environment]||null,
       })),
