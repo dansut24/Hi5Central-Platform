@@ -36,6 +36,10 @@ export function TenantAdminDetail({tenant,fetchOverview,onBack,editTenant,editBi
   const environments=summary?.environments||[]
   const invoices=summary?.invoices?.items||[]
   const available=Boolean(summary)
+  const platformBackup=summary?.backup?.sharedPlatformDatabase
+  const tenantBackupDates=Object.values(summary?.backup?.environments||{})
+    .map(b=>b.completed_at).filter(Boolean).sort()
+  const tenantBackupAt=tenantBackupDates.at(-1)||null
   return <div className="h5a-tenant-detail" data-tenant-admin-id={tenant.id}>
     <div className="h5a-detail-heading">
       <div>
@@ -53,9 +57,8 @@ export function TenantAdminDetail({tenant,fetchOverview,onBack,editTenant,editBi
       <div><Building2 size={17}/><small>Subscription</small><strong>{s.status||tenant.billing_status||'Not set'}</strong></div>
       <div><CalendarClock size={17}/><small>Renewal / trial</small><strong>{date(s.renewalAt||s.trialEndsAt||tenant.renewal_at||tenant.trial_ends_at)}</strong></div>
       <div><Activity size={17}/><small>Billable RMM devices</small><strong>{d?.billable??'Not verified'}</strong></div>
-      <div><HardDrive size={17}/><small>Last verified backup</small><strong>{summary?.backup?.availability==='verified_records'
-        ?date(Object.values(summary.backup.environments||{}).map(x=>x.completed_at).sort().at(-1))
-        :'Not available'}</strong></div>
+      <div><HardDrive size={17}/><small>{tenantBackupAt?'Last tenant backup':platformBackup?'Shared Production DB archive':'Backup evidence'}</small>
+        <strong>{tenantBackupAt?date(tenantBackupAt):platformBackup?date(platformBackup.archiveAt):'Not available'}</strong></div>
     </div>
     <div className="h5a-detail-grid">
       <Panel title="Products and subscription" subtitle="Customer entitlements and the recorded commercial settings">
@@ -110,7 +113,17 @@ export function TenantAdminDetail({tenant,fetchOverview,onBack,editTenant,editBi
           {!summary.pendingReleaseReviews.total?<p className="h5a-detail-muted">No pending updates have been recorded by the release control plane.</p>:null}
         </>:<p className="h5a-detail-muted">Pending feature-approval data is not yet available.</p>}
       </Panel>
-      <Panel title="Backups and retention" subtitle="Verified backup metadata only — never a guessed backup">
+      <Panel title="Backups and retention" subtitle="Tenant-specific restore points and separately checked shared database archives">
+        {platformBackup?<div className="h5a-env-row">
+          <div className="h5a-env-title"><strong>Shared Production database archive</strong><span>{platformBackup.isolatedRestoreTested?'Restore tested':'Archive inspected — restore not yet tested'}</span></div>
+          <div className="h5a-detail-fields">
+            <Field label="Archive date">{date(platformBackup.archiveAt)}</Field>
+            <Field label="Total shared archive size">{size(platformBackup.sizeBytes)}</Field>
+            <Field label="Integrity checked">{date(platformBackup.inspectedAt)}</Field>
+            <Field label="Source">{platformBackup.sourceLabel}</Field>
+          </div>
+          <p className="h5a-detail-muted">This backup covers the shared Production database. Its size is not a per-tenant data size, and it is not an individually restorable tenant backup. Test and UAT backups require their own evidence.</p>
+        </div>:<p className="h5a-detail-muted">No inspected shared Production database archive is recorded.</p>}
         {environments.length?<div className="h5a-env-list">{environments.map(e=><div className="h5a-detail-fields" key={e.environment}>
           <Field label={e.environment.toUpperCase()+' backup date'}>{date(e.lastVerifiedBackup?.completed_at)}</Field>
           <Field label="Backup size">{size(e.lastVerifiedBackup?.size_bytes)}</Field>
