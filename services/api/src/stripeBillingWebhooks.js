@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
-import { pool, withTransaction } from './db.js'
+import { withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { stripeSandboxConfiguration } from './stripeBillingSandbox.js'
 
@@ -30,7 +30,7 @@ const RELEVANT_EVENTS = new Set([
 /** Signature verification must use the original bytes, never a JSON re-serialization. */
 export function verifyStripeWebhookSignature(rawBody, header, webhookSecret, nowMs = Date.now()) {
   if (!Buffer.isBuffer(rawBody) || rawBody.length === 0 || rawBody.length > MAX_BODY_BYTES) return false
-  if (typeof header !== 'string' || !/^whsec_[A-Za-z0-9]+$/.test(webhookSecret || '')) return false
+  if (typeof header !== 'string' || !/^whsec_[A-Za-z0-9_-]+$/.test(webhookSecret || '')) return false
   const values = header.split(',').map(part => part.trim().split('='))
   const timestamps = values.filter(part => part.length === 2 && part[0] === 't')
   const signatures = values.filter(part => part.length === 2 && part[0] === 'v1')
@@ -91,12 +91,12 @@ export function stripeWebhookConfiguration(env = process.env) {
     return { enabled: false, reason: 'webhook_disabled' }
   }
   const secret = String(env.STRIPE_WEBHOOK_SECRET || '').trim()
-  if (!/^whsec_[A-Za-z0-9]+$/.test(secret)) return { enabled: false, reason: 'webhook_secret_required' }
+  if (!/^whsec_[A-Za-z0-9_-]+$/.test(secret)) return { enabled: false, reason: 'webhook_secret_required' }
   return { enabled: true, secret, expectedAccountId: sandbox.expectedAccountId }
 }
 
 /** Record verified sandbox events once. No entitlements, commercial tables, or Stripe writes. */
-export async function recordVerifiedSandboxStripeEvent(event, payloadSha256, database = pool) {
+export async function recordVerifiedSandboxStripeEvent(event, payloadSha256) {
   const normalised = normaliseStripeWebhookEvent(event)
   if (!normalised) throw new Error('invalid_stripe_event')
   return withTransaction(async db => {
