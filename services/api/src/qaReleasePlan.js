@@ -60,7 +60,7 @@ export function assessPublicRelease(plan,results){
     const api=String(item.apiSha||'').trim().toLowerCase()
     const apiMatches=sha.test(api)&&api===plan.buildSha&&item.apiHttpStatus===200
     const apiHealthy=sha.test(api)&&item.apiHttpStatus===200
-    const state=!apiHealthy?'api_unavailable_or_mismatch':!verified?'not_yet_staged':!apiMatches?'api_unavailable_or_mismatch':'public_manifests_match'
+    const state=item.apiHttpStatus!=null&&!apiHealthy?'api_unavailable_or_mismatch':!verified?'not_yet_staged':!apiMatches?'api_unavailable_or_mismatch':'public_manifests_match'
     return {host:item.host,frontendSha:sha.test(observed)?observed:null,
       publicFrontendMatches:verified,
       apiSha:sha.test(api)?api:null,apiHttpStatus:item.apiHttpStatus??null,
