@@ -5,6 +5,7 @@ on:
       - 'services/api/src/**'
       - 'services/api/migrations/platform-admin/151_admin_tenant_lifecycle.sql'
       - 'services/api/migrations/platform-admin/152_tenant_admin_financial_backup.sql'
+      - 'services/api/migrations/platform-admin/153_shared_database_backup_evidence.sql'
       - 'services/api/test/platform-tenant-overview.mjs'
       - 'services/api/test/platform-tenant-overview-routes.mjs'
       - 'services/api/test/onboarding-resume-release.mjs'
