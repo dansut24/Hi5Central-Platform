@@ -10,6 +10,7 @@ on:
       - 'services/api/test/stripe-webhook-ledger.mjs'
       - 'services/api/src/stripeBillingWebhooks.js'
       - 'services/api/migrations/platform-admin/151_stripe_sandbox_webhook_ledger.sql'
+      - 'services/api/migrations/platform-admin/152_stripe_multi_subscription_links.sql'
       - 'services/api/src/index.js'
       - 'apps/admin/src/features/admin/StripeBillingSandbox.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
