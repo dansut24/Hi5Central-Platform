@@ -49,6 +49,7 @@ import { sendVerificationEmail, verifySmtpConnection } from './mailer.js'
 import { registerOrganisationRoutes } from './organisation.js'
 import { buildOpenApiDocument } from './openapi.js'
 import { registerPlatformAdminRoutes } from './platformAdmin.js'
+import { registerStripeBillingWebhookRoutes } from './stripeBillingWebhooks.js'
 import { registerReleaseOperatorRoutes } from './releaseOperator.js'
 import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseFeed.js'
 import { registerProjectRoutes } from './projects.js'
@@ -716,6 +717,7 @@ app.use('/api/platform/v1/*', async (c, next) => {
 })
 
 registerPlatformAdminRoutes(app)
+registerStripeBillingWebhookRoutes(app)
 registerReleaseOperatorRoutes(app)
 registerReleaseFeedRoutes(app)
 registerLicenseAuthorityRoutes(app)
