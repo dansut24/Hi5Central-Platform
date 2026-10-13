@@ -1,6 +1,6 @@
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
-import {billableDeviceCount,estimateDeviceCharge,BILLING_IDLE_DAYS} from '../src/platformTenantOverview.js'
+import {billableDeviceCount,connectedDeviceCount,estimateDeviceCharge,BILLING_IDLE_DAYS} from '../src/platformTenantOverview.js'
 
 const now='2026-10-13T12:00:00.000Z'
 const daysAgo=d=>new Date(new Date(now).getTime()-d*86400000).toISOString()
@@ -35,4 +35,15 @@ test('device billing remains an estimate, never a fabricated invoice',()=>{
   assert.equal(missing.estimatedMonthlyPence,null)
   assert.equal(estimateDeviceCharge({rmmEnabled:false,basePence:1000,perDevicePence:null,billableCount:99}).estimatedMonthlyPence,1000)
   assert.throws(()=>estimateDeviceCharge({rmmEnabled:true,basePence:1000,perDevicePence:-1,billableCount:3}))
+})
+
+test('connected is fresh within five minutes, independent of monthly billing',()=>{
+  const devices=[
+    {websocket_status:'Connected',last_telemetry_at:new Date(new Date(now).getTime()-2*60000).toISOString()},
+    {websocket_status:'Connected',last_telemetry_at:daysAgo(1)},
+    {websocket_status:'Disconnected',last_telemetry_at:new Date(new Date(now).getTime()-60000).toISOString()},
+    {websocket_status:'Connected',last_telemetry_at:new Date(new Date(now).getTime()-60000).toISOString(),disabled_at:daysAgo(1)},
+  ]
+  assert.equal(connectedDeviceCount(devices,new Date(now)),1)
+  assert.equal(billableDeviceCount(devices,new Date(now)),3)
 })
