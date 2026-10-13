@@ -22,7 +22,14 @@ test('tenant overview enforces UUID input and scopes all data reads to exactly o
   const old=new Date(Date.now()-32*86400000).toISOString()
   const pool={async query(text,args){
     sqlRead.push({text,args})
-    assert.deepEqual(args,[id],'A tenant-scoped query cannot access other organisations')
+    if(text.includes('FROM platform_database_backup_evidence')){
+      assert.equal(args,undefined,'Platform evidence query must not access customer IDs')
+      return {rows:[{environment:'live',coverage:'shared_database',
+        archive_created_at:'2026-10-13T19:30:19Z',archive_bytes:36324078,
+        inspected_at:'2026-10-13T21:00:00Z',inspection:'archive_list_checked',
+        restore_tested_at:null,source_label:'admin-deployment-preflight'}]}
+    }
+    assert.deepEqual(args,[id],'Tenant-scoped queries must not access other organisations')
     if(text.includes('FROM tenants t JOIN tenant_settings'))
       return {rows:[{
         id,slug:'example-tenant',company_name:'Example Tenant',status:'active',
@@ -60,5 +67,8 @@ test('tenant overview enforces UUID input and scopes all data reads to exactly o
   assert.equal(body.backup.availability,'no_verified_backup_records')
   assert.equal(body.invoices.items.length,0)
   assert.equal(body.environments[0].versionConfidence,'unverified')
-  assert.equal(sqlRead.length,8)
+  assert.equal(body.backup.sharedPlatformDatabase.perTenantRestorePoint,false)
+  assert.equal(body.backup.sharedPlatformDatabase.isolatedRestoreTested,false)
+  assert.equal(body.backup.sharedPlatformDatabase.sizeBytes,36324078)
+  assert.equal(sqlRead.length,9)
 })
