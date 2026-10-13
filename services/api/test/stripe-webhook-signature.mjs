@@ -73,6 +73,19 @@ test('normalises monetary evidence but never interprets zero-amount invoice as r
   }).amountPaidPence,0)
 })
 
+test('normalises nested invoice subscription but does not invent one when absent', () => {
+  const event = {
+    ...fakeEvent,
+    id: 'evt_CiNestedSubscriptionInvoice',
+    data: {object:{
+      ...fakeEvent.data.object,
+      parent:{subscription_details:{subscription:'sub_CiNestedSubscription123'}},
+    }},
+  }
+  assert.equal(normaliseStripeWebhookEvent(event).subscriptionId,'sub_CiNestedSubscription123')
+  assert.equal(normaliseStripeWebhookEvent(fakeEvent).subscriptionId,null)
+})
+
 test('rejects live-mode events and malformed IDs', () => {
   assert.equal(normaliseStripeWebhookEvent({ ...fakeEvent, livemode: true }), null)
   assert.equal(normaliseStripeWebhookEvent({ ...fakeEvent, id:'invalid' }), null)
