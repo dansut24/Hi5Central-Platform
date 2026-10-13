@@ -60,5 +60,5 @@ test('tenant overview enforces UUID input and scopes all data reads to exactly o
   assert.equal(body.backup.availability,'no_verified_backup_records')
   assert.equal(body.invoices.items.length,0)
   assert.equal(body.environments[0].versionConfidence,'unverified')
-  assert.equal(sqlRead.length,9)
+  assert.equal(sqlRead.length,8)
 })
