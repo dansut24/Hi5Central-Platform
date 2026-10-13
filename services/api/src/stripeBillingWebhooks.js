@@ -111,10 +111,18 @@ export async function recordVerifiedSandboxStripeEvent(event, payloadSha256) {
     let tenantId = null
     if (normalised.supported && normalised.customerId) {
       const link = await db.query(
-        `SELECT tenant_id FROM tenant_stripe_billing_links
-           WHERE mode='test' AND stripe_customer_id=$1
-             AND (stripe_subscription_id IS NULL OR $2::text IS NULL OR stripe_subscription_id=$2)
-           LIMIT 1`,
+        `SELECT link.tenant_id FROM tenant_stripe_billing_links link
+          WHERE link.mode='test' AND link.stripe_customer_id=$1
+            AND (
+              $2::text IS NULL
+              OR link.stripe_subscription_id=$2
+              OR EXISTS (
+                SELECT 1 FROM tenant_stripe_subscription_links subscribed
+                 WHERE subscribed.tenant_id=link.tenant_id AND subscribed.mode='test'
+                   AND subscribed.stripe_subscription_id=$2
+              )
+            )
+          LIMIT 1`,
         [normalised.customerId, normalised.subscriptionId],
       )
       tenantId = link.rows[0]?.tenant_id || null
