@@ -101,3 +101,41 @@ export function StripeWebhookReceipts({ request }) {
     <small>Zero-value trial invoices are not payment revenue. Signed events alone never activate a tenant.</small>
   </div>
 }
+
+export function StripeSandboxPayments({ request }) {
+  const [result, setResult] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function load() {
+    setBusy(true)
+    setError('')
+    try { setResult(await request('/billing/stripe/payments?limit=20')) }
+    catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
+  return <div className="rmm-card">
+    <div className="rmm-card-heading">
+      <div>
+        <span className="rmm-eyebrow">STRIPE · VERIFIED READ-ONLY TEST PAYMENTS</span>
+        <h2>Recent sandbox payments</h2>
+        <p>Read directly from Stripe in test mode. Payments are not automatically linked to tenants or used to provision access.</p>
+      </div>
+      <button type="button" className="rmm-secondary compact" onClick={load} disabled={busy}>
+        {busy ? 'Checking…' : 'Load payments'}
+      </button>
+    </div>
+    {error ? <div className="h5a-page-error">{error}</div> : null}
+    {result && result.payments.length === 0 ? <p>No sandbox payment attempts found.</p> : null}
+    {result && result.payments.length > 0 ? <div className="h5a-table-wrap"><table>
+      <thead><tr><th>Created</th><th>Payment ID</th><th>Status</th><th>Amount paid</th></tr></thead>
+      <tbody>{result.payments.map(payment => <tr key={payment.id}>
+        <td>{payment.createdAt ? new Date(payment.createdAt).toLocaleString() : '—'}</td>
+        <td><code>{payment.id}</code></td>
+        <td>{payment.status}</td>
+        <td>{new Intl.NumberFormat('en-GB',{style:'currency',currency:(payment.currency||'gbp').toUpperCase()}).format(
+          (payment.status==='succeeded'?payment.amountReceivedPence:0)/100)}</td>
+      </tr>)}</tbody>
+    </table></div> : null}
+    <small>Only succeeded payments contribute to this amount column. This screen reads the Stripe sandbox; it is not an invoice or tax report.</small>
+  </div>
+}
