@@ -88,6 +88,29 @@ test('defaults to disabled and never exposes a webhook without the test-only gat
   }).enabled, false)
 })
 
+test('isolated Test webhook requires an explicit Test-only gate and can run without Stripe API key', () => {
+  const base={
+    STRIPE_BILLING_MODE:'sandbox',
+    STRIPE_EXPECTED_ACCOUNT_ID:'acct_SandboxTest123',
+    STRIPE_WEBHOOK_ENABLED:'true',
+    STRIPE_WEBHOOK_SECRET:secret,
+  }
+  const testRuntime={deploymentMode:'managed',runtimeEnvironment:'test'}
+  assert.equal(stripeWebhookConfiguration(base,testRuntime).enabled,false)
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true'},testRuntime).enabled,true)
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true'},
+    {deploymentMode:'managed',runtimeEnvironment:'uat'}).enabled,false)
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true'},
+    {deploymentMode:'self_hosted',runtimeEnvironment:'test'}).enabled,false)
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true',STRIPE_SECRET_KEY:'sk_live_bad'},
+    testRuntime).enabled,true) // never used: isolated Test receiver has NO Stripe outbound API writes
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_BILLING_MODE:'live',
+    STRIPE_WEBHOOK_ISOLATED_TEST:'true'},testRuntime).enabled,false)
+  assert.equal(stripeWebhookConfiguration(base,{deploymentMode:'managed',runtimeEnvironment:'live'}).enabled,false)
+  assert.equal(stripeWebhookConfiguration({...base,STRIPE_SECRET_KEY:'sk_test_dummy'},
+    {deploymentMode:'managed',runtimeEnvironment:'live'}).enabled,true)
+})
+
 test('HTTP webhook endpoint is hidden unless explicitly enabled', async () => {
   const app = new Hono()
   registerStripeBillingWebhookRoutes(app)
