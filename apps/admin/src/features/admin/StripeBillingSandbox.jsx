@@ -60,3 +60,44 @@ export function RmmBillingPreview({ tenant, request }) {
     {result ? <small>Checked {new Date(result.rmm.as_of).toLocaleString()}. Stripe invoice generated: No.</small> : null}
   </details>
 }
+
+export function StripeWebhookReceipts({ request }) {
+  const [rows, setRows] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  async function refresh() {
+    setBusy(true)
+    setError('')
+    try {
+      const data = await request('/billing/stripe/events?limit=20')
+      setRows(data.receipts || [])
+    } catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
+  return <div className="rmm-card">
+    <div className="rmm-card-heading">
+      <div>
+        <span className="rmm-eyebrow">STRIPE SANDBOX · WEBHOOK AUDIT</span>
+        <h2>Verified payment events</h2>
+        <p>Only signed events received by Hi5Central appear here. This is separate from the Stripe Dashboard and does not modify tenant access.</p>
+      </div>
+      <button type="button" className="rmm-secondary compact" onClick={refresh} disabled={busy}>
+        {busy ? 'Checking…' : 'Load events'}
+      </button>
+    </div>
+    {error ? <div className="h5a-page-error">{error}</div> : null}
+    {rows && rows.length === 0 ? <p>No signed Stripe events received yet. Configure the sandbox webhook destination to start recording events.</p> : null}
+    {rows && rows.length > 0 ? <div className="h5a-table-wrap"><table>
+      <thead><tr><th>Received</th><th>Event</th><th>Link</th><th>Paid value</th></tr></thead>
+      <tbody>{rows.map(row => <tr key={row.id}>
+        <td>{new Date(row.receivedAt).toLocaleString()}</td>
+        <td>{row.type}</td>
+        <td>{row.resolution}</td>
+        <td>{row.amountPaidPence == null ? '—' : new Intl.NumberFormat('en-GB',{
+          style:'currency',currency:(row.currency || 'gbp').toUpperCase()
+        }).format(row.amountPaidPence / 100)}</td>
+      </tr>)}</tbody>
+    </table></div> : null}
+    <small>Zero-value trial invoices are not payment revenue. Signed events alone never activate a tenant.</small>
+  </div>
+}
