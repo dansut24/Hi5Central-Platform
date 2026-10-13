@@ -49,6 +49,33 @@ Test steps:
 5. After webhook verification has been implemented, repeat these tests against a dedicated signed-test-webhook endpoint and assert idempotent delivery/replay/tenant isolation.
 6. Before merging PR #64: validate build/migration CI and ensure all Stripe API write operations remain isolated to explicitly authorized test-mode flows; never add test secrets to GitHub.
 
+## Payment acceptance results — verified after user's test
+
+Both charges are confirmed successful in Stripe **test mode**:
+
+| Test | Stripe evidence | Outcome |
+| --- | --- | --- |
+| Hosted £29 ITSM Checkout | `cs_test_a1Co1c97t6TUWUaeaX2XfGtnl7X4I8F93OFpX2EYr0afoF7r2e5GzEsLi6`; subscription `sub_1UQCjwBCiFdWXLmOnBnUe2YI`; PaymentIntent `pi_3UQCjvBCiFdWXLmO1iT3qHZD` | Checkout complete, payment paid; charge succeeded, £29.00 |
+| £20 RMM illustrative invoice | `in_1UQCeMBCiFdWXLmOYW6eKyqS`; PaymentIntent `pi_3UQCeWBCiFdWXLmO0q0ZwW58` | Invoice paid, £20.00 received in test mode |
+
+Total test-mode captured payments: **£49.00**. No live money moved. Authenticated Stripe readback found both `payment_intent.succeeded`, `charge.succeeded`, `checkout.session.completed`, and `invoice.paid` events, with sandbox `livemode=false`. Earlier trial-created £0 invoices are separate, not paid card revenue.
+
+## Signed webhook processing (prepared in PR #64; not deployed)
+
+`POST /api/platform/v1/billing/stripe/webhook` is **disabled by default**. Route works only in managed central live runtime when all of:
+
+- `STRIPE_BILLING_MODE=sandbox`
+- `STRIPE_SECRET_KEY=sk_test_...` (or appropriate `rk_test_...` with read permissions)
+- `STRIPE_EXPECTED_ACCOUNT_ID=acct_...`
+- `STRIPE_WEBHOOK_ENABLED=true`
+- `STRIPE_WEBHOOK_SECRET=whsec_...` matching the **sandbox** webhook destination's signing secret
+
+Only after PR and isolated QA approval should operators configure a Stripe **test-mode** webhook destination pointing at the central API host URL. Do **not** reuse a live webhook destination, add fake subscriptions to a real tenant automatically, put secrets in GitHub, or enable this before endpoint routing and database migration are verified. Subscribe to `checkout.session.completed`, `customer.subscription.created/updated/deleted`, `invoice.paid`, `invoice.payment_failed`, `payment_intent.succeeded`, and `payment_intent.payment_failed` (other supported events are optional).
+
+The receiver verifies the raw-body HMAC signature and five-minute timestamp tolerance, refuses live-mode events, checks any Connect account identifier, and stores a minimal receipt keyed by immutable Stripe event ID. Concurrent retries are idempotent. Unmapped synthetic customers are recorded as `unmapped`; a signature alone never creates/activates an entitlement. **No status sync, billing writes, or retrospective Stripe event import is implemented.** Admin Billing displays locally ingested receipts via an authorized read-only endpoint, not a Stripe-wide backfill.
+
+For QA: deploy only a reviewed Test build; verify the public route is not callable before explicit sandbox configuration; configure the test webhook secret on the isolated appropriate instance (never in a commit); submit a Stripe sandbox event; confirm one receipt despite retry; verify no other tenant is updated. Current code intentionally requires the central managed API runtime and will **not** activate a sandbox webhook on Test/UAT pools; test unit/HTTP acceptance in isolated CI first and plan approved routing before any public activation.
+
 ## Outstanding launch gates
 
 - Stripe webhooks with strict signature validation, replay/idempotency, correct tenant ownership and monetary state reconciliation.
