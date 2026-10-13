@@ -22,13 +22,14 @@ CREATE TABLE IF NOT EXISTS tenant_rmm_billing_snapshots (
   eligible_since timestamptz NOT NULL,
   total_devices integer NOT NULL CHECK (total_devices >= 0),
   billable_devices integer NOT NULL CHECK (billable_devices >= 0),
+  module_disabled_devices integer NOT NULL CHECK (module_disabled_devices >= 0),
   disabled_devices integer NOT NULL CHECK (disabled_devices >= 0),
   stale_devices integer NOT NULL CHECK (stale_devices >= 0),
   never_checked_in_devices integer NOT NULL CHECK (never_checked_in_devices >= 0),
   captured_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (tenant_id, billing_period_start),
   CHECK (EXTRACT(DAY FROM billing_period_start) = 1),
-  CHECK (billable_devices + disabled_devices + stale_devices + never_checked_in_devices = total_devices),
+  CHECK (billable_devices + module_disabled_devices + disabled_devices + stale_devices + never_checked_in_devices = total_devices),
   CHECK (eligible_since <= as_of)
 );
 CREATE INDEX IF NOT EXISTS tenant_rmm_billing_snapshots_period_idx
