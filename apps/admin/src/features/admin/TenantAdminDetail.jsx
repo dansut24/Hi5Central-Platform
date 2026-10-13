@@ -96,6 +96,20 @@ export function TenantAdminDetail({tenant,fetchOverview,onBack,editTenant,editBi
         </div>)}</div>:<p className="h5a-detail-muted">Verified environment assignments and pending updates are not available from this Admin build.</p>}
         <p className="h5a-detail-muted">Runtime version displays only when a recorded assignment matches a verified pool. Public host routing still requires an independent deployment attestation.</p>
       </Panel>
+      <Panel title="Pending application and feature updates" subtitle="Customer-specific change approvals, separate from deployment offers">
+        {summary?.pendingReleaseReviews?<>
+          <Field label="Outstanding tracked changes">{summary.pendingReleaseReviews.total}</Field>
+          {summary.pendingReleaseReviews.featureApprovals.map((change,i)=><div className="h5a-invoice-row" key={change.feature_key+i}>
+            <strong>{change.feature_key}</strong><span>{change.state}</span>
+            <small>Release {change.release_ref||'Unspecified'} · staged {date(change.staged_at)}</small>
+          </div>)}
+          {summary.pendingReleaseReviews.applicationReviews.map((change,i)=><div className="h5a-invoice-row" key={change.build_sha+i}>
+            <strong>{String(change.build_sha).slice(0,12)}</strong><span>{change.status}</span>
+            <small>Requested {date(change.requested_at)}</small>
+          </div>)}
+          {!summary.pendingReleaseReviews.total?<p className="h5a-detail-muted">No pending updates have been recorded by the release control plane.</p>:null}
+        </>:<p className="h5a-detail-muted">Pending feature-approval data is not yet available.</p>}
+      </Panel>
       <Panel title="Backups and retention" subtitle="Verified backup metadata only — never a guessed backup">
         {environments.length?<div className="h5a-env-list">{environments.map(e=><div className="h5a-detail-fields" key={e.environment}>
           <Field label={e.environment.toUpperCase()+' backup date'}>{date(e.lastVerifiedBackup?.completed_at)}</Field>
