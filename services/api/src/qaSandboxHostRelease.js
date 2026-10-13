@@ -59,3 +59,12 @@ export async function runQaSandboxHostTransaction({
     intent,signature,publicKeyPem,adapter,now,applyEnabled,
   })
 }
+
+// A signed base tenant identity maps to a distinct runtime identity per sandbox.
+// Never accept a candidate locked to a different tenant or environment.
+export function assertQaSandboxRuntimeIdentity({scope,runtimeEnvironment,runtimeTenantSlug}){
+  if(!scope||!['test','uat'].includes(scope.environment)||
+      runtimeEnvironment!==scope.environment||
+      runtimeTenantSlug!==`${scope.tenantSlug}-${scope.environment}`)
+    throw Error('Candidate pool lacks tenant and environment isolation')
+}
