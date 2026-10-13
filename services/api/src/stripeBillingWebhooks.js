@@ -96,6 +96,10 @@ export function stripeWebhookConfiguration(env = process.env, runtime = deployme
   if (!central && !isolatedTest) {
     return { enabled: false, reason: 'central_or_isolated_test_only' }
   }
+  const suppliedKey = String(env.STRIPE_SECRET_KEY || '').trim()
+  if (isolatedTest && suppliedKey && !/^(sk|rk)_test_/.test(suppliedKey)) {
+    return { enabled: false, reason: 'live_key_forbidden' }
+  }
   if (central) {
     // The managed central API must also prove possession of a pinned test-mode Stripe key.
     const sandbox = stripeSandboxConfiguration(env)
