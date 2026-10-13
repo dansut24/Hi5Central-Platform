@@ -87,7 +87,7 @@ export function TenantAdminDetail({tenant,fetchOverview,onBack,editTenant,editBi
         {environments.length?<div className="h5a-env-list">{environments.map(e=><div className="h5a-env-row" key={e.environment}>
           <div className="h5a-env-title"><strong>{e.environment==='live'?'Production':e.environment.toUpperCase()}</strong><span>{e.status||'Unknown'}</span></div>
           <div className="h5a-detail-fields">
-            <Field label="Verified runtime version">{e.verifiedBuildSha?.slice(0,12)||'Not host-verified'}</Field>
+            <Field label="Assigned verified-pool SHA">{e.verifiedBuildSha?.slice(0,12)||'No verified pool assignment'}</Field>
             <Field label="Recorded release">{e.active_release_ref||'None recorded'}</Field>
             <Field label="Last deployed">{date(e.last_deployed_at||e.assigned_at)}</Field>
             <Field label="Pending updates">{e.pendingUpdates?.length||0}</Field>
