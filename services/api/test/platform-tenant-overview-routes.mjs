@@ -23,7 +23,7 @@ test('tenant overview enforces UUID input and scopes all data reads to exactly o
   const pool={async query(text,args){
     sqlRead.push({text,args})
     if(text.includes('FROM platform_database_backup_evidence')){
-      assert.equal(args,undefined,'Platform evidence query must not access customer IDs')
+      assert.deepEqual(args,['2026-10-11T09:00:00Z'],'Platform archive must postdate onboarding completion')
       return {rows:[{environment:'live',coverage:'shared_database',
         archive_created_at:'2026-10-13T19:30:19Z',archive_bytes:36324078,
         inspected_at:'2026-10-13T21:00:00Z',inspection:'archive_list_checked',
@@ -33,6 +33,7 @@ test('tenant overview enforces UUID input and scopes all data reads to exactly o
     if(text.includes('FROM tenants t JOIN tenant_settings'))
       return {rows:[{
         id,slug:'example-tenant',company_name:'Example Tenant',status:'active',
+        created_at:'2026-10-10T09:00:00Z',onboarding_completed_at:'2026-10-11T09:00:00Z',
         modules:{itsm:true,rmm:true},plan_key:'pro',billing_status:'trial',
         billing_cycle:'monthly',currency:'GBP',base_monthly_price_pence:1200,
         rmm_device_price_pence:300,trial_ends_at:'2026-11-01T00:00:00Z',
