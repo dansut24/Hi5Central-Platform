@@ -139,3 +139,49 @@ export function StripeSandboxPayments({ request }) {
     <small>Only succeeded payments contribute to this amount column. This screen reads the Stripe sandbox; it is not an invoice or tax report.</small>
   </div>
 }
+
+export function StripeTenantReconciliation({ tenant, request }) {
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function inspect() {
+    setBusy(true)
+    setError('')
+    try {
+      setResult(await request('/billing/tenants/' + encodeURIComponent(tenant.id) + '/stripe/reconcile-preview'))
+    } catch (err) { setError(err.message) }
+    finally { setBusy(false) }
+  }
+  function money(value, currency='gbp') {
+    if (value == null) return '—'
+    return new Intl.NumberFormat('en-GB',{style:'currency',currency:currency.toUpperCase()}).format(Number(value)/100)
+  }
+  return <details className="h5a-billing-preview">
+    <summary>Stripe sandbox subscription and invoice reconciliation</summary>
+    <p>Reads a tenant's explicitly linked Stripe test customer only. Nothing is written to tenant billing settings.</p>
+    <button type="button" className="rmm-secondary compact" disabled={busy} onClick={inspect}>
+      {busy ? 'Checking Stripe…' : result ? 'Refresh Stripe records' : 'Inspect Stripe records'}
+    </button>
+    {error ? <div className="h5a-page-error">{error}</div> : null}
+    {result && !result.linked ? <p>No Stripe test customer is explicitly linked to this tenant. No automatic linkage will be made.</p> : null}
+    {result?.linked ? <>
+      <p>Stripe customer: <code>{result.customerId}</code></p>
+      <div className="h5a-table-wrap"><table>
+        <thead><tr><th>Subscription</th><th>Status</th><th>Billing items</th></tr></thead>
+        <tbody>{result.subscriptions.map(item => <tr key={item.id}>
+          <td><code>{item.id}</code></td><td>{item.status}</td>
+          <td>{item.items.map(row => (row.quantity ?? '—') + ' × ' + money(row.unitAmountPence,row.currency||'gbp') + ' / ' + (row.billingInterval||'cycle')).join('; ')}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <div className="h5a-table-wrap"><table>
+        <thead><tr><th>Invoice</th><th>Status</th><th>Paid</th><th>Remaining</th></tr></thead>
+        <tbody>{result.invoices.map(invoice => <tr key={invoice.id}>
+          <td>{invoice.number || invoice.id}</td><td>{invoice.status}</td>
+          <td>{money(invoice.amountPaidPence,invoice.currency||'gbp')}</td>
+          <td>{money(invoice.amountRemainingPence,invoice.currency||'gbp')}</td>
+        </tr>)}</tbody>
+      </table></div>
+      <small>{result.note}</small>
+    </> : null}
+  </details>
+}
