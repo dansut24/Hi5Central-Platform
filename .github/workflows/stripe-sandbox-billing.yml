@@ -1,0 +1,56 @@
+name: Stripe Sandbox Billing Foundation
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/stripeBillingSandbox.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/migrations/platform-admin/150_stripe_sandbox_billing_foundation.sql'
+      - 'services/api/test/stripe-sandbox-guards.mjs'
+      - 'apps/admin/src/features/admin/StripeBillingSandbox.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - '.github/workflows/stripe-sandbox-billing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: hi5_stripe_ci
+          POSTGRES_USER: hi5_stripe_ci
+          POSTGRES_PASSWORD: test_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_stripe_ci -d hi5_stripe_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_stripe_ci:test_only@localhost:5432/hi5_stripe_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install API dependencies
+        working-directory: services/api
+        run: npm ci
+      - name: Validate sandbox guards and API syntax
+        working-directory: services/api
+        run: |
+          node --check src/stripeBillingSandbox.js
+          node --check src/platformAdmin.js
+          node --test test/stripe-sandbox-guards.mjs
+      - name: Migrate isolated PostgreSQL database
+        working-directory: services/api
+        run: npm run migrate
+      - name: Build API runtime
+        working-directory: services/api
+        run: npm run build:runtime
+      - name: Install Admin dependencies
+        working-directory: apps/admin
+        run: npm ci
+      - name: Build Admin application
+        working-directory: apps/admin
+        run: npm run build
