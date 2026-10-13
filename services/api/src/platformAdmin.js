@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import { pool, withTransaction } from './db.js'
+import { registerStripeBillingReadRoutes } from './stripeBillingSandbox.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { verifyPassword } from './password.js'
 import { createSession, resolveSession, setSessionCookie } from './session.js'
@@ -554,6 +555,7 @@ function nullablePositiveInteger(value) {
 }
 
 export function registerPlatformAdminRoutes(app) {
+  registerStripeBillingReadRoutes(app, requireAdmin)
   app.post('/api/platform/v1/auth/login', async (c) => {
     if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
     let body
