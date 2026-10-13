@@ -84,5 +84,44 @@ test('HTTP Stripe webhook accepts authentic sandbox event exactly once', async (
   }
 })
 
+test('subscriber receipts link only when both sandbox customer and subscription mapping match', async () => {
+  const tenant = await pool.query(
+    "INSERT INTO tenants (slug,company_name,status) VALUES ('stripe-ci-tenant', 'Stripe CI synthetic only','active') RETURNING id",
+  )
+  const tenantId = tenant.rows[0].id
+  const customerId='cus_CiMappedCustomer2026'
+  const mappedId='sub_CiMappedSubscription2026'
+  const goodId='evt_CiMappedReceipt2026'
+  const badId='evt_CiWrongSubscription2026'
+  const receipt = (id,subscriptionId) => ({
+    id,created:1791925100,livemode:false,type:'customer.subscription.updated',
+    data:{object:{id:subscriptionId,customer:customerId,status:'active'}},
+  })
+  try {
+    await pool.query(
+      "INSERT INTO tenant_stripe_billing_links (tenant_id,stripe_customer_id) VALUES ($1,$2)",
+      [tenantId,customerId],
+    )
+    await pool.query(
+      "INSERT INTO tenant_stripe_subscription_links (tenant_id,stripe_subscription_id,product_scope) VALUES ($1,$2,'itsm')",
+      [tenantId,mappedId],
+    )
+    const linked = await recordVerifiedSandboxStripeEvent(receipt(goodId,mappedId),'a'.repeat(64))
+    const unlinked = await recordVerifiedSandboxStripeEvent(receipt(badId,'sub_CiOtherCustomerSubscription'),'b'.repeat(64))
+    assert.equal(linked.resolution,'linked')
+    assert.equal(unlinked.resolution,'unmapped')
+    const rows=await pool.query(
+      'SELECT stripe_event_id,tenant_id,resolution FROM stripe_sandbox_webhook_events WHERE stripe_event_id=ANY($1::text[])',
+      [[goodId,badId]],
+    )
+    const byId=Object.fromEntries(rows.rows.map(row=>[row.stripe_event_id,row]))
+    assert.equal(byId[goodId].tenant_id,tenantId)
+    assert.equal(byId[badId].tenant_id,null)
+  } finally {
+    await pool.query('DELETE FROM stripe_sandbox_webhook_events WHERE stripe_event_id=ANY($1::text[])',[[goodId,badId]])
+    await pool.query('DELETE FROM tenants WHERE id=$1',[tenantId])
+  }
+})
+
 test.after(async () => { await pool.end() })
 
