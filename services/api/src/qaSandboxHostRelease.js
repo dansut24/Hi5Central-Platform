@@ -18,7 +18,7 @@ export function validateQaSandboxHostIntent({intent,signature,publicKeyPem,now=n
   const expectedGateway='hi5central-'+match.environment+'-gateway'
   if(intent.gateway!==expectedGateway||
       intent.releaseScope!=='qa_sandbox_only'||
-      intent.approvalEnvironment!=='QA Sandbox Release Approval'||
+      intent.approvalEnvironment!=='Development'||
       !/^[1-9]\d{3,17}$/.test(String(intent.approvedRunId||''))||
       !/^[a-f0-9]{64}$/.test(String(intent.apiImageDigest||''))||
       !/^[a-f0-9]{64}$/.test(String(intent.webImageDigest||'')))
