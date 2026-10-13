@@ -204,8 +204,10 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
         [tenantId, Boolean(modules.rmm)],
       ),
       pool.query(
-        `SELECT mode, stripe_customer_id, stripe_subscription_id, updated_at
-         FROM tenant_stripe_billing_links WHERE tenant_id=$1`,
+        `SELECT link.mode,link.stripe_customer_id,link.stripe_subscription_id,link.updated_at,
+                (SELECT count(*)::int FROM tenant_stripe_subscription_links sub
+                  WHERE sub.tenant_id=link.tenant_id AND sub.mode='test') AS extra_subscription_count
+           FROM tenant_stripe_billing_links link WHERE link.tenant_id=$1`,
         [tenantId],
       ),
     ])
@@ -224,7 +226,7 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
       stripe: {
         mode: 'sandbox',
         linked: Boolean(link.rows[0]?.stripe_customer_id),
-        hasSubscription: Boolean(link.rows[0]?.stripe_subscription_id),
+        hasSubscription: Boolean(link.rows[0]?.stripe_subscription_id || Number(link.rows[0]?.extra_subscription_count || 0) > 0),
       },
       invoiceGenerated: false,
     })
