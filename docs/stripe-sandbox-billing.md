@@ -17,7 +17,7 @@ Any missing, live-mode, or incorrectly scoped key disables the Stripe connection
 - `GET /api/platform/v1/billing/stripe/status`: admin billing-role only, returns sandbox configuration state; with a configured key, verifies the Stripe account using a GET request.
 - `GET /api/platform/v1/billing/tenants/:tenantId/preview`: admin billing-role only, shows tenant modules, existing test-mode Stripe binding (if any) and real-time RMM billable-device counts. This **does not generate a snapshot or invoice**.
 
-Eligibility preview: disabled devices are excluded; devices with no authenticated connection/telemetry are excluded; devices whose last authenticated connection/telemetry is older than 30 days are excluded. A recent verified check-in is billable even if currently offline. An invoice-cycle snapshot must be persisted immutably at a defined cutoff in the next phase; the preview is not authoritative billing history.
+Eligibility preview: devices are excluded when the tenant does not have RMM enabled; disabled devices are excluded; devices with no authenticated connection/telemetry are excluded; devices whose last authenticated connection/telemetry is older than 30 days are excluded. A recent verified check-in is billable even if currently offline. An invoice-cycle snapshot must be persisted immutably at a defined cutoff in the next phase; the preview is not authoritative billing history.
 
 `tenant_stripe_billing_links` stores future sandbox-only customer/subscription associations. `tenant_rmm_billing_snapshots` stores future invoice-cycle evidence. Both tables are empty after migration; live account IDs are refused by design.
 
