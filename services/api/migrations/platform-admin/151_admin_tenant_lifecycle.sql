@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS platform_tenant_lifecycle (
   archived_at timestamptz,
   restore_deadline timestamptz,
   retention_days integer NOT NULL DEFAULT 30 CHECK (retention_days BETWEEN 30 AND 365),
+  disabled_agent_ids uuid[] NOT NULL DEFAULT '{}'::uuid[],
   reason text NOT NULL DEFAULT '',
   legal_hold boolean NOT NULL DEFAULT false,
   purge_requested_at timestamptz,
