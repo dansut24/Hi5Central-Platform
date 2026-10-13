@@ -51,7 +51,7 @@ const findContainer=upstream=>{
     ||row.Config.Labels?.['org.opencontainers.image.revision']!==intent.buildSha)
     throw Error('Unhealthy, wrong revision or wrong signed local image ID: '+name)
   const env=Object.fromEntries((row.Config.Env||[]).map(x=>{const i=x.indexOf('=');return [x.slice(0,i),x.slice(i+1)]}))
-  if(env.RUNTIME_ENVIRONMENT!==scope.environment||env.VERSIONED_POOL_TENANT_SLUG!==scope.tenantSlug)
+  if(env.RUNTIME_ENVIRONMENT!==scope.environment||env.VERSIONED_POOL_TENANT_SLUG!==`${scope.tenantSlug}-${scope.environment}`)
     throw Error('Candidate pool lacks tenant and environment isolation: '+name)
   const gw=JSON.parse(docker(['inspect',gateway]))[0]
   if(!Object.keys(row.NetworkSettings.Networks||{}).some(x=>Object.hasOwn(gw.NetworkSettings.Networks||{},x)))
