@@ -68,4 +68,7 @@ test('public API requires valid JSON SHA matching frontend, without granting hos
   const error502=healthy.map((row,i)=>i===2
     ? {...row,apiHttpStatus:502,apiSha:null} : row)
   assert.equal(assessPublicRelease(plan,error502)[2].state,'api_unavailable_or_mismatch')
+  const oldFrontend=healthy.map((row,i)=>i===2
+    ? {...row,frontendSha:'b'.repeat(40),apiHttpStatus:200,apiSha:null} : row)
+  assert.equal(assessPublicRelease(plan,oldFrontend)[2].state,'api_unavailable_or_mismatch')
 })
