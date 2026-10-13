@@ -103,7 +103,7 @@ test('isolated Test webhook requires an explicit Test-only gate and can run with
   assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true'},
     {deploymentMode:'self_hosted',runtimeEnvironment:'test'}).enabled,false)
   assert.equal(stripeWebhookConfiguration({...base,STRIPE_WEBHOOK_ISOLATED_TEST:'true',STRIPE_SECRET_KEY:'sk_live_bad'},
-    testRuntime).enabled,true) // never used: isolated Test receiver has NO Stripe outbound API writes
+    testRuntime).enabled,false) // never permit live secrets even in an isolated Test instance
   assert.equal(stripeWebhookConfiguration({...base,STRIPE_BILLING_MODE:'live',
     STRIPE_WEBHOOK_ISOLATED_TEST:'true'},testRuntime).enabled,false)
   assert.equal(stripeWebhookConfiguration(base,{deploymentMode:'managed',runtimeEnvironment:'live'}).enabled,false)
