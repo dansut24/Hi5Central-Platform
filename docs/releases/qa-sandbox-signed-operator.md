@@ -23,7 +23,7 @@ generic Caddy wildcard handlers and the root Production API.
 1. Register a dedicated, isolated release runner with the label
    `h5c-qa-release`. Never attach a generic public-PR runner directly to
    Production Docker. Restrict it to the protected `develop` branch.
-2. Configure the GitHub environment `QA Sandbox Release Approval` with required
+2. Configure the GitHub environment `Development` with required
    reviewers and protected branches, and set its protected variable
    `HI5_QA_RELEASE_WORKFLOW_ENABLED=true` only after review.
    The workflow intentionally cannot create these controls.
@@ -50,7 +50,7 @@ generic Caddy wildcard handlers and the root Production API.
    new SHA, old/new API and web upstreams, current inner gateway config
    SHA-256, route generation, 15-minute validity window, signed local API
    and frontend image IDs, gateway identity, `qa_sandbox_only` scope,
-   `QA Sandbox Release Approval` environment and CI evidence run ID.
+   `Development` environment and CI evidence run ID.
 7. The host's independent enablement
    `HI5_QA_SANDBOX_ROUTE_APPLY_ENABLED=true` is required for apply.
    Without all gates the operation must fail before any route change.
