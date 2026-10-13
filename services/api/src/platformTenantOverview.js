@@ -3,19 +3,24 @@
 const uuid=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i
 export const BILLING_IDLE_DAYS=30
 
+export function lastDeviceContact(device){
+  return [device.last_telemetry_at,device.last_authenticated_at,
+    device.websocket_connected_at].reduce((most,entry)=>{
+    if(!entry)return most
+    const time=new Date(entry).getTime()
+    return Number.isFinite(time)?Math.max(most,time):most
+  },-Infinity)
+}
 export function billableDeviceCount(devices,now=new Date()){
   const cutoff=new Date(now).getTime()-BILLING_IDLE_DAYS*86400000
   if(!Number.isFinite(cutoff))throw Error('Invalid billing clock.')
-  return devices.filter(device=>{
-    if(device.disabled_at)return false
-    const last=[device.last_telemetry_at,device.last_authenticated_at,
-      device.websocket_connected_at].reduce((most,entry)=>{
-      if(!entry)return most
-      const time=new Date(entry).getTime()
-      return Number.isFinite(time)?Math.max(most,time):most
-    },-Infinity)
-    return last>=cutoff
-  }).length
+  return devices.filter(device=>!device.disabled_at&&lastDeviceContact(device)>=cutoff).length
+}
+export function connectedDeviceCount(devices,now=new Date()){
+  const cutoff=new Date(now).getTime()-5*60000
+  if(!Number.isFinite(cutoff))throw Error('Invalid connection clock.')
+  return devices.filter(device=>!device.disabled_at
+    &&device.websocket_status==='Connected'&&lastDeviceContact(device)>=cutoff).length
 }
 
 export function estimateDeviceCharge({rmmEnabled,basePence,perDevicePence,billableCount}){
@@ -92,15 +97,13 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
         WHERE tenant_id=$1 AND status NOT IN ('approved','rejected','cancelled','completed')
         ORDER BY updated_at DESC LIMIT 15`,[id]),
     ])
+    const asOf=new Date()
     const rmmEnabled=Boolean(t.modules?.rmm)
     const total=devices.rows.length
-    const billable=rmmEnabled?billableDeviceCount(devices.rows):0
-    const cutoff=Date.now()-BILLING_IDLE_DAYS*86400000
-    const last=device=>[device.last_telemetry_at,device.last_authenticated_at,
-      device.websocket_connected_at].reduce((max,d)=>d?Math.max(max,new Date(d).getTime()):max,-Infinity)
-    const offlineOver30Days=devices.rows.filter(d=>!d.disabled_at&&last(d)<cutoff).length
-    const connected=devices.rows.filter(d=>!d.disabled_at&&d.websocket_status==='Connected'
-      &&last(d)>=cutoff).length
+    const billable=rmmEnabled?billableDeviceCount(devices.rows,asOf):0
+    const cutoff=asOf.getTime()-BILLING_IDLE_DAYS*86400000
+    const offlineOver30Days=devices.rows.filter(d=>!d.disabled_at&&lastDeviceContact(d)<cutoff).length
+    const connected=connectedDeviceCount(devices.rows,asOf)
     const disabled=devices.rows.filter(d=>Boolean(d.disabled_at)).length
     const pricing=estimateDeviceCharge({
       rmmEnabled,basePence:t.base_monthly_price_pence,
@@ -143,7 +146,7 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
       lifecycle:{state:t.lifecycle_state||t.status,archivedAt:t.archived_at,
         restoreDeadline:t.restore_deadline,legalHold:Boolean(t.legal_hold),
         retentionDays:t.retention_days,purgeRequestedAt:t.purge_requested_at},
-      asOf:new Date().toISOString(),
+      asOf:asOf.toISOString(),
     })
   })
 }
