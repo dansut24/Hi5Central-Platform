@@ -6,6 +6,11 @@ on:
       - 'services/api/src/platformAdmin.js'
       - 'services/api/migrations/platform-admin/150_stripe_sandbox_billing_foundation.sql'
       - 'services/api/test/stripe-sandbox-guards.mjs'
+      - 'services/api/test/stripe-webhook-signature.mjs'
+      - 'services/api/test/stripe-webhook-ledger.mjs'
+      - 'services/api/src/stripeBillingWebhooks.js'
+      - 'services/api/migrations/platform-admin/151_stripe_sandbox_webhook_ledger.sql'
+      - 'services/api/src/index.js'
       - 'apps/admin/src/features/admin/StripeBillingSandbox.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
       - '.github/workflows/stripe-sandbox-billing.yml'
@@ -40,11 +45,15 @@ jobs:
         working-directory: services/api
         run: |
           node --check src/stripeBillingSandbox.js
+          node --check src/stripeBillingWebhooks.js
           node --check src/platformAdmin.js
-          node --test test/stripe-sandbox-guards.mjs
+          node --test test/stripe-sandbox-guards.mjs test/stripe-webhook-signature.mjs
       - name: Migrate isolated PostgreSQL database
         working-directory: services/api
         run: npm run migrate
+      - name: Verify durable webhook event idempotency
+        working-directory: services/api
+        run: node --test test/stripe-webhook-ledger.mjs
       - name: Build API runtime
         working-directory: services/api
         run: npm run build:runtime
