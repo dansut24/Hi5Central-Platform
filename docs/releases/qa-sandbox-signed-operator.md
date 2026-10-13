@@ -18,6 +18,10 @@ separate operations.
 **Excluded:** Managed UAT, all QA Production hosts, all other customer hosts,
 generic Caddy wildcard handlers and the root Production API.
 
+## GitHub environment model
+
+Only two GitHub deployment environments are required: **Development** (internal builds, QA staging and reviewer-approved sandbox release operations) and **Production** (independently approved customer Production promotion). Customer Test and UAT are tenant-scoped Hi5Central runtime lanes, not extra GitHub environments. The repository must have environment protection rules and an isolated release runner configured before using the host operator.
+
 ## One-time requirements — reviewed independently
 
 1. Register a dedicated, isolated release runner with the label
