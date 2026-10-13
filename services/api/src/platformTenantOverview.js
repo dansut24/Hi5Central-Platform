@@ -99,7 +99,8 @@ export function registerPlatformTenantOverviewRoutes(app,{requireAdmin,pool}){
       pool.query(`SELECT environment,coverage,archive_created_at,archive_bytes,
         inspection,inspected_at,restore_tested_at,source_label
         FROM platform_database_backup_evidence WHERE environment='live'
-        ORDER BY archive_created_at DESC LIMIT 1`),
+          AND archive_created_at >= $1::timestamptz
+        ORDER BY archive_created_at DESC LIMIT 1`,[t.onboarding_completed_at||t.created_at]),
     ])
     const asOf=new Date()
     const rmmEnabled=Boolean(t.modules?.rmm)
