@@ -36,7 +36,7 @@ const basic={
   routeGeneration:1,
   issuedAt:'2026-10-12T22:29:00Z',expiresAt:'2026-10-12T22:40:00Z',
   gateway:'hi5central-test-gateway',releaseScope:'qa_sandbox_only',
-  approvalEnvironment:'QA Sandbox Release Approval',
+  approvalEnvironment:'Development',
   approvedRunId:'38308247394',
   apiImageDigest:'c'.repeat(64),webImageDigest:'d'.repeat(64),
 }
