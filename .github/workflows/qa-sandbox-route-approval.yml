@@ -36,7 +36,7 @@ jobs:
     # Configure this environment with REQUIRED REVIEWERS, protected branches,
     # and a separate audited enablement variable before any live execution.
     environment:
-      name: QA Sandbox Release Approval
+      name: Development
     runs-on: [self-hosted, Linux, h5c-qa-release]
     timeout-minutes: 15
     steps:
