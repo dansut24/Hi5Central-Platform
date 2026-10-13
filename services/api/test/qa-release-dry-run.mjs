@@ -47,3 +47,25 @@ test('even matching public frontend SHA never implies host/API or UAT approval',
   assert.throws(()=>assessPublicRelease(plan,[...unknown,{host:'testing.hi5central.com',httpStatus:200,frontendSha:sha}]),/exactly/)
   assert.throws(()=>assessPublicRelease({...plan,activationAllowed:true},unknown),/read-only/)
 })
+
+test('public API requires valid JSON SHA matching frontend, without granting host approval',()=>{
+  const plan=candidate()
+  const healthy=plan.targets.map(t=>({
+    host:t.host,httpStatus:200,frontendSha:sha,apiHttpStatus:200,apiSha:sha,
+  }))
+  const result=assessPublicRelease(plan,healthy)
+  assert(result.every(x=>x.state==='public_manifests_match'))
+  assert(result.every(x=>x.publicFrontendMatches&&x.publicApiMatches))
+  assert(result.every(x=>!x.apiVerified&&!x.hostRouteVerified&&!x.uatApproved))
+
+  const uatHtml=healthy.map((row,i)=>i===2
+    ? {...row,apiHttpStatus:200,apiSha:null} : row)
+  const withHtml=assessPublicRelease(plan,uatHtml)
+  assert.equal(withHtml[2].state,'api_unavailable_or_mismatch')
+  assert.equal(withHtml[2].publicApiMatches,false)
+  assert.equal(withHtml[2].apiVerified,false)
+
+  const error502=healthy.map((row,i)=>i===2
+    ? {...row,apiHttpStatus:502,apiSha:null} : row)
+  assert.equal(assessPublicRelease(plan,error502)[2].state,'api_unavailable_or_mismatch')
+})
