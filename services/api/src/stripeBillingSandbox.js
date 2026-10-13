@@ -52,6 +52,64 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
     }
   })
 
+  app.get('/api/platform/v1/billing/tenants/:id/stripe/reconcile-preview', async c => {
+    const auth = await requireAdmin(c, ROLES)
+    if (auth.error) return auth.error
+    const tenantId = String(c.req.param('id') || '')
+    if (!UUID.test(tenantId)) return c.json({ error: 'Invalid tenant ID.' }, 400)
+    const tenant = await pool.query('SELECT id FROM tenants WHERE id=$1', [tenantId])
+    if (!tenant.rowCount) return c.json({ error: 'Tenant not found.' }, 404)
+    const link = await pool.query(
+      "SELECT stripe_customer_id FROM tenant_stripe_billing_links WHERE tenant_id=$1 AND mode='test'",
+      [tenantId],
+    )
+    const customerId = link.rows[0]?.stripe_customer_id
+    if (!customerId) {
+      return c.json({ mode:'sandbox',linked:false,subscriptions:[],invoices:[],
+        note:'No explicit test-mode customer mapping exists. Nothing has been synchronized.' })
+    }
+    const cfg = stripeSandboxConfiguration()
+    if (!cfg.configured) return c.json({ error:'Stripe sandbox is not configured.',reason:cfg.reason },409)
+    try {
+      await readStripeAccount(cfg)
+      const stripeGet = async endpoint => {
+        const response = await fetch('https://api.stripe.com/v1/' + endpoint, {
+          method:'GET',headers:{Authorization:'Bearer ' + cfg.secretKey},signal:AbortSignal.timeout(8000),
+        })
+        if (!response.ok) throw new Error('stripe_read_failed')
+        return response.json()
+      }
+      const customerParam = encodeURIComponent(customerId)
+      const [subscriptionsPage, invoicesPage] = await Promise.all([
+        stripeGet('subscriptions?customer=' + customerParam + '&status=all&limit=50'),
+        stripeGet('invoices?customer=' + customerParam + '&limit=50'),
+      ])
+      const subscriptions = (subscriptionsPage.data || [])
+        .filter(item => item.livemode === false && item.customer === customerId)
+        .map(item => ({
+          id:item.id,status:item.status,trialEnd:item.trial_end || null,
+          cancelAtPeriodEnd:Boolean(item.cancel_at_period_end),
+          items:(item.items?.data || []).map(row => ({
+            priceId:row.price?.id || null, quantity:row.quantity == null ? null : Number(row.quantity),
+            currency:row.price?.currency || null,unitAmountPence:row.price?.unit_amount ?? null,
+            billingInterval:row.price?.recurring?.interval || null,
+          })),
+        }))
+      const invoices = (invoicesPage.data || [])
+        .filter(item => item.livemode === false && item.customer === customerId)
+        .map(item => ({
+          id:item.id,status:item.status,number:item.number || null,
+          totalPence:item.total ?? null,amountPaidPence:item.amount_paid ?? null,
+          amountRemainingPence:item.amount_remaining ?? null,currency:item.currency || null,
+          createdAt:item.created ? new Date(item.created*1000).toISOString() : null,
+        }))
+      return c.json({mode:'sandbox',linked:true,customerId,subscriptions,invoices,
+        note:'Read-only current Stripe test-mode records. No tenant billing or entitlements changed.'})
+    } catch {
+      return c.json({error:'Unable to reconcile Stripe sandbox records.'},503)
+    }
+  })
+
   app.get('/api/platform/v1/billing/stripe/payments', async c => {
     const auth = await requireAdmin(c, ROLES)
     if (auth.error) return auth.error
