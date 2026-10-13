@@ -7,6 +7,7 @@ import {
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
+import { TenantAdminDetail } from './TenantAdminDetail.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -356,13 +357,16 @@ function TenantEditor({ tenant, onSaved }) {
     </div>
   </div>
 }
+const fetchTenantOverview = id=>api('/tenants/'+encodeURIComponent(id)+'/overview')
 function Tenants({ items, refresh, query }) {
+  const [openedId,setOpenedId]=useState(null)
   const [creating,setCreating]=useState(false)
   const [draft,setDraft]=useState({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
     t.company_name,t.slug,t.owner_name,t.owner_email,t.plan_key,t.billing_status,
   ].some(value=>String(value||'').toLowerCase().includes(needle))),[items,query,needle])
+  const opened=items.find(t=>t.id===openedId)
   async function create(event){
     event.preventDefault()
     await api('/tenants',{method:'POST',body:JSON.stringify(draft)})
@@ -370,13 +374,25 @@ function Tenants({ items, refresh, query }) {
     setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
     await refresh()
   }
+  if(opened)return <TenantAdminDetail key={opened.id} tenant={opened} fetchOverview={fetchTenantOverview}
+    onBack={()=>setOpenedId(null)} refresh={refresh}
+    editTenant={<TenantEditor tenant={opened} onSaved={refresh}/>}
+    editBilling={<BillingEditor tenant={opened} onSaved={refresh}/>}/>
   return <>
     <PageHeading view="tenants" action={<button className="rmm-primary compact" onClick={()=>setCreating(!creating)}><Plus size={14}/>New tenant</button>}/>
     {creating?<form className="rmm-card h5a-create" onSubmit={create}><input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/><label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><button className="rmm-primary compact">Create tenant</button></form>:null}
-    <div className="h5a-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} devices</p></div><StatusPill value={tenant.status}/></div><TenantEditor tenant={tenant} onSaved={refresh}/></article>)}</div>
+    <div className="h5a-stack h5a-tenant-directory">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}>
+      <div className="rmm-card-heading h5a-tenant-head">
+        <div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2>
+          <p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} registered devices · {tenant.billing_status||'No billing status'}</p>
+        </div>
+        <StatusPill value={tenant.status}/>
+        <button type="button" className="rmm-primary compact h5a-open-button" onClick={()=>setOpenedId(tenant.id)}>Open <ArrowRight size={14}/></button>
+      </div>
+    </article>)}</div>
+    {!filtered.length?<div className="rmm-card h5a-empty">No matching tenants.</div>:null}
   </>
 }
-
 function BillingEditor({ tenant, onSaved }) {
   const [draft,setDraft]=useState(()=>({
     planKey:tenant.plan_key||'custom',
