@@ -52,6 +52,32 @@ export function registerStripeBillingReadRoutes(app, requireAdmin) {
     }
   })
 
+  app.get('/api/platform/v1/billing/stripe/events', async c => {
+    const auth = await requireAdmin(c, ROLES)
+    if (auth.error) return auth.error
+    const max = Number(c.req.query('limit') || 20)
+    const limit = Number.isInteger(max) ? Math.max(1, Math.min(40, max)) : 20
+    const results = await pool.query(
+      `SELECT stripe_event_id,event_type,event_created_at,received_at,
+              stripe_customer_id,stripe_subscription_id,stripe_invoice_id,
+              tenant_id,resolution,amount_paid_pence,currency
+         FROM stripe_sandbox_webhook_events
+        ORDER BY received_at DESC LIMIT $1`, [limit],
+    )
+    return c.json({
+      mode: 'sandbox',
+      receipts: results.rows.map(row => ({
+        id: row.stripe_event_id, type: row.event_type,
+        eventCreatedAt: row.event_created_at, receivedAt: row.received_at,
+        customerId: row.stripe_customer_id, subscriptionId: row.stripe_subscription_id,
+        invoiceId: row.stripe_invoice_id, tenantId: row.tenant_id,
+        resolution: row.resolution, amountPaidPence: row.amount_paid_pence == null
+          ? null : Number(row.amount_paid_pence), currency: row.currency,
+      })),
+      note: 'Signed event receipts only. No automatic tenant entitlement updates.',
+    })
+  })
+
   app.get('/api/platform/v1/billing/tenants/:id/preview', async (c) => {
     const auth = await requireAdmin(c, ROLES)
     if (auth.error) return auth.error
