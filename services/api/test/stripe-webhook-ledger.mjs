@@ -93,6 +93,7 @@ test('subscriber receipts link only when both sandbox customer and subscription 
   const mappedId='sub_CiMappedSubscription2026'
   const goodId='evt_CiMappedReceipt2026'
   const badId='evt_CiWrongSubscription2026'
+  const customerOnlyId='evt_CiCustomerOnlyUnmapped2026'
   const receipt = (id,subscriptionId) => ({
     id,created:1791925100,livemode:false,type:'customer.subscription.updated',
     data:{object:{id:subscriptionId,customer:customerId,status:'active'}},
@@ -108,17 +109,24 @@ test('subscriber receipts link only when both sandbox customer and subscription 
     )
     const linked = await recordVerifiedSandboxStripeEvent(receipt(goodId,mappedId),'a'.repeat(64))
     const unlinked = await recordVerifiedSandboxStripeEvent(receipt(badId,'sub_CiOtherCustomerSubscription'),'b'.repeat(64))
+    const customerOnlyEvent = {
+      id:customerOnlyId,created:1791925100,livemode:false,type:'invoice.paid',
+      data:{object:{id:'in_CiNoSubscriptionCustomerOnly',customer:customerId,amount_paid:4900,currency:'gbp'}},
+    }
+    const customerOnly=await recordVerifiedSandboxStripeEvent(customerOnlyEvent,'c'.repeat(64))
     assert.equal(linked.resolution,'linked')
     assert.equal(unlinked.resolution,'unmapped')
+    assert.equal(customerOnly.resolution,'unmapped')
     const rows=await pool.query(
       'SELECT stripe_event_id,tenant_id,resolution FROM stripe_sandbox_webhook_events WHERE stripe_event_id=ANY($1::text[])',
-      [[goodId,badId]],
+      [[goodId,badId,customerOnlyId]],
     )
     const byId=Object.fromEntries(rows.rows.map(row=>[row.stripe_event_id,row]))
     assert.equal(byId[goodId].tenant_id,tenantId)
     assert.equal(byId[badId].tenant_id,null)
+    assert.equal(byId[customerOnlyId].tenant_id,null)
   } finally {
-    await pool.query('DELETE FROM stripe_sandbox_webhook_events WHERE stripe_event_id=ANY($1::text[])',[[goodId,badId]])
+    await pool.query('DELETE FROM stripe_sandbox_webhook_events WHERE stripe_event_id=ANY($1::text[])',[[goodId,badId,customerOnlyId]])
     await pool.query('DELETE FROM tenants WHERE id=$1',[tenantId])
   }
 })
