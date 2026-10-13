@@ -1379,7 +1379,8 @@ export function registerPlatformAdminRoutes(app) {
               ts.modules,ts.tenant_url,ts.portal_url,ts.rmm_url,ts.onboarding_completed_at,
               COALESCE(cs.plan_key,'custom') AS plan_key,COALESCE(cs.billing_status,'trial') AS billing_status,
               COALESCE(cs.billing_cycle,'monthly') AS billing_cycle,COALESCE(cs.currency,'GBP') AS currency,
-              cs.monthly_price_pence,cs.trial_ends_at,cs.renewal_at,COALESCE(cs.notes,'') AS billing_notes,
+              cs.monthly_price_pence,cs.base_monthly_price_pence,cs.rmm_device_price_pence,
+              cs.trial_ends_at,cs.renewal_at,cs.next_invoice_at,COALESCE(cs.notes,'') AS billing_notes,
               owner.user_id AS owner_user_id,owner.name AS owner_name,owner.email AS owner_email,
               transfer.id AS owner_transfer_id,transfer.proposed_owner_email,
               transfer.proposed_owner_name,transfer.created_at AS owner_transfer_requested_at,
@@ -1462,7 +1463,15 @@ export function registerPlatformAdminRoutes(app) {
     const tenantId = clean(c.req.param('id'), 80)
     let body
     try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
-    const touchesBilling = ['planKey','billingStatus','billingCycle','currency','monthlyPricePence','trialEndsAt','renewalAt','billingNotes']
+    for (const field of ['baseMonthlyPricePence','rmmDevicePricePence']) {
+      if (Object.hasOwn(body||{},field) && body[field] !== null &&
+          (!Number.isSafeInteger(body[field]) || body[field] < 0 || body[field] > 100000000))
+        return c.json({error:'Device and base prices must be nonnegative integer pence.'},400)
+    }
+    if (Object.hasOwn(body||{},'nextInvoiceAt')&&body.nextInvoiceAt!=null
+      &&body.nextInvoiceAt!==''&&Number.isNaN(new Date(body.nextInvoiceAt).getTime()))
+      return c.json({error:'Invalid next invoice date.'},400)
+    const touchesBilling = ['planKey','billingStatus','billingCycle','currency','monthlyPricePence','baseMonthlyPricePence','rmmDevicePricePence','nextInvoiceAt','trialEndsAt','renewalAt','billingNotes']
       .some((key) => Object.hasOwn(body || {}, key))
     const touchesTenant = ['companyName','status','modules'].some((key) => Object.hasOwn(body || {}, key))
     if (touchesBilling && !BILLING_ROLES.has(auth.session.role)) return c.json({ error: 'Billing permission required.' }, 403)
@@ -1507,7 +1516,11 @@ export function registerPlatformAdminRoutes(app) {
              monthly_price_pence=CASE WHEN $6::boolean THEN $7 ELSE monthly_price_pence END,
              trial_ends_at=CASE WHEN $8::boolean THEN $9::timestamptz ELSE trial_ends_at END,
              renewal_at=CASE WHEN $10::boolean THEN $11::timestamptz ELSE renewal_at END,
-             notes=COALESCE($12,notes),updated_at=now()
+             notes=COALESCE($12,notes),
+             base_monthly_price_pence=CASE WHEN $13::boolean THEN $14 ELSE base_monthly_price_pence END,
+             rmm_device_price_pence=CASE WHEN $15::boolean THEN $16 ELSE rmm_device_price_pence END,
+             next_invoice_at=CASE WHEN $17::boolean THEN $18::timestamptz ELSE next_invoice_at END,
+             updated_at=now()
            WHERE tenant_id=$1`,
           [tenantId,
             Object.hasOwn(body,'planKey') ? clean(body.planKey,80) : null,
@@ -1517,7 +1530,10 @@ export function registerPlatformAdminRoutes(app) {
             Object.hasOwn(body,'monthlyPricePence'), body.monthlyPricePence == null ? null : Math.max(0, Number(body.monthlyPricePence) || 0),
             Object.hasOwn(body,'trialEndsAt'), body.trialEndsAt || null,
             Object.hasOwn(body,'renewalAt'), body.renewalAt || null,
-            Object.hasOwn(body,'billingNotes') ? clean(body.billingNotes,4000) : null],
+            Object.hasOwn(body,'billingNotes') ? clean(body.billingNotes,4000) : null,
+            Object.hasOwn(body,'baseMonthlyPricePence'),body.baseMonthlyPricePence ?? null,
+            Object.hasOwn(body,'rmmDevicePricePence'),body.rmmDevicePricePence ?? null,
+            Object.hasOwn(body,'nextInvoiceAt'),body.nextInvoiceAt || null],
         )
       }
       await audit(c, auth.session, 'tenant.updated', 'tenant', tenantId, { fields: Object.keys(body || {}) }, db)
