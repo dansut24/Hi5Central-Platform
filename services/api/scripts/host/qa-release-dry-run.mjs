@@ -13,22 +13,29 @@ if(!/^[a-z0-9][a-z0-9_-]{0,70}$/i.test(output)){
   process.exit(2)
 }
 const plan=makeQaReleasePlan({buildSha,versionLabel})
-const result=await Promise.all(plan.targets.map(async t=>{
-  const u=t.origin+'/release-manifest.json'
+async function readPublicManifest(url,origin){
   try{
-    const r=await fetch(u,{redirect:'error',cache:'no-store',
-      headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(10000)})
+    const r=await fetch(url,{redirect:'error',cache:'no-store',
+      headers:{'Cache-Control':'no-cache',Origin:origin},signal:AbortSignal.timeout(10000)})
     const contentType=r.headers.get('content-type')||''
-    if(r.status!==200||!contentType.includes('application/json'))
-      return {host:t.host,httpStatus:r.status,frontendSha:null,
-        observed:'missing_json_manifest'}
+    if(r.status!==200||!contentType.toLowerCase().includes('application/json'))
+      return {httpStatus:r.status,sha:null,observed:'missing_json_manifest'}
     const parsed=await r.json()
-    return {host:t.host,httpStatus:r.status,
-      frontendSha:typeof parsed?.sha==='string'?parsed.sha:null,observed:'json_manifest'}
+    return {httpStatus:r.status,
+      sha:typeof parsed?.sha==='string'?parsed.sha:null,observed:'json_manifest'}
   }catch(error){
-    return {host:t.host,httpStatus:0,frontendSha:null,
+    return {httpStatus:0,sha:null,
       observed:String(error.code||error.name||'network_failure').slice(0,70)}
   }
+}
+const result=await Promise.all(plan.targets.map(async t=>{
+  const [web,api]=await Promise.all([
+    readPublicManifest(t.origin+'/release-manifest.json',t.origin),
+    readPublicManifest(t.origin+'/api/v1/updates/version',t.origin),
+  ])
+  return {host:t.host,httpStatus:web.httpStatus,frontendSha:web.sha,
+    frontendObservation:web.observed,
+    apiHttpStatus:api.httpStatus,apiSha:api.sha,apiObservation:api.observed}
 }))
 const assessments=assessPublicRelease(plan,result)
 const report={plan,publicObservation:{observedAt:new Date().toISOString(),assessments},
@@ -43,13 +50,14 @@ const markdown=[
   '**Immutable commit:** '+plan.buildSha,
   '**Status:** Proposal only. No routing, release-offer or Production changes were made.',
   '',
-  '| Customer lane | Public host | Public frontend SHA | State |',
-  '| --- | --- | --- | --- |',
+  '| Customer lane | Public host | Frontend SHA | API SHA | API HTTP | State |',
+  '| --- | --- | --- | --- | --- | --- |',
   ...assessments.map(a=>{
     const lane=plan.targets.find(t=>t.host===a.host)
     return '| '+lane.updateMode+' / '+lane.environment.toUpperCase()+' | '+a.host+' | '+
-      (a.frontendSha?a.frontendSha.slice(0,12):'Not verified')+
-      ' | '+a.state+' |'
+      (a.frontendSha?a.frontendSha.slice(0,12):'Not verified')+' | '+
+      (a.apiSha?a.apiSha.slice(0,12):'Not verified')+' | '+
+      (a.apiHttpStatus??'No response')+' | '+a.state+' |'
   }),
   '',
   '## Required before any public cutover',
