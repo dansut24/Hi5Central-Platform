@@ -35,6 +35,7 @@ import { ProductionRecordListInteractionEnhancer } from './production/Production
 import { ProductionUniversalPeekV2 } from './production/ProductionUniversalPeekV2.jsx'
 import { ProductionWorkflowExperience } from './production/ProductionWorkflowExperience.jsx'
 import { ProductionWorkspaceBootstrap } from './production/ProductionWorkspaceBootstrap.jsx'
+import { Qa26AccountAdmin } from './production/Qa26AccountAdmin.jsx'
 import { EnvironmentBanner } from './production/EnvironmentBanner.jsx'
 import { ProductionWorkspaceLiveChatMenu } from './production/ProductionWorkspaceLiveChatMenu.jsx'
 import { ProductionWorkspaceRefinement } from './production/ProductionWorkspaceRefinement.jsx'
@@ -105,6 +106,7 @@ if (initialSurface.kind === 'marketing') {
 }
 if (productionWorkspace) RootApp = ProductionWorkspaceBootstrap
 if (productionPortal) RootApp = ProductionPortalBootstrap
+if (initialSurface.kind === 'account-admin') RootApp = Qa26AccountAdmin
 
 function AppWithWorkspaceBoundaries() {
   // Only the authentication bootstrap and environment banner are allowed to
