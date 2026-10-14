@@ -8,6 +8,7 @@ import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
 import { StripeSandboxStatus, StripeWebhookReceipts, StripeSandboxPayments, StripeTenantReconciliation, RmmBillingPreview } from './StripeBillingSandbox.jsx'
+import { Qa26DemoAdminInvoices } from './Qa26DemoAdminInvoices.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -439,7 +440,7 @@ function Billing({ items, refresh, query }) {
       <button type="button"><span className="rmm-metric-icon red"><AlertTriangle size={18}/></span><div><span>Past due</span><strong>{pastDue}</strong><small>Requires review</small></div></button>
       <button type="button"><span className="rmm-metric-icon blue"><Database size={18}/></span><div><span>Configured monthly value</span><strong>{monthlyValue}</strong><small>{currencies.length<=1?'Across all configured tenant prices':'Values are shown per tenant below'}</small></div></button>
     </div>
-    <div className="h5a-stack h5a-billing-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {fmtMoney(tenant.monthly_price_pence,tenant.currency)} / month</p></div><StatusPill value={tenant.billing_status}/></div><BillingEditor tenant={tenant} onSaved={refresh}/><RmmBillingPreview tenant={tenant} request={api}/><StripeTenantReconciliation tenant={tenant} request={api}/></article>)}</div>
+    <div className="h5a-stack h5a-billing-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {fmtMoney(tenant.monthly_price_pence,tenant.currency)} / month</p></div><StatusPill value={tenant.billing_status}/></div><BillingEditor tenant={tenant} onSaved={refresh}/><RmmBillingPreview tenant={tenant} request={api}/><StripeTenantReconciliation tenant={tenant} request={api}/><Qa26DemoAdminInvoices tenant={tenant} request={api}/></article>)}</div>
   </>
 }
 
