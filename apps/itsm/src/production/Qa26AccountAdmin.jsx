@@ -8,7 +8,10 @@ import { ProductionLogin } from './ProductionWorkspaceBootstrap.jsx'
 import './Qa26AccountAdmin.css'
 
 const QA=new Set(['h5c-managed-qa26','h5c-custom-qa26'])
-const API=window.__HI5_API_BASE__
+// Billing authentication stays on the exact -admin origin. Caddy forwards
+// only this QA26 host's auth/MFA requests to its isolated QA API.
+const API=/^(h5c-(?:managed|custom)-qa26)-admin\.hi5central\.com$/.test(window.location.hostname)
+  ? window.location.origin : window.__HI5_API_BASE__
 const money=value=>new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((Number(value)||0)/100)
 const fmt=value=>value?new Date(value).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}):'—'
 const links=[
