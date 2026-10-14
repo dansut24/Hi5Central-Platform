@@ -68,11 +68,11 @@ export function TenantRuntimeUpdates({updateMode}){
   <RefreshCw size={17}/> Checking customer version updates…</div></section>
  if(!data)return null
  const offers=data.updateOffers||[]
- const uat=offers.filter(x=>x.environment==='uat')
+ const uat=data.mode==='hi5_managed'?[]:offers.filter(x=>x.environment==='uat')
  const live=offers.filter(x=>x.environment==='live')
  return <section className="production-settings-panel" data-hi5-customer-runtime-updates>
   <header><div><h2>Application versions & customer updates</h2>
-   <p>Your version assignments are independent of other customers. UAT acceptance and Production release approvals are recorded separately.</p>
+   <p>Your version assignments are independent of other customers. Customer-controlled releases require UAT sign-off; managed releases follow an approved maintenance window.</p>
    </div><button type="button" className="hi5-release-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button>
   </header>
   <div className="production-settings-panel-body hi5-runtime-updates">
@@ -84,7 +84,7 @@ export function TenantRuntimeUpdates({updateMode}){
    </div>
    {!offers.length?<div className="hi5-release-sandbox-guidance">
     <strong>No customer-specific application update is pending</strong>
-    <p>New versions appear here after Hi5Central publishes them and prepares a verified UAT runtime for your organisation.</p>
+    <p>New releases appear here after Hi5Central publishes them and verifies the runtime. Customer-controlled tenants receive UAT; managed tenants receive maintenance-scheduled Production updates.</p>
    </div>:null}
    {uat.map(offer=><article className="hi5-runtime-update" key={offer.id}>
     <div className="hi5-runtime-update-header">
@@ -125,7 +125,7 @@ export function TenantRuntimeUpdates({updateMode}){
        <ShieldCheck size={15}/> Approve Production update</button>
      </div>:null}
      {data.mode==='hi5_managed'&&offer.state==='offered'?<p>
-      Hi5Central will schedule this update after UAT approval, the configured delay and maintenance checks.</p>:null}
+      Hi5Central will schedule this published update after the configured delay and maintenance checks. Your managed plan does not require customer UAT approval.</p>:null}
      {offer.state==='scheduled'?<p>Pending verified host activation from {when(offer.maintenanceNotBefore)}. Existing Production stays live until the switch succeeds.</p>:null}
    </article>)}
   </div>

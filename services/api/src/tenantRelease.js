@@ -100,7 +100,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
        allow_emergency_security_updates=excluded.allow_emergency_security_updates,
        updated_by=excluded.updated_by,
        updated_at=now()`,
-    [tenantId, updateMode, managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+    [tenantId, updateMode, !managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
@@ -251,8 +251,8 @@ export function registerTenantReleaseRoutes(app) {
 
     const maintenanceWindow = object(body?.maintenanceWindow)
     const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
-      : { uatAutoStage: false, liveAutoPromote: false }
+      ? { uatAutoStage: false, liveAutoPromote: true }
+      : { uatAutoStage: true, liveAutoPromote: false }
 
     await ensurePreference(auth.session.tenant_id)
     const result = await pool.query(

@@ -13,6 +13,10 @@ on:
       - 'services/api/src/runtimePoolHostAttestation.js'
       - 'services/api/src/runtimePoolManagedScheduler.js'
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/test/managed-release-scheduling.mjs'
+      - 'services/api/test/release-offer-discovery.mjs'
+      - 'services/api/test/uat-production-reconciliation.mjs'
       - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
       - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.css'
       - 'services/api/src/index.js'
@@ -95,6 +99,8 @@ jobs:
         run: node test/runtime-pool-tenant-guard.mjs
       - name: Test customer runtime acceptance and scheduled promotion gates
         run: node test/tenant-runtime-release-lifecycle.mjs
+      - name: Test Managed and Custom rollout automation policy and reconciliation
+        run: node test/managed-release-scheduling.mjs && node test/release-offer-discovery.mjs && node test/uat-production-reconciliation.mjs
       - name: Test application deployment gate edge cases
         run: node test/application-deployment-gate.mjs
       - name: Test failed-ledger rollback, staged rollout, acceptance and tenant isolation
