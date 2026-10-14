@@ -20,11 +20,13 @@ const QA_ENVIRONMENT_ORIGINS = Object.freeze({
   'h5c-managed-qa26':new Set([
     'https://h5c-managed-qa26.hi5central.com',
     'https://h5c-managed-qa26test.hi5central.com',
+    'https://h5c-managed-qa26-admin.hi5central.com',
   ]),
   'h5c-custom-qa26':new Set([
     'https://h5c-custom-qa26.hi5central.com',
     'https://h5c-custom-qa26uat.hi5central.com',
     'https://h5c-custom-qa26test.hi5central.com',
+    'https://h5c-custom-qa26-admin.hi5central.com',
   ]),
 })
 function qaOriginMatches(origin,slug) {
@@ -72,27 +74,42 @@ export async function qa26DemoInvoiceView(tenantId, slug, db = pool) {
   }
 }
 
-export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
-  async function owner(c) {
-    const session = await resolveSession(c)
-    if (!session) return { error:c.json({error:'Authentication required.'},401) }
-    if (!enabled() || !isQa(session.slug)) return { error:c.json({error:'Not found.'},404) }
-    // Same-site auth cookies may be shared across tenant subdomains. Reject
-    // browser reads originating from any different tenant before returning data.
-    const suppliedOrigin = c.req.header('origin')
-    let sourceOrigin = suppliedOrigin || ''
-    if (!sourceOrigin && c.req.header('referer')) {
-      try { sourceOrigin = new URL(c.req.header('referer')).origin }
-      catch { return { error:c.json({error:'Invalid request origin.'},403) } }
-    }
-    if (sourceOrigin && !qaOriginMatches(sourceOrigin,session.slug)) {
-      return { error:c.json({error:'Tenant-origin verification required.'},403) }
-    }
-    if (!['owner','admin'].includes(session.tenant_role) || !session.mfa_verified_at || session.authentication_type==='api_token') {
-      return { error:c.json({error:'Verified tenant owner or administrator session required.'},403) }
-    }
-    return {session}
+export async function qa26BillingAuth(c,resolveSession,db=pool) {
+  const session=await resolveSession(c)
+  if (!session) return {error:c.json({error:'Authentication required.'},401)}
+  if (!enabled() || !isQa(session.slug)) return {error:c.json({error:'Not found.'},404)}
+  // Reject requests aimed at a different tenant even when a browser cookie
+  // is shared across all .hi5central.com hosts.
+  const host=String(c.req.header('host')||'').split(':')[0].toLowerCase()
+  if (host.endsWith('.hi5central.com') && ![
+    session.slug+'.hi5central.com',
+    session.slug+'-admin.hi5central.com',
+    ...[...(QA_ENVIRONMENT_ORIGINS[session.slug]||[])].map(x=>new URL(x).hostname),
+  ].includes(host)) return {error:c.json({error:'Wrong tenant billing domain.'},403)}
+  let origin=c.req.header('origin')||''
+  if (!origin && c.req.header('referer')) {
+    try { origin=new URL(c.req.header('referer')).origin }
+    catch { return {error:c.json({error:'Invalid request origin.'},403)} }
   }
+  if (origin && !qaOriginMatches(origin,session.slug)) return {error:c.json({error:'Tenant-origin verification required.'},403)}
+  if (!session.mfa_verified_at || session.authentication_type==='api_token' || session.api_token_id) {
+    return {error:c.json({error:'Verified user MFA session required.'},403)}
+  }
+  const owner=['owner','admin'].includes(session.tenant_role)
+  let delegated=false
+  if (!owner) {
+    const granted=await db.query(
+      "SELECT 1 FROM qa26_demo_billing_delegates b JOIN tenant_memberships m ON m.tenant_id=b.tenant_id AND m.user_id=b.user_id AND m.status='active' WHERE b.tenant_id=$1 AND b.user_id=$2",
+      [session.tenant_id,session.user_id],
+    )
+    delegated=granted.rowCount>0
+  }
+  if (!owner && !delegated) return {error:c.json({error:'Billing role required.'},403)}
+  return {session,isOwner:owner,isBillingAdmin:delegated}
+}
+
+export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
+  async function owner(c) { return qa26BillingAuth(c,resolveSession,db) }
   app.get('/api/v1/qa26/demo-billing',async c=>{
     const auth = await owner(c)
     if (auth.error) return auth.error
