@@ -113,6 +113,21 @@ test('fake payment declines, retries, succeeds and becomes idempotently paid onl
   assert.equal((await app.request(path,jsonPost(origin,'succeeded'))).status,403)
   assert(db.queries.every(q=>q.includes('qa26_demo_invoice_states')))
 })
+test('Managed Test and Custom UAT/Test exact origins are allowed, but never another tenant origin',async()=>{
+  const db=fakeDb()
+  let selected=session()
+  const app=appFor(db,async()=>selected)
+  const get='/api/v1/qa26/demo-billing'
+  assert.equal((await app.request(get,{headers:{origin:'https://h5c-managed-qa26test.hi5central.com'}})).status,200)
+  assert.equal((await app.request(get,{headers:{origin:'https://h5c-custom-qa26test.hi5central.com'}})).status,403)
+  selected=session('h5c-custom-qa26')
+  for (const origin of ['https://h5c-custom-qa26uat.hi5central.com','https://h5c-custom-qa26test.hi5central.com']) {
+    assert.equal((await app.request(get,{headers:{origin}})).status,200)
+    assert.equal((await app.request('/api/v1/qa26/demo-billing/oct-rmm/simulate',jsonPost(origin,'declined'))).status,200)
+  }
+  assert.equal((await app.request(get,{headers:{origin:'https://h5c-managed-qa26test.hi5central.com'}})).status,403)
+})
+
 test('platform billing roles can view only two QA26 demo tenants and cannot use this endpoint to pay',async()=>{
   const db=fakeDb()
   let role='billing'
