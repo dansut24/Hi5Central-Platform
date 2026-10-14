@@ -8,7 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
-import { itsmEnvironmentsForMode } from './tenantEnvironmentPolicy.js'
+import { itsmEnvironmentsForMode, releaseModeDefaults } from './tenantEnvironmentPolicy.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -87,7 +87,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
     error.status = 400
     throw error
   }
-  const managed = updateMode === 'hi5_managed'
+  const modeDefaults = releaseModeDefaults(updateMode)
   await client.query(
     `INSERT INTO tenant_release_preferences
        (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,live_delay_hours,allow_emergency_security_updates,updated_by,updated_at)
@@ -101,7 +101,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
        allow_emergency_security_updates=excluded.allow_emergency_security_updates,
        updated_by=excluded.updated_by,
        updated_at=now()`,
-    [tenantId, updateMode, !managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+    [tenantId, updateMode, modeDefaults.uatAutoStage, modeDefaults.liveAutoPromote, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
@@ -253,9 +253,7 @@ export function registerTenantReleaseRoutes(app) {
     }
 
     const maintenanceWindow = object(body?.maintenanceWindow)
-    const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
-      : { uatAutoStage: false, liveAutoPromote: false }
+    const modeDefaults = releaseModeDefaults(updateMode)
 
     await ensurePreference(auth.session.tenant_id)
     const result = await pool.query(
