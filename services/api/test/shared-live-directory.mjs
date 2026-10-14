@@ -23,6 +23,9 @@ test('Read-through has scoped request and denies unsecured/unavailable origins',
   assert.equal(seen[0].options.method,'POST')
   assert.deepEqual(JSON.parse(seen[0].options.body),{tenantId,userId,environment:'uat'})
   assert.equal(seen[0].options.headers.authorization,'Bearer '+secret)
+  // Shared Test/UAT deliberately do not set QA26_STAGING_MODE. Internal routing
+  // must still reach the protected Live authority through the gateway.
+  assert.equal(seen[0].options.headers['X-Hi5-QA26-Internal'],'pr69')
   await assert.rejects(readCanonicalDirectory(tenantId,userId,{environment:'test',fetcher,apiUrl:'http://unsafe.example.test',secret}),/not configured/)
   await assert.rejects(readCanonicalDirectory(tenantId,userId,{environment:'live',fetcher,apiUrl:'https://identity.example.test',secret}),/sandbox session/)
   await assert.rejects(readCanonicalDirectory(tenantId,userId,{environment:'uat',fetcher:async()=>({ok:false}),apiUrl:'https://identity.example.test',secret}),/unavailable or access was denied/)
@@ -37,4 +40,16 @@ test('Test/UAT RMM remote access is denied, internal Dev remains isolated',()=>{
   assert.equal(liveRmmAccessAllowed('live'),true)
   assert.equal(liveRmmAccessAllowed('dev'),true)
   assert.equal(liveRmmAccessAllowed('unknown'),false)
+})
+
+test('Read-through routing marker does not replace the required service credential',async()=>{
+  let calls=0
+  await assert.rejects(
+    readCanonicalDirectory(tenantId,userId,{
+      environment:'uat',apiUrl:'https://identity.example.test',secret:'missing',
+      fetcher:async()=>{calls++;return {ok:true,json:async()=>({directory:snapshot})}},
+    }),
+    /not configured/,
+  )
+  assert.equal(calls,0)
 })
