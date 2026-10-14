@@ -14,6 +14,13 @@ on:
       - 'services/api/src/index.js'
       - 'apps/admin/src/features/admin/StripeBillingSandbox.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - 'services/api/src/qa26DemoBilling.js'
+      - 'services/api/migrations/platform-admin/153_qa26_demo_invoice_states.sql'
+      - 'services/api/test/qa26-demo-billing.mjs'
+      - 'apps/admin/src/features/admin/Qa26DemoAdminInvoices.jsx'
+      - 'apps/itsm/src/features/settings/Qa26DemoBilling.jsx'
+      - 'apps/itsm/src/features/settings/Qa26DemoBilling.css'
+      - 'apps/itsm/src/features/settings/ProductionSettingsWorkspace.jsx'
       - '.github/workflows/stripe-sandbox-billing.yml'
   workflow_dispatch:
 permissions:
@@ -47,8 +54,9 @@ jobs:
         run: |
           node --check src/stripeBillingSandbox.js
           node --check src/stripeBillingWebhooks.js
+          node --check src/qa26DemoBilling.js
           node --check src/platformAdmin.js
-          node --test test/stripe-sandbox-guards.mjs test/stripe-webhook-signature.mjs
+          node --test test/stripe-sandbox-guards.mjs test/stripe-webhook-signature.mjs test/qa26-demo-billing.mjs
       - name: Migrate isolated PostgreSQL database
         working-directory: services/api
         run: npm run migrate
@@ -63,4 +71,10 @@ jobs:
         run: npm ci
       - name: Build Admin application
         working-directory: apps/admin
+        run: npm run build
+      - name: Install tenant workspace dependencies
+        working-directory: apps/itsm
+        run: npm ci
+      - name: Build tenant workspace
+        working-directory: apps/itsm
         run: npm run build
