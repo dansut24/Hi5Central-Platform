@@ -35,16 +35,16 @@ const checks=[
     expected:401,
   },
   {
-    label:'Other-tenant origins cannot reach Test QA-only API',
+    label:'Unrelated Test tenants retain their original API route',
     url:'https://test-api.hi5central.com/api/v1/organisation',
     origin:'https://testing-test.hi5central.com',
-    expected:403,
+    expected:401,
   },
   {
-    label:'Other-tenant origins cannot reach UAT QA-only API',
+    label:'Unrelated UAT tenants retain their original API route',
     url:'https://uat-api.hi5central.com/api/v1/organisation',
     origin:'https://testing-uat.hi5central.com',
-    expected:403,
+    expected:401,
   }
 ]
 const results=[]
