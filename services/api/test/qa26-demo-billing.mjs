@@ -79,6 +79,8 @@ test('no login, non-owner, no MFA, API token and other tenant cannot access demo
     const app=appFor(db,async()=>s)
     assert.equal((await app.request('/api/v1/qa26/demo-billing')).status,expected)
   }
+  assert.equal((await appFor(db).request('/api/v1/qa26/demo-billing', {headers:{origin:'https://h5c-custom-qa26.hi5central.com'}})).status,403)
+  assert.equal((await appFor(db).request('/api/v1/qa26/demo-billing', {headers:{referer:'https://h5c-custom-qa26.hi5central.com/settings/subscription'}})).status,403)
   assert.equal(db.queries.length,0)
 })
 test('fake payment declines, retries, succeeds and becomes idempotently paid only for the signed-in tenant',async()=>{
