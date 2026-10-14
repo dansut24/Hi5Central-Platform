@@ -41,3 +41,26 @@ Run `node scripts/qa26-stage-acceptance.mjs` **only after** the operator confirm
 - Test mobile login and MFA viewport; all original unrelated customer endpoints and live RMM remain unchanged.
 
 **Stop and rollback** if any cross-tenant access, RMM action, wrong image SHA, unexpected gateway exposure, missing identity authority, 5xx spike or auth regression occurs. Keep PR #69 draft until all gates and human verification pass.
+
+## Operator change log: two public tenant hostnames only
+
+User-approved customer-facing QA scope is exactly:
+
+- `https://h5c-managed-qa26.hi5central.com`
+- `https://h5c-custom-qa26.hi5central.com`
+
+**Do not create further DNS records, new customer tenant hostnames, or temporary QA domains.** The existing technical platform API and legacy sandbox hostnames are pre-existing infrastructure, not new domains. Keep the original QA tenant portals operational and route only these tenants to approved QA code.
+
+A future single-origin UI may present environments through a tenant-scoped selector or URL paths (`/test/` for both, `/uat/` for Custom). That is a **design proposal, not an implemented routing cutover**: shared origin requires explicit session-cookie selection, frontend assets/runtime-config routing, environment-specific API dispatch, CSRF origin checks, tenant authentication, and browser history protections. Never simply alias Test/UAT to Live or send sandbox operations to Live DB. Do not remove functioning ITSM Test/UAT aliases until one-origin replacements have authenticated acceptance evidence. Live-only RMM access must be clearly segregated.
+
+### Validated gateway and Live People changes (2026-10-14)
+
+The VPS gateway originally served invalid Managed-UAT and QA26 Test/UAT RMM hostnames due to generic wildcard matchers. A Caddy candidate restricting those **five existing, invalid hosts** was validated and deployed via normal gateway reload. A normal reload of the old read-only bind-mount path initially had no effect; the gateway configuration API exposed that the running Caddy container still saw an earlier inode. The operator used the Caddy binary to reload the independently validated candidate directly, and recorded the candidate in the host persistent Caddyfile for subsequent container recreation.
+
+**Live routing verification: 12/12 PASS.** Five invalid Managed-UAT/RMM hostnames now respond 404; the two actual QA root hostnames, the three legacy valid ITSM sandbox web hosts, and unrelated Test/UAT gateway endpoints remain reachable. No DNS records were created, and the source configuration is backed up on the VPS.
+
+The operator also enabled a **single authenticated QA-only Live People service route** on the pre-existing `api.hi5central.com`: `POST /api/v1/internal/organisation/directory-snapshot`, requiring the QA staging header `X-Hi5-QA26-Internal: pr69` and the independently verified Bearer service credential. This reverse-proxies only to the existing healthy PR69 Live API preview. Unmarked POST and GET still return 404; marked unauthorised POST returns 401. Marked authenticated Live test returned 200 for Managed Test and Custom UAT owner directory snapshots, and 403 for Managed UAT. Normal customer-facing API routes are unchanged.
+
+**Post-change public acceptance: 7/12 PASS.** The five outstanding checks are on the **existing, unupgraded** Test/UAT API runtimes: three API-level RMM denial assertions expect 403 but receive legacy unauthenticated 401; two ITSM configuration-history routes expect 401 but currently return 404. These are not fixed by changes to the Caddy web-host deny rules, and they must not be faked as successful by rewriting public status codes. The previously blocked isolated Test/UAT sidecar operation was **not** retried or bypassed.
+
+**No-go for declaring the full release live** until the Test/UAT runtime deployment has an explicitly approved safe procedure, the public API acceptance gate passes, environment selection uses the approved two tenant hostnames, and authenticated browser + consenting QA remote-device tests are completed. Do not merge PR #69 or reroute other tenants just to clear the gate.
