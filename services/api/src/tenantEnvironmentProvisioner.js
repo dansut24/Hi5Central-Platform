@@ -117,7 +117,11 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
             (tenant_id,modules,onboarding_step,onboarding_completed_at,onboarding_data,
              configuration,tenant_url,portal_url,rmm_url)
          VALUES($1,$2::jsonb,'complete',now(),$3::jsonb,$4::jsonb,$5,$6,$7)
-         ON CONFLICT(tenant_id) DO NOTHING`,
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           modules=jsonb_set(tenant_settings.modules,'{rmm}','false'::jsonb,true),
+           rmm_url=NULL,
+           onboarding_data=tenant_settings.onboarding_data - 'rmm',
+           configuration=tenant_settings.configuration - 'rmm'`,
         [tenant.id,JSON.stringify(sandboxModules(tenant.modules)),
          JSON.stringify(sandboxConfiguration(tenant.onboarding_data)),
          JSON.stringify(sandboxConfiguration(configuration)),targetUrl(tenant.slug,env),

@@ -31,3 +31,17 @@ jobs:
       - run: node --check src/tenantEnvironmentPolicy.js && node --check src/tenantEnvironmentProvisioner.js && node --check src/tenantEnvironmentAccess.js && node --check src/tenantRelease.js
       - run: node --check src/itsmConfigurationChanges.js && node --check src/settings.js
       - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs
+      - run: npm ci --ignore-scripts
+      - run: npm run build:runtime
+  itsm:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/itsm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build

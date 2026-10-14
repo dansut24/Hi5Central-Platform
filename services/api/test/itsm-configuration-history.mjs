@@ -40,5 +40,5 @@ test('Change listing is tenant/environment scoped and Test is untracked',async()
   const db={query:async(sql,values)=>{queries.push(values);return {rows:[{id:'one'}]}}}
   assert.deepEqual(await listItsmConfigurationChanges({db,tenantId,environment:'test'}),[])
   assert.deepEqual(await listItsmConfigurationChanges({db,tenantId,environment:'uat',limit:999}),[{id:'one'}])
-  assert.deepEqual(queries,[[tenantId,'uat',50]])
+  assert.deepEqual(queries,[[tenantId,'uat',100]])
 })
