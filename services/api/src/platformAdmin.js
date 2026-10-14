@@ -7,6 +7,7 @@ import { createSession, resolveSession, setSessionCookie } from './session.js'
 import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import { applicationDeployments } from './applicationDeployment.js'
+import { assessUatProductionPromotion } from './uatProductionPromotion.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {
   cancelSoftwareQualificationQueue,
@@ -748,7 +749,7 @@ export function registerPlatformAdminRoutes(app) {
       pool.query(`SELECT id,from_environment,to_environment,api_sha,itsm_sha,
         release_ref,status,requested_at,started_at,completed_at,error_message
         FROM platform_application_deployment_jobs ORDER BY requested_at DESC LIMIT 30`),
-      pool.query("SELECT request_key,source_tenant_slug,build_sha,approved_change_shas,evidence,status,reviewed_at,received_at,decided_at FROM platform_application_release_requests ORDER BY received_at DESC LIMIT 40"),
+      pool.query("SELECT r.request_key,r.source_tenant_slug,r.build_sha,r.approved_change_shas,r.evidence,r.status,r.reviewed_at,r.received_at,r.decided_at,n.version_label,n.title FROM platform_application_release_requests r LEFT JOIN hi5central_published_release_notes n ON n.build_sha=r.build_sha ORDER BY r.received_at DESC LIMIT 40"),
     ])
     return c.json({environments:versions,jobs:jobs.rows,reviewRequests:requests.rows})
   })
@@ -762,6 +763,12 @@ export function registerPlatformAdminRoutes(app) {
     if(!['uat','live'].includes(target))return c.json({error:'Environment must be UAT or Live.'},400)
     const source=target==='uat'?'dev':'uat'
     const versions=await applicationDeployments(pool)
+    // A shared Production deployment cannot be queued from a generic
+    // "promote" call: it would bypass per-tenant UAT evidence and platform
+    // administrator sign-off. Use the protected UAT review decision instead.
+    if(target==='live')return c.json({
+      error:'Production requires a published, host-verified UAT review and explicit Platform Admin approval. Use the UAT promotion queue.',
+    },409)
     const approved=versions[source]
     if(!approved.verified) return c.json({error:`The ${source.toUpperCase()} application must be verified by the host operator before deploying to ${target.toUpperCase()}.`},409)
     // The two application images are built as one atomic commit.
@@ -808,9 +815,25 @@ export function registerPlatformAdminRoutes(app) {
         await db.query("UPDATE platform_application_release_requests SET status='rejected',decided_at=now(),reviewed_by=$2 WHERE request_key=$1",[key,auth.session.user_id])
         return {status:'rejected'}
       }
-      if(!imageState.uat?.verified||imageState.uat.apiSha!==selected.build_sha||imageState.uat.itsmSha!==selected.build_sha)
-        return {error:'UAT no longer runs the tested build, or the host verification has expired.',status:409}
-      const alreadyLive=imageState.live?.verified&&imageState.live.apiSha===selected.build_sha&&imageState.live.itsmSha===selected.build_sha
+      // This approval enqueues SHARED Live API/ITSM images: only a genuine
+      // customer-initiated Custom UAT request for a published, host-verified
+      // exact build may authorise it. Never accept a browser supplied SHA.
+      const tenantCheck=await db.query([
+        'SELECT p.update_mode FROM tenants t JOIN tenant_release_preferences p',
+        'ON p.tenant_id=t.id WHERE t.slug=$1 AND t.status=$2 LIMIT 1',
+      ].join(' '),[selected.source_tenant_slug,'active'])
+      if(!tenantCheck.rowCount||tenantCheck.rows[0].update_mode!=='admin_controlled')
+        return {error:'This customer does not have an active Custom UAT release policy.',status:409}
+      const published=await db.query(
+        'SELECT 1 FROM hi5central_published_release_notes WHERE build_sha=$1',
+        [selected.build_sha])
+      const eligibility=assessUatProductionPromotion({
+        review:selected,uat:imageState.uat,live:imageState.live,
+        published:published.rowCount>0,
+      })
+      if(!eligibility.allowed&&eligibility.code!=='ALREADY_INSTALLED')
+        return {error:eligibility.reason,status:409}
+      const alreadyLive=eligibility.code==='ALREADY_INSTALLED'
       if(alreadyLive){
         await db.query("UPDATE platform_application_release_requests SET status='approved',decided_at=now(),reviewed_by=$2 WHERE request_key=$1",[key,auth.session.user_id])
         return {status:'already_deployed'}
