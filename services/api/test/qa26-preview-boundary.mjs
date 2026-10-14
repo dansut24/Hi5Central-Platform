@@ -3,6 +3,9 @@ import test from 'node:test'
 import {qa26StagingActive,qa26TenantAllowed,qa26ExpectedOrigins,qa26CanServe,qa26SessionMatchesOrigin,qa26ServiceDirectoryHeaders} from '../src/qa26Staging.js'
 import {tenantSlugFromHostname,tenantMayServeWorkspace} from '../src/tenantSlugPolicy.js'
 import {mfaRequiredFor,loginRequiresMfa,sandboxPolicyRequiresMfa,sessionNeedsMfa,securitySettings} from '../src/securityPolicy.js'
+import {itsmEnvironmentsForMode,sandboxModules,sandboxConfiguration} from '../src/tenantEnvironmentPolicy.js'
+import {sandboxRmmBlocked} from '../src/sandboxRmmBoundary.js'
+import {liveRmmAccessAllowed} from '../src/liveDirectoryBridge.js'
 test('QA preview is explicitly opt-in and limits the exact two QA slugs',()=>{
  assert.equal(qa26StagingActive({}),false)
  assert.equal(qa26StagingActive({QA26_STAGING_MODE:'true'}),true)
@@ -84,4 +87,23 @@ test('QA26 Live identity cannot issue a password-only session that its own resto
  const bootstrap={onboarding_completed_at:null,tenant_role:'owner',configuration:{}}
  assert.equal(mfaRequiredFor(bootstrap),false)
  assert.equal(sessionNeedsMfa(bootstrap),false)
+})
+
+test('RMM is Live-only for Managed and Custom; ITSM sandbox provisioner excludes RMM',()=>{
+ assert.deepEqual(itsmEnvironmentsForMode('hi5_managed'),['test'])
+ assert.deepEqual(itsmEnvironmentsForMode('admin_controlled'),['test','uat'])
+ for (const mode of ['hi5_managed','admin_controlled']){
+  for (const environment of itsmEnvironmentsForMode(mode)){
+   assert.equal(liveRmmAccessAllowed(environment),false)
+   for(const path of ['/api/v1/rmm','/api/v1/rmm/devices','/api/v1/rmm/devices/123/remote','/api/v1/agent','/api/v1/agent/enroll','/api/v1/agent/jobs/claim']){
+    assert.equal(sandboxRmmBlocked(environment,path),true,environment+' '+path)
+   }
+   assert.deepEqual(sandboxModules({itsm:true,rmm:true,selfService:true}),{itsm:true,rmm:false,selfService:true})
+   assert.deepEqual(sandboxConfiguration({rmm:{enabled:true},itsm:{sla:'test'}}),{itsm:{sla:'test'}})
+  }
+ }
+ assert.equal(liveRmmAccessAllowed('live'),true)
+ assert.equal(sandboxRmmBlocked('live','/api/v1/rmm/devices'),false)
+ assert.equal(sandboxRmmBlocked('test','/api/v1/itsm/records'),false)
+ assert.equal(sandboxRmmBlocked('uat','/api/v1/auth/session'),false)
 })
