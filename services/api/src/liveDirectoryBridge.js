@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { deployment } from './deploymentConfig.js'
-import { qa26StagingActive,qa26ServiceDirectoryHeaders } from './qa26Staging.js'
+import { qa26ServiceDirectoryHeaders } from './qa26Staging.js'
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 export function readDirectoryServiceSecret() {
   const path=process.env.ENV_IDENTITY_SHARED_SECRET_FILE
@@ -33,8 +33,12 @@ export async function readCanonicalDirectory(tenantId,userId,{
   const base=String(apiUrl||'').trim().replace(/\/$/,'')
   if (!/^https:\/\/[^/?#]+$/i.test(base)||secret.length<32)
     throw new Error('Production directory authority is not configured.')
+  // The Production gateway requires this route marker even on shared Test/UAT pools.
+  // It is NOT an authentication credential: the service bearer token, Live tenant
+  // membership and environment grants remain mandatory at the authority.
+  // QA26_STAGING_MODE must stay disabled on shared pool services.
   const response=await fetcher(base+'/api/v1/internal/organisation/directory-snapshot',{
-    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+secret,...qa26ServiceDirectoryHeaders(qa26StagingActive())},
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer '+secret,...qa26ServiceDirectoryHeaders(true)},
     body:JSON.stringify({tenantId,userId,environment}),signal:AbortSignal.timeout(6000),
   })
   if (!response.ok) throw new Error('The central People directory is unavailable or access was denied.')
