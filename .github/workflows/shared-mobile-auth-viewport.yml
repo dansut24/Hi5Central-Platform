@@ -1,0 +1,30 @@
+name: Shared Mobile Authentication Viewport
+on:
+  pull_request:
+    paths:
+      - 'apps/**/src/styles/mobile-auth-viewport.css'
+      - 'apps/**/src/main.jsx'
+      - 'scripts/mobile-auth-viewport.*'
+      - 'scripts/sync-mobile-auth-viewport.mjs'
+      - '.github/workflows/shared-mobile-auth-viewport.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-auth-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node scripts/sync-mobile-auth-viewport.mjs --check
+      - run: node --test scripts/mobile-auth-viewport.test.mjs
+  webkit-mobile-viewport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned WebKit engine
+        run: |
+          npm install --no-audit --no-fund --no-save --prefix scripts/qa-mobile-playwright playwright@1.56.1
+          ./scripts/qa-mobile-playwright/node_modules/.bin/playwright install --with-deps webkit
+      - name: Test iPhone-sized and keyboard-sized login pages in WebKit
+        run: node scripts/mobile-auth-viewport.browser.cjs

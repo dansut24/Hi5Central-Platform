@@ -6,6 +6,7 @@ import './ContextualSurfaces.css'
 import './production/ProductionWorkspaceLegibility.css'
 import { ProductionRmmBootstrap } from './production/ProductionRmmBootstrap.jsx'
 import { EnvironmentBanner } from './production/EnvironmentBanner.jsx'
+import './styles/mobile-auth-viewport.css'
 
 const root = document.getElementById('root')
 document.documentElement.dataset.hi5Surface = 'rmm'

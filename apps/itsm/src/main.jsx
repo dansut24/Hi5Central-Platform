@@ -83,6 +83,7 @@ import './production/ProductionCalendarTeams.css'
 import './production/ProductionProjectWorkbench.css'
 import './production/ProductionOrganisationKnowledgeLayout.css'
 import './production/ProductionLiquidGlassTabs.css'
+import './styles/mobile-auth-viewport.css'
 
 installWorkspaceTabSessionIsolation()
 

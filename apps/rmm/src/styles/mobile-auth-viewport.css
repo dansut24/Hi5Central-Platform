@@ -1,0 +1,104 @@
+/*
+ * Hi5Central AUTH VIEWPORT — canonical style.
+ * Applies to all current .production-auth-shell screens and any future login,
+ * MFA, invitation or recovery view using [data-hi5-auth-screen].
+ * Auth pages scroll the DOCUMENT; signed-in workspaces retain locked shells.
+ * Sync copies with: node scripts/sync-mobile-auth-viewport.mjs
+ */
+html:has(.production-auth-shell),
+html:has([data-hi5-auth-screen]) {
+  height: auto !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  overflow-x: clip !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: max(120px, env(safe-area-inset-bottom));
+}
+html:has(.production-auth-shell) body,
+html:has([data-hi5-auth-screen]) body {
+  height: auto !important;
+  min-height: 100svh !important;
+  max-height: none !important;
+  overflow-x: clip !important;
+  overflow-y: visible !important;
+}
+html:has(.production-auth-shell) #root,
+html:has([data-hi5-auth-screen]) #root {
+  height: auto !important;
+  min-height: 100svh !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+.production-auth-shell,
+[data-hi5-auth-screen] {
+  box-sizing: border-box;
+  height: auto !important;
+  min-height: 100svh;
+  max-height: none !important;
+  overflow: visible !important;
+}
+@supports (height: 100dvh) {
+  .production-auth-shell,
+  [data-hi5-auth-screen] { min-height: 100dvh; }
+}
+@media (max-width: 800px), (max-height: 700px) {
+  .production-auth-shell,
+  [data-hi5-auth-screen] {
+    height: auto !important;
+    min-height: 100svh;
+    max-height: none !important;
+    overflow: visible !important;
+    align-items: start !important;
+    align-content: start;
+    justify-items: stretch;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-right: 16px;
+    padding-bottom: max(56px, env(safe-area-inset-bottom));
+    padding-left: 16px;
+  }
+  .production-auth-layout {
+    width: min(620px, 100%);
+    min-width: 0;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  .production-auth-card,
+  .production-auth-copy {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .h5-account-login {
+    height: auto !important;
+    min-height: 100svh;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .h5-account-login .production-auth-shell { min-height: 0; }
+}
+.production-auth-shell :is(input:not([type='checkbox']):not([type='radio']), select, textarea),
+[data-hi5-auth-screen] :is(input:not([type='checkbox']):not([type='radio']), select, textarea) {
+  font-size: 16px !important;
+  scroll-margin-top: 100px;
+  scroll-margin-bottom: max(140px, env(safe-area-inset-bottom));
+}
+/* Dialogs use their own vertical scrollport when the keyboard is visible. */
+@media (max-width: 800px), (max-height: 700px) {
+  :is(.production-mfa-modal, .production-password-modal-backdrop,
+      .production-password-overlay) {
+    overflow-y: auto !important;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    align-items: flex-start;
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(28px, env(safe-area-inset-bottom));
+  }
+  :is(.production-mfa-modal-card, .production-password-modal,
+      .production-password-reset-card) {
+    max-width: 100%;
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
