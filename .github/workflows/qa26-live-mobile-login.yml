@@ -1,0 +1,21 @@
+name: QA26 Live Mobile Login WebKit Smoke
+on:
+  pull_request:
+    paths:
+      - 'scripts/qa26-public-login-webkit.cjs'
+      - '.github/workflows/qa26-live-mobile-login.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-qa26-logins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned WebKit for real iPhone-sized tests
+        run: |
+          npm install --no-audit --no-fund --no-save --prefix scripts/qa-mobile-playwright playwright@1.56.1
+          ./scripts/qa-mobile-playwright/node_modules/.bin/playwright install --with-deps webkit
+      - name: Validate all four public QA26 login pages scroll to their bottom
+        run: node scripts/qa26-public-login-webkit.cjs
