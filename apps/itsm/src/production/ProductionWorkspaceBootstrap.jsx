@@ -731,6 +731,17 @@ export function ProductionWorkspaceBootstrap({onWorkspaceAuthenticatedChange}) {
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
   const onboardingRoute = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/')
+  // A QA26 billing login handoff never accepts a user-supplied return URL.
+  // It returns ONLY to the exact matching tenant's billing-admin hostname,
+  // after a verified MFA session and any onboarding/first-login requirements.
+  useEffect(() => {
+    if (currentPath !== '/billing-sign-in') return
+    if (!['h5c-managed-qa26','h5c-custom-qa26'].includes(surface.tenantSlug)) return
+    if (serverSession?.tenant?.slug !== surface.tenantSlug) return
+    if (!serverSession?.security?.mfaVerified || !serverSession?.onboarding?.completedAt
+      || !serverSession?.userExperience?.firstLoginCompletedAt) return
+    window.location.replace('https://' + surface.tenantSlug + '-admin.hi5central.com/')
+  }, [currentPath,surface.tenantSlug,serverSession])
   useEffect(()=>{
     // Mount workspace-only enhancers only after the server accepted the
     // session AND initial setup is complete. No unauthenticated DOM observers.
