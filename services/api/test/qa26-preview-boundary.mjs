@@ -3,7 +3,7 @@ import test from 'node:test'
 import {qa26StagingActive,qa26TenantAllowed,qa26ExpectedOrigins,qa26CanServe,qa26SessionMatchesOrigin,qa26ServiceDirectoryHeaders} from '../src/qa26Staging.js'
 import {tenantSlugFromHostname,tenantMayServeWorkspace} from '../src/tenantSlugPolicy.js'
 import {mfaRequiredFor,loginRequiresMfa,sandboxPolicyRequiresMfa,sessionNeedsMfa,securitySettings} from '../src/securityPolicy.js'
-import {itsmEnvironmentsForMode,sandboxModules,sandboxConfiguration} from '../src/tenantEnvironmentPolicy.js'
+import {itsmEnvironmentsForMode,sandboxModules,sandboxConfiguration,releaseModeDefaults} from '../src/tenantEnvironmentPolicy.js'
 import {sandboxRmmBlocked} from '../src/sandboxRmmBoundary.js'
 import {liveRmmAccessAllowed} from '../src/liveDirectoryBridge.js'
 test('QA preview is explicitly opt-in and limits the exact two QA slugs',()=>{
@@ -106,4 +106,15 @@ test('RMM is Live-only for Managed and Custom; ITSM sandbox provisioner excludes
  assert.equal(sandboxRmmBlocked('live','/api/v1/rmm/devices'),false)
  assert.equal(sandboxRmmBlocked('test','/api/v1/itsm/records'),false)
  assert.equal(sandboxRmmBlocked('uat','/api/v1/auth/session'),false)
+})
+
+test('release-management updates preserve Managed no-UAT and Custom UAT automatic staging',()=>{
+ assert.deepEqual(releaseModeDefaults('hi5_managed'),{
+  testAutoSync:true,uatAutoStage:false,liveAutoPromote:true,
+ })
+ assert.deepEqual(releaseModeDefaults('admin_controlled'),{
+  testAutoSync:true,uatAutoStage:true,liveAutoPromote:false,
+ })
+ assert.throws(()=>releaseModeDefaults(''),/Unknown/)
+ assert.throws(()=>releaseModeDefaults('custom'),/Unknown/)
 })
