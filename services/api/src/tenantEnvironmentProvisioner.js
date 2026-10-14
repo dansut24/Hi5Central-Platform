@@ -95,6 +95,7 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
            VALUES($1,$2,$3,'environment-sso-only',$4)
            ON CONFLICT(id) DO UPDATE SET
              email=EXCLUDED.email,name=EXCLUDED.name,
+             password_hash='environment-sso-only',
              email_verified_at=EXCLUDED.email_verified_at`,
           [user.id,user.email,user.name,user.email_verified_at],
         )
