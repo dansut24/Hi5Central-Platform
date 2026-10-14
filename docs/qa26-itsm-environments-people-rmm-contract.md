@@ -51,3 +51,9 @@ A person must not acquire Live RMM remote privileges through Test/UAT ITSM permi
 ## Continuation summary
 
 As of 2026-10-14 this branch implements environment and RMM boundaries, identity projection reconciliation, and the first ITSM settings-only change ledger. Next: pass CI, stage only QA tenants, then implement read-only shared People read-through and a 3-way diff coordinator before any selective promotion.
+
+
+## Canonical directory and live-only remote perimeter
+UAT/Test `GET /api/v1/organisation` now reads the Live People/Teams/Departments/Sites snapshot using the existing long environment-service secret. Live revalidates the user's tenant and access grant and prevents cross-tenant reads. Changes to those shared directory records are rejected outside Live. On Live authority outage, the sandbox returns 503; it does not silently read stale local People rows.
+
+**Important rollout dependency:** The internal read route must be deployed to Live before switching UAT/Test to the new read-through API. Existing ITSM tickets may still reference locally cached sandbox identities: a subsequent phase must reconcile these to central canonical person IDs for fully shared record selection. RMM remote and Connect session API access is denied on Test/UAT and remains live-only; agent broker, enrollment, and device linkage require additional E2E hardening.

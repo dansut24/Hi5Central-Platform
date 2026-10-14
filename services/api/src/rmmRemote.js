@@ -7,6 +7,7 @@ import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
+import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
 const DOWNLOADS_URL = String(process.env.DOWNLOADS_URL || `https://downloads.${ROOT_DOMAIN}`).replace(/\/$/, '')
@@ -183,6 +184,8 @@ function iceConfiguration(sessionId) {
 }
 
 async function requireRemoteAccess(c) {
+  if(!liveRmmAccessAllowed(deployment.runtimeEnvironment))
+    return {error:c.json({error:'Remote support is available through Live RMM only.'},403)}
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
   if (!originMatchesTenant(c.req.header('origin'), session.slug)) {

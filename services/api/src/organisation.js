@@ -1,6 +1,8 @@
 import { pool, withTransaction } from './db.js'
 import { resolveSession } from './session.js'
-import { originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant } from './deploymentConfig.js'
+import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
+import { readCanonicalDirectory, readDirectoryServiceSecret, validDirectoryServiceToken, isDirectoryReference } from './liveDirectoryBridge.js'
 
 const collections = new Set(['people', 'teams', 'departments', 'sites'])
 const maxSnapshotItems = 5000
@@ -575,9 +577,38 @@ async function upsertOrganisationEntry(client, session, collection, item) {
 }
 
 export function registerOrganisationRoutes(app) {
+  // Only a trusted sandbox service may retrieve the centrally-owned directory;
+  // verify current Live environment grant and tenant membership for the subject.
+  app.post('/api/v1/internal/organisation/directory-snapshot',async c=>{
+    if(deployment.runtimeEnvironment!=='live')return c.json({error:'Not found.'},404)
+    let secret
+    try{secret=readDirectoryServiceSecret()}catch{return c.json({error:'Directory service unavailable.'},503)}
+    if(!validDirectoryServiceToken(secret,c.req.header('authorization')))
+      return c.json({error:'Unauthorised.'},401)
+    const body=await c.req.json().catch(()=>null)
+    const {tenantId,userId,environment}=body||{}
+    if(!isDirectoryReference(tenantId,userId,environment))return c.json({error:'Invalid request.'},400)
+    if(!await permittedTenantEnvironment(tenantId,userId,environment))
+      return c.json({error:'Environment access denied.'},403)
+    const member=await pool.query(
+      `SELECT role FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2 AND status='active'`,
+      [tenantId,userId],
+    )
+    if(!member.rowCount||member.rows[0].role==='requester')
+      return c.json({error:'Technician directory access required.'},403)
+    return c.json({directory:await organisationSnapshot(tenantId)})
+  })
+
   app.get('/api/v1/organisation', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
+    if(['test','uat'].includes(deployment.runtimeEnvironment)) {
+      try{return c.json(await readCanonicalDirectory(auth.session.tenant_id,auth.session.user_id))}
+      catch(error){
+        console.error('Live People directory unavailable',{code:error.code||'DIRECTORY_UNAVAILABLE'})
+        return c.json({error:'Live People directory is unavailable. Try again shortly.'},503)
+      }
+    }
     await ensureOrganisationSeed(auth.session)
     return c.json(await organisationSnapshot(auth.session.tenant_id))
   })
@@ -587,6 +618,8 @@ export function registerOrganisationRoutes(app) {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
     if (auth.session.tenant_role === 'requester') return c.json({ error: 'Technician access required.' }, 403)
+    if (['test','uat'].includes(deployment.runtimeEnvironment))
+      return c.json({error:'People and directory are shared from Live. Edit them in Production.'},403)
     const collection = text(c.req.param('collection'), 40).toLowerCase()
     if (!['people', 'teams', 'departments'].includes(collection)) {
       return c.json({ error: 'Unsupported organisation collection.' }, 404)
@@ -606,6 +639,8 @@ export function registerOrganisationRoutes(app) {
     if (auth.error) return auth.error
     const collection = String(c.req.param('collection') || '').toLowerCase()
     if (!collections.has(collection)) return c.json({ error: 'Unknown organisation collection.' }, 404)
+    if (['test','uat'].includes(deployment.runtimeEnvironment))
+      return c.json({error:'People and directory are shared from Live. Edit them in Production.'},403)
 
     let body
     try {

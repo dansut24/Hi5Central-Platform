@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'services/api/src/tenantEnvironmentPolicy.js'
+      - 'services/api/src/liveDirectoryBridge.js'
+      - 'services/api/src/organisation.js'
+      - 'services/api/src/rmmRemote.js'
+      - 'services/api/src/rmmConnect.js'
+      - 'services/api/test/shared-live-directory.mjs'
       - 'services/api/src/tenantEnvironmentProvisioner.js'
       - 'services/api/src/tenantEnvironmentAccess.js'
       - 'services/api/src/tenantRelease.js'
@@ -29,8 +34,8 @@ jobs:
         with:
           node-version: '24'
       - run: node --check src/tenantEnvironmentPolicy.js && node --check src/tenantEnvironmentProvisioner.js && node --check src/tenantEnvironmentAccess.js && node --check src/tenantRelease.js
-      - run: node --check src/itsmConfigurationChanges.js && node --check src/settings.js
-      - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs
+      - run: node --check src/itsmConfigurationChanges.js && node --check src/settings.js && node --check src/liveDirectoryBridge.js && node --check src/organisation.js && node --check src/rmmRemote.js && node --check src/rmmConnect.js
+      - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs test/shared-live-directory.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:runtime
   itsm:

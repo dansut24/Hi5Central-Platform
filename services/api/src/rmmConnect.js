@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
 import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
+import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
 import { pool } from './db.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
@@ -158,6 +159,8 @@ function hostDownloadUrl(ticket) {
   return `https://downloads.${ROOT_DOMAIN}/connect/download/Hi5CentralConnect-${encoded}.exe`
 }
 async function requireConnectAccess(c) {
+  if(!liveRmmAccessAllowed(deployment.runtimeEnvironment))
+    return {error:c.json({error:'Remote support is available through Live RMM only.'},403)}
   const session = await resolveSession(c)
   if (!session) return { error: c.json({ error: 'Authentication required.' }, 401) }
   if (!originMatchesTenant(c.req.header('origin'), session.slug)) {
