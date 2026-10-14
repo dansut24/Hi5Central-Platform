@@ -16,6 +16,7 @@ function fakeDb() {
     queries,states,
     async query(sql,args=[]) {
       queries.push(sql)
+      if (sql.includes('SELECT 1 FROM qa26_demo_billing_delegates')) return {rowCount:0,rows:[]}
       if (sql.startsWith('SELECT id,slug FROM tenants')) {
         const slug=tenants.get(args[0])
         return {rowCount:slug?1:0,rows:slug?[{id:args[0],slug}]:[]}
@@ -81,7 +82,7 @@ test('no login, non-owner, no MFA, API token and other tenant cannot access demo
   }
   assert.equal((await appFor(db).request('/api/v1/qa26/demo-billing', {headers:{origin:'https://h5c-custom-qa26.hi5central.com'}})).status,403)
   assert.equal((await appFor(db).request('/api/v1/qa26/demo-billing', {headers:{referer:'https://h5c-custom-qa26.hi5central.com/settings/subscription'}})).status,403)
-  assert.equal(db.queries.length,0)
+  assert(db.queries.every(q=>q.includes('qa26_demo_billing_delegates')))
 })
 test('fake payment declines, retries, succeeds and becomes idempotently paid only for the signed-in tenant',async()=>{
   const db=fakeDb()
