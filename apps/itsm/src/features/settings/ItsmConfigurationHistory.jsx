@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import './ItsmConfigurationHistory.css'
+
+function settingLabel(key) {
+  return String(key || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b(sla|cmdb|itsm)\b/gi, token => token.toUpperCase())
+    .replace(/\bLive Chat\b/gi, 'Live Chat')
+    .trim() || 'ITSM setting'
+}
+
+function changeDate(value) {
+  const parsed=new Date(value)
+  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleString() : 'Date unavailable'
+}
 
 /** Per-environment ITSM change history, not an unverified ahead/behind count. */
 export function ItsmConfigurationHistory() {
@@ -13,7 +29,7 @@ export function ItsmConfigurationHistory() {
       })
       const payload=await response.json().catch(()=>({}))
       if(!response.ok)throw new Error(payload.error||'Configuration history unavailable.')
-      setState({loading:false,error:'',changes:payload.changes||[],
+      setState({loading:false,error:'',changes:Array.isArray(payload.changes)?payload.changes:[],
         tracked:payload.tracked===true,environment:payload.environment||''})
     }catch(error){
       setState(old=>({...old,loading:false,error:error.message||'Could not load changes.'}))
@@ -33,12 +49,32 @@ export function ItsmConfigurationHistory() {
       {state.error?<p role="alert" className="hi5-release-message is-error">{state.error}</p>:null}
       {!state.loading&&!state.error&&!state.changes.length?
         <p>No environment-specific ITSM settings changes have been recorded yet.</p>:null}
-      <div className="hi5-release-history">
-        {state.changes.map(change=><div key={change.id} className="hi5-release-history-row">
-          <strong>{(change.changedKeys||[]).join(', ')||'ITSM settings changed'}</strong>
-          <span>{change.environment?.toUpperCase()} · {new Date(change.recordedAt).toLocaleString()} · {change.actorUserId||'System'}</span>
-          <small>Revision {String(change.afterHash||'').slice(0,12)}</small>
-        </div>)}
+      <div className="hi5-config-history-list">
+        {state.changes.map(change=>{
+          const keys=Array.isArray(change.changedKeys)?change.changedKeys:[]
+          const count=keys.length
+          const at=new Date(change.recordedAt)
+          const validAt=Number.isFinite(at.getTime())
+          return <article key={change.id} className="hi5-config-history-entry">
+            <div className="hi5-config-history-head">
+              <div className="hi5-config-history-title">
+                <span className="hi5-config-history-env">{change.environment?.toUpperCase()||'ITSM'}</span>
+                <strong>{count?count+' ITSM setting'+(count===1?'':'s')+' changed':'ITSM settings changed'}</strong>
+              </div>
+              <time dateTime={validAt?at.toISOString():undefined}>{changeDate(change.recordedAt)}</time>
+            </div>
+            <details className="hi5-config-history-details">
+              <summary>View changed settings</summary>
+              {keys.length?<ul className="hi5-config-history-keys">
+                {keys.map(key=><li key={key}>{settingLabel(key)}</li>)}
+              </ul>:<p>Changed keys were not recorded for this revision.</p>}
+              <div className="hi5-config-history-metadata">
+                <span>Revision {String(change.afterHash||'').slice(0,12)||'unknown'}</span>
+                <span title={change.actorUserId||''}>{change.actorUserId?'Changed by user '+String(change.actorUserId).slice(0,8):'System change'}</span>
+              </div>
+            </details>
+          </article>
+        })}
       </div>
     </div>
   </section>
