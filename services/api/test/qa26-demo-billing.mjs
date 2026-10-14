@@ -129,6 +129,21 @@ test('Managed Test and Custom UAT/Test exact origins are allowed, but never anot
   assert.equal((await app.request(get,{headers:{origin:'https://h5c-managed-qa26test.hi5central.com'}})).status,403)
 })
 
+test('exact QA26 billing-admin host accepts authenticated owner but never cross-tenant origin',async()=>{
+  const db=fakeDb()
+  const a=appFor(db)
+  const api='/api/v1/qa26/demo-billing'
+  const admin='https://h5c-managed-qa26-admin.hi5central.com'
+  const wrong='https://h5c-custom-qa26-admin.hi5central.com'
+  assert.equal((await a.request(api,{headers:{host:'h5c-managed-qa26-admin.hi5central.com',origin:admin}})).status,200)
+  assert.equal((await a.request(api,{headers:{host:'h5c-custom-qa26-admin.hi5central.com',origin:admin}})).status,403)
+  assert.equal((await a.request(api,{headers:{host:'h5c-managed-qa26-admin.hi5central.com',origin:wrong}})).status,403)
+  assert.equal((await a.request(api+'/oct-rmm-itsm/simulate',{
+    method:'POST',headers:{host:'h5c-managed-qa26-admin.hi5central.com',origin:admin,'content-type':'application/json'},
+    body:JSON.stringify({outcome:'declined'}),
+  })).status,200)
+})
+
 test('platform billing roles can view only two QA26 demo tenants and cannot use this endpoint to pay',async()=>{
   const db=fakeDb()
   let role='billing'
