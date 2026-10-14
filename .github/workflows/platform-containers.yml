@@ -9,7 +9,7 @@ on:
       - '.github/scripts/generate-release-manifest.mjs'
       - '.github/workflows/platform-containers.yml'
   push:
-    branches: [main]
+    branches: [main, integration/release-automation-legal-identity-rollback-20261011]
     paths:
       - 'apps/**'
       - 'services/**'
@@ -55,6 +55,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 120
+      - name: Validate customer release verification receipts
+        if: matrix.name == 'ITSM'
+        run: node --test apps/itsm/src/features/settings/releaseVerification.test.mjs
       - name: Generate tracked application changelog
         run: node .github/scripts/generate-release-manifest.mjs
       - uses: docker/setup-buildx-action@v3

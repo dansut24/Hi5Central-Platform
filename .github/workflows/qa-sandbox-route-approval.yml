@@ -1,0 +1,112 @@
+name: QA Sandbox Route Approval (Signed Host)
+
+on:
+  workflow_dispatch:
+    inputs:
+      qa_target:
+        description: 'Exact, allowlisted QA environment'
+        required: true
+        type: choice
+        options:
+          - managed-test
+          - custom-test
+          - custom-uat
+      build_sha:
+        description: 'Approved full 40-character immutable candidate SHA'
+        required: true
+        type: string
+      apply:
+        description: 'Activate only after offline release signature and approval (default dry-run)'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: qa-sandbox-host-release
+  cancel-in-progress: false
+
+jobs:
+  verified_host:
+    name: Verify signed QA release on dedicated runner
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/develop'
+    # Configure this environment with REQUIRED REVIEWERS, protected branches,
+    # and a separate audited enablement variable before any live execution.
+    environment:
+      name: Development
+    runs-on: [self-hosted, Linux, h5c-qa-release]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout reviewed operator from develop
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Review exact host scope and signed intent
+        shell: bash
+        env:
+          SELECTED: ${{ inputs.qa_target }}
+          CANDIDATE_SHA: ${{ inputs.build_sha }}
+          RELEASE_GATE: ${{ vars.HI5_QA_RELEASE_WORKFLOW_ENABLED }}
+        run: |
+          set -euo pipefail
+          case "$SELECTED" in
+            managed-test|custom-test|custom-uat) ;;
+            *) echo "::error::Selected host is not allowlisted."; exit 1 ;;
+          esac
+          if [[ ! "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Release SHA must be immutable and complete."
+            exit 1
+          fi
+          if [[ "$RELEASE_GATE" != true ]]; then
+            echo "::error::The protected QA environment has not enabled the signed release workflow."
+            exit 1
+          fi
+          node --test services/api/test/qa-sandbox-host-release.mjs
+          node --check services/api/scripts/host/qa-sandbox-route-apply.mjs
+      - name: Execute host dry-run or approved activation
+        shell: bash
+        env:
+          SELECTED: ${{ inputs.qa_target }}
+          CANDIDATE_SHA: ${{ inputs.build_sha }}
+          ACTIVATE: ${{ inputs.apply }}
+          # This flag must be enabled independently on the trusted host. It
+          # must never be automatically set by this workflow.
+        run: |
+          set -euo pipefail
+          umask 077
+          operator_root="/opt/hi5central/release-authorisations"
+          intent="${operator_root}/${CANDIDATE_SHA}/${SELECTED}.json"
+          signature="${operator_root}/${CANDIDATE_SHA}/${SELECTED}.sig"
+          trusted_key="/etc/hi5central/release-authority.pub"
+          test -f "$intent" && test -f "$signature" && test -f "$trusted_key" || {
+            echo "::error::External signed intent and trusted public key are required."
+            exit 1
+          }
+          node -e '
+            const fs=require("fs"),intent=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+            if(intent.buildSha!==process.argv[2]||intent.publicHost!==process.argv[3])
+              process.exit(1);
+          ' "$intent" "$CANDIDATE_SHA" "$(
+            case "$SELECTED" in
+              managed-test) echo h5c-managed-qa26-test.hi5central.com;;
+              custom-test) echo h5c-custom-qa26-test.hi5central.com;;
+              custom-uat) echo h5c-custom-qa26-uat.hi5central.com;;
+            esac
+          )" || { echo "::error::Signed intent does not match exact candidate and host."; exit 1; }
+          args=(--intent "$intent" --signature "$signature" --public-key "$trusted_key")
+          if [[ "$ACTIVATE" == true ]]; then
+            if [[ "${HI5_QA_SANDBOX_ROUTE_APPLY_ENABLED:-false}" != true ]]; then
+              echo "::error::Trusted host activation switch is disabled."
+              exit 1
+            fi
+            args+=(--apply)
+          fi
+          node services/api/scripts/host/qa-sandbox-route-apply.mjs "${args[@]}"
+          echo "Signed QA host verification finished. Control-plane attestation remains a separate gate." >> "$GITHUB_STEP_SUMMARY"

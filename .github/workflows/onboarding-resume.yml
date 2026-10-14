@@ -3,7 +3,15 @@ on:
   pull_request:
     paths:
       - 'services/api/src/**'
+      - 'services/api/migrations/platform-admin/151_admin_tenant_lifecycle.sql'
+      - 'services/api/migrations/platform-admin/152_tenant_admin_financial_backup.sql'
+      - 'services/api/migrations/platform-admin/153_shared_database_backup_evidence.sql'
+      - 'services/api/test/platform-tenant-overview.mjs'
+      - 'services/api/test/platform-tenant-overview-routes.mjs'
+      - 'services/api/test/platform-tenant-lifecycle-safety.mjs'
       - 'services/api/test/onboarding-resume-release.mjs'
+      - 'services/api/test/onboarding-completion-email.mjs'
+      - 'services/api/migrations/identity-access/150_onboarding_completion_emails.sql'
       - 'apps/itsm/src/features/onboarding/**'
       - 'apps/itsm/src/production/ProductionWorkspaceBootstrap.jsx'
       - '.github/workflows/onboarding-resume.yml'
@@ -57,7 +65,9 @@ jobs:
           cache: npm
           cache-dependency-path: services/api/package-lock.json
       - run: npm ci
-      - run: node --check src/index.js && node --check src/tenantRelease.js
+      - run: node --check src/index.js && node --check src/tenantRelease.js && node --check src/onboardingCompletionEmail.js && node --check src/mailer.js
+      - name: Validate Admin tenant detail and lifecycle modules
+        run: node --check src/platformTenantOverview.js && node --check src/platformTenantLifecycle.js && node --test test/platform-tenant-overview.mjs test/platform-tenant-overview-routes.mjs test/platform-tenant-lifecycle-safety.mjs
       - run: npm run migrate
       - name: Start API with no background workers
         run: |
@@ -70,6 +80,8 @@ jobs:
           exit 1
       - name: Verify persisted onboarding release selection
         run: node test/onboarding-resume-release.mjs
+      - name: Verify workspace link email queue and idempotence
+        run: node test/onboarding-completion-email.mjs
       - name: Show startup logs on error
         if: failure()
         run: tail -80 /tmp/hi5-onboarding-api.log 2>/dev/null || true

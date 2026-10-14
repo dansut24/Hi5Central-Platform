@@ -23,6 +23,7 @@ import { markTenantSmtpVerified, readTenantDeliverySettings, safeTenantDeliveryS
 import { registerLicenseAuthorityRoutes } from './licenseAuthority.js'
 import { registerMicrosoftRoutes, startMicrosoftSyncScheduler } from './microsoftIntegration.js'
 import { registerMfaRoutes } from './mfa.js'
+import {registerMfaRecoveryRoutes} from './mfaRecovery.js'
 import { attachRmmAgentWebSocket, initializeAgentBroker, registerRmmAgentRoutes, shutdownAgentBroker } from './rmmAgent.js'
 import { registerRmmAutomationRoutes } from './rmmAutomation.js'
 import { registerRmmActivityRoutes } from './rmmActivity.js'
@@ -46,6 +47,7 @@ import {
 } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { sendVerificationEmail, verifySmtpConnection } from './mailer.js'
+import { queueOnboardingCompletionEmail, processOnboardingCompletionEmails, startOnboardingCompletionMailer } from './onboardingCompletionEmail.js'
 import { registerOrganisationRoutes } from './organisation.js'
 import { buildOpenApiDocument } from './openapi.js'
 import { registerPlatformAdminRoutes } from './platformAdmin.js'
@@ -55,6 +57,7 @@ import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
 import { validExistingTenantSlug, validNewTenantSlug } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
+import {mfaRequiredFor} from './securityPolicy.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
@@ -278,6 +281,7 @@ app.post('/api/v1/auth/login', async (c) => {
   const valid = await verifyPassword(password, account.password_hash)
   if (!valid) return c.json({ error: 'Email address or password is incorrect.' }, 401)
 
+  if (mfaRequiredFor(account)) return c.json({error:'Please use secure sign-in with MFA.',code:'MFA_REQUIRED'},403)
   const access = await effectiveAccessForUser(pool, account.tenant_id, account.user_id, account.tenant_role)
   if (!access.workspaceAccess) return c.json({ error: 'Your Hi5Central roles do not include access to this workspace. Use the requester portal instead.' }, 403)
   const resolvedAccount = attachAccess(account, access, 'workspace')
@@ -665,7 +669,13 @@ app.post('/api/v1/onboarding/complete', async (c) => {
   const session = await resolveOnboardingSession(c)
   if (!session) return c.json({ error: 'Authentication required.' }, 401)
   if (!originMatchesSession(c, session)) return c.json({ error: 'Tenant session mismatch.' }, 403)
-  if (session.onboarding_completed_at) return c.json(sessionPayload(session))
+  if (session.onboarding_completed_at) {
+    const verified = await resolveSession(c)
+    return verified ? c.json(sessionPayload(verified)) : c.json({
+      onboardingCompleted:true, requiresSecureSignIn:true, nextPath:'/login',
+      message:'Sign in with MFA to personalise your workspace.',
+    })
+  }
   if (session.onboarding_step !== 'finish') return c.json({ error: 'Complete the remaining onboarding steps first.' }, 409)
   const client = await pool.connect()
   try {
@@ -686,6 +696,17 @@ app.post('/api/v1/onboarding/complete', async (c) => {
        ON CONFLICT (user_id) DO NOTHING`,
       [session.user_id],
     )
+    // Reconcile saved policies written by older onboarding builds before
+    // provisioning any environment. Keep the policy change atomic with Finish.
+    if (session.onboarding_data?.updates?.updateMode) {
+      await persistOnboardingUpdatePreference(client, {
+        tenantId: session.tenant_id, userId: session.user_id,
+        data: session.onboarding_data.updates,
+      })
+    }
+    // Commit the mail notification with onboarding, not with SMTP delivery.
+    // The owner only receives an email once the eligible environments are ready.
+    await queueOnboardingCompletionEmail(client,session.tenant_id,session.user_id)
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK')
@@ -700,6 +721,22 @@ app.post('/api/v1/onboarding/complete', async (c) => {
       console.error('Onboarding environment setup failed', {tenantId:session.tenant_id, code:error.code || 'UNKNOWN'})
       return { test:{status:'error'}, uat:{status:'error'} }
     })
+  // Email delivery is independent of the Finish response or mandatory MFA.
+  void processOnboardingCompletionEmails().catch(error =>
+    console.error('Onboarding completion delivery queued',{code:error.code || 'UNKNOWN'}))
+  if (!refreshed) {
+    // Email-verification signup creates a provisional onboarding session.
+    // Once onboarding completes mandatory MFA requires a fresh secure login.
+    // Never represent that provisional session as a verified workspace session.
+    return c.json({
+      onboardingCompleted:true,
+      onboardingEmail:'queued',
+      requiresSecureSignIn:true,
+      nextPath:'/login',
+      environments,
+      message:'Your organisation is ready. Sign in with MFA to personalise your workspace.',
+    })
+  }
   return c.json({ ...sessionPayload(refreshed), environments })
 })
 
@@ -735,6 +772,7 @@ registerSettingsRoutes(app)
 registerUserPreferenceRoutes(app)
 registerSecurityRoutes(app)
 registerMfaRoutes(app)
+registerMfaRecoveryRoutes(app)
 registerProjectRoutes(app)
 registerMicrosoftRoutes(app)
 registerRmmAgentRoutes(app)
@@ -768,6 +806,7 @@ console.log('[API] RMM agent broker initialized; starting schedulers...')
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
 if (backgroundWorkersEnabled) {
+  startOnboardingCompletionMailer()
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
   startSoftwareVendorSyncScheduler()

@@ -35,8 +35,10 @@ export function checkPoolTenantRequest({boundary,host,origin,referer,sessionSlug
   if(authenticated&&clean(sessionSlug)!==boundary.slug)
     return {allowed:false,status:403,reason:'Session belongs to a different tenant.'}
   if(!authenticated){
-    // Allow only the minimal public authentication bootstrap endpoints.
-    const publicRoute=/^\/api\/v1\/auth\/(?:login|logout|tenant-state\/[a-z0-9-]+|tenant-slug\/[a-z0-9-]+)$/
+    // Permit credential + challenge bootstrapping without a session; the MFA
+    // handlers still validate tenant origin, challenge token and user identity.
+    // Never add settings, session details or MFA disable to this allowlist.
+    const publicRoute=/^\/api\/v1\/auth\/(?:login(?:-secure)?|logout|mfa\/(?:setup|verify)|tenant-state\/[a-z0-9-]+|tenant-slug\/[a-z0-9-]+)$/
     if(method==='OPTIONS')return {allowed:true}
     if(publicRoute.test(path)||path==='/api/v1/updates/version')return {allowed:true}
     return {allowed:false,status:401,reason:'Canary session required.'}

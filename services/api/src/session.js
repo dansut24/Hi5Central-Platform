@@ -4,6 +4,7 @@ import { attachAccess, effectiveAccessForUser, expandedPermissions } from './acc
 import { deployment, portalRequestFromHeaders } from './deploymentConfig.js'
 import { pool } from './db.js'
 import { mfaRequiredFor, sessionNeedsMfa, sessionTtlSeconds } from './securityPolicy.js'
+import { tenantExperienceSnapshot } from './tenantExperience.js'
 
 const COOKIE_NAME = deployment.runtimeEnvironment === 'live' ? 'hi5central_session' : `hi5central_${deployment.runtimeEnvironment}_session`
 const PORTAL_COOKIE_NAME = deployment.runtimeEnvironment === 'live' ? 'hi5central_portal_session' : `hi5central_${deployment.runtimeEnvironment}_portal_session`
@@ -270,6 +271,13 @@ export async function revokeCurrentSession(c) {
 }
 
 export function sessionPayload(session) {
+  if (!session) throw new Error('A verified session is required to render the workspace.')
+  const tenantExperience = tenantExperienceSnapshot({
+    preferences: session.user_preferences,
+    first_login_completed_at: session.user_first_login_completed_at,
+    platform_guidance: session.user_platform_guidance,
+    platform_getting_started: session.user_platform_getting_started,
+  }, session.tenant_id, session.onboarding_completed_at)
   const configuration = session.configuration && Object.keys(session.configuration).length ? session.configuration : session.onboarding_data || {}
   const access = session.access || { roles: [], roleKeys: [], permissions: [], effectivePermissions: [], workspaceAccess: false, portalAccess: false }
   const devAdminAccess = deployment.runtimeEnvironment === 'dev'
@@ -318,13 +326,13 @@ export function sessionPayload(session) {
     authentication: session.api_token_id
       ? { type: 'api_token', tokenId: session.api_token_id }
       : { type: 'session' },
-    preferences: session.user_preferences || null,
+    preferences: tenantExperience.preferences || null,
     userExperience: {
-      firstLoginCompletedAt: session.user_first_login_completed_at || null,
-      platformGuidance: session.user_platform_guidance || {},
-      platformGettingStarted: session.user_platform_getting_started || {},
-      platformCoachmarksCompletedAt: session.user_platform_guidance?.itsm?.completedAt || null,
-      platformGettingStartedDismissedAt: session.user_platform_getting_started?.itsm?.dismissedAt || null,
+      firstLoginCompletedAt: tenantExperience.firstLoginCompletedAt,
+      platformGuidance: tenantExperience.platformGuidance,
+      platformGettingStarted: tenantExperience.platformGettingStarted,
+      platformCoachmarksCompletedAt: tenantExperience.platformGuidance?.itsm?.completedAt || null,
+      platformGettingStartedDismissedAt: tenantExperience.platformGettingStarted?.itsm?.dismissedAt || null,
     },
     settings: configuration,
   }

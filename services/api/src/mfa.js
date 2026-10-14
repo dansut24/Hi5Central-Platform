@@ -10,6 +10,7 @@ import { attachAccess, effectiveAccessForUser } from './access.js'
 import { pool, withTransaction } from './db.js'
 import { verifyPassword } from './password.js'
 import { deployment } from './deploymentConfig.js'
+import {totpProvisioningUri,authenticatorAccount} from './totpIdentity.js'
 import { sandboxCredentialLogin } from './sandboxCredentialLogin.js'
 import { ensureRedisConnected } from './redis.js'
 import {
@@ -23,6 +24,7 @@ import { originMatchesTenant as deploymentOriginMatchesTenant, originMatchesTena
 import {
   mfaGraceEndsAt,
   mfaRequiredFor,
+  loginRequiresMfa,
   securitySettings,
   sessionTtlSeconds,
 } from './securityPolicy.js'
@@ -209,10 +211,8 @@ function createRecoveryCodes() {
   return { codes, hashes: codes.map(recoveryHash) }
 }
 
-function otpauthUri({ secret, companyName, email }) {
-  const issuer = 'Hi5Central'
-  const account = `${companyName || 'Hi5Central'}:${email}`
-  return `otpauth://totp/${encodeURIComponent(account)}?secret=${encodeURIComponent(secret)}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`
+function otpauthUri({ secret, email }) {
+  return totpProvisioningUri(secret,email)
 }
 
 async function accountByCredentials(tenantSlug, email) {
@@ -477,7 +477,9 @@ export function registerMfaRoutes(app) {
     if (surface === 'portal' && !access.portalAccess) return c.json({error:'Requester Portal access required.'},403)
     if (surface === 'workspace' && !access.workspaceAccess) return c.json({error:'Workspace access required.'},403)
     const ttl = sessionTtlSeconds(account)
-    if (!mfaRequiredFor(account)) {
+    // All active, onboarded users (staff and requesters) share a single
+    // Production MFA enrolment and verification across Live, UAT and Test.
+    if (!loginRequiresMfa(account)) {
       const token = await withTransaction((client) => createSession(client, {
         tenantId: account.tenant_id,
         userId: account.user_id,
@@ -547,7 +549,7 @@ export function registerMfaRoutes(app) {
         secret: material.secret,
         otpauthUri: material.uri,
         issuer: 'Hi5Central',
-        account: `${material.account.company_name}:${material.account.email}`,
+        account: authenticatorAccount(material.account.email),
       })
     } catch (error) {
       if (error?.status) return c.json({ error: error.message }, error.status)
@@ -671,7 +673,7 @@ export function registerMfaRoutes(app) {
         setupToken: result.setupToken,
         otpauthUri: result.uri,
         issuer: 'Hi5Central',
-        account: `${auth.session.company_name}:${auth.session.email}`,
+        account: authenticatorAccount(auth.session.email),
       })
     } catch (error) {
       if (error?.status) return c.json({ error: error.message }, error.status)
@@ -765,36 +767,12 @@ export function registerMfaRoutes(app) {
     return c.json({ recoveryCodes: result.recoveryCodes })
   })
 
+  // MFA cannot be disabled through an old client, API call or UI.
+  // A verified recovery or administrative re-enrolment flow must keep a
+  // second factor active at every point in the account lifecycle.
   app.post('/api/v1/mfa/disable', async (c) => {
     const auth = await requireSession(c)
     if (auth.error) return auth.error
-    if (mfaRequiredFor(auth.session)) {
-      return c.json({ error: 'This tenant requires MFA for your role. Disable the tenant policy before removing your authenticator.' }, 409)
-    }
-
-    let body
-    try {
-      body = await c.req.json()
-    } catch {
-      return c.json({ error: 'A valid JSON request body is required.' }, 400)
-    }
-    const code = text(body?.code, 64)
-    if (!code) return c.json({ error: 'Enter your authenticator or recovery code.' }, 400)
-
-    const result = await withTransaction(async (client) => {
-      const method = await enabledMethod(client, auth.session.tenant_id, auth.session.user_id)
-      if (!method?.enabled) return { ok: false, status: 409, error: 'MFA is not enrolled.' }
-      const verification = verifyMethodCode(method, code)
-      if (!verification.ok) return { ok: false, status: 401, error: 'That MFA code is not valid.' }
-      await client.query(
-        `DELETE FROM user_mfa_methods
-         WHERE tenant_id = $1 AND user_id = $2 AND method = 'totp'`,
-        [auth.session.tenant_id, auth.session.user_id],
-      )
-      await client.query('UPDATE auth_sessions SET mfa_verified_at = NULL WHERE id = $1', [auth.session.session_id])
-      return { ok: true }
-    })
-    if (!result.ok) return c.json({ error: result.error }, result.status)
-    return c.json({ disabled: true })
+    return c.json({ error: 'Multi-factor authentication is mandatory and cannot be disabled. Use account recovery or factor replacement instead.' }, 409)
   })
 }

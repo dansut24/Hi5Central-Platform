@@ -89,6 +89,8 @@ export async function sandboxCredentialLogin(c, flow, body, boundSlug = null) {
   const liveOrigin = `https://${tenant.liveSlug}${surface === 'portal' ? '-portal' : ''}.${deployment.rootDomain}`
 
   try {
+    // Every environment delegates password and MFA verification to Live.
+    // UAT/Test must not invent or override a separate authentication policy.
     const livePayload = flow==='login'
       ? {tenantSlug:tenant.liveSlug,email:body?.email,password:body?.password}
       : flow==='setup'

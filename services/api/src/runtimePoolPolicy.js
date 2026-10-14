@@ -57,7 +57,20 @@ export function verifiedRuntimePool(pool,now=new Date()){
     return {verified:false,reason:'Pool health attestation is stale.'}
   return {verified:true,reason:''}
 }
-export function tenantReleaseEligibility({preference,pool,environment,uatAccepted=false,uatAcceptedAt=null,published=false,now=new Date()}){
+// Managed customers have no UAT. Delay is measured from the immutable
+// published release, never from a customer UAT acceptance or offer creation.
+export function publishedReleaseDelayStatus(publishedAt,hours,now=new Date()){
+  const stamp=new Date(publishedAt||'').getTime()
+  const delay=Number(hours)
+  if(!Number.isInteger(delay)||delay<0||delay>720)
+    return {ready:false,invalid:true,reason:'Invalid managed rollout delay.'}
+  if(!Number.isFinite(stamp)||stamp>now.getTime())
+    return {ready:false,invalid:true,reason:'The published release timestamp is missing or in the future.'}
+  const ready=now.getTime()-stamp>=delay*3600000
+  return {ready,invalid:false,reason:ready?'Managed release delay elapsed.':'Waiting for the published release delay.'}
+}
+
+export function tenantReleaseEligibility({preference,pool,environment,uatAccepted=false,published=false,publishedAt=null,now=new Date()}){
   if(!preference||!['admin_controlled','hi5_managed'].includes(preference.update_mode))
     return {state:'blocked',reason:'Tenant has no valid update preference.'}
   if(!['uat','live'].includes(environment))
@@ -67,20 +80,19 @@ export function tenantReleaseEligibility({preference,pool,environment,uatAccepte
   if(!verified.verified||pool.environment!==environment)
     return {state:'waiting_for_pool',reason:verified.reason||'No matching verified pool for this environment.'}
   if(preference.update_mode==='admin_controlled'){
-    if(environment==='uat')return {state:'available_in_uat',reason:'Customer can begin UAT testing.'}
+    if(environment==='uat')return preference.uat_auto_stage===true
+      ?{state:'auto_stage_ready',reason:'New published release is ready to stage automatically in customer UAT.'}
+      :{state:'available_in_uat',reason:'Customer can begin UAT testing.'}
     return uatAccepted?{state:'ready_for_customer_approval',reason:'Customer can schedule an approved Production release.'}
       :{state:'awaiting_uat',reason:'Customer UAT acceptance must precede Production.'}
   }
-  if(environment==='uat')return {state:'auto_stage_ready',reason:'Managed tenant UAT candidate may be staged.'}
-  if(!uatAccepted)return {state:'awaiting_uat',reason:'Managed release requires completed UAT acceptance.'}
-  const minHours=Number(preference.live_delay_hours??24)
-  if(!Number.isInteger(minHours)||minHours<0||minHours>720)
-    return {state:'blocked',reason:'Invalid minimum release delay.'}
-  const acceptedTime=new Date(uatAcceptedAt||'').getTime()
-  if(!Number.isFinite(acceptedTime)||acceptedTime>now.getTime())
-    return {state:'blocked',reason:'Managed UAT approval timestamp is unavailable or in the future.'}
-  if(now.getTime()-acceptedTime<minHours*60*60*1000)
-    return {state:'pending_delay',reason:'Minimum managed release delay has not elapsed.'}
+  if(environment==='uat')
+    return {state:'blocked',reason:'Hi5Central-managed customers do not have a separate UAT release stage.'}
+  if(preference.live_auto_promote!==true)
+    return {state:'blocked',reason:'Managed automatic updates are paused.'}
+  const age=publishedReleaseDelayStatus(publishedAt,preference.live_delay_hours,now)
+  if(age.invalid)return {state:'blocked',reason:age.reason}
+  if(!age.ready)return {state:'pending_delay',reason:age.reason}
   const gate=maintenanceWindowStatus(preference.maintenance_window||{},now)
   return gate.allowed?{state:'eligible_for_scheduled_update',reason:'Maintenance window open; host activation still requires approval.'}
     :{state:'pending_maintenance',reason:gate.reason}

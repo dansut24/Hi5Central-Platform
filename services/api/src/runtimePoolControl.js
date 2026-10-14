@@ -74,11 +74,11 @@ export function buildHostRoutingManifest({environment,rows,now=new Date(),domain
 }
 export async function preparePoolOffer({db,tenantId,environment,poolId,now=new Date()}){
   if(!['uat','live'].includes(environment))throw Error('Invalid release environment.')
-  const tenant=await db.query('SELECT t.id,t.slug,p.update_mode,p.live_delay_hours,p.maintenance_window FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id WHERE t.id=$1 AND t.status=$2',[tenantId,'active'])
+  const tenant=await db.query('SELECT t.id,t.slug,p.update_mode,p.uat_auto_stage,p.live_auto_promote,p.live_delay_hours,p.maintenance_window FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id WHERE t.id=$1 AND t.status=$2',[tenantId,'active'])
   if(!tenant.rowCount)throw Error('Active customer or update policy not found.')
   const pool=await db.query('SELECT * FROM platform_runtime_pools WHERE id=$1 AND environment=$2',[poolId,environment])
   if(!pool.rowCount)throw Error('Pool has not been registered in this environment.')
-  const release=await db.query('SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',[pool.rows[0].build_sha])
+  const release=await db.query('SELECT build_sha,published_at FROM hi5central_published_release_notes WHERE build_sha=$1',[pool.rows[0].build_sha])
   if(!release.rowCount)throw Error('Dev has not published this exact application release.')
   let uatAccepted=false,uatAcceptedAt=null
   if(environment==='live'){
@@ -88,7 +88,8 @@ export async function preparePoolOffer({db,tenantId,environment,poolId,now=new D
   }
   const preference=tenant.rows[0]
   const eligibility=tenantReleaseEligibility({
-    preference,pool:pool.rows[0],environment,uatAccepted,uatAcceptedAt,published:true,now,
+    preference,pool:pool.rows[0],environment,uatAccepted,published:true,
+    publishedAt:release.rows[0].published_at,now,
   })
   if(['blocked','waiting_for_pool','unreleased','awaiting_uat'].includes(eligibility.state))
     throw Error(eligibility.reason)

@@ -1,0 +1,33 @@
+.hi5-mfa-overlay{position:fixed;inset:0;z-index:2147482000;background:rgba(10,23,47,.66);backdrop-filter:blur(8px);display:flex;justify-content:center;align-items:center;padding:22px;overflow-y:auto}
+.hi5-mfa-dialog{box-sizing:border-box;width:min(100%,660px);max-height:calc(100dvh - 44px);overflow-y:auto;background:#fff;color:#122341;border:1px solid #dae3ee;border-radius:24px;box-shadow:0 28px 80px rgba(0,0,0,.28);padding:27px;overscroll-behavior:contain}
+.hi5-mfa-header{display:flex;align-items:center;gap:14px;padding-bottom:15px;border-bottom:1px solid #dfe7ef}
+.hi5-mfa-header-icon{display:grid;place-items:center;background:#e5f9fd;color:#087f9a;border-radius:16px;width:46px;height:46px;flex-shrink:0}
+.hi5-mfa-header>div:nth-child(2){flex:1;min-width:0}
+.hi5-mfa-kicker{font-size:12px;font-weight:800;color:#057f9e;letter-spacing:.06em;text-transform:uppercase}
+.hi5-mfa-header h2{font-size:24px;line-height:1.2;margin:3px 0 0;color:#122341}
+.hi5-mfa-close{border:1px solid #dae5ef;border-radius:12px;background:#f5f8fc;color:#122341;display:grid;place-items:center;width:39px;height:39px;cursor:pointer}
+.hi5-mfa-main{display:flex;flex-direction:column;gap:14px;padding-top:15px}
+.hi5-mfa-main p{font-size:14px;line-height:1.55;margin:0;color:#53647c}
+.hi5-mfa-setup{display:grid;grid-template-columns:220px minmax(0,1fr);gap:20px;align-items:center;background:#f5f8fc;padding:16px;border:1px solid #e4eaf3;border-radius:16px}
+.hi5-mfa-qr{border-radius:12px;background:#fff;min-height:205px;display:grid;place-items:center;padding:7px}
+.hi5-mfa-qr svg{max-width:100%;height:auto}
+.hi5-mfa-setup-info{min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:8px;font-size:13px}
+.hi5-mfa-setup-info strong{font-size:14px;line-height:1.4}
+.hi5-mfa-setup-info span,.hi5-mfa-setup-info small{color:#59677e}
+.hi5-mfa-setup-info b{overflow-wrap:anywhere}
+.hi5-mfa-setup-info a{color:#087eac;font-weight:700}
+.hi5-mfa-manual-key{display:flex;align-items:center;width:100%;min-width:0;border:1px solid #dae4ed;background:#fff;border-radius:10px;padding:7px 8px}
+.hi5-mfa-manual-key code{font-size:12px;letter-spacing:.05em;overflow-wrap:anywhere;user-select:all;flex:1;min-width:0}
+.hi5-mfa-manual-key button{border:0;background:#e5f7fc;color:#106681;border-radius:7px;min-width:36px;height:34px;cursor:pointer}
+.hi5-mfa-code-label{font-size:14px;font-weight:750;color:#122341}
+.hi5-mfa-main>input{box-sizing:border-box;width:100%;min-height:47px;border:1px solid #bdcde0;border-radius:11px;padding:10px 14px;background:#fff;color:#102341;font-size:18px;font-weight:700;letter-spacing:.075em}
+.hi5-mfa-main>input:focus{outline:2px solid #03b4ce;outline-offset:2px}
+.hi5-mfa-primary{background:#112d63;color:#fff;border:0;border-radius:12px;padding:14px;font-size:15px;font-weight:750;cursor:pointer}
+.hi5-mfa-secondary{background:none;border:none;padding:5px;color:#50637b;cursor:pointer;font-weight:700}
+.hi5-mfa-primary:disabled,.hi5-mfa-close:disabled{opacity:.5;cursor:not-allowed}
+.hi5-mfa-main .hi5-mfa-error{background:#fff0f0;border:1px solid #f6c4c8;color:#9a2132;border-radius:10px;padding:11px}
+.hi5-mfa-recovery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;background:#f4f8fc;padding:14px;border-radius:12px}
+.hi5-mfa-recovery code{background:#fff;border:1px solid #dce5ef;border-radius:7px;padding:10px;text-align:center;overflow-wrap:anywhere}
+.hi5-mfa-verify-note{display:flex;align-items:center;gap:9px;background:#f1f8fc;border-radius:12px;padding:14px;color:#173453}
+.hi5-mfa-loading{font-size:13px;color:#63748d}
+@media(max-width:560px){.hi5-mfa-overlay{padding:12px;align-items:safe center}.hi5-mfa-dialog{max-height:calc(100dvh - 24px);padding:17px;border-radius:19px}.hi5-mfa-header h2{font-size:20px}.hi5-mfa-setup{grid-template-columns:1fr;gap:12px}.hi5-mfa-qr{min-height:175px}.hi5-mfa-qr svg{max-height:175px;max-width:175px}.hi5-mfa-setup-info{width:100%}.hi5-mfa-recovery{grid-template-columns:1fr}}

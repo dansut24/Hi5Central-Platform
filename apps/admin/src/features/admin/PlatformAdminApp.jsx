@@ -7,6 +7,7 @@ import {
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
+import { TenantAdminDetail } from './TenantAdminDetail.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -312,7 +313,7 @@ function TenantEditor({ tenant, onSaved }) {
     try{await action();await onSaved()}catch(err){setError(err.message)}finally{setBusy('')}
   }
   async function save(){
-    await run('save',()=>api(`/tenants/${tenant.id}`,{method:'PATCH',body:JSON.stringify(draft)}))
+    await run('save',()=>api(`/tenants/${tenant.id}`,{method:'PATCH',body:JSON.stringify({companyName:draft.companyName,modules:draft.modules})}))
   }
   async function requestTransfer(){
     await run('owner',async()=>{
@@ -343,7 +344,7 @@ function TenantEditor({ tenant, onSaved }) {
     </div>
     <div className="h5a-tenant-edit-grid">
       <label>Company name<input value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})}/></label>
-      <label>Status<select value={draft.status} onChange={e=>setDraft({...draft,status:e.target.value})}><option value="active">Active</option><option value="pending_verification">Pending</option><option value="suspended">Suspended</option><option value="closed">Closed</option></select></label>
+      <label>Status<input value={tenant.status} readOnly title="Tenant access states are managed through the audited lifecycle controls."/></label>
       <label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label>
       <label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label>
       <button className="rmm-primary compact" onClick={save} disabled={Boolean(busy)}>{busy==='save'?'Saving…':'Save tenant'}</button>
@@ -356,13 +357,16 @@ function TenantEditor({ tenant, onSaved }) {
     </div>
   </div>
 }
+const fetchTenantOverview = id=>api('/tenants/'+encodeURIComponent(id)+'/overview')
 function Tenants({ items, refresh, query }) {
+  const [openedId,setOpenedId]=useState(null)
   const [creating,setCreating]=useState(false)
   const [draft,setDraft]=useState({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
   const needle=query.toLowerCase()
   const filtered=useMemo(()=>items.filter(t=>!query||[
     t.company_name,t.slug,t.owner_name,t.owner_email,t.plan_key,t.billing_status,
   ].some(value=>String(value||'').toLowerCase().includes(needle))),[items,query,needle])
+  const opened=items.find(t=>t.id===openedId)
   async function create(event){
     event.preventDefault()
     await api('/tenants',{method:'POST',body:JSON.stringify(draft)})
@@ -370,13 +374,25 @@ function Tenants({ items, refresh, query }) {
     setDraft({companyName:'',slug:'',modules:{itsm:true,selfService:true,rmm:false},planKey:'custom',billingStatus:'trial',billingCycle:'monthly'})
     await refresh()
   }
+  if(opened)return <TenantAdminDetail key={opened.id} tenant={opened} fetchOverview={fetchTenantOverview}
+    onBack={()=>setOpenedId(null)} refresh={refresh}
+    editTenant={<TenantEditor tenant={opened} onSaved={refresh}/>}
+    editBilling={<BillingEditor tenant={opened} onSaved={refresh}/>}/>
   return <>
     <PageHeading view="tenants" action={<button className="rmm-primary compact" onClick={()=>setCreating(!creating)}><Plus size={14}/>New tenant</button>}/>
     {creating?<form className="rmm-card h5a-create" onSubmit={create}><input placeholder="Company name" value={draft.companyName} onChange={e=>setDraft({...draft,companyName:e.target.value})} required/><input placeholder="tenant-slug" value={draft.slug} onChange={e=>setDraft({...draft,slug:e.target.value.toLowerCase().replace(/[^a-z0-9-]/g,'')})} required/><label className="h5a-check"><input type="checkbox" checked={draft.modules.itsm} onChange={e=>setDraft({...draft,modules:{...draft.modules,itsm:e.target.checked,selfService:e.target.checked}})}/> ITSM + Self Service</label><label className="h5a-check"><input type="checkbox" checked={draft.modules.rmm} onChange={e=>setDraft({...draft,modules:{...draft.modules,rmm:e.target.checked}})}/> RMM</label><button className="rmm-primary compact">Create tenant</button></form>:null}
-    <div className="h5a-stack">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}><div className="rmm-card-heading h5a-tenant-head"><div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2><p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} devices</p></div><StatusPill value={tenant.status}/></div><TenantEditor tenant={tenant} onSaved={refresh}/></article>)}</div>
+    <div className="h5a-stack h5a-tenant-directory">{filtered.map(tenant=><article className="rmm-card" key={tenant.id}>
+      <div className="rmm-card-heading h5a-tenant-head">
+        <div><span className="rmm-eyebrow">{tenant.slug}</span><h2>{tenant.company_name}</h2>
+          <p>{tenant.owner_email||'No owner'} · {tenant.user_count} users · {tenant.device_count} registered devices · {tenant.billing_status||'No billing status'}</p>
+        </div>
+        <StatusPill value={tenant.status}/>
+        <button type="button" className="rmm-primary compact h5a-open-button" onClick={()=>setOpenedId(tenant.id)}>Open <ArrowRight size={14}/></button>
+      </div>
+    </article>)}</div>
+    {!filtered.length?<div className="rmm-card h5a-empty">No matching tenants.</div>:null}
   </>
 }
-
 function BillingEditor({ tenant, onSaved }) {
   const [draft,setDraft]=useState(()=>({
     planKey:tenant.plan_key||'custom',
@@ -384,6 +400,9 @@ function BillingEditor({ tenant, onSaved }) {
     billingCycle:tenant.billing_cycle||'monthly',
     currency:tenant.currency||'GBP',
     monthlyPrice:tenant.monthly_price_pence==null?'':String(Number(tenant.monthly_price_pence)/100),
+    baseMonthlyPrice:tenant.base_monthly_price_pence==null?'':String(Number(tenant.base_monthly_price_pence)/100),
+    rmmDevicePrice:tenant.rmm_device_price_pence==null?'':String(Number(tenant.rmm_device_price_pence)/100),
+    nextInvoiceAt:dateInput(tenant.next_invoice_at),
     trialEndsAt:dateInput(tenant.trial_ends_at),
     renewalAt:dateInput(tenant.renewal_at),
     billingNotes:tenant.billing_notes||'',
@@ -398,6 +417,9 @@ function BillingEditor({ tenant, onSaved }) {
         planKey:draft.planKey,billingStatus:draft.billingStatus,billingCycle:draft.billingCycle,
         currency:draft.currency,monthlyPricePence,trialEndsAt:dateToIso(draft.trialEndsAt),
         renewalAt:dateToIso(draft.renewalAt),billingNotes:draft.billingNotes,
+        baseMonthlyPricePence:draft.baseMonthlyPrice===''?null:Math.max(0,Math.round(Number(draft.baseMonthlyPrice)*100)),
+        rmmDevicePricePence:draft.rmmDevicePrice===''?null:Math.max(0,Math.round(Number(draft.rmmDevicePrice)*100)),
+        nextInvoiceAt:dateToIso(draft.nextInvoiceAt),
       })})
       await onSaved()
     }catch(err){setError(err.message)}finally{setBusy(false)}
@@ -409,7 +431,10 @@ function BillingEditor({ tenant, onSaved }) {
       <label>Billing status<select value={draft.billingStatus} onChange={e=>setDraft({...draft,billingStatus:e.target.value})}><option value="trial">Trial</option><option value="active">Active</option><option value="past_due">Past due</option><option value="suspended">Suspended</option><option value="cancelled">Cancelled</option></select></label>
       <label>Cycle<select value={draft.billingCycle} onChange={e=>setDraft({...draft,billingCycle:e.target.value})}><option value="monthly">Monthly</option><option value="annual">Annual</option><option value="custom">Custom</option></select></label>
       <label>Currency<input maxLength={3} value={draft.currency} onChange={e=>setDraft({...draft,currency:e.target.value.toUpperCase()})}/></label>
-      <label>Monthly price<input type="number" min="0" step="0.01" value={draft.monthlyPrice} onChange={e=>setDraft({...draft,monthlyPrice:e.target.value})}/></label>
+      <label>Current monthly amount<input type="number" min="0" step="0.01" value={draft.monthlyPrice} onChange={e=>setDraft({...draft,monthlyPrice:e.target.value})}/></label>
+      <label>Base monthly subscription (£)<input type="number" min="0" step="0.01" value={draft.baseMonthlyPrice} onChange={e=>setDraft({...draft,baseMonthlyPrice:e.target.value})}/></label>
+      <label>RMM price per billable device (£)<input type="number" min="0" step="0.01" value={draft.rmmDevicePrice} onChange={e=>setDraft({...draft,rmmDevicePrice:e.target.value})}/></label>
+      <label>Next invoice date<input type="date" value={draft.nextInvoiceAt} onChange={e=>setDraft({...draft,nextInvoiceAt:e.target.value})}/></label>
       <label>Trial ends<input type="date" value={draft.trialEndsAt} onChange={e=>setDraft({...draft,trialEndsAt:e.target.value})}/></label>
       <label>Renewal<input type="date" value={draft.renewalAt} onChange={e=>setDraft({...draft,renewalAt:e.target.value})}/></label>
     </div>

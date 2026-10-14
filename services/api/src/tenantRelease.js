@@ -61,7 +61,14 @@ async function ensurePreference(tenantId) {
   )
   await pool.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
-     VALUES ($1,'test','available'),($1,'uat','available'),($1,'live','ready')
+     VALUES ($1,'test','available'),($1,'live','ready')
+     ON CONFLICT (tenant_id,environment) DO NOTHING`,
+    [tenantId],
+  )
+  await pool.query(
+    `INSERT INTO tenant_environment_state (tenant_id,environment,status)
+     SELECT $1,'uat','available'
+     WHERE EXISTS (SELECT 1 FROM tenant_release_preferences WHERE tenant_id=$1 AND update_mode='admin_controlled')
      ON CONFLICT (tenant_id,environment) DO NOTHING`,
     [tenantId],
   )
@@ -100,14 +107,25 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
        allow_emergency_security_updates=excluded.allow_emergency_security_updates,
        updated_by=excluded.updated_by,
        updated_at=now()`,
-    [tenantId, updateMode, managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+    [tenantId, updateMode, !managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
-     VALUES ($1,'test','available'),($1,'uat','available'),($1,'live','ready')
+     VALUES ($1,'test','available'),($1,'live','ready')
      ON CONFLICT (tenant_id,environment) DO NOTHING`,
     [tenantId],
   )
+  if (managed) {
+    await client.query(
+      "DELETE FROM tenant_environment_state WHERE tenant_id=$1 AND environment='uat' AND status='available'",
+      [tenantId],
+    )
+  } else {
+    await client.query(
+      "INSERT INTO tenant_environment_state (tenant_id,environment,status) VALUES ($1,'uat','available') ON CONFLICT (tenant_id,environment) DO NOTHING",
+      [tenantId],
+    )
+  }
 }
 
 export async function tenantReleaseState(tenantId, slug = '') {
@@ -251,8 +269,8 @@ export function registerTenantReleaseRoutes(app) {
 
     const maintenanceWindow = object(body?.maintenanceWindow)
     const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
-      : { uatAutoStage: false, liveAutoPromote: false }
+      ? { uatAutoStage: false, liveAutoPromote: true }
+      : { uatAutoStage: true, liveAutoPromote: false }
 
     await ensurePreference(auth.session.tenant_id)
     const result = await pool.query(

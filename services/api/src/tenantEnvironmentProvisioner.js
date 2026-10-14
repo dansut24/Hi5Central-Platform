@@ -52,8 +52,10 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
   if (!members.rowCount || !members.rows.some(r => r.role === 'owner')) {
     throw new Error('An active organisation owner is required for sandbox access.')
   }
+  // Managed tenants use the shared Test lane, not a customer UAT workspace.
+  const provisioned = tenant.update_mode === 'hi5_managed' ? ['test'] : environments
   const summary = {}
-  for (const env of environments) {
+  for (const env of provisioned) {
     const connectionString = targets[env]
       || (process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`]
         ? readFileSync(process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`],'utf8').trim()
@@ -161,7 +163,7 @@ export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
   for (const row of result.rows) {
     try {
       const status = await provisionTenantSandboxes(row.id, { source })
-      for (const env of ['test','uat']) status[env]?.status === 'ready' ? ready++ : failed++
+      for (const outcome of Object.values(status)) outcome?.status === 'ready' ? ready++ : failed++
     } catch (error) {
       failed++
       console.error('Backfill environment provisioning failed', {tenantId:row.id,code:error.code || 'UNKNOWN'})
