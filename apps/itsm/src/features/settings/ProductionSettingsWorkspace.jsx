@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { ProductionTenantSecurityAudit } from './ProductionTenantSecurityAudit.jsx'
 import { ProductionReleaseManagement } from './ProductionReleaseManagement.jsx'
+import { Qa26DemoBilling } from './Qa26DemoBilling.jsx'
 import { Hi5CentralUpdatesPanel } from '../../production/ProductionApplicationUpdates.jsx'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './ProductionSettingsWorkspace.css'
@@ -561,7 +562,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
             {activeId === 'integrations' ? <Integrations config={config.integrations} update={(f, v) => updateArea('integrations', f, v)} /> : null}
             {activeId === 'release-management' ? <ProductionReleaseManagement /> : null}
              {activeId === 'platform-updates' ? <Hi5CentralUpdatesPanel /> : null}
-            {activeId === 'subscription' ? <Subscription config={config.billing} update={(f, v) => updateArea('billing', f, v)} modules={modules} /> : null}
+            {activeId === 'subscription' ? <><Subscription config={config.billing} update={(f, v) => updateArea('billing', f, v)} modules={modules} /><Qa26DemoBilling session={session} /></> : null}
           </div>
         </div>
       </main>
