@@ -7,6 +7,12 @@ on:
       - 'services/api/src/tenantEnvironmentAccess.js'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/test/tenant-environment-boundary.mjs'
+      - 'services/api/src/itsmConfigurationChanges.js'
+      - 'services/api/src/settings.js'
+      - 'services/api/migrations/itsm/154_itsm_configuration_change_events.sql'
+      - 'services/api/test/itsm-configuration-history.mjs'
+      - 'apps/itsm/src/features/settings/ItsmConfigurationHistory.jsx'
+      - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
       - '.github/workflows/tenant-environment-boundary.yml'
   workflow_dispatch:
 permissions:
@@ -23,4 +29,5 @@ jobs:
         with:
           node-version: '24'
       - run: node --check src/tenantEnvironmentPolicy.js && node --check src/tenantEnvironmentProvisioner.js && node --check src/tenantEnvironmentAccess.js && node --check src/tenantRelease.js
-      - run: node --test test/tenant-environment-boundary.mjs
+      - run: node --check src/itsmConfigurationChanges.js && node --check src/settings.js
+      - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs

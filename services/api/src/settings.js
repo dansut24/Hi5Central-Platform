@@ -1,6 +1,8 @@
 import { hasPermission } from './access.js'
 import { registerAccessRoutes } from './accessRoutes.js'
-import { originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant } from './deploymentConfig.js'
+import { tracksItsmConfiguration } from './tenantEnvironmentPolicy.js'
+import { recordItsmConfigurationChange, listItsmConfigurationChanges } from './itsmConfigurationChanges.js'
 import { pool, withTransaction } from './db.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerLiveChatOperationsRoutes } from './liveChatOperations.js'
@@ -95,6 +97,14 @@ export function registerSettingsRoutes(app) {
     await withTransaction(async (client) => {
       let newlyEnforcedMfa = false
       let previousSecurity = null
+      let previousItsm = null
+      if (tracksItsmConfiguration(deployment.runtimeEnvironment,area)) {
+        const currentResult = await client.query(
+          'SELECT onboarding_data,configuration FROM tenant_settings WHERE tenant_id=$1 FOR UPDATE',
+          [auth.session.tenant_id],
+        )
+        previousItsm = asObject(effectiveConfiguration(currentResult.rows[0] || {}).itsm)
+      }
       if (area === 'security') {
         const currentResult = await client.query(
           `SELECT onboarding_data,configuration FROM tenant_settings WHERE tenant_id=$1 LIMIT 1 FOR UPDATE`,
@@ -112,6 +122,13 @@ export function registerSettingsRoutes(app) {
          WHERE tenant_id=$1`,
         [auth.session.tenant_id, area, JSON.stringify(data)],
       )
+
+      if (previousItsm !== null) {
+        await recordItsmConfigurationChange({
+          db:client,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+          environment:deployment.runtimeEnvironment,before:previousItsm,after:data,
+        })
+      }
 
       if (area === 'company') {
         const displayName = String(data.displayName || '').trim()
@@ -165,6 +182,19 @@ export function registerSettingsRoutes(app) {
     const refreshed = await resolveSession(c)
     if (!refreshed) return c.json({ error: 'Your security policy changed. Sign in again to continue.' }, 401)
     return c.json(sessionPayload(refreshed))
+  })
+
+  app.get('/api/v1/release-management/configuration-changes', async (c) => {
+    const auth = await requirePermission(c, 'settings.itsm.manage')
+    if (auth.error) return auth.error
+    const environment = deployment.runtimeEnvironment
+    if (!tracksItsmConfiguration(environment,'itsm')) {
+      return c.json({ tracked:false,environment,scope:'itsm',changes:[] })
+    }
+    const changes=await listItsmConfigurationChanges({
+      db:pool,tenantId:auth.session.tenant_id,environment,
+    })
+    return c.json({tracked:true,environment,scope:'itsm',changes})
   })
 
   registerAccessRoutes(app)
