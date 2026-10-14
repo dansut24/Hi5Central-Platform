@@ -5,6 +5,7 @@ import './PlatformCurves.css'
 import './ContextualSurfaces.css'
 import './production/ProductionWorkspaceLegibility.css'
 import { PlatformAdminApp } from './features/admin/PlatformAdminApp.jsx'
+import './styles/mobile-auth-viewport.css'
 
 const root = document.getElementById('root')
 document.documentElement.dataset.hi5Surface = 'admin'
