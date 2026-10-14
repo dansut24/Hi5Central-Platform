@@ -12,6 +12,7 @@ on:
       - 'apps/admin/src/features/admin/UatProductionPromotion.jsx'
       - 'apps/admin/src/features/admin/UatProductionPromotion.css'
       - '.github/workflows/uat-production-promotion.yml'
+      - 'deployment/qa26/managed-vps-app-release-executor.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -35,6 +36,17 @@ jobs:
           node --test test/uat-production-promotion.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:runtime
+  native-app-executor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate native operator source without Docker privileges
+        run: |
+          python -m py_compile deployment/qa26/managed-vps-app-release-executor.py
+          python deployment/qa26/managed-vps-app-release-executor.py --help
   admin-web:
     runs-on: ubuntu-latest
     defaults:
