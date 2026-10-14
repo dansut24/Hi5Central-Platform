@@ -10,7 +10,8 @@ const when=value=>{
 }
 const stateLabel=value=>String(value||'pending').replaceAll('_',' ')
 
-function promotionReadiness(item,uat,live){
+function promotionReadiness(item,uat,live,executor){
+  if(!executor?.ready)return {ready:false,reason:executor?.reason||'A trusted application deployment executor is not connected.'}
   if(item.status!=='pending')return {ready:false,reason:'This request has already been reviewed.'}
   if(!item.version_label)return {ready:false,reason:'Publish release notes for this exact build first.'}
   if(String(item.evidence||'').trim().length<20)return {ready:false,reason:'UAT acceptance evidence is incomplete.'}
@@ -27,7 +28,7 @@ function promotionReadiness(item,uat,live){
  * selects arbitrary images or reports a build as installed.
  */
 export function UatProductionPromotion({apiBase,canApprove=false}){
-  const [state,setState]=useState({environments:{},jobs:[],reviewRequests:[]})
+  const [state,setState]=useState({environments:{},jobs:[],reviewRequests:[],executor:{ready:false}})
   const [loading,setLoading]=useState(true)
   const [busy,setBusy]=useState('')
   const [error,setError]=useState('')
@@ -49,6 +50,7 @@ export function UatProductionPromotion({apiBase,canApprove=false}){
         environments:response.environments||{},
         jobs:Array.isArray(response.jobs)?response.jobs:[],
         reviewRequests:Array.isArray(response.reviewRequests)?response.reviewRequests:[],
+        executor:response.executor||{ready:false,reason:'The application deployment executor has not reported readiness.'},
       })
       setError('')
     }catch(e){setError(e.message)}
@@ -108,6 +110,7 @@ export function UatProductionPromotion({apiBase,canApprove=false}){
         <div><span>Production · host observed</span><strong>{live?.verified?'Verified':'Not verified'}</strong>
           <small>API {short(live?.apiSha)} · ITSM {short(live?.itsmSha)}</small></div>
       </div>
+      {!state.executor?.ready?<p role="status" className="h5a-uat-promotion-warning"><TriangleAlert size={16}/> Release executor offline: {state.executor?.reason||'A compatible API/ITSM deployment worker has not reported a recent heartbeat.'} Approvals will remain disabled.</p>:null}
       <p className="h5a-uat-promotion-warning"><TriangleAlert size={16}/>
         Production images are shared across customer tenants. An approval queues a job only; it never copies UAT database data, modifies RMM or bypasses host health checks.
       </p>
@@ -119,7 +122,7 @@ export function UatProductionPromotion({apiBase,canApprove=false}){
           <p>Custom customers must test a published build and submit a UAT review before a Production promotion can be approved here.</p></div>
       </div>:null}
       {pending.map(item=>{
-        const gate=promotionReadiness(item,uat,live)
+        const gate=promotionReadiness(item,uat,live,state.executor)
         const href='https://'+item.source_tenant_slug+'-uat.'+(window.location.hostname.split('.').slice(1).join('.')||'hi5central.com')
         return <article key={item.request_key} className="h5a-uat-promotion-item">
           <div className="h5a-uat-promotion-item-head">
