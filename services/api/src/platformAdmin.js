@@ -800,6 +800,14 @@ export function registerPlatformAdminRoutes(app) {
     const auth=await requireAdmin(c,WRITE_ROLES)
     if(auth.error)return auth.error
     if(deployment.runtimeEnvironment!=='live')return c.json({error:'Only the central release authority may approve shared releases.'},403)
+    // Shared Production affects multiple organisations. Never allow the
+    // self-hosted standard-edition tenant-owner compatibility path to approve
+    // a global deployment. Enforce actual platform administrator membership.
+    const platformMember=await pool.query(
+      "SELECT 1 FROM platform_admin_members WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+      [auth.session.user_id])
+    if(!platformMember.rowCount)
+      return c.json({error:'A Hi5Central platform administrator must approve shared Production releases.'},403)
     const body=await c.req.json().catch(()=>null)
     const key=String(body?.requestKey||'')
     const decision=String(body?.decision||'')
