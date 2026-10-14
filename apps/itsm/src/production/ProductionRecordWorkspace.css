@@ -2971,3 +2971,18 @@
     height: 28px;
   }
 }
+
+/* Browser-based Live RMM launch from a ticket retains the same icon-button treatment. */
+.record-lab-device-actions button {
+  border:0;
+  border-radius:7px;
+  color:inherit;
+  background:transparent;
+  cursor:pointer;
+  padding:5px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+.record-lab-device-actions button:hover:not(:disabled) { background:var(--surface-soft,rgba(120,130,145,.12)); }
+.record-lab-device-actions button:disabled { opacity:.45;cursor:wait; }

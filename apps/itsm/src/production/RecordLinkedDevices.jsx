@@ -5,7 +5,7 @@ import { ExternalLink, Laptop, Monitor } from 'lucide-react'
  * RMM device workspace, which enforces its own session and viewer checks.
  * The caller must pass tenant-scoped inventory and effective RMM permissions.
  */
-export function RecordLinkedDevices({ devices = [], canView = false, canRemote = false, getDeviceUrl, onShowAll }) {
+export function RecordLinkedDevices({ devices = [], canView = false, canRemote = false, getDeviceUrl, onShowAll, onStartRemote, remoteBusy = false }) {
   if (!canView || !devices.length || typeof getDeviceUrl !== 'function') return null
 
   return (
@@ -31,7 +31,9 @@ export function RecordLinkedDevices({ devices = [], canView = false, canRemote =
               {url ? <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`Open ${name} in RMM`} title="Open device in RMM"><ExternalLink size={16} aria-hidden="true" /></a> : null}
               {canRemote && hasAgent && url ? (
                 online
-                  ? <a href={url} className="is-online" target="_blank" rel="noopener noreferrer" aria-label={`Remote desktop for ${name}`} title="Open RMM to start remote desktop"><Monitor size={16} aria-hidden="true" /></a>
+                  ? (typeof onStartRemote === 'function'
+                    ? <button type="button" className="is-online" disabled={remoteBusy} onClick={() => onStartRemote(device)} aria-label={`Start remote desktop for ${name}`} title="Start remote desktop"><Monitor size={16} aria-hidden="true" /></button>
+                    : <a href={url} className="is-online" target="_blank" rel="noopener noreferrer" aria-label={`Remote desktop for ${name}`} title="Open RMM to start remote desktop"><Monitor size={16} aria-hidden="true" /></a>)
                   : <span className="record-lab-device-remote-disabled" aria-label={`Remote unavailable for ${name}: agent offline`} title="Agent offline — remote unavailable"><Monitor size={16} aria-hidden="true" /></span>
               ) : null}
             </div>
