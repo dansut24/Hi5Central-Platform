@@ -1,9 +1,9 @@
-# Hi5Central Test/UAT shared-pool image lock, 2026-10-14.
-# Replaces the missing /tmp/hi5-test-cb836705.override.yml IMAGE PINNING ONLY.
+# Hi5Central Test/UAT rollback image lock, 2026-10-14: public acceptance 12/12.
+# Last known healthy Test/UAT shared-pool API+ITSM runtime before People/mobile fixes.
 # Layer this last, after the existing base, managed-edge, sandbox and
 # environment-specific overrides. Does not alter credentials, storage or networks.
 services:
   control-server:
-    image: ghcr.io/dansut24/hi5central-platform-api:sha-cb8367054b8f1106b2ab01295e3c7f388c86628b
+    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-77a79172d748b75a04373acc603359befa423c38
   itsm-web:
-    image: ghcr.io/dansut24/hi5central-platform-itsm:sha-cb8367054b8f1106b2ab01295e3c7f388c86628b
+    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-77a79172d748b75a04373acc603359befa423c38
