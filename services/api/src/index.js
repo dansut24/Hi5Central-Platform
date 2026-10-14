@@ -56,7 +56,7 @@ import { registerReleaseOperatorRoutes } from './releaseOperator.js'
 import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseFeed.js'
 import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
-import { validExistingTenantSlug, validNewTenantSlug } from './tenantSlugPolicy.js'
+import { validExistingTenantSlug, validNewTenantSlug, tenantSlugFromHostname, tenantMayServeWorkspace } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
@@ -193,6 +193,29 @@ app.use('/api/v1/*', createSandboxRmmGuard(qa26Preview?'test':deployment.runtime
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))
+
+// Caddy's wildcard workspace route asks the Live tenant authority before
+// serving a hostname. This works for newly committed signups without creating
+// a separate Caddy rule, tenant container, DNS record or manual reload.
+// No user or company details are returned; the gate only permits serving the UI.
+app.get('/internal/routing/tenant-host', async (c) => {
+  c.header('Cache-Control', 'no-store, max-age=0')
+  const slug = tenantSlugFromHostname(
+    c.req.header('x-hi5-tenant-host'),
+    deployment.rootDomain,
+    reservedSlugs,
+  )
+  if (!slug) return c.redirect(marketingUrl, 302)
+  const result = await pool.query(
+    `SELECT t.status, l.lifecycle_status
+       FROM tenants t
+       LEFT JOIN tenant_lifecycle l ON l.tenant_id=t.id
+       WHERE t.slug=$1 LIMIT 1`, [slug],
+  )
+  if (!tenantMayServeWorkspace(result.rows[0])) return c.redirect(marketingUrl, 302)
+  return c.body(null, 204)
+})
+
 app.get('/health', async (c) => {
   try {
     await pool.query('SELECT 1')
