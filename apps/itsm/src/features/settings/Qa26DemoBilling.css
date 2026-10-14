@@ -26,3 +26,6 @@
 .qa26-billing .qa26-billing-message{color:#15956d}
 .qa26-demo-disclaimer{padding:12px;border:1px dashed #b88d3e;border-radius:10px;font-size:12px;color:var(--rmm-muted,#8795a7)}
 @media(max-width:650px){.qa26-billing-totals{grid-template-columns:1fr}.qa26-invoice-top{flex-direction:column}.qa26-billing-heading{flex-direction:column}}
+
+.qa26-trial-banner{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:13px 15px;background:#eaf4ff;color:#16457c;border:1px solid #b4d5ff;border-radius:10px;font-size:13px}
+.qa26-trial-banner strong{flex:1;min-width:160px}.qa26-trial-banner a{color:#124b92;text-decoration:underline;font-weight:800}.qa26-trial-banner small{width:100%;font-size:11px;color:#527ca1}
