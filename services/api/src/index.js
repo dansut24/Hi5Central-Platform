@@ -206,11 +206,11 @@ app.get('/internal/routing/tenant-host', async (c) => {
     reservedSlugs,
   )
   if (!slug) return c.redirect(marketingUrl, 302)
+  // The Live authority's tenant lifecycle migration may lag Test/UAT.
+  // Use the canonical tenants table; never require optional lifecycle tables
+  // for the public workspace route to function after signup.
   const result = await pool.query(
-    `SELECT t.status, l.lifecycle_status
-       FROM tenants t
-       LEFT JOIN tenant_lifecycle l ON l.tenant_id=t.id
-       WHERE t.slug=$1 LIMIT 1`, [slug],
+    'SELECT status FROM tenants WHERE slug=$1 LIMIT 1', [slug],
   )
   if (!tenantMayServeWorkspace(result.rows[0])) return c.redirect(marketingUrl, 302)
   return c.body(null, 204)
