@@ -12,6 +12,7 @@ const date = (value) => value ? new Date(value).toLocaleDateString('en-GB',{day:
 export function Qa26DemoBilling({ session }) {
   const slug = session?.tenant?.slug
   const [data,setData] = useState(null)
+  const [account,setAccount] = useState(null)
   const [error,setError] = useState('')
   const [loading,setLoading] = useState(false)
   const [processing,setProcessing] = useState('')
@@ -29,12 +30,17 @@ export function Qa26DemoBilling({ session }) {
       if (!response.ok) throw new Error(result.error || 'Demo billing is unavailable.')
       if (result.demo !== true || result.realPayments !== false) throw new Error('A verified simulation response is required.')
       setData(result)
+      const accountResponse=await fetch(DEMO_API_ORIGIN+'/api/v1/qa26/demo-account',{credentials:'include'})
+      if(accountResponse.ok){ const a=await accountResponse.json(); if(a.demo===true)setAccount(a) }
     } catch (e) { setError(e.message) } finally { setLoading(false) }
   }
 
   useEffect(() => {
     let cancelled=false
     if (allowed && mfa) {
+      fetch(DEMO_API_ORIGIN+'/api/v1/qa26/demo-account',{credentials:'include'})
+        .then(r=>r.ok?r.json():null).then(a=>{if(!cancelled&&a?.demo===true)setAccount(a)})
+        .catch(()=>{})
       fetch(DEMO_API_ORIGIN + '/api/v1/qa26/demo-billing',{credentials:'include'})
         .then(async response=>{
           const result=await response.json().catch(()=>({}))
@@ -70,6 +76,7 @@ export function Qa26DemoBilling({ session }) {
   if (!mfa) return <section className="qa26-billing"><h2>Billing and invoices</h2><p>Complete MFA to access the QA billing demonstration.</p></section>
 
   return <section className="qa26-billing">
+    {account ? <div className="qa26-trial-banner" role="status"><strong>{account.banner}</strong><a href={'https://'+slug+'-admin.hi5central.com/'}>Manage trial, modules and billing →</a><small>Fake QA trial · RMM has one managed portal and no RMM UAT/Test</small></div> : null}
     <div className="qa26-billing-heading">
       <div><span className="qa26-demo-label">QA26 SANDBOX · FAKE MONEY</span>
         <h2>Invoices and payments</h2>
