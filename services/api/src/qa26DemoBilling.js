@@ -16,6 +16,23 @@ const CATALOG = Object.freeze({
 })
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+const QA_ENVIRONMENT_ORIGINS = Object.freeze({
+  'h5c-managed-qa26':new Set([
+    'https://h5c-managed-qa26.hi5central.com',
+    'https://h5c-managed-qa26test.hi5central.com',
+  ]),
+  'h5c-custom-qa26':new Set([
+    'https://h5c-custom-qa26.hi5central.com',
+    'https://h5c-custom-qa26uat.hi5central.com',
+    'https://h5c-custom-qa26test.hi5central.com',
+  ]),
+})
+function qaOriginMatches(origin,slug) {
+  // Exact allowlist for QA26's distinct Production / Test / UAT hostnames.
+  // Only the two authenticated QA slugs can ever reach this function.
+  return originMatchesTenant(origin,slug) || QA_ENVIRONMENT_ORIGINS[slug]?.has(String(origin).toLowerCase())===true
+}
+
 function enabled() {
   // Never enable on the self-hosted edition; the allowlist makes accidental
   // exposure to a real paying customer impossible.
@@ -68,7 +85,7 @@ export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
       try { sourceOrigin = new URL(c.req.header('referer')).origin }
       catch { return { error:c.json({error:'Invalid request origin.'},403) } }
     }
-    if (sourceOrigin && !originMatchesTenant(sourceOrigin,session.slug)) {
+    if (sourceOrigin && !qaOriginMatches(sourceOrigin,session.slug)) {
       return { error:c.json({error:'Tenant-origin verification required.'},403) }
     }
     if (!['owner','admin'].includes(session.tenant_role) || !session.mfa_verified_at || session.authentication_type==='api_token') {
@@ -85,7 +102,7 @@ export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
     const auth = await owner(c)
     if (auth.error) return auth.error
     const origin = c.req.header('origin')
-    if (!origin || !originMatchesTenant(origin,auth.session.slug)) {
+    if (!origin || !qaOriginMatches(origin,auth.session.slug)) {
       return c.json({error:'Tenant-origin verification required.'},403)
     }
     if (!String(c.req.header('content-type')||'').toLowerCase().startsWith('application/json')) {
