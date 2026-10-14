@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {qa26StagingActive,qa26TenantAllowed,qa26ExpectedOrigins,qa26CanServe,qa26SessionMatchesOrigin,qa26ServiceDirectoryHeaders} from '../src/qa26Staging.js'
+import {tenantSlugFromHostname,tenantMayServeWorkspace} from '../src/tenantSlugPolicy.js'
 test('QA preview is explicitly opt-in and limits the exact two QA slugs',()=>{
  assert.equal(qa26StagingActive({}),false)
  assert.equal(qa26StagingActive({QA26_STAGING_MODE:'true'}),true)
@@ -34,4 +35,33 @@ test('authenticated QA preview session must belong to the exact origin and envir
  assert.equal(qa26SessionMatchesOrigin('h5c-custom-qa26','https://h5c-custom-qa26.hi5central.com','test'),false)
  assert.equal(qa26SessionMatchesOrigin('', 'https://h5c-custom-qa26.hi5central.com','live'),false)
  assert.equal(qa26SessionMatchesOrigin('h5c-custom-qa26','', 'live'),false)
+})
+
+test('dynamic tenant workspace hostname is canonical, strict and explicitly reserved-name safe',()=>{
+ const reserved=new Set(['admin','api','rmm','test','uat','dev','signup'])
+ const host='hi5central.com'
+ assert.equal(tenantSlugFromHostname('h5c-managed-qa26.hi5central.com',host,reserved),'h5c-managed-qa26')
+ assert.equal(tenantSlugFromHostname('NewCustomer.hi5central.com',host,reserved),'newcustomer')
+ assert.equal(tenantSlugFromHostname('hello.hi5central.com',host,reserved),'hello')
+ for (const bad of [
+   'admin.hi5central.com','api.hi5central.com','signup.hi5central.com',
+   'h5c-managed-qa26-rmm.hi5central.com',
+   'h5c-managed-qa26-portal.hi5central.com',
+   'h5c-managed-qa26-test.hi5central.com',
+   'h5c-custom-qa26-uat.hi5central.com',
+   'other.example.com','foo.hi5central.com.evil.tld',
+   'foo.bar.hi5central.com','foo--bar.hi5central.com',
+   'foo.hi5central.com:443','https://foo.hi5central.com',
+ ])assert.equal(tenantSlugFromHostname(bad,host,reserved),null,bad)
+ assert.equal(tenantSlugFromHostname('',host,reserved),null)
+ assert.equal(tenantSlugFromHostname('hello.hi5central.com','',reserved),null)
+})
+
+test('tenant workspace availability respects archived lifecycle without blocking email verification',()=>{
+ assert.equal(tenantMayServeWorkspace({status:'active'}),true)
+ assert.equal(tenantMayServeWorkspace({status:'active',lifecycle_status:'active'}),true)
+ assert.equal(tenantMayServeWorkspace({status:'active',lifecycle_status:'archived'}),false)
+ assert.equal(tenantMayServeWorkspace({status:'active',lifecycle_status:'purge_pending'}),false)
+ assert.equal(tenantMayServeWorkspace({status:'inactive'}),false)
+ assert.equal(tenantMayServeWorkspace(null),false)
 })
