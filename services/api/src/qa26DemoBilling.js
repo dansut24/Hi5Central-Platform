@@ -60,6 +60,17 @@ export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
     const session = await resolveSession(c)
     if (!session) return { error:c.json({error:'Authentication required.'},401) }
     if (!enabled() || !isQa(session.slug)) return { error:c.json({error:'Not found.'},404) }
+    // Same-site auth cookies may be shared across tenant subdomains. Reject
+    // browser reads originating from any different tenant before returning data.
+    const suppliedOrigin = c.req.header('origin')
+    let sourceOrigin = suppliedOrigin || ''
+    if (!sourceOrigin && c.req.header('referer')) {
+      try { sourceOrigin = new URL(c.req.header('referer')).origin }
+      catch { return { error:c.json({error:'Invalid request origin.'},403) } }
+    }
+    if (sourceOrigin && !originMatchesTenant(sourceOrigin,session.slug)) {
+      return { error:c.json({error:'Tenant-origin verification required.'},403) }
+    }
     if (!['owner','admin'].includes(session.tenant_role) || !session.mfa_verified_at || session.authentication_type==='api_token') {
       return { error:c.json({error:'Verified tenant owner or administrator session required.'},403) }
     }
