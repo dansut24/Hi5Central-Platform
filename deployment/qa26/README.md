@@ -13,6 +13,10 @@ The old approach attempted *new* sandbox API sidecars with additional network/se
 
 The same two image-only manifests are installed on `hi5central-prod-01` under `/workspace/hi5central-deploy/` as `compose.qa26-sandbox-current-pins.yml` and `compose.qa26-sandbox-pr69-pins.yml` respectively. For a later **authorised ordinary in-place** shared-environment release, the deployment must explicitly use the existing base, managed edge, sandbox-ITSM, sandbox auth and environment-specific policy layers followed by one of these durable pins. Never rely on the missing `/tmp` path or derive secrets from `docker inspect`.
 
+## Test/UAT worker policy discovered during preflight
+
+The existing Test and UAT API containers have `BACKGROUND_WORKERS_ENABLED=true`, even though they are sandbox runtimes. For the future candidate release only, apply `compose.sandbox-runtime-policy.yml` AFTER the environment-specific layer (and before the candidate image lock). This sets `BACKGROUND_WORKERS_ENABLED=false` without modifying Live, the separate RMM control plane or the software qualification runner. Do not silently change this flag on the existing running containers or claim the sandbox boundary is fully validated before the cutover.
+
 ## Execution gate
 
 A successful image pull and YAML check **do not grant permission to deploy**. The previous blocked sidecar operation remains restricted. An in-place replacement of an *existing* pool is a proposed platform release plan, **not a way to get around a blocked operation**. Only execute after the tool/service authorises the specific action, the normal release mechanism can safely reproduce the full existing Compose configuration, and the shared identity/backend compatibility is confirmed. No global Live API/Gateway swaps or new QA26 tenant databases.
