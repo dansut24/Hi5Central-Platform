@@ -1,10 +1,11 @@
 const assert=require('node:assert/strict')
 const {webkit}=require('./qa-mobile-playwright/node_modules/playwright')
+// QA26 customer-facing scope: exactly two tenant hostnames.
+// Legacy -admin subdomains are not part of the target two-host acceptance gate.
+// Account admin must be tested on the same tenant origin once that route exists.
 const urls=[
  'https://h5c-managed-qa26.hi5central.com/login',
  'https://h5c-custom-qa26.hi5central.com/login',
- 'https://h5c-managed-qa26-admin.hi5central.com/login',
- 'https://h5c-custom-qa26-admin.hi5central.com/login',
 ]
 ;(async()=>{
  const browser=await webkit.launch({headless:true})
