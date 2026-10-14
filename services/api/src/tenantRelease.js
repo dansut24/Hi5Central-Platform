@@ -8,6 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
+import { itsmEnvironmentsForMode } from './tenantEnvironmentPolicy.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -100,7 +101,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
        allow_emergency_security_updates=excluded.allow_emergency_security_updates,
        updated_by=excluded.updated_by,
        updated_at=now()`,
-    [tenantId, updateMode, managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+    [tenantId, updateMode, !managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
@@ -123,7 +124,9 @@ export async function tenantReleaseState(tenantId, slug = '') {
   ])
   return {
     preference: preferencePayload(preference.rows[0]),
-    environments: environments.rows.map(row => environmentPayload(row, slug)),
+    environments: environments.rows.filter(row => row.environment === 'live' ||
+      itsmEnvironmentsForMode(preference.rows[0].update_mode).includes(row.environment))
+      .map(row => environmentPayload(row, slug)),
   }
 }
 

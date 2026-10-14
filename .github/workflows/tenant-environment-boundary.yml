@@ -1,0 +1,26 @@
+name: ITSM environment and single-live RMM boundary
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/tenantEnvironmentPolicy.js'
+      - 'services/api/src/tenantEnvironmentProvisioner.js'
+      - 'services/api/src/tenantEnvironmentAccess.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/test/tenant-environment-boundary.mjs'
+      - '.github/workflows/tenant-environment-boundary.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --check src/tenantEnvironmentPolicy.js && node --check src/tenantEnvironmentProvisioner.js && node --check src/tenantEnvironmentAccess.js && node --check src/tenantRelease.js
+      - run: node --test test/tenant-environment-boundary.mjs

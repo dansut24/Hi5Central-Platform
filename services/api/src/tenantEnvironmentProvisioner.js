@@ -2,9 +2,10 @@ import pg from 'pg'
 import { readFileSync } from 'node:fs'
 import { deployment } from './deploymentConfig.js'
 import { pool } from './db.js'
+import { SANDBOX_ENVIRONMENTS, itsmEnvironmentsForMode, sandboxModules, sandboxConfiguration } from './tenantEnvironmentPolicy.js'
 
 const { Client } = pg
-const environments = ['test', 'uat']
+const environments = SANDBOX_ENVIRONMENTS
 const isId = (value) => /^[a-f0-9-]{36}$/i.test(String(value || ''))
 const targetUrl = (slug, env, kind = 'workspace') => {
   const prefix = `${slug}-${env}`
@@ -53,7 +54,8 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
     throw new Error('An active organisation owner is required for sandbox access.')
   }
   const summary = {}
-  for (const env of environments) {
+  // Managed tenants never get UAT; do not touch pre-existing UAT databases.
+  for (const env of itsmEnvironmentsForMode(tenant.update_mode)) {
     const connectionString = targets[env]
       || (process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`]
         ? readFileSync(process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`],'utf8').trim()
@@ -91,7 +93,9 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
         await client.query(
           `INSERT INTO users(id,email,name,password_hash,email_verified_at)
            VALUES($1,$2,$3,'environment-sso-only',$4)
-           ON CONFLICT(id) DO NOTHING`,
+           ON CONFLICT(id) DO UPDATE SET
+             email=EXCLUDED.email,name=EXCLUDED.name,
+             email_verified_at=EXCLUDED.email_verified_at`,
           [user.id,user.email,user.name,user.email_verified_at],
         )
         const identity = await client.query('SELECT email FROM users WHERE id=$1',[user.id])
@@ -114,10 +118,10 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
              configuration,tenant_url,portal_url,rmm_url)
          VALUES($1,$2::jsonb,'complete',now(),$3::jsonb,$4::jsonb,$5,$6,$7)
          ON CONFLICT(tenant_id) DO NOTHING`,
-        [tenant.id,JSON.stringify(tenant.modules),JSON.stringify(tenant.onboarding_data),
-         JSON.stringify(configuration),targetUrl(tenant.slug,env),
-         targetUrl(tenant.slug,env,'portal'),
-         tenant.modules?.rmm ? targetUrl(tenant.slug,env,'rmm') : null],
+        [tenant.id,JSON.stringify(sandboxModules(tenant.modules)),
+         JSON.stringify(sandboxConfiguration(tenant.onboarding_data)),
+         JSON.stringify(sandboxConfiguration(configuration)),targetUrl(tenant.slug,env),
+         targetUrl(tenant.slug,env,'portal'),null],
       )
       await client.query('COMMIT')
       await source.query(
@@ -152,8 +156,10 @@ export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
        FROM tenants t
        JOIN tenant_settings ts ON ts.tenant_id=t.id
        JOIN tenant_environment_state te ON te.tenant_id=t.id
+       JOIN tenant_release_preferences rp ON rp.tenant_id=t.id
       WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL
-        AND te.environment IN ('test','uat') AND te.status<>'ready'
+        AND (te.environment='test' OR (te.environment='uat' AND rp.update_mode='admin_controlled'))
+        AND te.status<>'ready'
       GROUP BY t.id ORDER BY t.id LIMIT 100`,
   )
   let ready = 0
@@ -161,7 +167,7 @@ export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
   for (const row of result.rows) {
     try {
       const status = await provisionTenantSandboxes(row.id, { source })
-      for (const env of ['test','uat']) status[env]?.status === 'ready' ? ready++ : failed++
+      for (const item of Object.values(status)) item?.status === 'ready' ? ready++ : failed++
     } catch (error) {
       failed++
       console.error('Backfill environment provisioning failed', {tenantId:row.id,code:error.code || 'UNKNOWN'})
