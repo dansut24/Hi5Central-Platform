@@ -8,6 +8,7 @@ import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import { applicationDeployments } from './applicationDeployment.js'
 import { assessUatProductionPromotion } from './uatProductionPromotion.js'
+import {readApplicationReleaseExecutor} from './applicationReleaseExecutor.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {
   cancelSoftwareQualificationQueue,
@@ -744,14 +745,15 @@ export function registerPlatformAdminRoutes(app) {
   app.get('/api/platform/v1/releases/application-deployments', async (c) => {
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
-    const [versions,jobs,requests]=await Promise.all([
+    const [versions,jobs,requests,executor]=await Promise.all([
       applicationDeployments(pool),
       pool.query(`SELECT id,from_environment,to_environment,api_sha,itsm_sha,
         release_ref,status,requested_at,started_at,completed_at,error_message
         FROM platform_application_deployment_jobs ORDER BY requested_at DESC LIMIT 30`),
       pool.query("SELECT r.request_key,r.source_tenant_slug,r.build_sha,r.approved_change_shas,r.evidence,r.status,r.reviewed_at,r.received_at,r.decided_at,n.version_label,n.title FROM platform_application_release_requests r LEFT JOIN hi5central_published_release_notes n ON n.build_sha=r.build_sha ORDER BY r.received_at DESC LIMIT 40"),
+      readApplicationReleaseExecutor(pool),
     ])
-    return c.json({environments:versions,jobs:jobs.rows,reviewRequests:requests.rows})
+    return c.json({environments:versions,jobs:jobs.rows,reviewRequests:requests.rows,executor})
   })
 
   app.post('/api/platform/v1/releases/application-deployments/promote', async (c) => {
@@ -808,6 +810,11 @@ export function registerPlatformAdminRoutes(app) {
       [auth.session.user_id])
     if(!platformMember.rowCount)
       return c.json({error:'A Hi5Central platform administrator must approve shared Production releases.'},403)
+    // Refuse to queue a job without a recently active, dedicated API/ITSM
+    // executor. The legacy environment-actions release operator is not it.
+    const executor=await readApplicationReleaseExecutor(pool)
+    if(!executor.ready)
+      return c.json({error:executor.reason},503)
     const body=await c.req.json().catch(()=>null)
     const key=String(body?.requestKey||'')
     const decision=String(body?.decision||'')
