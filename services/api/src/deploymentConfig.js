@@ -131,7 +131,14 @@ export function originMatchesTenant(origin, slug) {
     originOf(urls.portalUrl),
     originOf(urls.rmmUrl),
   ].filter(Boolean))
-  return expected.has(normalized)
+  if (expected.has(normalized)) return true
+  // Synthetic QA26 billing accounts use the same tenant identity and MFA.
+  // Deliberately exact: no other tenant, wildcard or platform-admin origin.
+  const qa26 = new Set(['h5c-managed-qa26','h5c-custom-qa26'])
+  return deployment.tenancyMode === 'multi'
+    && deployment.rootDomain === 'hi5central.com'
+    && qa26.has(String(slug).toLowerCase())
+    && normalized === `https://${String(slug).toLowerCase()}-admin.hi5central.com`
 }
 
 export function originMatchesTenantAccount(origin, slug) {
