@@ -143,161 +143,16 @@ export function resolveTenantSurface(location = window.location) {
     }
   }
 
-  // QA26 customer billing consoles are their own surface, never technician
-  // workspaces or a substitute for Hi5Central's internal platform admin.
-  const accountAdmin = hostname.match(/^((?:h5c-managed-qa26|h5c-custom-qa26))-admin\.hi5central\.com$/)
-  if (accountAdmin) {
-    const tenantSlug=normaliseSlug(accountAdmin[1])
+  // Exact QA26 customer billing hosts use a separate React surface. Never
+  // route these hosts to an ordinary ITSM tenant workspace.
+  const accountHost=hostname.match(/^(h5c-(?:managed|custom)-qa26)-admin\.hi5central\.com$/)
+  if(accountHost){
+    const tenantSlug=normaliseSlug(accountHost[1])
     return {kind:'account-admin',tenantSlug,tenantName:tenantDisplayName(tenantSlug),
       canonical:true,preview:false,pathBased:false}
   }
 
-  const rmmHost = hostname.match(new RegExp(`^([a-z0-9-]+)-rmm\\.${rootDomain}import { deploymentConfig } from './deploymentConfig.js'
-
-function normaliseSlug(value = '') {
-  return String(value).trim().toLowerCase().replace(/[^a-z0-9-]/g, '')
-}
-
-function escapeRegex(value = '') {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function urlMatchesOrigin(url, location) {
-  if (!url) return false
-  try {
-    return new URL(url).origin.toLowerCase() === String(location.origin || '').toLowerCase()
-  } catch {
-    return false
-  }
-}
-
-function singleTenantSurface(location, config) {
-  const pathname = String(location.pathname || '/')
-  const tenantSlug = normaliseSlug(config.primaryTenantSlug)
-  const tenantName = tenantDisplayName(tenantSlug)
-
-  if (pathname === '/signup' || pathname.startsWith('/signup/')) {
-    return {
-      kind: 'marketing',
-      tenantSlug: '',
-      tenantName: 'Hi5Central',
-      canonical: true,
-      preview: false,
-      pathBased: false,
-    }
-  }
-
-  if (urlMatchesOrigin(config.portalUrl, location) && !urlMatchesOrigin(config.appUrl, location)) {
-    return {
-      kind: 'portal',
-      tenantSlug,
-      tenantName,
-      canonical: true,
-      preview: false,
-      pathBased: false,
-    }
-  }
-
-  if (urlMatchesOrigin(config.rmmUrl, location) && !urlMatchesOrigin(config.appUrl, location)) {
-    return {
-      kind: 'rmm',
-      tenantSlug,
-      tenantName,
-      canonical: true,
-      preview: false,
-      pathBased: false,
-    }
-  }
-
-  if (pathname === '/portal' || pathname.startsWith('/portal/')) {
-    return {
-      kind: 'portal',
-      tenantSlug,
-      tenantName,
-      canonical: true,
-      preview: false,
-      pathBased: true,
-    }
-  }
-
-  if (pathname === '/rmm' || pathname.startsWith('/rmm/')) {
-    return {
-      kind: 'rmm',
-      tenantSlug,
-      tenantName,
-      canonical: true,
-      preview: false,
-      pathBased: true,
-    }
-  }
-
-  return {
-    kind: 'workspace',
-    tenantSlug,
-    tenantName,
-    canonical: true,
-    preview: false,
-    pathBased: false,
-  }
-}
-
-export function tenantDisplayName(slug = '') {
-  const normalized = normaliseSlug(slug)
-  if (!normalized) return 'Your organisation'
-  return normalized
-    .split('-')
-    .filter(Boolean)
-    .map((part) => part.length <= 3 ? part.toUpperCase() : `${part[0].toUpperCase()}${part.slice(1)}`)
-    .join(' ')
-}
-
-export function resolveTenantSurface(location = window.location) {
-  const config = deploymentConfig()
-  const hostname = String(location.hostname || '').toLowerCase()
-  const pathname = String(location.pathname || '/')
-  const params = new URLSearchParams(location.search || '')
-
-  if (config.tenancyMode === 'single') return singleTenantSurface(location, config)
-
-  const rootDomain = escapeRegex(config.rootDomain)
-  const rootHost = config.rootDomain.toLowerCase()
-
-  if (hostname === `admin.${rootHost}`) {
-    return {
-      kind: 'admin',
-      tenantSlug: '',
-      tenantName: 'Hi5Central',
-      canonical: true,
-      preview: false,
-      pathBased: false,
-    }
-  }
-
-  if (hostname === rootHost || hostname === `www.${rootHost}`) {
-    return {
-      kind: 'marketing',
-      tenantSlug: '',
-      tenantName: 'Hi5Central',
-      canonical: true,
-      preview: false,
-      pathBased: false,
-    }
-  }
-
-  // Keep /signup testable on localhost/Vercel without changing the default
-  // development surface for those hosts.
-  if (pathname === '/signup' && !hostname.endsWith(`.${rootHost}`)) {
-    return {
-      kind: 'marketing',
-      tenantSlug: '',
-      tenantName: 'Hi5Central',
-      canonical: false,
-      preview: true,
-      pathBased: false,
-    }
-  }
-
-, 'i'))
+  const rmmHost = hostname.match(new RegExp(`^([a-z0-9-]+)-rmm\\.${rootDomain}$`, 'i'))
   if (rmmHost) {
     const tenantSlug = normaliseSlug(rmmHost[1])
     return {
