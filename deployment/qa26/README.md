@@ -21,7 +21,7 @@ The existing Test and UAT API containers have `BACKGROUND_WORKERS_ENABLED=true`,
 
 A successful image pull and YAML check **do not grant permission to deploy**. The previous blocked sidecar operation remains restricted. An in-place replacement of an *existing* pool is a proposed platform release plan, **not a way to get around a blocked operation**. Only execute after the tool/service authorises the specific action, the normal release mechanism can safely reproduce the full existing Compose configuration, and the shared identity/backend compatibility is confirmed. No global Live API/Gateway swaps or new QA26 tenant databases.
 
-The current VPS command environment reports **`docker compose` and `docker-compose` unavailable**. Do not claim that the standard Compose release command is ready. Identify or install the supported Compose mechanism through authorised VPS maintenance; re-run read-only merged config validation before any restart.
+**Tooling distinction:** Remote Desktop Commander executes these commands in an **Alpine 3.24 helper** with the Ubuntu 26.04.1 VPS Docker daemon mounted. Neither `docker compose` nor `docker-compose` is available **in that Alpine helper**. This does **not** establish whether the *Ubuntu VPS host* has Docker Compose installed. Do not install deployment tooling in the helper to work around the blocked execution. An authorised native-host release runner must verify its own Compose availability and merged configuration before any restart. The read-only `shared-pool-preflight.mjs` deliberately reports the helper's missing CLI as a blocker **for that helper only**.
 
 ## Release readiness and rollback criteria
 
