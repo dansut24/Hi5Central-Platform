@@ -182,7 +182,9 @@ def save_backup(env,job_id):
     valid=subprocess.run(['docker','exec','-i',database,'pg_restore','--list'],
       stdin=stream,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
   if valid.returncode:raise RuntimeError('Postgres backup integrity validation failed')
-  (directory/'SHA256SUM').write_text(hashlib.sha256(dump.read_bytes()).hexdigest()+'\n')
+  with dump.open('rb') as stream:
+    checksum=hashlib.file_digest(stream,'sha256').hexdigest()
+  (directory/'SHA256SUM').write_text(checksum+'\n')
   (directory/'SHA256SUM').chmod(0o600)
   log('Verified '+env+' database and Compose backup (operator-held, retained)')
   return directory
