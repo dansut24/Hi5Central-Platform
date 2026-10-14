@@ -227,3 +227,30 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Mobile MFA: the code field, recovery options and submit action must remain
+ * reachable even with the on-screen keyboard or increased text size. */
+@media (max-width: 640px), (max-height: 620px) {
+  .production-mfa-modal {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    align-items: start;
+    padding: max(10px, env(safe-area-inset-top)) 10px
+      max(24px, env(safe-area-inset-bottom));
+  }
+  .production-mfa-modal-card {
+    width: 100%;
+    min-width: 0;
+    max-height: min(760px, calc(100dvh - 20px));
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .production-mfa-code-field input {
+    font-size: 16px;
+    scroll-margin-block: 100px;
+  }
+}
