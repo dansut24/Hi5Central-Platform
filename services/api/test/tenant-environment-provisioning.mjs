@@ -8,6 +8,9 @@ import { pool } from '../src/db.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
 import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
 import { establishEnvironmentSession } from '../src/environmentDirectSession.js'
+import { registerOrganisationRoutes } from '../src/organisation.js'
+import { readCanonicalDirectory } from '../src/liveDirectoryBridge.js'
+import { recordItsmConfigurationChange, listItsmConfigurationChanges } from '../src/itsmConfigurationChanges.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -225,6 +228,83 @@ try {
   await assert.rejects(()=>assignEnvironmentPermissions(managedId,userId,{test:true,uat:true},userId,{sync:false}),/does not have a UAT/)
   assert.equal((await environmentMembers(managedId)).find(x=>x.userId===userId).uat,false)
   console.log('PASS: Custom Test+UAT, Managed Test only; shared identity projections, no sandbox RMM and Live RMM preserved')
+
+  // Full integration of the central Live-owned directory: real source tables,
+  // service credential validation, current environment grant and read-through.
+  const directoryApp=new Hono()
+  registerOrganisationRoutes(directoryApp)
+  await source.query(
+    `INSERT INTO organisation_people(tenant_id,external_key,user_id,name,email)
+     VALUES($1,$2,$3,$4,$5) ON CONFLICT (tenant_id,external_key)
+     DO UPDATE SET name=EXCLUDED.name,email=EXCLUDED.email`,
+    [tenantId,'USR-'+userId.slice(0,12).toUpperCase(),userId,'Renamed Live Owner',userEmail],
+  )
+  const directoryRequest=(requestedTenantId,requestedUserId,env,token=process.env.ENV_IDENTITY_SHARED_SECRET)=>
+    directoryApp.request('/api/v1/internal/organisation/directory-snapshot',{
+      method:'POST',
+      headers:{'content-type':'application/json','authorization':'Bearer '+token},
+      body:JSON.stringify({tenantId:requestedTenantId,userId:requestedUserId,environment:env}),
+    })
+  const anonymousDirectory=await directoryRequest(tenantId,userId,'uat','invalid-credential')
+  assert.equal(anonymousDirectory.status,401,'directory never returns people without service credential')
+  const forbiddenDirectory=await directoryRequest(unrelated.rows[0].id,userId,'uat')
+  assert.equal(forbiddenDirectory.status,403,'cross-tenant access must be rejected by Live')
+  const revokedDirectory=await directoryRequest(tenantId,memberId,'uat')
+  assert.equal(revokedDirectory.status,403,'revoked UAT grant must not read Live People')
+  const allowedDirectory=await directoryRequest(tenantId,userId,'uat')
+  assert.equal(allowedDirectory.status,200,'granted Custom UAT identity may read Live directory')
+  const allowedPayload=await allowedDirectory.json()
+  assert(allowedPayload.directory.people.some(x=>x.email===userEmail&&x.name==='Renamed Live Owner'))
+  const forwarded=await readCanonicalDirectory(tenantId,userId,{
+    environment:'uat',apiUrl:'https://identity.example.invalid',
+    secret:process.env.ENV_IDENTITY_SHARED_SECRET,
+    fetcher:async(url,options)=>directoryApp.request(new URL(url).pathname,{
+      method:options.method,headers:options.headers,body:options.body,
+    }),
+  })
+  assert.deepEqual(forwarded,allowedPayload.directory,'sandbox read-through must return the current Live directory')
+  console.log('PASS: Live-owned People read-through with real Postgres, active access and cross-tenant isolation')
+
+  // Exercise the audit schema itself against real, fully migrated Live/Test/UAT databases.
+  const previousConfig={sla:{targetHours:8},notifications:true}
+  const changedConfig={sla:{targetHours:6},notifications:true}
+  const recordedUat=await recordItsmConfigurationChange({
+    db:clients[1],tenantId,actorUserId:userId,environment:'uat',
+    before:previousConfig,after:changedConfig,
+  })
+  assert.equal(recordedUat.recorded,true)
+  const recordedAgain=await recordItsmConfigurationChange({
+    db:clients[1],tenantId,actorUserId:userId,environment:'uat',
+    before:changedConfig,after:changedConfig,
+  })
+  assert.equal(recordedAgain.recorded,false,'saving without changes must not generate another event')
+  assert.equal((await listItsmConfigurationChanges({
+    db:clients[1],tenantId,environment:'uat',
+  })).length,1)
+  assert.deepEqual(await listItsmConfigurationChanges({
+    db:clients[1],tenantId:managedId,environment:'uat',
+  }),[],'audit must not leak across tenants')
+  assert.equal((await recordItsmConfigurationChange({
+    db:clients[0],tenantId,actorUserId:userId,environment:'test',
+    before:previousConfig,after:changedConfig,
+  })).recorded,false,'Test intentionally has no config change ledger')
+  const recordedLive=await recordItsmConfigurationChange({
+    db:source,tenantId,actorUserId:userId,environment:'live',
+    before:previousConfig,after:changedConfig,
+  })
+  assert.equal(recordedLive.recorded,true)
+  assert.equal((await listItsmConfigurationChanges({
+    db:source,tenantId,environment:'live',
+  })).length,1)
+  const stored=await clients[1].query(
+    'SELECT before_sha256,after_sha256,changed_keys FROM itsm_configuration_change_events WHERE tenant_id=$1 AND environment=$2',
+    [tenantId,'uat'],
+  )
+  assert.deepEqual(stored.rows[0].changed_keys,['sla'])
+  assert.match(stored.rows[0].before_sha256,/^[a-f0-9]{64}$/)
+  assert.match(stored.rows[0].after_sha256,/^[a-f0-9]{64}$/)
+  console.log('PASS: migrated Live/UAT ledger, Test untracked, unchanged-write suppression and tenant isolation')
+
 }finally {
   for(const c of clients)await c.end().catch(()=>{})
   await source.end()
