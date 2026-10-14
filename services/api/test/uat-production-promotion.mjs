@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {assessUatProductionPromotion} from '../src/uatProductionPromotion.js'
+import {assessUatProductionPromotion,canonicalUatReviewSlug} from '../src/uatProductionPromotion.js'
 
 const sha='a'.repeat(40)
 const other='b'.repeat(40)
@@ -38,4 +38,17 @@ test('Never promote unpublished or stale/unverified/replaced API or ITSM builds'
 test('No browser-supplied target or revision is required; reviewed immutable build is authoritative',()=>{
   assert.equal(gate().allowed,true)
   assert.equal(gate({review:{...request,build_sha:other}}).code,'UAT_MISMATCH')
+})
+
+test('Trusted UAT review canonicalises only exact matching Live tenant slug with same UUID',()=>{
+  assert.deepEqual(canonicalUatReviewSlug({
+    liveSlug:'h5c-custom-qa26',uatSlug:'h5c-custom-qa26-uat',
+  }),{ok:true,slug:'h5c-custom-qa26'})
+  for(const slug of ['h5c-managed-qa26-uat','h5c-custom-qa26-test',
+    'h5c-custom-qa26','other-tenant-uat','h5c-custom-qa26-uat.evil.com']) {
+    assert.equal(canonicalUatReviewSlug({
+      liveSlug:'h5c-custom-qa26',uatSlug:slug,
+    }).ok,false,slug)
+  }
+  assert.equal(canonicalUatReviewSlug({liveSlug:'',uatSlug:'h5c-custom-qa26-uat'}).ok,false)
 })
