@@ -171,3 +171,16 @@ html:has(.h5-account-login) #root {
     padding-bottom: max(44px, env(safe-area-inset-bottom));
   }
 }
+
+
+@media (max-width: 800px), (max-height: 690px) {
+  html:has(.production-auth-shell) .production-auth-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    place-items: start center;
+  }
+  html:has(.production-auth-shell) {
+    scroll-padding-bottom: max(120px, env(safe-area-inset-bottom));
+  }
+}
