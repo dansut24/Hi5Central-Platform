@@ -131,7 +131,7 @@ export function Qa26AccountAdmin(){
       <span>Sign in using your existing Hi5Central credentials and MFA.</span>
       <small>QA26 sandbox · No real charges</small>
     </div>
-    <ProductionLogin tenant={{slug:tenantSlug,companyName:tenantSlug,status:'active'}} onAuthenticated={authenticated}/>
+    <ProductionLogin tenant={{slug:tenantSlug,companyName:tenantSlug,status:'active'}} onAuthenticated={authenticated} surfaceLabel="Hi5Central Account Admin"/>
     {error?<div className="h5-account-login-error" role="alert">{error}</div>:null}
   </div>
 
