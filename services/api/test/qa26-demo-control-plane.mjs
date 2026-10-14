@@ -112,6 +112,36 @@ test('expired trial supports one-time fake 14-day extension, without real entitl
  assert.equal(after.trial.canRestore,false)
  assert.equal(after.trial.daysRemaining,0)
 })
+test('billing admin shell requires login and redirects only to the matching QA tenant login',async()=>{
+  const db=stub()
+  const a=new Hono()
+  registerQa26DemoControlPlaneRoutes(a,async()=>null,db)
+  for(const slug of ['h5c-managed-qa26','h5c-custom-qa26']){
+    const res=await a.request('/qa26/demo-portal',{headers:{host:slug+'-admin.hi5central.com'}})
+    assert.equal(res.status,302)
+    assert.equal(res.headers.get('location'),'https://'+slug+'.hi5central.com/billing-sign-in')
+    assert.equal(res.headers.get('location').includes('returnTo='),false)
+  }
+  assert.equal((await a.request('/qa26/demo-portal',{headers:{host:'unrelated-tenant-admin.hi5central.com'}})).status,404)
+  assert.equal((await a.request('/qa26/demo-portal',{headers:{host:'h5c-managed-qa26-admin.hi5central.com',origin:'https://h5c-custom-qa26.hi5central.com'}})).status,302)
+})
+test('authenticated MFA admin sees only its own responsive billing shell; cross-tenant cookie forbidden',async()=>{
+  const db=stub()
+  const a=app(db)
+  const host='h5c-managed-qa26-admin.hi5central.com'
+  const res=await a.request('/qa26/demo-portal',{headers:{host}})
+  assert.equal(res.status,200)
+  const html=await res.text()
+  for(const needle of ['class="app-shell"','id="billingSidebar"','id="billingMenuToggle"',
+    'Invoices & payments','Subscription & modules','Security & access',
+    'billing-sign-in','QA DEMO'])assert.equal(html.includes(needle),true,needle)
+  const bad=app(db,()=>session('h5c-custom-qa26'))
+  assert.equal((await bad.request('/qa26/demo-portal',{headers:{host}})).status,403)
+  const noMfa=app(db,()=>session('h5c-managed-qa26','owner',false))
+  assert.equal((await noMfa.request('/qa26/demo-portal',{headers:{host}})).status,302)
+  assert.equal(db.state.size,0)
+})
+
 test('reminder previews never deliver external email or call Stripe',async()=>{
  const db=stub(),a=app(db)
  const r=await a.request('/api/v1/qa26/demo-account/reminder',post('',{kind:'day14_checkin'}).init)
