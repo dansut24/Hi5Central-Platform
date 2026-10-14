@@ -7,6 +7,10 @@ on:
       - 'services/api/src/index.js'
       - 'services/api/migrations/platform-admin/153_qa26_demo_invoice_states.sql'
       - 'services/api/test/qa26-demo-billing.mjs'
+      - 'services/api/src/qa26DemoControlPlane.js'
+      - 'services/api/src/qa26DemoBillingPortal.js'
+      - 'services/api/test/qa26-demo-control-plane.mjs'
+      - 'services/api/migrations/platform-admin/154_qa26_demo_control_plane.sql'
       - 'apps/admin/src/features/admin/Qa26DemoAdminInvoices.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
       - 'apps/itsm/src/features/settings/Qa26DemoBilling.jsx'
@@ -44,9 +48,11 @@ jobs:
         working-directory: services/api
         run: |
           node --check src/qa26DemoBilling.js
+          node --check src/qa26DemoControlPlane.js
+          node --check src/qa26DemoBillingPortal.js
           node --check src/platformAdmin.js
           node --check src/index.js
-          node --test test/qa26-demo-billing.mjs
+          node --test test/qa26-demo-billing.mjs test/qa26-demo-control-plane.mjs
       - name: Apply migrations to ephemeral test database
         working-directory: services/api
         run: npm run migrate
