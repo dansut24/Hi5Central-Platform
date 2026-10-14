@@ -34,3 +34,21 @@ export function assessUatProductionPromotion({review,uat,live,published=false}={
   }
   return {allowed:true,code:'READY_TO_QUEUE',reason:'Awaiting explicit platform administrator approval.'}
 }
+
+/**
+ * UAT operational databases use the same tenant UUID as Live but append
+ * -uat to their local slug. Only the trusted relay may submit this mapping;
+ * resolve the canonical slug from the central tenant UUID, not from input.
+ */
+export function canonicalUatReviewSlug({liveSlug,uatSlug}) {
+  const canonical=String(liveSlug||'').toLowerCase()
+  const submitted=String(uatSlug||'').toLowerCase()
+  if (!/^[a-z0-9][a-z0-9-]{1,45}[a-z0-9]$/.test(canonical)
+    || !/^[a-z0-9][a-z0-9-]{1,70}[a-z0-9]$/.test(submitted)) {
+    return {ok:false,reason:'Invalid Live/UAT tenant mapping.'}
+  }
+  if (submitted!==canonical+'-uat') {
+    return {ok:false,reason:'UAT tenant does not match the canonical Live tenant.'}
+  }
+  return {ok:true,slug:canonical}
+}
