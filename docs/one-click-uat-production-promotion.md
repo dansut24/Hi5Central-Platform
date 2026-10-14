@@ -26,3 +26,28 @@ CI workflow `.github/workflows/uat-production-promotion.yml` runs server promoti
 ## Future tenant portal integration
 
 This first UI is the **central platform administrator** approval, as it governs shared Production API/ITSM images. Tenant self-service UAT acceptance and tenant-specific feature promotion remain in the customer's Live Release Management page. Do not expose global shared-code deployment authorisation in the customer billing/`-admin` portal.
+
+
+## QA26 executor audit — 2026-10-14
+
+The running `hi5central-release-operator` container is a **legacy full-stack environment-actions worker**, not the newer API/ITSM deployment-job executor. It polls `/api/platform-operator/v1/actions/claim`, requires RMM/admin web services in its health gate, and has `LIVE_PROMOTION_ENABLED=0`. It **never** calls `/api/platform-operator/v1/deployments/claim`. Do not turn on its Live flag: it would attempt full-stack actions outside the single-Live-RMM architecture.
+
+An independent `/opt/hi5central/deployment/bin/managed-vps-release-operator.py` implementation exists on the native VPS filesystem, but **it is not running**. Its original Compose pin function assumes every `.env` or Compose file independently contains exactly one official API and ITSM image reference. The real UAT `.env` has none, and UAT needs seven layered Compose files; that script is therefore NOT ready for production installation unchanged.
+
+**Fail-closed fix on PR #69:**
+- Migration `155_app_release_executor_heartbeat.sql` stores a short-lived, authenticated heartbeat for `managed-vps-api-itsm-v1` with the required `api-itsm-live-backup-rollback` capability. It is not a deployment or an authorization grant.
+- The platform-operator heartbeat endpoint accepts only that named capability with the existing private operator token, on Live only.
+- The Admin Release Management API returns `executor.ready` and blocks a shared Production approval with HTTP 503 when there is no fresh (≤ 2 minute) compatible heartbeat.
+- The Admin UI displays the missing-executor reason and disables **Approve & queue Production**. The old operator cannot make the button appear ready by merely being a running container.
+- Tests cover wrong worker, wrong capability, expired heartbeat and valid recent report.
+
+**Next implementation gate:** version and independently test a native-host API/ITSM-only worker that keeps all running Compose layers, uses atomic image-only overrides for exact approved official `:sha-` artifacts, performs backup/health/rollback checks, and sends heartbeats ONLY while deployable. Install/run that worker via a separately approved host mechanism before enabling shared Production cutover. Do not relabel the existing legacy full-stack operator as an application executor.
+
+## QA26 reviewed build metadata
+
+Previously deployed QA candidate `4fad62ab8578bda7c2d4aa5fdd4df8c4983257b7` has healthy Test/UAT runtime but **no OCI revision labels**, and its UAT API `release-manifest.json` reports empty SHA / `local-unversioned`. Consequently, its UAT review cannot prove an immutable build; host attestation remains the older `cb836705` snapshot.
+
+PR #69's newer candidate `aa86db02aca44b5e83e887c4ba1b241d546f99ed` is built by a guarded CI workflow that stamps its reviewed Git SHA into the API manifest and adds the same OCI revision label to the API and ITSM images. Both labels were independently checked after pulling onto the VPS. These QA-only images are not official Production `:sha-` artifacts.
+
+The UAT review relay now resolves the sandbox-specific slug (e.g. `h5c-custom-qa26-uat`) to the canonical Live slug using the same registered tenant UUID, requires an active Custom policy and evidence, and refuses unrelated names. Test/UAT candidate image pins now reference `aa86db02`; the image-only rollback pins reference healthy `4fad62ab`. Neither running service has been replaced by this preparation. The previously passing 12/12 public perimeter checks remained 12/12.
+
