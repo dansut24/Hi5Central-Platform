@@ -340,7 +340,7 @@ function LoadingScreen({ delayed, onRetry }) {
   )
 }
 
-function ProductionLogin({ tenant, onAuthenticated }) {
+export function ProductionLogin({ tenant, onAuthenticated }) {
   const [form, setForm] = useState({ email: '', password: '' })
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
