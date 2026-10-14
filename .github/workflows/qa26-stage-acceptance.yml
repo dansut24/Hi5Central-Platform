@@ -1,0 +1,16 @@
+name: QA26 Post-stage Read-only Acceptance
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  accept:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test new Test/UAT API perimeter without credentials or mutations
+        run: node scripts/qa26-stage-acceptance.mjs
