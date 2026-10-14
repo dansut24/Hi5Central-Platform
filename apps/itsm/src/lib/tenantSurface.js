@@ -143,6 +143,15 @@ export function resolveTenantSurface(location = window.location) {
     }
   }
 
+  // Exact QA26 customer billing hosts use a separate React surface. Never
+  // route these hosts to an ordinary ITSM tenant workspace.
+  const accountHost=hostname.match(/^(h5c-(?:managed|custom)-qa26)-admin\.hi5central\.com$/)
+  if(accountHost){
+    const tenantSlug=normaliseSlug(accountHost[1])
+    return {kind:'account-admin',tenantSlug,tenantName:tenantDisplayName(tenantSlug),
+      canonical:true,preview:false,pathBased:false}
+  }
+
   const rmmHost = hostname.match(new RegExp(`^([a-z0-9-]+)-rmm\\.${rootDomain}$`, 'i'))
   if (rmmHost) {
     const tenantSlug = normaliseSlug(rmmHost[1])

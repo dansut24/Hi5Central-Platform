@@ -105,3 +105,83 @@ body[data-hi5-surface='marketing'] #root,
     font-size: 16px !important;
   }
 }
+
+
+/*
+ * All Hi5Central authentication surfaces (tenant ITSM, RMM, Portal, platform
+ * Admin and QA account admin) must scroll on iOS/Android. The normal signed-in
+ * workspaces still use the viewport-locked app shell.
+ *
+ * Without this scoped release, html/body/#root overflow:hidden prevents
+ * reaching Sign in, MFA and recovery actions below the mobile keyboard.
+ */
+html:has(.production-auth-shell),
+html:has(.h5-account-login) {
+  height: auto;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+}
+html:has(.production-auth-shell) body,
+html:has(.production-auth-shell) #root,
+html:has(.h5-account-login) body,
+html:has(.h5-account-login) #root {
+  height: auto;
+  min-height: 100svh;
+  overflow-x: clip;
+  overflow-y: visible;
+}
+@media (max-width: 800px), (max-height: 690px) {
+  .production-auth-shell {
+    box-sizing: border-box;
+    height: auto;
+    min-height: 100svh;
+    min-height: 100dvh;
+    place-items: start center;
+    overflow: visible;
+    padding: max(16px, env(safe-area-inset-top)) 16px
+      max(36px, env(safe-area-inset-bottom));
+  }
+  .production-auth-layout {
+    width: min(620px, 100%);
+    max-width: 100%;
+    min-width: 0;
+    margin-inline: auto;
+  }
+  .production-auth-card,
+  .production-auth-copy {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .production-auth-card input,
+  .production-password-modal input,
+  .production-password-reset-card input,
+  .production-mfa-code-field input {
+    font-size: 16px;
+    scroll-margin-bottom: 120px;
+  }
+  .h5-account-login {
+    height: auto;
+    min-height: 100svh;
+    overflow-y: visible;
+  }
+  .h5-account-login .production-auth-shell {
+    height: auto;
+    min-height: 0;
+    padding-bottom: max(44px, env(safe-area-inset-bottom));
+  }
+}
+
+
+@media (max-width: 800px), (max-height: 690px) {
+  html:has(.production-auth-shell) .production-auth-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+    place-items: start center;
+  }
+  html:has(.production-auth-shell) {
+    scroll-padding-bottom: max(120px, env(safe-area-inset-bottom));
+  }
+}

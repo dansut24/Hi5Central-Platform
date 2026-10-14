@@ -1,0 +1,99 @@
+/* Customer Account Admin uses the SAME shell dimensions, tokens and component
+   styling language as the Hi5Central ITSM/RMM workspace, never a standalone site. */
+.h5-account-shell{--page:#edf3fb;--surface:#fff;--surface-soft:#f5f8fc;--surface-strong:#eef3f9;--ink:#11213c;--muted:#6b7890;--line:#dde5ef;--brand:#0d2d66;--accent:var(--h5-account-accent,#2966c0);--soft-shadow:0 12px 34px rgba(19,45,84,.08);display:grid;grid-template-columns:248px minmax(0,1fr);height:100dvh;width:100%;overflow:hidden;background:var(--page);color:var(--ink);font-size:13px}
+.h5-account-shell.dark{--page:#0c1320;--surface:#131d2d;--surface-soft:#182436;--surface-strong:#1d2a3e;--ink:#eef5ff;--muted:#9aabc2;--line:#29384e;--brand:#081b3d;--soft-shadow:0 16px 42px rgba(0,0,0,.24)}
+.h5-account-shell *{box-sizing:border-box}.h5-account-shell button,.h5-account-shell input{font:inherit}
+.h5-account-shell button{cursor:pointer}.h5-account-shell button:disabled{opacity:.55;cursor:default}
+.h5-account-shell.collapsed{grid-template-columns:72px minmax(0,1fr)}
+.h5-account-sidebar{display:flex;flex-direction:column;gap:12px;padding:15px 12px 12px;min-height:0;overflow-y:auto;background:linear-gradient(180deg,var(--brand),color-mix(in srgb,var(--brand) 88%,#000));color:#fff;z-index:110}
+.h5-account-sidebar-brand{display:flex;gap:9px;align-items:center;min-height:54px;padding:8px;background:#f8fbff;border-radius:9px;color:#0d2d66}
+.h5-account-sidebar-brand img{width:38px;height:38px;object-fit:contain}
+.h5-account-sidebar-brand span{flex:1;min-width:0}.h5-account-sidebar-brand strong,.h5-account-sidebar-brand small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.h5-account-sidebar-brand strong{font-size:12px}.h5-account-sidebar-brand small{font-size:9px;letter-spacing:.08em;font-weight:850;color:#526884}
+.h5-account-collapse,.h5-account-mobile-close{display:grid;place-items:center;border:0;background:transparent;color:#526884;border-radius:7px;width:30px;height:30px}
+.h5-account-collapse:hover{background:#e7eef9}
+.h5-account-sidebar .h5-account-nav-caption{padding:8px 11px 2px;color:rgba(255,255,255,.45);font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.09em}
+.h5-account-nav{display:grid;gap:3px}
+.h5-account-nav button{display:flex;align-items:center;gap:11px;padding:10px 11px;width:100%;text-align:left;color:rgba(255,255,255,.74);border:0;border-radius:9px;background:transparent;font-size:12px;font-weight:740;min-height:39px}
+.h5-account-nav button svg{flex:none}.h5-account-nav button:hover{background:rgba(255,255,255,.08);color:#fff}
+.h5-account-nav button.active{background:color-mix(in srgb,var(--accent) 84%,#fff 16%);color:#fff}
+.h5-account-sidebar-bottom{display:grid;gap:12px;margin-top:auto;padding:11px 7px}
+.h5-account-sidebar-bottom a{display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.76);font-size:11px;text-decoration:none;font-weight:760}
+.h5-account-demo-pill{display:flex;align-items:center;gap:8px;padding:10px 8px;border:1px solid #ffffff20;border-radius:8px;color:#d6e5f7;font-size:10px;font-weight:850;letter-spacing:.04em}
+.h5-account-shell.collapsed .h5-account-sidebar-brand{justify-content:center;padding:5px}
+.h5-account-shell.collapsed .h5-account-sidebar-brand img{width:30px;height:30px}
+.h5-account-shell.collapsed .h5-account-sidebar-brand span,.h5-account-shell.collapsed .h5-account-nav-caption,.h5-account-shell.collapsed .h5-account-nav button span,.h5-account-shell.collapsed .h5-account-sidebar-bottom span,.h5-account-shell.collapsed .h5-account-demo-pill{display:none}
+.h5-account-shell.collapsed .h5-account-collapse{position:absolute;margin-top:62px;color:white}
+.h5-account-shell.collapsed .h5-account-nav button{justify-content:center;padding:10px}
+.h5-account-workspace{display:flex;flex-direction:column;min-width:0;min-height:0}
+.h5-account-topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:65px;padding:9px 26px;border-bottom:1px solid var(--line);background:var(--surface);position:relative;z-index:50}
+.h5-account-topbar-title{display:flex;flex-direction:column;gap:2px}.h5-account-topbar-title span{font-size:10px;color:var(--muted);font-weight:700}.h5-account-topbar-title strong{font-size:16px;font-weight:800}
+.h5-account-top-actions{display:flex;align-items:center;gap:9px}
+.h5-account-icon-button{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line);background:var(--surface-soft);color:var(--ink);border-radius:9px}
+.h5-account-profile-wrap{position:relative}
+.h5-account-profile{display:flex;align-items:center;gap:9px;padding:4px 8px 4px 4px;border:1px solid var(--line);background:var(--surface);border-radius:11px;text-align:left;max-width:230px}
+.h5-account-profile>span{display:grid;place-items:center;width:34px;height:34px;flex:none;background:color-mix(in srgb,var(--accent) 20%,var(--surface));color:var(--accent);border-radius:10px;font-weight:800}
+.h5-account-profile>div{min-width:0}.h5-account-profile strong,.h5-account-profile small{display:block;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;max-width:152px}.h5-account-profile strong{font-size:11px}.h5-account-profile small{font-size:10px;color:var(--muted)}
+.h5-account-profile-menu{position:absolute;top:calc(100% + 7px);right:0;z-index:120;width:180px;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:6px;box-shadow:var(--soft-shadow)}
+.h5-account-profile-menu a,.h5-account-profile-menu button{display:flex;align-items:center;gap:9px;width:100%;padding:10px;color:var(--ink);font-size:12px;text-decoration:none;background:transparent;border:0;border-radius:7px;text-align:left}
+.h5-account-profile-menu a:hover,.h5-account-profile-menu button:hover{background:var(--surface-soft)}
+.h5-account-main{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:20px 30px 28px;display:grid;align-content:start;gap:17px}
+.h5-account-title{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.h5-account-title h1{font-size:24px;font-weight:790;margin:0 0 6px}.h5-account-title p{color:var(--muted);font-size:12px;margin:0}
+.h5-account-tag{display:inline-flex;align-items:center;padding:7px 11px;border-radius:8px;border:1px solid #cfa958;background:#fff5d8;color:#815700;font-size:10px;letter-spacing:.05em;font-weight:850}
+.h5-account-grid{display:grid;gap:14px}.h5-account-grid.three{grid-template-columns:repeat(3,minmax(0,1fr))}.h5-account-grid.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.h5-account-panel,.h5-account-stat,.h5-account-module{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:19px;box-shadow:var(--soft-shadow)}
+.h5-account-panel h2{font-size:17px;font-weight:770;margin:0 0 6px}.h5-account-panel p{line-height:1.6;color:var(--muted);font-size:12px;margin:3px 0 15px}
+.h5-account-panel-heading{display:flex;justify-content:space-between;align-items:start;gap:15px;margin-bottom:14px;flex-wrap:wrap}
+.h5-account-panel-heading p{margin:0}
+.h5-account-panel-heading button,.h5-account-actions button,.h5-account-module button,.h5-account-add-person button,.h5-account-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 12px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:790;text-decoration:none}
+.h5-account-panel-heading .secondary,.h5-account-actions .secondary,.h5-account-add-person .secondary,.h5-account-btn.secondary{background:var(--surface-strong);color:var(--ink);border:1px solid var(--line)}
+.h5-account-actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
+.h5-account-stat{display:grid;gap:7px;min-height:114px}.h5-account-stat>span:nth-child(2){color:var(--muted);font-size:11px}
+.h5-account-stat>strong{font-size:26px;letter-spacing:-.035em}.h5-account-stat-icon{color:var(--accent)}
+.h5-account-trial{background:var(--surface-soft);border:1px solid var(--line);border-radius:10px;padding:13px;margin-bottom:13px}
+.h5-account-trial strong,.h5-account-trial small{display:block}.h5-account-trial strong{font-size:13px}.h5-account-trial small{color:var(--muted);font-size:11px;margin-top:4px}
+.h5-account-progress{height:7px;background:var(--line);border-radius:20px;margin-top:12px;overflow:hidden}.h5-account-progress span{display:block;height:100%;background:var(--accent)}
+.h5-account-module{box-shadow:none;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.h5-account-module h3{margin:0;font-size:17px}.h5-account-module p{margin:0;flex:1}.h5-account-module button{margin-top:5px}
+.h5-account-icon{width:40px;height:40px;border-radius:9px;display:grid;place-items:center;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.h5-account-pill{display:inline-block;font-size:10px;font-weight:790;padding:5px 9px;border-radius:9px;white-space:nowrap}
+.h5-account-pill.success{background:#e1f4e9;color:#176e44}.h5-account-pill.pending{background:#fff2d9;color:#8b5c11}.h5-account-pill.danger{background:#fce8e6;color:#b34335}
+.h5-account-table-scroll{width:100%;overflow-x:auto}
+.h5-account-table{border-collapse:collapse;width:100%;text-align:left;font-size:12px}
+.h5-account-table th{padding:13px 9px;font-weight:750;color:var(--muted);font-size:10px;text-transform:uppercase;white-space:nowrap;border-bottom:1px solid var(--line)}
+.h5-account-table td{padding:14px 9px;vertical-align:top;border-bottom:1px solid var(--line)}
+.h5-account-table td strong,.h5-account-table td small{display:block}.h5-account-table td small{color:var(--muted);margin-top:5px;font-size:10px}
+.h5-account-table td .h5-account-actions button{white-space:nowrap}
+.h5-account-person,.h5-account-account-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.h5-account-person strong,.h5-account-person small{display:block}.h5-account-person small{color:var(--muted)}
+.h5-account-person button{border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--ink);background:var(--surface-strong)}
+.h5-account-add-person{display:flex;align-items:end;gap:10px;margin-top:16px;flex-wrap:wrap}.h5-account-add-person label{display:grid;gap:6px;flex:1;min-width:200px;font-size:11px;font-weight:750}
+.h5-account-add-person input{padding:10px 12px;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);min-height:38px}
+.h5-account-hint{font-size:11px!important;color:var(--muted)!important;line-height:1.65}.h5-account-hint.full{grid-column:1/-1}
+.h5-account-account-row span{color:var(--muted)}.h5-account-account-row strong{overflow-wrap:anywhere}
+.h5-account-muted,.h5-account-footer{font-size:11px;color:var(--muted)}.h5-account-footer{margin:5px 0 18px;line-height:1.7}
+.h5-account-alert{padding:12px 14px;border-radius:9px;font-size:12px}.h5-account-alert.error{background:#fff0ee;color:#9d392d}.h5-account-alert.success{background:#e5f6eb;color:#256e45}
+.h5-account-mobile-toggle,.h5-account-mobile-close,.h5-account-overlay{display:none}
+.h5-account-login{min-height:100dvh;overflow-y:auto;background:#edf3fb}
+.h5-account-login-banner{padding:15px 28px;display:flex;align-items:center;gap:13px;background:#0d2d66;color:#fff}
+.h5-account-login-banner img{height:42px;width:42px;object-fit:contain;background:#fff;border-radius:9px;padding:4px}
+.h5-account-login-banner strong{font-size:16px}.h5-account-login-banner span{font-size:12px;color:#e1e8f5;margin-left:auto}.h5-account-login-banner small{font-size:10px;background:#fff2cd;color:#805b14;padding:7px 9px;border-radius:8px}
+.h5-account-login .production-auth-shell{min-height:calc(100dvh - 75px)}
+.h5-account-login-error{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:12px 16px;background:#fff0ee;color:#b34335;border-radius:9px}
+@media(max-width:1024px){.h5-account-grid.three{grid-template-columns:1fr 1fr}.h5-account-topbar{padding:9px 17px}.h5-account-main{padding:20px}}
+@media(max-width:740px){
+.h5-account-shell,.h5-account-shell.collapsed{grid-template-columns:minmax(0,1fr)}
+.h5-account-sidebar{position:fixed;inset:0 auto 0 0;width:min(270px,85vw);transform:translateX(-110%);transition:transform .2s ease}
+.h5-account-sidebar.mobile-open{transform:translateX(0)}
+.h5-account-overlay{display:block;position:fixed;inset:0;z-index:100;border:0;background:#020e25a9}
+.h5-account-mobile-toggle,.h5-account-mobile-close{display:grid;place-items:center;border:0;background:transparent;color:inherit;padding:6px}
+.h5-account-mobile-close{color:#0d2d66}
+.h5-account-collapse{display:none}
+.h5-account-topbar{justify-content:flex-start;padding:10px 12px}
+.h5-account-top-actions{margin-left:auto}.h5-account-profile>div{display:none}
+.h5-account-main{padding:18px 12px}
+.h5-account-grid.three,.h5-account-grid.two{grid-template-columns:1fr}
+.h5-account-title h1{font-size:21px}
+.h5-account-login-banner{flex-wrap:wrap;padding:12px}.h5-account-login-banner span{margin-left:0}.h5-account-login-banner small{margin-left:auto}
+}

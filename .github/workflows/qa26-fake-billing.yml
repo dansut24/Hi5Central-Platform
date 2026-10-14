@@ -1,0 +1,77 @@
+name: QA26 Fake Billing Prototype
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/qa26DemoBilling.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/src/index.js'
+      - 'services/api/src/deploymentConfig.js'
+      - 'services/api/test/qa26-billing-admin-origin.mjs'
+      - 'apps/itsm/src/production/Qa26AccountAdmin.jsx'
+      - 'apps/itsm/src/production/ProductionWorkspaceBootstrap.jsx'
+      - 'services/api/migrations/platform-admin/153_qa26_demo_invoice_states.sql'
+      - 'services/api/test/qa26-demo-billing.mjs'
+      - 'services/api/src/qa26DemoControlPlane.js'
+      - 'services/api/src/qa26DemoBillingPortal.js'
+      - 'services/api/test/qa26-demo-control-plane.mjs'
+      - 'services/api/migrations/platform-admin/154_qa26_demo_control_plane.sql'
+      - 'apps/admin/src/features/admin/Qa26DemoAdminInvoices.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - 'apps/itsm/src/features/settings/Qa26DemoBilling.jsx'
+      - 'apps/itsm/src/features/settings/Qa26DemoBilling.css'
+      - 'apps/itsm/src/features/settings/ProductionSettingsWorkspace.jsx'
+      - '.github/workflows/qa26-fake-billing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: qa26_fake_ci
+          POSTGRES_USER: qa26_fake_ci
+          POSTGRES_PASSWORD: fake_ci_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U qa26_fake_ci -d qa26_fake_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://qa26_fake_ci:fake_ci_only@localhost:5432/qa26_fake_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install API
+        working-directory: services/api
+        run: npm ci
+      - name: Check QA-only API and tenant permissions
+        working-directory: services/api
+        run: |
+          node --check src/qa26DemoBilling.js
+          node --check src/qa26DemoControlPlane.js
+          node --check src/qa26DemoBillingPortal.js
+          node --check src/platformAdmin.js
+          node --check src/index.js
+          node --test test/qa26-demo-billing.mjs test/qa26-demo-control-plane.mjs test/qa26-billing-admin-origin.mjs
+      - name: Apply migrations to ephemeral test database
+        working-directory: services/api
+        run: npm run migrate
+      - name: Build API
+        working-directory: services/api
+        run: npm run build:runtime
+      - name: Install platform Admin
+        working-directory: apps/admin
+        run: npm ci
+      - name: Build platform Admin
+        working-directory: apps/admin
+        run: npm run build
+      - name: Install tenant ITSM workspace
+        working-directory: apps/itsm
+        run: npm ci
+      - name: Build tenant ITSM workspace
+        working-directory: apps/itsm
+        run: npm run build

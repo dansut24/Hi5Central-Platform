@@ -22,7 +22,10 @@ import { hydrateProductionServiceRequests } from '../services/productionServiceR
 import { takeProductionAuthHandoff } from './productionSessionBridge.js'
 import './ProductionWorkspaceBootstrap.css'
 
-const API_BASE = window.__HI5_API_BASE__
+// QA26 Account Admin has a same-origin, tenant-scoped auth/MFA gateway.
+// The normal ITSM/Portal/RMM surfaces retain their current API endpoint.
+const API_BASE=/^(h5c-(?:managed|custom)-qa26)-admin\.hi5central\.com$/.test(window.location.hostname)
+  ? window.location.origin : window.__HI5_API_BASE__
 const PRODUCTION_SESSION_KEY = 'hi5central-production-session-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
@@ -340,7 +343,7 @@ function LoadingScreen({ delayed, onRetry }) {
   )
 }
 
-function ProductionLogin({ tenant, onAuthenticated }) {
+export function ProductionLogin({ tenant, onAuthenticated, surfaceLabel = 'Hi5Central ITSM' }) {
   const [form, setForm] = useState({ email: '', password: '' })
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -536,7 +539,7 @@ function ProductionLogin({ tenant, onAuthenticated }) {
           <div className="production-auth-card-heading">
             <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
             <div>
-              <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : 'Hi5Central ITSM'}</span>
+              <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : surfaceLabel}</span>
               <strong>{tenant.slug}.hi5central.com</strong>
             </div>
           </div>
@@ -731,6 +734,17 @@ export function ProductionWorkspaceBootstrap({onWorkspaceAuthenticatedChange}) {
   const [bootstrapDelayed, setBootstrapDelayed] = useState(false)
   const [currentPath, setCurrentPath] = useState(() => window.location.pathname)
   const onboardingRoute = currentPath === '/onboarding' || currentPath.startsWith('/onboarding/')
+  // A QA26 billing login handoff never accepts a user-supplied return URL.
+  // It returns ONLY to the exact matching tenant's billing-admin hostname,
+  // after a verified MFA session and any onboarding/first-login requirements.
+  useEffect(() => {
+    if (currentPath !== '/billing-sign-in') return
+    if (!['h5c-managed-qa26','h5c-custom-qa26'].includes(surface.tenantSlug)) return
+    if (serverSession?.tenant?.slug !== surface.tenantSlug) return
+    if (!serverSession?.security?.mfaVerified || !serverSession?.onboarding?.completedAt
+      || !serverSession?.userExperience?.firstLoginCompletedAt) return
+    window.location.replace('https://' + surface.tenantSlug + '-admin.hi5central.com/')
+  }, [currentPath,surface.tenantSlug,serverSession])
   useEffect(()=>{
     // Mount workspace-only enhancers only after the server accepted the
     // session AND initial setup is complete. No unauthenticated DOM observers.

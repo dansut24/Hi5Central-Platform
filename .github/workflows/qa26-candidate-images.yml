@@ -1,0 +1,53 @@
+name: QA26 Fake Billing Candidate Images
+on:
+  push:
+    branches:
+      - feature/qa26-fake-billing-20261014
+    paths:
+      - 'services/api/**'
+      - 'apps/admin/**'
+      - 'apps/itsm/**'
+      - '.github/workflows/qa26-candidate-images.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: qa26-fake-candidate-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/feature/qa26-fake-billing-20261014'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: API
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - name: ITSM
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+          - name: Admin
+            context: apps/admin
+            image: ghcr.io/dansut24/hi5central-platform-admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push QA26-only immutable candidate
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:qa26-fake-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            hi5central.scope=qa26-fake-billing-candidate
+          cache-from: type=gha,scope=QA26-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=QA26-${{ matrix.name }}
