@@ -5,6 +5,6 @@
 # No tenant-specific sidecars, network mounts or extra tenant databases.
 services:
   control-server:
-    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-e6ffb71704ad668bc2f59376c864ec8ef5564269
+    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-77a79172d748b75a04373acc603359befa423c38
   itsm-web:
-    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-e6ffb71704ad668bc2f59376c864ec8ef5564269
+    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-77a79172d748b75a04373acc603359befa423c38
