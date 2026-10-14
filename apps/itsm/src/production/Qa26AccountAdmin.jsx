@@ -148,7 +148,7 @@ export function Qa26AccountAdmin(){
       </div>}</td>
     </tr>)}</tbody>
   </table></div>
-  const stat=(label,value,icon:Icon)=> <div className="h5-account-stat"><span className="h5-account-stat-icon"><Icon size={19}/></span><span>{label}</span><strong>{value}</strong></div>
+  const stat=(label,value,Icon)=> <div className="h5-account-stat"><span className="h5-account-stat-icon"><Icon size={19}/></span><span>{label}</span><strong>{value}</strong></div>
   const moduleCards=<div className="h5-account-grid two">
     {['itsm','rmm'].map(module=><div className="h5-account-module" key={module}>
       <div className="h5-account-icon">{module==='itsm'?<FileText size={21}/>:<Monitor size={21}/>}</div>
