@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {assessUatProductionPromotion,canonicalUatReviewSlug} from '../src/uatProductionPromotion.js'
+import {applicationReleaseExecutorState,APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY} from '../src/applicationReleaseExecutor.js'
 
 const sha='a'.repeat(40)
 const other='b'.repeat(40)
@@ -51,4 +52,28 @@ test('Trusted UAT review canonicalises only exact matching Live tenant slug with
     }).ok,false,slug)
   }
   assert.equal(canonicalUatReviewSlug({liveSlug:'',uatSlug:'h5c-custom-qa26-uat'}).ok,false)
+})
+
+test('Never claim a one-click promotion when only the legacy environment action operator is running',()=>{
+  const now=new Date('2026-10-14T23:00:00Z')
+  assert.equal(applicationReleaseExecutorState(null,now).ready,false)
+  assert.equal(applicationReleaseExecutorState({
+    worker_id:'legacy-environment-actions',
+    capability:APPLICATION_RELEASE_EXECUTOR_CAPABILITY,
+    observed_at:now,
+  },now).ready,false)
+  assert.equal(applicationReleaseExecutorState({
+    worker_id:APPLICATION_RELEASE_EXECUTOR_ID,capability:'legacy-actions',
+    observed_at:now,
+  },now).ready,false)
+  assert.equal(applicationReleaseExecutorState({
+    worker_id:APPLICATION_RELEASE_EXECUTOR_ID,
+    capability:APPLICATION_RELEASE_EXECUTOR_CAPABILITY,
+    observed_at:new Date(now.getTime()-120001),
+  },now).ready,false)
+  assert.equal(applicationReleaseExecutorState({
+    worker_id:APPLICATION_RELEASE_EXECUTOR_ID,
+    capability:APPLICATION_RELEASE_EXECUTOR_CAPABILITY,
+    observed_at:new Date(now.getTime()-30000),
+  },now).ready,true)
 })
