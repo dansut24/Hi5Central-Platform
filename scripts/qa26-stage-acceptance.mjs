@@ -5,6 +5,31 @@
  */
 const checks=[
   {
+    label:'Managed QA26 has no publicly served UAT login',
+    url:'https://h5c-managed-qa26-uat.hi5central.com/login',
+    expected:404,
+  },
+  {
+    label:'Managed Test has no RMM web portal',
+    url:'https://h5c-managed-qa26-test-rmm.hi5central.com/',
+    expected:404,
+  },
+  {
+    label:'Custom Test has no RMM web portal',
+    url:'https://h5c-custom-qa26-test-rmm.hi5central.com/',
+    expected:404,
+  },
+  {
+    label:'Custom UAT has no RMM web portal',
+    url:'https://h5c-custom-qa26-uat-rmm.hi5central.com/',
+    expected:404,
+  },
+  {
+    label:'Managed UAT has no RMM web portal',
+    url:'https://h5c-managed-qa26-uat-rmm.hi5central.com/',
+    expected:404,
+  },
+  {
     label:'Managed Test RMM API is blocked before authentication',
     url:'https://test-api.hi5central.com/api/v1/rmm/devices',
     origin:'https://h5c-managed-qa26-test.hi5central.com',
@@ -51,7 +76,7 @@ const results=[]
 for(const check of checks){
   try {
     const response=await fetch(check.url,{
-      method:'GET',headers:{Origin:check.origin,Accept:'application/json'},
+      method:'GET',headers:{...(check.origin?{Origin:check.origin}:{}),Accept:'*/*'},
       redirect:'manual',signal:AbortSignal.timeout(8000),
     })
     const correct=response.status===check.expected
