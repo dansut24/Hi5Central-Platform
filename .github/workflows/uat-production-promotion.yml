@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'services/api/src/uatProductionPromotion.js'
+      - 'services/api/src/applicationReleaseExecutor.js'
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/migrations/platform-admin/155_app_release_executor_heartbeat.sql'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/uat-production-promotion.mjs'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
@@ -26,6 +29,8 @@ jobs:
       - name: Check source and run fail-closed release gate regression
         run: |
           node --check src/uatProductionPromotion.js
+          node --check src/applicationReleaseExecutor.js
+          node --check src/releaseOperator.js
           node --check src/platformAdmin.js
           node --test test/uat-production-promotion.mjs
       - run: npm ci --ignore-scripts
