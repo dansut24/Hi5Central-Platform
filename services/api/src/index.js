@@ -9,6 +9,7 @@ import { registerApiTokenRoutes } from './apiTokens.js'
 import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
 import { createSandboxRmmGuard } from './sandboxRmmBoundary.js'
+import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
 import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -765,12 +766,18 @@ console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
 console.log('[API] PostgreSQL ready; connecting to Redis...')
 await ensureRedisConnected()
-console.log('[API] Redis ready; initializing RMM agent broker...')
-await initializeAgentBroker()
-console.log('[API] RMM agent broker initialized; starting schedulers...')
+const rmmRuntimeEnabled = liveRmmAccessAllowed(deployment.runtimeEnvironment)
+if (rmmRuntimeEnabled) {
+  console.log('[API] Redis ready; initializing RMM agent broker...')
+  await initializeAgentBroker()
+  console.log('[API] RMM agent broker initialized; starting schedulers...')
+} else {
+  console.log('[API] ITSM sandbox: Live RMM broker and agent services disabled')
+}
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
-if (backgroundWorkersEnabled) {
+if (backgroundWorkersEnabled && rmmRuntimeEnabled) {
+  // Directory and RMM operational sync jobs are Live/isolated-Dev only.
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
   startSoftwareVendorSyncScheduler()
@@ -778,14 +785,16 @@ if (backgroundWorkersEnabled) {
   startRmmNetworkDiscoveryScheduler()
   startRmmMacOuiScheduler()
 } else {
-  console.log('Background workers disabled for this Control Server instance')
+  console.log('Directory/RMM operational workers disabled for this Control Server instance')
 }
 console.log('[API] Starting HTTP listener...')
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port })
-attachRmmAgentWebSocket(server)
-attachRmmViewerWebSocket(server)
-attachRmmConnectWebSockets(server)
-attachRmmDeviceToolWebSocket(server)
+if (rmmRuntimeEnabled) {
+  attachRmmAgentWebSocket(server)
+  attachRmmViewerWebSocket(server)
+  attachRmmConnectWebSockets(server)
+  attachRmmDeviceToolWebSocket(server)
+}
 console.log(`Hi5Central API listening on port ${port}`)
 if (deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
   void backfillCompletedTenantSandboxes().catch(error => {

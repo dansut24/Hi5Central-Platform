@@ -64,3 +64,7 @@ The existing device widget in ITSM ticket details now offers **Start remote desk
 
 ## API perimeter hardening (follow-up)
 The Hono API middleware rejects all `/api/v1/rmm/*` and `/api/v1/agent/*` requests in Test and UAT before endpoint handlers, covering power, patching, scripts, enrollment, polling and remote sessions. Live and protected internal Dev keep current behaviour. WebSocket listeners and operational workers remain separate and require explicit non-sandbox deployment isolation; this HTTP gate is not a substitute for runtime segregation.
+
+
+## RMM WebSocket and worker startup isolation
+The API startup now avoids initialising the RMM agent broker, RMM agent/viewer/Connect/tool WebSocket listeners, RMM schedulers and Microsoft directory-sync scheduler when the API's runtime is `test` or `uat`. This is in addition to the request-level RMM/agent API gate; live RMM and protected internal Dev remain enabled. Operator verification is still required to ensure dedicated sandbox routing and absence of legacy RMM processes on the host.
