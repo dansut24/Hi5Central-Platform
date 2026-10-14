@@ -340,7 +340,7 @@ function LoadingScreen({ delayed, onRetry }) {
   )
 }
 
-export function ProductionLogin({ tenant, onAuthenticated }) {
+export function ProductionLogin({ tenant, onAuthenticated, surfaceLabel = 'Hi5Central ITSM' }) {
   const [form, setForm] = useState({ email: '', password: '' })
   const [passwordStep, setPasswordStep] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -536,7 +536,7 @@ export function ProductionLogin({ tenant, onAuthenticated }) {
           <div className="production-auth-card-heading">
             <span className="production-auth-icon">{mfaFlow ? <ShieldCheck size={19} /> : <LockKeyhole size={19} />}</span>
             <div>
-              <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : 'Hi5Central ITSM'}</span>
+              <span>{mfaFlow ? (mfaFlow.setupRequired ? 'Set up multi-factor authentication' : 'Multi-factor authentication') : surfaceLabel}</span>
               <strong>{tenant.slug}.hi5central.com</strong>
             </div>
           </div>
