@@ -1,0 +1,24 @@
+name: Mobile Authentication Scroll Guard
+
+on:
+  pull_request:
+    paths:
+      - 'apps/itsm/src/index.css'
+      - 'apps/admin/src/index.css'
+      - 'apps/rmm/src/index.css'
+      - 'apps/itsm/src/features/security/ProductionMfaLoginEnhancer.css'
+      - 'apps/itsm/src/features/security/ProductionPasswordRecoveryEnhancer.css'
+      - 'scripts/mobile-auth-scroll.test.mjs'
+      - '.github/workflows/mobile-auth-scroll.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-mobile-auth-layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify mobile login, MFA and password reset scrolling
+        run: node --test scripts/mobile-auth-scroll.test.mjs
