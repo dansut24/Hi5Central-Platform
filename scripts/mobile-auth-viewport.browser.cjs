@@ -24,6 +24,8 @@ try{
 for(const width of [390,360]){
 const page=await browser.newPage({viewport:{width,height:620},isMobile:true,hasTouch:true,deviceScaleFactor:2})
 for(const mode of ['current','future']){
+ await page.setViewportSize({width,height:620})
+ await page.evaluate(()=>document.activeElement?.blur?.())
  await page.setContent(fixture(mode))
  const before=await page.evaluate(()=>({
   doc:document.documentElement.scrollHeight,visible:innerHeight,
