@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import './Qa26DemoBilling.css'
 
+// Use the exact QA tenant hostname. Normal workspace APIs may use the shared
+// Test/UAT API hostname, but this fake ledger must stay on the QA-only route.
+const DEMO_API_ORIGIN = window.location.origin
+
 const QA_TENANTS = new Set(['h5c-managed-qa26','h5c-custom-qa26'])
 const money = (pence) => new Intl.NumberFormat('en-GB',{style:'currency',currency:'GBP'}).format((Number(pence)||0)/100)
 const date = (value) => value ? new Date(value).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : '—'
@@ -20,7 +24,7 @@ export function Qa26DemoBilling({ session }) {
     setLoading(true)
     setError('')
     try {
-      const response = await fetch((window.__HI5_API_BASE__ || '') + '/api/v1/qa26/demo-billing', { credentials:'include' })
+      const response = await fetch(DEMO_API_ORIGIN + '/api/v1/qa26/demo-billing', { credentials:'include' })
       const result = await response.json().catch(()=>({}))
       if (!response.ok) throw new Error(result.error || 'Demo billing is unavailable.')
       if (result.demo !== true || result.realPayments !== false) throw new Error('A verified simulation response is required.')
@@ -31,7 +35,7 @@ export function Qa26DemoBilling({ session }) {
   useEffect(() => {
     let cancelled=false
     if (allowed && mfa) {
-      fetch((window.__HI5_API_BASE__ || '') + '/api/v1/qa26/demo-billing',{credentials:'include'})
+      fetch(DEMO_API_ORIGIN + '/api/v1/qa26/demo-billing',{credentials:'include'})
         .then(async response=>{
           const result=await response.json().catch(()=>({}))
           if (!response.ok) throw new Error(result.error || 'Demo billing is unavailable.')
@@ -49,7 +53,7 @@ export function Qa26DemoBilling({ session }) {
     setError('')
     setMessage('')
     try {
-      const response=await fetch((window.__HI5_API_BASE__ || '') + '/api/v1/qa26/demo-billing/' + encodeURIComponent(invoice.key) + '/simulate',{
+      const response=await fetch(DEMO_API_ORIGIN + '/api/v1/qa26/demo-billing/' + encodeURIComponent(invoice.key) + '/simulate',{
         method:'POST',credentials:'include',headers:{'content-type':'application/json'},body:JSON.stringify({outcome}),
       })
       const result=await response.json().catch(()=>({}))
