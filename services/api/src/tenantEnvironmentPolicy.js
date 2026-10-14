@@ -28,3 +28,18 @@ export function sandboxConfiguration(value) {
 export function tracksItsmConfiguration(environment, area) {
   return ['live', 'uat'].includes(environment) && area === 'itsm'
 }
+
+/**
+ * One centrally enforced release policy for both signup and Admin Portal edits.
+ * Managed ITSM has Test + Live (no UAT); Custom ITSM has Test + UAT + Live.
+ */
+export function releaseModeDefaults(updateMode) {
+  if (!['hi5_managed', 'admin_controlled'].includes(updateMode)) {
+    throw new Error('Unknown tenant update policy: fail closed.')
+  }
+  return {
+    testAutoSync: true,
+    uatAutoStage: updateMode === 'admin_controlled',
+    liveAutoPromote: updateMode === 'hi5_managed',
+  }
+}
