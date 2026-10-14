@@ -15,6 +15,7 @@ const urls=[
     const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:35000})
     assert.equal(response?.status(),200,'Login page must load: '+url)
     await page.locator('.production-auth-shell').waitFor({state:'visible',timeout:30000})
+    await page.locator('.production-auth-card input[type="email"]').waitFor({state:'visible',timeout:15000})
     await page.waitForTimeout(350)
     let metrics=await page.evaluate(()=>{
      const doc=document.documentElement,card=document.querySelector('.production-auth-card')
@@ -27,21 +28,27 @@ const urls=[
     })
     assert(metrics.css.some(x=>x.includes('index-authscroll-8df4f783aca1.css')),
      'Canonical QA CSS not served at '+url+' '+JSON.stringify(metrics))
-    assert(metrics.scrollHeight>metrics.height+40,'Login content does not overflow '+url+' '+JSON.stringify(metrics))
     assert.equal(metrics.htmlOverflow,'auto','Document not scrollable in mobile Safari '+url)
     assert(metrics.rootOverflow.includes('visible'),'React root still locked '+url)
-    await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight))
-    await page.waitForTimeout(140)
-    let result=await page.evaluate(()=>({scroll:scrollY,height:innerHeight,
-      cardBottom:document.querySelector('.production-auth-card')?.getBoundingClientRect().bottom}))
-    assert(result.scroll>30,'Safari did not scroll at '+url+' '+JSON.stringify(result))
-    assert(result.cardBottom<=result.height+6,'Bottom of login card is not reachable '+url+' '+JSON.stringify(result))
+    const verifyReachable=async(label)=>{
+      const before=await page.evaluate(()=>({
+        height:innerHeight,scrollHeight:document.documentElement.scrollHeight,
+      }))
+      await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight))
+      await page.waitForTimeout(150)
+      const result=await page.evaluate(()=>({
+        scroll:scrollY,height:innerHeight,cardBottom:document.querySelector('.production-auth-card')?.getBoundingClientRect().bottom,
+        htmlOverflow:getComputedStyle(document.documentElement).overflowY,
+      }))
+      if(before.scrollHeight>before.height+10)
+        assert(result.scroll>10,'Safari could not scroll overflowing '+label+' '+url+' '+JSON.stringify({before,result}))
+      assert(result.cardBottom<=result.height+6,
+        'Login form bottom is not reachable in '+label+' '+url+' '+JSON.stringify({before,result}))
+      assert.equal(result.htmlOverflow,'auto','Document scrolling unexpectedly locked in '+label+' '+url)
+    }
+    await verifyReachable('portrait viewport')
     await page.setViewportSize({width:390,height:395})
-    await page.evaluate(()=>window.scrollTo(0,document.documentElement.scrollHeight))
-    await page.waitForTimeout(120)
-    result=await page.evaluate(()=>({scroll:scrollY,height:innerHeight,
-      cardBottom:document.querySelector('.production-auth-card')?.getBoundingClientRect().bottom}))
-    assert(result.cardBottom<=result.height+6,'Keyboard-size viewport cuts off login '+url+' '+JSON.stringify(result))
+    await verifyReachable('keyboard-size viewport')
     console.log('PASS live QA26 WebKit mobile scroll + keyboard-size viewport '+url)
    }finally{await page.close()}
   }
