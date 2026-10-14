@@ -64,7 +64,16 @@ export function registerQa26DemoControlPlaneRoutes(app,resolveSession,db=pool){
     if(ownerOnly&&!auth.isOwner)return {error:c.json({error:'Tenant owner approval required.'},403)}
     return auth
   }
-  app.get('/qa26/demo-portal',c=>{
+  app.get('/qa26/demo-portal',async c=>{
+    // The page is served only behind the two exact QA26 billing hostnames.
+    // A fixed same-tenant login handoff prevents open-redirect attacks.
+    const host=String(c.req.header('host')||'').split(':')[0].toLowerCase()
+    const slug=['h5c-managed-qa26','h5c-custom-qa26'].find(t=>host===t+'-admin.hi5central.com')
+    if(!slug)return c.json({error:'Not found.'},404)
+    const session=await resolveSession(c)
+    if(!session || !session.mfa_verified_at)
+      return c.redirect('https://'+slug+'.hi5central.com/billing-sign-in',302)
+    if(session.slug!==slug)return c.text('You are signed into another tenant. Sign out there before accessing this billing account.',403)
     c.header('Cache-Control','no-store')
     c.header('Content-Security-Policy',
       "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
