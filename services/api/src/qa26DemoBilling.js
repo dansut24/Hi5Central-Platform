@@ -26,9 +26,9 @@ function isQa(slug) { return Object.hasOwn(CATALOG, slug) }
 function invoiceAmount(invoice) {
   return invoice.items.reduce((sum,item)=>sum+item.quantity*item.unitPence,0)
 }
-export async function qa26DemoInvoiceView(tenantId, slug) {
+export async function qa26DemoInvoiceView(tenantId, slug, db = pool) {
   if (!enabled() || !isQa(slug) || !UUID.test(tenantId)) return null
-  const states = await pool.query(
+  const states = await db.query(
     'SELECT invoice_key,status,attempts,paid_at,updated_at FROM qa26_demo_invoice_states WHERE tenant_id=$1',
     [tenantId],
   )
@@ -55,7 +55,7 @@ export async function qa26DemoInvoiceView(tenantId, slug) {
   }
 }
 
-export function registerQa26DemoTenantRoutes(app, resolveSession) {
+export function registerQa26DemoTenantRoutes(app, resolveSession, db = pool) {
   async function owner(c) {
     const session = await resolveSession(c)
     if (!session) return { error:c.json({error:'Authentication required.'},401) }
@@ -68,7 +68,7 @@ export function registerQa26DemoTenantRoutes(app, resolveSession) {
   app.get('/api/v1/qa26/demo-billing',async c=>{
     const auth = await owner(c)
     if (auth.error) return auth.error
-    return c.json(await qa26DemoInvoiceView(auth.session.tenant_id,auth.session.slug))
+    return c.json(await qa26DemoInvoiceView(auth.session.tenant_id,auth.session.slug,db))
   })
   app.post('/api/v1/qa26/demo-billing/:key/simulate',async c=>{
     const auth = await owner(c)
@@ -88,12 +88,12 @@ export function registerQa26DemoTenantRoutes(app, resolveSession) {
       return c.json({error:'Select succeeded or declined simulation.'},400)
     }
     const desired = payload.outcome==='succeeded'?'paid':'payment_failed'
-    const update = await pool.query(
+    const update = await db.query(
       "INSERT INTO qa26_demo_invoice_states (tenant_id,invoice_key,status,attempts,paid_at,updated_by) VALUES ($1,$2,$3,1,CASE WHEN $3='paid' THEN now() ELSE NULL END,$4) ON CONFLICT (tenant_id,invoice_key) DO UPDATE SET status=EXCLUDED.status,attempts=qa26_demo_invoice_states.attempts+1,paid_at=EXCLUDED.paid_at,updated_at=now(),updated_by=EXCLUDED.updated_by WHERE qa26_demo_invoice_states.status<>'paid' AND qa26_demo_invoice_states.attempts<25 RETURNING status,attempts",
       [auth.session.tenant_id,invoice.key,desired,auth.session.user_id],
     )
     if (!update.rowCount) {
-      const status = await pool.query(
+      const status = await db.query(
         'SELECT status,attempts FROM qa26_demo_invoice_states WHERE tenant_id=$1 AND invoice_key=$2',
         [auth.session.tenant_id,invoice.key],
       )
@@ -105,16 +105,16 @@ export function registerQa26DemoTenantRoutes(app, resolveSession) {
   })
 }
 
-export function registerQa26DemoAdminRoutes(app,requireAdmin) {
+export function registerQa26DemoAdminRoutes(app,requireAdmin,db = pool) {
   app.get('/api/platform/v1/billing/qa26/tenants/:id/demo',async c=>{
     const auth = await requireAdmin(c,new Set(['owner','admin','billing']))
     if (auth.error) return auth.error
     const tenantId=String(c.req.param('id')||'')
     if (!UUID.test(tenantId)) return c.json({error:'Invalid tenant ID.'},400)
-    const tenant = await pool.query('SELECT id,slug FROM tenants WHERE id=$1',[tenantId])
+    const tenant = await db.query('SELECT id,slug FROM tenants WHERE id=$1',[tenantId])
     if (!tenant.rowCount || !enabled() || !isQa(tenant.rows[0].slug)) {
       return c.json({error:'QA demo tenant not found.'},404)
     }
-    return c.json(await qa26DemoInvoiceView(tenantId,tenant.rows[0].slug))
+    return c.json(await qa26DemoInvoiceView(tenantId,tenant.rows[0].slug,db))
   })
 }
