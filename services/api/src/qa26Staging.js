@@ -9,7 +9,8 @@ export function qa26TenantAllowed(slug) {
 export function qa26ExpectedOrigins(environment) {
   if(!['live','test','uat'].includes(environment))return []
   const suffix=environment==='live'?'':'-'+environment
-  return QA26_TENANTS.map(slug=>'https://'+slug+suffix+'.hi5central.com')
+  const tenants=environment==='uat'?['h5c-custom-qa26']:QA26_TENANTS
+  return tenants.map(slug=>'https://'+slug+suffix+'.hi5central.com')
 }
 export function qa26CanServe(origin,environment,path) {
   if(path==='/api/v1/internal/organisation/directory-snapshot'&&environment==='live')return true
