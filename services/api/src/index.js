@@ -10,6 +10,7 @@ import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
 import { createSandboxRmmGuard } from './sandboxRmmBoundary.js'
 import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
+import { qa26StagingActive,qa26CanServe } from './qa26Staging.js'
 import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -75,6 +76,7 @@ const scryptAsync = promisify(scrypt)
 const app = new Hono()
 const port = Number(process.env.PORT || 3001)
 const backgroundWorkersEnabled = !['0', 'false', 'off', 'no'].includes(String(process.env.BACKGROUND_WORKERS_ENABLED || 'true').trim().toLowerCase())
+const qa26Preview=qa26StagingActive()
 const marketingUrl = deployment.marketingUrl || deployment.appUrl || `https://${deployment.rootDomain}`
 
 const reservedSlugs = new Set([
@@ -168,8 +170,14 @@ app.use('/api/*',async(c,next)=>{
   if(!decision.allowed)return c.json({error:decision.reason},decision.status)
   return next()
 })
-// Sandbox operational perimeter: deny ALL RMM/agent HTTP APIs before routing.
-app.use('/api/v1/*', createSandboxRmmGuard())
+// QA sidecars fail closed outside the two authorised QA26 origins.
+app.use('/api/v1/*', async(c,next)=>{
+  if(qa26Preview&&!qa26CanServe(c.req.header('origin'),deployment.runtimeEnvironment,c.req.path))
+    return c.json({error:'QA26 candidate API only.'},403)
+  return next()
+})
+// Sandbox and isolated QA previews deny ALL RMM/agent HTTP APIs before routing.
+app.use('/api/v1/*', createSandboxRmmGuard(qa26Preview?'test':deployment.runtimeEnvironment))
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))
@@ -766,7 +774,7 @@ console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
 console.log('[API] PostgreSQL ready; connecting to Redis...')
 await ensureRedisConnected()
-const rmmRuntimeEnabled = liveRmmAccessAllowed(deployment.runtimeEnvironment)
+const rmmRuntimeEnabled = !qa26Preview && liveRmmAccessAllowed(deployment.runtimeEnvironment)
 if (rmmRuntimeEnabled) {
   console.log('[API] Redis ready; initializing RMM agent broker...')
   await initializeAgentBroker()
@@ -774,8 +782,10 @@ if (rmmRuntimeEnabled) {
 } else {
   console.log('[API] ITSM sandbox: Live RMM broker and agent services disabled')
 }
-startLicensingRefreshScheduler()
-startReleaseFeedScheduler()
+if(!qa26Preview){
+  startLicensingRefreshScheduler()
+  startReleaseFeedScheduler()
+}
 if (backgroundWorkersEnabled && rmmRuntimeEnabled) {
   // Directory and RMM operational sync jobs are Live/isolated-Dev only.
   startMicrosoftSyncScheduler()
@@ -796,7 +806,7 @@ if (rmmRuntimeEnabled) {
   attachRmmDeviceToolWebSocket(server)
 }
 console.log(`Hi5Central API listening on port ${port}`)
-if (deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
+if (!qa26Preview && deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
   void backfillCompletedTenantSandboxes().catch(error => {
     console.error('Tenant sandbox rollout backfill failed', {code:error.code || 'UNKNOWN'})
   })

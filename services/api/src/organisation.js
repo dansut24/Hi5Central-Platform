@@ -3,6 +3,7 @@ import { resolveSession } from './session.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { permittedTenantEnvironment } from './tenantEnvironmentAccess.js'
 import { readCanonicalDirectory, readDirectoryServiceSecret, validDirectoryServiceToken, isDirectoryReference } from './liveDirectoryBridge.js'
+import { qa26StagingActive,qa26TenantAllowed } from './qa26Staging.js'
 
 const collections = new Set(['people', 'teams', 'departments', 'sites'])
 const maxSnapshotItems = 5000
@@ -588,6 +589,10 @@ export function registerOrganisationRoutes(app) {
     const body=await c.req.json().catch(()=>null)
     const {tenantId,userId,environment}=body||{}
     if(!isDirectoryReference(tenantId,userId,environment))return c.json({error:'Invalid request.'},400)
+    if(qa26StagingActive()) {
+      const tenantCheck=await pool.query('SELECT slug FROM tenants WHERE id=$1',[tenantId])
+      if(!qa26TenantAllowed(tenantCheck.rows[0]?.slug))return c.json({error:'Outside QA26 scope.'},403)
+    }
     if(!await permittedTenantEnvironment(tenantId,userId,environment))
       return c.json({error:'Environment access denied.'},403)
     const member=await pool.query(
