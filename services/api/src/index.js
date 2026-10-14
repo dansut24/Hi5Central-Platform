@@ -8,6 +8,7 @@ import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
 import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
+import { createSandboxRmmGuard } from './sandboxRmmBoundary.js'
 import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -166,6 +167,8 @@ app.use('/api/*',async(c,next)=>{
   if(!decision.allowed)return c.json({error:decision.reason},decision.status)
   return next()
 })
+// Sandbox operational perimeter: deny ALL RMM/agent HTTP APIs before routing.
+app.use('/api/v1/*', createSandboxRmmGuard())
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))

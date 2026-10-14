@@ -60,3 +60,7 @@ UAT/Test `GET /api/v1/organisation` now reads the Live People/Teams/Departments/
 
 ## Ticket-to-RMM direct browser remote launch
 The existing device widget in ITSM ticket details now offers **Start remote desktop** for an online Agent when the user's session has effective Live RMM permissions. On click it calls the existing RMM remote-session API with `mode: console, viewerClient: browser`, validates the resulting HTTPS viewer host against the tenant's RMM hostname, and launches in a new browser tab. Offline Agent sessions, unauthorised users, Test and UAT are blocked. Existing **Open in RMM** link remains available. No session credentials are stored in ITSM tickets; session creation continues to be authorised and logged by RMM. Full WebKit/real-agent end-to-end QA is still pending.
+
+
+## API perimeter hardening (follow-up)
+The Hono API middleware rejects all `/api/v1/rmm/*` and `/api/v1/agent/*` requests in Test and UAT before endpoint handlers, covering power, patching, scripts, enrollment, polling and remote sessions. Live and protected internal Dev keep current behaviour. WebSocket listeners and operational workers remain separate and require explicit non-sandbox deployment isolation; this HTTP gate is not a substitute for runtime segregation.
