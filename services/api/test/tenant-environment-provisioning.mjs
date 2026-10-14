@@ -36,13 +36,15 @@ try {
   assert.equal(ready.uat.status,'ready',JSON.stringify(ready))
   for(const [i,env] of ['test','uat'].entries()) {
     const db=clients[i]
-    const t=await db.query(`SELECT t.slug,ts.tenant_url,ts.configuration,ts.onboarding_step
+    const t=await db.query(`SELECT t.slug,ts.tenant_url,ts.configuration,ts.modules,ts.rmm_url,ts.onboarding_step
       FROM tenants t JOIN tenant_settings ts ON ts.tenant_id=t.id WHERE t.id=$1`,[tenantId])
     assert.equal(t.rowCount,1,'tenant must exist in '+env)
     assert.equal(t.rows[0].slug,slug+'-'+env)
     assert.equal(t.rows[0].tenant_url,'https://'+slug+'-'+env+'.hi5central.com')
     assert.equal(t.rows[0].onboarding_step,'complete')
     assert.equal(t.rows[0].configuration.company.displayName,'Source Branding')
+    assert.equal(t.rows[0].modules.rmm,false,'RMM must not exist as an ITSM sandbox module')
+    assert.equal(t.rows[0].rmm_url,null,'RMM URL must always point to Live, never UAT/Test')
     const member=await db.query('SELECT role,status FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2',[tenantId,userId])
     assert.equal(member.rows[0].role,'owner')
     assert.equal(member.rows[0].status,'active')
@@ -61,6 +63,14 @@ try {
   assert.deepEqual(statuses.rows.sort((a,b)=>a.environment.localeCompare(b.environment)),[
     {environment:'live',status:'ready'}, {environment:'test',status:'ready'}, {environment:'uat',status:'ready'},
   ])
+  // Live is the user directory authority. Reconciliation updates safe profile
+  // projections without copying passwords, MFA secrets or ITSM configuration.
+  await source.query('UPDATE users SET name=$2 WHERE id=$1',[userId,'Renamed Live Owner'])
+  await provisionTenantSandboxes(tenantId,cfg)
+  for(const db of clients){
+    const name=await db.query('SELECT name FROM users WHERE id=$1',[userId])
+    assert.equal(name.rows[0]?.name,'Renamed Live Owner')
+  }
   // Only trusted service calls may redeem a ticket, and a ticket can be
   // used once for exactly one environment. The URL fragment never reaches
   // the static site/server in an HTTP request.
@@ -192,7 +202,29 @@ try {
   }
   const repeatBackfill=await backfillCompletedTenantSandboxes({source})
   assert.equal(repeatBackfill.tenants,0,'reconciliation must not create duplicate work')
-  console.log('PASS: 2 environment DBs, separate tenant data, owner login identity, correct URLs, retry preservation, no unrelated tenant copy')
+  // Managed tenants get a Test workspace, never UAT and never RMM sandbox state.
+  const managedSlug='managed-'+suffix
+  const managedTenant=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,'Managed QA organisation','active') RETURNING id",[managedSlug])
+  const managedId=managedTenant.rows[0].id
+  await source.query("INSERT INTO tenant_memberships(tenant_id,user_id,role,status) VALUES($1,$2,'owner','active')",[managedId,userId])
+  await source.query(`INSERT INTO tenant_settings(tenant_id,modules,onboarding_step,onboarding_completed_at,onboarding_data,configuration,tenant_url,portal_url,rmm_url)
+    VALUES($1,'{"itsm":true,"rmm":true}'::jsonb,'complete',now(),'{}','{}',$2,$3,$4)`,
+    [managedId,'https://'+managedSlug+'.hi5central.com','https://'+managedSlug+'-portal.hi5central.com','https://'+managedSlug+'-rmm.hi5central.com'])
+  await source.query("INSERT INTO tenant_release_preferences(tenant_id,update_mode) VALUES($1,'hi5_managed') ON CONFLICT(tenant_id) DO UPDATE SET update_mode='hi5_managed'",[managedId])
+  const managed=await provisionTenantSandboxes(managedId,cfg)
+  assert.deepEqual(Object.keys(managed),['test'],'managed tenant must not provision UAT')
+  assert.equal(managed.test.status,'ready')
+  const liveManaged=await source.query('SELECT modules,rmm_url FROM tenant_settings WHERE tenant_id=$1',[managedId])
+  assert.equal(liveManaged.rows[0].modules.rmm,true,'Live RMM module must remain enabled')
+  assert(liveManaged.rows[0].rmm_url?.includes('-rmm.'))
+  const testManaged=await clients[0].query('SELECT modules,rmm_url FROM tenant_settings WHERE tenant_id=$1',[managedId])
+  assert.equal(testManaged.rows[0].modules.rmm,false)
+  assert.equal(testManaged.rows[0].rmm_url,null)
+  assert.equal((await clients[1].query('SELECT 1 FROM tenants WHERE id=$1',[managedId])).rowCount,0)
+  assert.equal(await permittedTenantEnvironment(managedId,userId,'uat'),false)
+  await assert.rejects(()=>assignEnvironmentPermissions(managedId,userId,{test:true,uat:true},userId,{sync:false}),/does not have a UAT/)
+  assert.equal((await environmentMembers(managedId)).find(x=>x.userId===userId).uat,false)
+  console.log('PASS: Custom Test+UAT, Managed Test only; shared identity projections, no sandbox RMM and Live RMM preserved')
 }finally {
   for(const c of clients)await c.end().catch(()=>{})
   await source.end()
