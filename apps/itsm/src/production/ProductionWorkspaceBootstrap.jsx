@@ -22,7 +22,10 @@ import { hydrateProductionServiceRequests } from '../services/productionServiceR
 import { takeProductionAuthHandoff } from './productionSessionBridge.js'
 import './ProductionWorkspaceBootstrap.css'
 
-const API_BASE = window.__HI5_API_BASE__
+// QA26 Account Admin has a same-origin, tenant-scoped auth/MFA gateway.
+// The normal ITSM/Portal/RMM surfaces retain their current API endpoint.
+const API_BASE=/^(h5c-(?:managed|custom)-qa26)-admin\.hi5central\.com$/.test(window.location.hostname)
+  ? window.location.origin : window.__HI5_API_BASE__
 const PRODUCTION_SESSION_KEY = 'hi5central-production-session-v1'
 const TENANT_RUNTIME_CONFIG_KEY = 'hi5central-tenant-runtime-config-v1'
 const SESSION_BOOTSTRAP_TIMEOUT_MS = 8000
