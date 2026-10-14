@@ -29,3 +29,7 @@ Migration on the isolated databases and compatible Live People internal route mu
 ## Continuation summary
 
 As of 14 October 2026 PR #69 provides Managed/Custom sandbox boundaries, Live-owned People API read-through, ITSM settings-only audit history, Live-only RMM and direct ticket remote launch. Isolated GitHub/Postgres tests are green; run the read-only readiness tool then perform authorised QA26 browser tests. Halo-style Ahead/Behind and selective sync still require a separate phase.
+
+## Live public availability baseline
+
+The workflow `QA26 Public Surface Availability` runs **unauthenticated GET** on the existing Managed/Custom ITSM Live/Test/UAT logins and each Live RMM portal. These checks do not submit credentials, create records, read APIs or deploy any artifacts. Passing indicates only public page reachability, not an authenticated session, active agent, correct release build or runtime migration. If blocked, inspect host routing separately; do not assume PR #69 has deployed.
