@@ -10,7 +10,7 @@ import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
 import { createSandboxRmmGuard } from './sandboxRmmBoundary.js'
 import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
-import { qa26StagingActive,qa26CanServe } from './qa26Staging.js'
+import { qa26StagingActive,qa26CanServe,qa26SessionMatchesOrigin } from './qa26Staging.js'
 import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -171,9 +171,21 @@ app.use('/api/*',async(c,next)=>{
   return next()
 })
 // QA sidecars fail closed outside the two authorised QA26 origins.
+// A spoofed browser Origin alone never authorises another tenant's session.
 app.use('/api/v1/*', async(c,next)=>{
-  if(qa26Preview&&!qa26CanServe(c.req.header('origin'),deployment.runtimeEnvironment,c.req.path))
+  if(!qa26Preview)return next()
+  const origin=c.req.header('origin')
+  const environment=deployment.runtimeEnvironment
+  const path=c.req.path
+  if(!qa26CanServe(origin,environment,path))
     return c.json({error:'QA26 candidate API only.'},403)
+  // The Live People service uses a separate long-lived bearer credential and
+  // independently validates the tenant/environment grant in its route handler.
+  if(path!=='/api/v1/internal/organisation/directory-snapshot'){
+    const session=await resolveSession(c)
+    if(session&&!qa26SessionMatchesOrigin(session.slug,origin,environment))
+      return c.json({error:'QA26 tenant session does not match the preview origin.'},403)
+  }
   return next()
 })
 // Sandbox and isolated QA previews deny ALL RMM/agent HTTP APIs before routing.
