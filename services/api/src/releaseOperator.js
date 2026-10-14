@@ -7,6 +7,7 @@ import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
+import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -218,6 +219,25 @@ function actionPayload(row) {
 }
 
 export function registerReleaseOperatorRoutes(app) {
+  // Separate deployment-job worker readiness from the legacy environment
+  // action operator. A heartbeat never claims or deploys a job by itself.
+  app.post('/api/platform-operator/v1/deployments/executor-heartbeat',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'The central Live authority owns executor readiness.'},403)
+    const body=await c.req.json().catch(()=>null)
+    if(body?.workerId!==APPLICATION_RELEASE_EXECUTOR_ID
+      ||body?.capability!==APPLICATION_RELEASE_EXECUTOR_CAPABILITY)
+      return c.json({error:'Unknown application deployment executor capability.'},400)
+    const result=await pool.query([
+      'INSERT INTO platform_application_release_executor_heartbeats(worker_id,capability,observed_at)',
+      'VALUES($1,$2,now()) ON CONFLICT(worker_id) DO UPDATE',
+      'SET capability=EXCLUDED.capability,observed_at=now()',
+      'RETURNING worker_id,observed_at',
+    ].join(' '),[APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY])
+    return c.json({acknowledged:true,workerId:result.rows[0].worker_id,observedAt:result.rows[0].observed_at})
+  })
   registerTenantUatHostAttestation(app,requireOperator)
   registerRuntimeScheduleOperator(app,requireOperator)
   // Host-attested pools are immutable Docker image revisions. Neither the
