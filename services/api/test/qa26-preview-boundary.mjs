@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {qa26StagingActive,qa26TenantAllowed,qa26ExpectedOrigins,qa26CanServe,qa26SessionMatchesOrigin,qa26ServiceDirectoryHeaders} from '../src/qa26Staging.js'
 import {tenantSlugFromHostname,tenantMayServeWorkspace} from '../src/tenantSlugPolicy.js'
+import {mfaRequiredFor,loginRequiresMfa,sandboxPolicyRequiresMfa,sessionNeedsMfa,securitySettings} from '../src/securityPolicy.js'
 test('QA preview is explicitly opt-in and limits the exact two QA slugs',()=>{
  assert.equal(qa26StagingActive({}),false)
  assert.equal(qa26StagingActive({QA26_STAGING_MODE:'true'}),true)
@@ -64,4 +65,23 @@ test('tenant workspace availability respects archived lifecycle without blocking
  assert.equal(tenantMayServeWorkspace({status:'active',lifecycle_status:'purge_pending'}),false)
  assert.equal(tenantMayServeWorkspace({status:'inactive'}),false)
  assert.equal(tenantMayServeWorkspace(null),false)
+})
+
+test('QA26 Live identity cannot issue a password-only session that its own restore route revokes',()=>{
+ for(const role of ['owner','admin','agent','requester']){
+  const account={
+   onboarding_completed_at:'2026-10-12T00:00:00.000Z',
+   tenant_role:role,
+   configuration:{security:{requireMfa:false}},
+  }
+  assert.equal(securitySettings(account).requireMfa,true)
+  assert.equal(mfaRequiredFor(account),true)
+  assert.equal(loginRequiresMfa(account),true)
+  assert.equal(sandboxPolicyRequiresMfa(account),true)
+  assert.equal(sessionNeedsMfa({...account,mfa_verified_at:null}),true)
+  assert.equal(sessionNeedsMfa({...account,mfa_verified_at:'2026-10-14T20:00:00.000Z'}),false)
+ }
+ const bootstrap={onboarding_completed_at:null,tenant_role:'owner',configuration:{}}
+ assert.equal(mfaRequiredFor(bootstrap),false)
+ assert.equal(sessionNeedsMfa(bootstrap),false)
 })
