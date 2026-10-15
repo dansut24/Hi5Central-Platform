@@ -101,12 +101,18 @@ try{
   }
   if(!inspect(devApi).State.Running||!inspect(devWeb).State.Running)
     throw Error('Existing Dev baseline must remain running during deployment.')
-  const expectedApi='http://dev-api.hi5central.com {\n  reverse_proxy control-server:3001\n}'
-  const expectedWeb='http://dev.hi5central.com {\n  reverse_proxy itsm-web:80\n}'
-  if(old.split(expectedApi).length!==2||old.split(expectedWeb).length!==2)
-    throw Error('Dev gateway no longer matches expected baseline: stop.')
-  const candidate=old.replace(expectedApi,expectedApi.replace('control-server:3001',apiPool+':3001'))
-    .replace(expectedWeb,expectedWeb.replace('itsm-web:80',webPool+':80'))
+  // Dev already runs a pinned pool after its first release. Keep the
+  // previously routed immutable API+ITSM pair until the new pair is verified.
+  const apiSite=/http:\/\/dev-api[.]hi5central[.]com \{\n  reverse_proxy (control-server|hi5pool-dev-[a-f0-9]{12}-api):3001\n\}/g
+  const webSite=/http:\/\/dev[.]hi5central[.]com \{\n  reverse_proxy (itsm-web|hi5pool-dev-[a-f0-9]{12}-web):80\n\}/g
+  const apiMatches=[...old.matchAll(apiSite)],webMatches=[...old.matchAll(webSite)]
+  if(apiMatches.length!==1||webMatches.length!==1)
+    throw Error('Dev gateway has an unrecognised current release route.')
+  const candidate=old
+    .replace(apiMatches[0][0],apiMatches[0][0].replace(
+      'reverse_proxy '+apiMatches[0][1]+':3001','reverse_proxy '+apiPool+':3001'))
+    .replace(webMatches[0][0],webMatches[0][0].replace(
+      'reverse_proxy '+webMatches[0][1]+':80','reverse_proxy '+webPool+':80'))
   docker(['run','--rm','-i','--network','none','--entrypoint','sh','caddy:2.11.4-alpine',
     '-c','cat >/tmp/config && caddy adapt --config /tmp/config --adapter caddyfile >/dev/null'],
     candidate)
