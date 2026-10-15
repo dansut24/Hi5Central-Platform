@@ -93,7 +93,7 @@ function finish(job,outcome,extra={}){
     throw Error('Invalid completion state or job lease.')
   const meta=JSON.stringify(extra)
   // Only machine-authored string fields from strict allowlists and checks.
-  if(!/^[a-z0-9_.,:{}" -]*$/.test(meta)||meta.length>1500)
+  if(!/^[A-Za-z0-9_.,:{}" -]*$/.test(meta)||meta.length>1500)
     throw Error('Operator event metadata is invalid.')
   const ev=outcome==='succeeded'?'verified':outcome
   const terminal=outcome==='deferred'?'NULL':'now()'
