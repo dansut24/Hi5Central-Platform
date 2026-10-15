@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {heartbeat} from './qa-worker-heartbeat.mjs'
 /**
  * QA26 REAL scheduled rollout operator: central PostgreSQL queue -> official
  * API/web images -> tenant-scoped real Test gateway -> public HTTPS proof.
@@ -192,7 +193,7 @@ async function processOnce(){
 const mode=process.argv[2]||'--once'
 if(!['--once','--loop'].includes(mode))throw Error('Only --once and --loop are supported.')
 do{
-  try{await processOnce()}
+  try{heartbeat('qa26-test-release-operator','idle',TARGET);await processOnce()}
   catch(e){console.error('OPERATOR_ERROR',e.message);if(mode==='--once')process.exitCode=1}
   if(mode==='--loop')await sleep(30000)
 }while(mode==='--loop')
