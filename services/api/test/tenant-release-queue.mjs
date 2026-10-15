@@ -74,7 +74,7 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     await assert.rejects(stale,/Lease expired|stale/)
     await assert.rejects(tx(db=>finishRollout(db,{jobId:job.id,leaseToken:job.leaseToken,
       leaseFence:job.leaseFence,outcome:'succeeded',now:new Date(due.getTime()+1000),
-      proof:{tenantId:tenants[3].id,environment:job.environment,
+      proof:{tenantId:tenants.find(t=>t.id!==job.tenantId).id,environment:job.environment,
         buildSha:job.buildSha,routeGeneration:1,checkedAt:due.toISOString()}})),/route proof/)
     const succeeded=await tx(db=>finishRollout(db,{jobId:job.id,leaseToken:job.leaseToken,
       leaseFence:job.leaseFence,outcome:'succeeded',now:new Date(due.getTime()+1000),
