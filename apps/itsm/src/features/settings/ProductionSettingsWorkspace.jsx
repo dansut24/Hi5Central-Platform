@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   BookOpen,
@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { ProductionTenantSecurityAudit } from './ProductionTenantSecurityAudit.jsx'
 import { ProductionReleaseManagement } from './ProductionReleaseManagement.jsx'
+import { collectItsmSettingsEdits } from './itsmSettingsDelta.js'
 import { Hi5CentralUpdatesPanel } from '../../production/ProductionApplicationUpdates.jsx'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './ProductionSettingsWorkspace.css'
@@ -338,6 +339,7 @@ function SettingsNavigation({ activeId, modules, onNavigate, inline = false }) {
 
 export function ProductionSettingsWorkspace({ currentPath, session, onSessionChange }) {
   const initialConfig = useMemo(() => mergeConfig(defaults(session), effectiveSettings(session)), [session])
+  const baselineConfigRef = useRef(initialConfig)
   const [config, setConfig] = useState(initialConfig)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState('')
@@ -351,7 +353,9 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
   const accent = config.theme?.accent || 'amber'
 
   useEffect(() => {
-    setConfig(mergeConfig(defaults(session), effectiveSettings(session)))
+    const fromSession=mergeConfig(defaults(session),effectiveSettings(session))
+    baselineConfigRef.current=fromSession
+    setConfig(fromSession)
   }, [session])
 
   useEffect(() => {
@@ -437,13 +441,32 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
     }
 
     let data = config[area] || {}
+    let edits = null
 
     if (area === 'itsm') {
-      const prefixes = data.numberingMode === 'custom'
-        ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key, fallback]) => [key, normalisePrefix(data.recordPrefixes?.[key], fallback)]))
-        : { ...defaultPrefixes }
-      data = { ...data, recordPrefixes: prefixes }
-      setConfig((current) => ({ ...current, itsm: data }))
+      try {
+        // Compare against the values shown when this session loaded, NOT
+        // against an incomplete persisted JSON object. Defaulted sections
+        // were never edited and must not become new audited settings.
+        edits = collectItsmSettingsEdits(baselineConfigRef.current?.itsm || {}, data)
+        // Normalise prefixes only when record numbering was actually edited.
+        // Editing an unrelated field must never reset custom prefix values.
+        if(edits.some(item=>['numberingMode','recordPrefixes'].includes(item.path[0]))) {
+          const prefixes=data.numberingMode==='custom'
+            ? Object.fromEntries(Object.entries(defaultPrefixes).map(([key,fallback])=>[key,normalisePrefix(data.recordPrefixes?.[key],fallback)]))
+            : { ...defaultPrefixes }
+          data={...data,recordPrefixes:prefixes}
+          edits=collectItsmSettingsEdits(baselineConfigRef.current?.itsm || {}, data)
+        }
+        if(edits.length===0) {
+          setSaved('No settings changed')
+          setError('')
+          return
+        }
+      } catch (changeError) {
+        setError(changeError.message)
+        return
+      }
     }
 
     setSaving(true)
@@ -454,11 +477,12 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
+        body: JSON.stringify(area==='itsm'?{edits}:{data}),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || 'Could not save these settings.')
       const nextConfig = mergeConfig(defaults(payload), payload.settings || payload.onboarding?.data || {})
+      baselineConfigRef.current=nextConfig
       setConfig(nextConfig)
       writeRuntimeConfig(payload, nextConfig)
       if (['system', 'light', 'dark'].includes(nextConfig.theme?.mode)) {
