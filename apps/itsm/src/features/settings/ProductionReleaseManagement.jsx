@@ -3,6 +3,7 @@ import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
 import { ItsmConfigurationHistory } from './ItsmConfigurationHistory.jsx'
+import { UatSelectiveConfigurationPromotion } from './UatSelectiveConfigurationPromotion.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -355,6 +356,7 @@ function LiveProductionReleaseManagement() {
     </section>
 
     <TenantRuntimeUpdates updateMode={policy.updateMode}/>
+    {policy.updateMode==='admin_controlled'?<UatSelectiveConfigurationPromotion/>:null}
     <ItsmConfigurationHistory/>
 
     {platformAvailable ? (
