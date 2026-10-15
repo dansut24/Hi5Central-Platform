@@ -11,6 +11,7 @@ import { assessUatProductionPromotion } from './uatProductionPromotion.js'
 import {readApplicationReleaseExecutor} from './applicationReleaseExecutor.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} from './platformWorkerAudit.js'
+import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -722,6 +723,114 @@ export function registerPlatformAdminRoutes(app) {
   // Preview-only runtime-pool control. Tenants cannot choose Docker upstreams
   // or activate routes from a browser. Platform Admin can prepare one offer
   // for one tenant; the host operator must attest and activate infrastructure.
+  // Publishing notes does not itself authorise execution. Only a Hi5Central
+  // owner/admin may certify an exact official GitHub build after verifying
+  // required CI/security/migration jobs and real Dev API+ITSM smoke tests.
+  app.get('/api/platform/v1/releases/certifications',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    const [certified,checkpoints]=await Promise.all([
+      pool.query([
+        'SELECT c.build_sha,c.status,c.ci_run_url,c.approved_at,c.created_at,',
+        'n.version_label,n.title',
+        'FROM platform_certified_application_releases c',
+        'LEFT JOIN hi5central_published_release_notes n ON n.build_sha=c.build_sha',
+        'ORDER BY c.created_at DESC LIMIT 80',
+      ].join(' ')),
+      pool.query('SELECT * FROM platform_release_fanout_checkpoints ORDER BY last_scan_at DESC LIMIT 80'),
+    ])
+    return c.json({certifications:certified.rows,fanout:checkpoints.rows})
+  })
+
+  app.post('/api/platform/v1/releases/certifications/approve',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Only central Production authority may certify releases.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(!member.rowCount)return c.json({error:'Active Hi5Central staff approval is required.'},403)
+    const body=await c.req.json().catch(()=>null)
+    const sha=String(body?.buildSha||'').toLowerCase()
+    const runUrl=String(body?.ciRunUrl||'')
+    if(!/^[a-f0-9]{40}$/.test(sha))
+      return c.json({error:'Exact release SHA40 required.'},400)
+    let certification,smoke
+    try{
+      certification=await verifyOfficialReleaseRun({
+        sha,runUrl,token:process.env.GITHUB_RELEASE_READ_TOKEN,
+      })
+      smoke=await verifyDevReleaseSmoke({sha})
+    }catch(error){
+      return c.json({error:'Release gates failed: '+String(error.message||error)},409)
+    }
+    try{
+      const saved=await withTransaction(async db=>{
+        const published=await db.query(
+          'SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',
+          [sha])
+        if(!published.rowCount)
+          throw new Error('Publish the reviewed version and changelog first.')
+        const existing=await db.query([
+          'SELECT build_sha,status,ci_run_url FROM platform_certified_application_releases',
+          'WHERE build_sha=$1 FOR UPDATE',
+        ].join(' '),[sha])
+        if(existing.rowCount){
+          if(existing.rows[0].status==='approved'&&existing.rows[0].ci_run_url===runUrl)
+            return {approved:true,alreadyApproved:true,buildSha:sha}
+          throw new Error('This build has a different certification or has been revoked.')
+        }
+        const evidence={...certification.evidence,smoke:smoke.smoke,
+          jobs:certification.jobs,githubVerifiedAt:certification.verifiedAt,
+          devVerifiedAt:smoke.verifiedAt}
+        await db.query([
+          'INSERT INTO platform_certified_application_releases',
+          '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
+          "VALUES($1,'approved',$2,$3::jsonb,$4,now())",
+        ].join(' '),[sha,runUrl,JSON.stringify(evidence),auth.session.user_id])
+        await db.query([
+          'INSERT INTO platform_release_fanout_events',
+          '(build_sha,event_type,actor_id,details)',
+          "VALUES($1,'approved',$2,$3::jsonb)",
+        ].join(' '),[sha,auth.session.user_id,JSON.stringify({
+          ciRunUrl:runUrl,origin:'staff-approved-GitHub-ci-verified',
+        })])
+        return {approved:true,buildSha:sha,queuedForPlanner:true}
+      })
+      await audit(c,auth.session,'release.certified','release',sha,
+        {ciRunUrl:runUrl,automaticFanout:true})
+      return c.json(saved,saved.alreadyApproved?200:202)
+    }catch(error){return c.json({error:String(error.message||error)},409)}
+  })
+
+  app.post('/api/platform/v1/releases/certifications/:sha/revoke',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const sha=c.req.param('sha')
+    if(!/^[a-f0-9]{40}$/.test(sha))
+      return c.json({error:'Invalid immutable release SHA.'},400)
+    const result=await withTransaction(async db=>{
+      const changed=await db.query([
+        'UPDATE platform_certified_application_releases',
+        "SET status='revoked',updated_at=now()",
+        "WHERE build_sha=$1 AND status='approved' RETURNING build_sha",
+      ].join(' '),[sha])
+      if(changed.rowCount)await db.query([
+        'INSERT INTO platform_release_fanout_events(build_sha,event_type,actor_id,details)',
+        "VALUES($1,'revoked',$2,$3::jsonb)",
+      ].join(' '),[sha,auth.session.user_id,JSON.stringify({
+        reason:'human-revocation',note:'Existing running jobs require separate global pause',
+      })])
+      return changed.rowCount
+    })
+    if(result)await audit(c,auth.session,'release.certification_revoked','release',sha)
+    return c.json({revoked:Boolean(result),buildSha:sha})
+  })
+
   app.get('/api/platform/v1/releases/runtime-pools',async c=>{
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
