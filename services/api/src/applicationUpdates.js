@@ -3,12 +3,12 @@ import { resolve } from 'node:path'
 import { pool } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
+import {completeReleaseSelection,MAX_RELEASE_HISTORY_COMMITS,reviewedReleaseRange} from './releaseReviewRange.js'
 
 let manifest
 try {manifest=JSON.parse(readFileSync(resolve(process.cwd(),'release-manifest.json'),'utf8'))}
 catch {manifest={schemaVersion:1,sha:'',version:'development',builtAt:null,commits:[]}}
 const SHA=/^[0-9a-f]{40}$/
-const LIST_LIMIT=70
 const CATEGORIES=new Set(['feature','improvement','fix','security','other'])
 const CUSTOMER_VERSION_PATTERN=/^v?\d+(?:\.\d+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?\d+)?)?$/i
 export function customerVersionLabel(value) {
@@ -40,24 +40,30 @@ export function validateReleaseNotes(input){
   })
   return {buildSha,versionLabel,title,summary,entries}
 }
-export function releaseCatalog(version=manifest){
+export function releaseCatalog(version=manifest) {
   const commits=Array.isArray(version.commits)?version.commits:[]
+  // Do not truncate or hide malformed entries; a release with an incomplete
+  // immutable history must be rejected by reviewedReleaseRange().
+  const complete=version.schemaVersion===2 && version.historyComplete===true
+    && version.historyLimit===MAX_RELEASE_HISTORY_COMMITS
+    && commits.length>0 && commits.length<=MAX_RELEASE_HISTORY_COMMITS
   return {version:String(version.version||'development'),
     releaseName:String(version.releaseName||version.version||'Development build'),
     sha:String(version.sha||''),builtAt:version.builtAt||null,
-    changes:commits.filter(c=>SHA.test(String(c.sha||''))).slice(0,LIST_LIMIT)
-      .map(c=>({sha:c.sha,title:c.subject,date:c.date,category:c.kind||'maintenance',
-        components:Array.isArray(c.components)?c.components:[],
-        migrations:Array.isArray(c.migrations)?c.migrations:[],
-        files:Array.isArray(c.files)?c.files:[]})),
+    schemaVersion:version.schemaVersion,historyLimit:version.historyLimit,
+    historyComplete:complete,
+    changes:commits.map(c=>({sha:c?.sha,title:c?.subject,date:c?.date,
+      category:c?.kind||'maintenance',components:Array.isArray(c?.components)?c.components:[],
+      migrations:Array.isArray(c?.migrations)?c.migrations:[],
+      files:Array.isArray(c?.files)?c.files:[]})),
   }
 }
 export function changesSince(versions,liveSha){
-  if(!SHA.test(String(liveSha||'')))return {knownBaseline:false,changes:[],reason:'Production version unavailable.'}
-  if(versions.sha===liveSha)return {knownBaseline:true,changes:[]}
-  const index=versions.changes.findIndex(item=>item.sha===liveSha)
-  return index<0?{knownBaseline:false,changes:[],reason:'Baseline outside history.'}
-    :{knownBaseline:true,changes:versions.changes.slice(0,index)}
+  return reviewedReleaseRange({
+    sha:versions.sha,schemaVersion:versions.schemaVersion,
+    historyComplete:versions.historyComplete,historyLimit:versions.historyLimit,
+    commits:versions.changes,
+  },liveSha)
 }
 async function requireUser(c,admin=false){
   const session=await resolveSession(c)
@@ -254,14 +260,14 @@ export function registerApplicationUpdatesRoutes(app){
     if(deployment.runtimeEnvironment!=='uat')return c.json({error:'Reviews are recorded in UAT.'},403)
     if(!SHA.test(manifest.sha))return c.json({error:'The running build has no verifiable manifest.'},409)
     const body=await c.req.json().catch(()=>null)
-    const approved=body?.acceptWholeBuild===true
+    let approved=body?.acceptWholeBuild===true
       ?releaseCatalog().changes.map(change=>change.sha)
       :Array.isArray(body?.approvedShas)?[...new Set(body.approvedShas.map(String))]:[]
     const evidence=String(body?.evidence||'').trim().slice(0,4000)
     const request=body?.requestLive===true
     const baselineSha=String(body?.baselineSha||'')
     const known=new Set(releaseCatalog().changes.map(change=>change.sha))
-    if(approved.length>LIST_LIMIT||approved.some(sha=>!SHA.test(sha)||!known.has(sha)))
+    if(approved.length>MAX_RELEASE_HISTORY_COMMITS||approved.some(sha=>!SHA.test(sha)||!known.has(sha)))
       return c.json({error:'The review includes changes not present in this build.'},400)
     if(request&&evidence.length<12)
       return c.json({error:'Record what was tested in UAT before requesting promotion.'},400)
@@ -271,26 +277,32 @@ export function registerApplicationUpdatesRoutes(app){
         return c.json({error:'Hi5Central must publish the developer-written release notes from Dev before this version can be requested for Live.'},409)
     }
     if(request) {
-      // Verify Production's actual version rather than accepting a baseline
-      // chosen by the requester. Missing Live version reporting falls back
-      // to reviewing the entire bounded manifest (no implicit omissions).
-      let verifiedProductionSha=''
-      if(deployment.deploymentMode==='managed'){
-        try{
-          const live=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/version',
-            {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
-          if(live.ok)verifiedProductionSha=String((await live.json()).sha||'')
-        }catch{ /* existing Live version may predate this endpoint */ }
+      // Approval must be complete for the *verified* current Live baseline.
+      // A caller-supplied SHA, truncated history, or missing Live API is not
+      // grounds to silently approve the newest 70/100 visible commits.
+      let liveVersion
+      try {
+        const live=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/version',
+          {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
+        if(!live.ok)return c.json({error:'Live version verification failed; UAT approval is blocked.'},409)
+        liveVersion=await live.json()
+      }catch {
+        return c.json({error:'Production version unavailable; refresh and retry before requesting Live.'},409)
       }
-      if(verifiedProductionSha&&verifiedProductionSha!==baselineSha)
+      const verifiedProductionSha=String(liveVersion?.sha||'')
+      if(!SHA.test(verifiedProductionSha)||liveVersion?.environment!=='live')
+        return c.json({error:'Verified Live application revision is unavailable.'},409)
+      if(verifiedProductionSha!==baselineSha)
         return c.json({error:'Production changed during UAT review. Refresh and compare the releases again.'},409)
-      const comparison=verifiedProductionSha
-        ?changesSince(releaseCatalog(),verifiedProductionSha):{knownBaseline:false,changes:releaseCatalog().changes}
-      const required=comparison.knownBaseline?comparison.changes:releaseCatalog().changes
-      if(required.some(change=>!approved.includes(change.sha)))
-        return c.json({error:'Every code change in this immutable build must be tested; excluding code requires a new release build.'},409)
-      if(verifiedProductionSha===manifest.sha)
+      const comparison=changesSince(releaseCatalog(),verifiedProductionSha)
+      if(!comparison.knownBaseline)
+        return c.json({error:comparison.reason||'Complete Live-to-UAT history unavailable.'},409)
+      if(!comparison.changes.length)
         return c.json({error:'This build is already running in Production.'},409)
+      if(body?.acceptWholeBuild===true)
+        approved=comparison.changes.map(change=>change.sha)
+      if(!completeReleaseSelection(comparison.changes,approved))
+        return c.json({error:'Every commit since the verified Production build must be approved; partial selections are blocked.'},409)
     }
     const sql=[
       'INSERT INTO tenant_application_release_reviews',
