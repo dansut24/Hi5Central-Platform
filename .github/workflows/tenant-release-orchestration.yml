@@ -7,10 +7,13 @@ on:
       - 'services/api/src/runtimePoolPolicy.js'
       - 'services/api/src/runtimePoolManagedScheduler.js'
       - 'services/api/src/runtimePoolControl.js'
+      - 'services/api/src/releaseOperator.js'
       - 'services/api/src/tenantRuntimeReleaseLifecycle.js'
       - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
       - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
+      - 'services/api/migrations/platform-admin/160_tenant_test_runtime_assignments.sql'
       - 'services/api/test/runtime-pool-policy.mjs'
+      - 'services/api/test/runtime-route-manifest.mjs'
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
       - 'services/api/test/release-rollout-planner.mjs'
       - 'services/api/test/tenant-release-queue.mjs'
@@ -38,7 +41,7 @@ jobs:
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
-          node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs
+          node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
   rollout-queue:
     runs-on: ubuntu-latest
     services:
