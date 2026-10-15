@@ -11,7 +11,7 @@ import {registerTenantRoutePreviewOperator} from './tenantRoutePreviewOperator.j
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
-import {publicationTokenDigests,publicationBearerAuthorised} from './releasePublicationCredential.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised} from './releasePublicationCredential.js'
 
 function configuredToken() {
   // Use the existing host operator's trusted Docker secret volume when
@@ -351,6 +351,8 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
+    if(!publicationShaAuthorised(notes.buildSha))
+      return c.json({error:'Release is outside this publication-only token scope.'},403)
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])
