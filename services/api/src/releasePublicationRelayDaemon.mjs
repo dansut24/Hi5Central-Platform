@@ -6,7 +6,7 @@ if(args.some(arg=>!['--once','--preflight'].includes(arg)))
   throw Error('Use --preflight or --once, or omit flags for a persistent relay.')
 const result=await startReleasePublicationRelay({
   databaseUrlFile:process.env.DEV_DATABASE_URL_FILE,
-  operatorTokenFile:process.env.RELEASE_OPERATOR_TOKEN_FILE,
+  publicationTokenFile:process.env.RELEASE_PUBLICATION_TOKEN_FILE,
   allowedSha:process.env.RELEASE_PUBLICATION_ALLOWED_SHA,
   authority:process.env.CENTRAL_RELEASE_AUTHORITY_URL,
   preflight:args.includes('--preflight'),
