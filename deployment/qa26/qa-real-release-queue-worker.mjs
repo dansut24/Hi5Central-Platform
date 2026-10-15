@@ -141,9 +141,14 @@ async function processOnce(){
     const old=command('curl',['-fsS','--max-time','8','https://'+targetHost+'/api/v1/updates/version'])
     if(JSON.parse(old).sha!=='9041ed0fc0908badfd1ceb9d638215caef5e431b')
       throw Error('Test tenant no longer matches verified release baseline.')
+    const peerBefore=JSON.parse(command('curl',['-fsS','--max-time','8',
+      'https://'+originalHost+'/api/v1/updates/version']))
+    if(!SHA.test(String(peerBefore.sha||'')))
+      throw Error('Unverified peer revision before QA route cutover.')
     const worker=spawnSync('node',[resolve('deployment/qa26/qa-real-tenant-canary-rollback.mjs')],
       {encoding:'utf8',timeout:190000,maxBuffer:1024*1024,
-        env:{...process.env,H5C_QA_KEEP_ON_SUCCESS:'1',H5C_QA_TENANT_HOST:targetHost}})
+        env:{...process.env,H5C_QA_KEEP_ON_SUCCESS:'1',
+          H5C_QA_TENANT_HOST:targetHost,H5C_QA_PEER_SHA:peerBefore.sha}})
     for(const line of String(worker.stdout||'').split('\n')){
       if(line.startsWith('QA_ROLLBACK_SNAPSHOT '))backup=line.split(' ')[1]
       if(line.startsWith('QA_ROUTE_PROMOTED '))console.log(line)
@@ -154,7 +159,7 @@ async function processOnce(){
       'https://'+targetHost+'/api/v1/updates/version']))
     const other=JSON.parse(command('curl',['-fsS','--max-time','8',
       'https://'+originalHost+'/api/v1/updates/version']))
-    if(served.sha!==TARGET||other.sha!=='9041ed0fc0908badfd1ceb9d638215caef5e431b')
+    if(served.sha!==TARGET||other.sha!==peerBefore.sha)
       throw Error('Final public route attestation mismatch.')
     finish(job,'succeeded',{snapshot:backup,target:job.slug})
     console.log('REAL_QA_JOB_SUCCEEDED',job.id,job.slug,'rollback='+backup)
