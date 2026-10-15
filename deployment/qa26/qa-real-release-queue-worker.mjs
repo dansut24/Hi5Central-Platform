@@ -82,7 +82,7 @@ function claim(){
     "'buildSha',c.build_sha,'duration',c.expected_duration_minutes,",
     "'token',c.lease_token,'fence',c.lease_fence,",
     "'scheduledAt',c.scheduled_at,'expiresAt',c.lease_expires_at,",
-    "'previousSha',c.previous_build_sha,"
+    "'previousSha',c.previous_build_sha,",
     "'maintenance',p.maintenance_window,'blackouts',p.blackout_periods)::text",
     'FROM claimed c JOIN tenants t ON t.id=c.tenant_id',
     'JOIN tenant_release_preferences p ON p.tenant_id=t.id',
