@@ -42,8 +42,8 @@ export async function relayOneRequestedRelease({
   if(!SHA.test(String(allowedSha||'')))throw fail('A single pinned QA release SHA is required.')
   if(authority!=='http://hi5central-api:3001')
     throw fail('Only the trusted internal central API endpoint is allowed.')
-  if(typeof token!=='string'||token.trim().length<32)
-    throw fail('Central release operator token is missing.')
+  if(typeof token!=='string'||!/^[A-Za-z0-9_-]{48,256}$/.test(token.trim()))
+    throw fail('Dedicated publication-only token is missing.')
   if(typeof fetcher!=='function'||typeof db?.query!=='function')
     throw fail('Trusted database and HTTP capabilities are required.')
 
@@ -120,7 +120,7 @@ export async function runRelayCycle({pool,fetcher,authority,token,allowedSha}){
  * then rejects invalid notes with HTTP 400. A 201 here is unsafe.
  */
 export async function verifyCentralPublicationCredential({fetcher,authority,token}){
-  if(authority!=='http://hi5central-api:3001'||typeof token!=='string'||token.length<32)
+  if(authority!=='http://hi5central-api:3001'||typeof token!=='string'||!/^[A-Za-z0-9_-]{48,256}$/.test(token))
     throw fail('The central publication credential or authority is invalid.')
   const probe=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
     method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
@@ -132,15 +132,15 @@ export async function verifyCentralPublicationCredential({fetcher,authority,toke
 }
 
 export async function startReleasePublicationRelay({
-  databaseUrlFile,operatorTokenFile,allowedSha,authority,
+  databaseUrlFile,publicationTokenFile,allowedSha,authority,
   once=false,preflight=false,fetcher=fetch,
 }={}){
   if(!SHA.test(String(allowedSha||'')))throw fail('Pin a legitimate single Dev SHA.')
   if(authority!=='http://hi5central-api:3001')throw fail('Untrusted central authority.')
-  if(!databaseUrlFile||!operatorTokenFile)throw fail('Mounted secret files are required.')
+  if(!databaseUrlFile||!publicationTokenFile)throw fail('Mounted secret files are required.')
   const databaseUrl=pinnedDevDatabaseUrl(readFileSync(databaseUrlFile,'utf8').trim())
-  const token=readFileSync(operatorTokenFile,'utf8').trim()
-  if(!/^postgres(?:ql)?:\/\//.test(databaseUrl)||token.length<32)
+  const token=readFileSync(publicationTokenFile,'utf8').trim()
+  if(!/^postgres(?:ql)?:\/\//.test(databaseUrl)||!/^[A-Za-z0-9_-]{48,256}$/.test(token))
     throw fail('Configured database URL/token are invalid.')
   const pool=new pg.Pool({connectionString:databaseUrl,max:2,
     idleTimeoutMillis:15000,connectionTimeoutMillis:5000,
