@@ -17,6 +17,7 @@ if(!SHA.test(String(TARGET||''))||!SHA.test(String(PREVIOUS||''))
 const TEST_HOST='https://h5c-custom-qa26-test.hi5central.com/api/v1/updates/version'
 const UAT_HOST='https://h5c-custom-qa26-uat.hi5central.com/api/v1/updates/version'
 const CENTRAL_UAT='https://uat-api.hi5central.com/api/v1/updates/version'
+const SHARED_UAT_SHA='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
 const command=(binary,args,input,timeout=30000)=>{
   const r=spawnSync(binary,args,{encoding:'utf8',input,timeout,maxBuffer:1024*1024})
   if(r.status!==0)throw Error(binary+' failed: '+String(r.stderr||r.stdout||'').slice(-500))
@@ -116,7 +117,7 @@ async function execute(){
     if(!window.allowed)throw Error('Outside active UAT window: '+window.reason)
     if(new Date(job.expiresAt)<=new Date())throw Error('Worker lease expired.')
     if(http(TEST_HOST)!==TARGET||http(UAT_HOST)!==PREVIOUS
-      ||http(CENTRAL_UAT)!==PREVIOUS
+      ||http(CENTRAL_UAT)!==SHARED_UAT_SHA
       ||http('https://dev-api.hi5central.com/api/v1/updates/version')!==TARGET)
       throw Error('Actual Dev/Test/UAT release versions fail strict promotion preflight.')
     const run=spawnSync('node',
@@ -129,7 +130,7 @@ async function execute(){
     }
     if(run.status!==0)throw Error('Actual UAT deployment failed: '+String(run.stderr||'').slice(-400))
     if(!SNAP.test(String(backup||'')))throw Error('Missing persistent Custom UAT backup.')
-    if(http(UAT_HOST)!==TARGET||http(CENTRAL_UAT)!==PREVIOUS)
+    if(http(UAT_HOST)!==TARGET||http(CENTRAL_UAT)!==SHARED_UAT_SHA)
       throw Error('Custom UAT public route attestation failed after deployment.')
     finish(job,'succeeded',{snapshot:backup,target:'h5c-custom-qa26-uat'})
     console.log('CUSTOM_UAT_DURABLE_RELEASE_SUCCEEDED',job.id,'backup='+backup)
