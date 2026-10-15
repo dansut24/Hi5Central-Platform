@@ -1,0 +1,34 @@
+# Opt-in QA editorial bridge, not part of automatic tenant deployment.
+# Deploy only after review with trusted Dev DB URL and operator credential
+# stored as restricted host files; neither value is committed to GitHub.
+services:
+  qa-release-publication-relay:
+    build:
+      context: ../..
+      dockerfile: deployment/qa26/Dockerfile.release-publication-relay
+    image: hi5central-release-publication-relay:qa-20261015
+    container_name: hi5central-release-publication-relay
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 128m
+    networks:
+      - hi5central
+    environment:
+      DEV_DATABASE_URL_FILE: /run/secrets/qa_dev_db
+      RELEASE_OPERATOR_TOKEN_FILE: /run/secrets/qa_operator_token
+      CENTRAL_RELEASE_AUTHORITY_URL: http://hi5central-api:3001
+      RELEASE_PUBLICATION_ALLOWED_SHA: 9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
+    secrets:
+      - qa_dev_db
+      - qa_operator_token
+secrets:
+  qa_dev_db:
+    file: ${QA_RELEASE_DEV_DB_SECRET_FILE:?Provide a restricted host file with the Dev PostgreSQL URL}
+  qa_operator_token:
+    file: ${QA_RELEASE_OPERATOR_SECRET_FILE:?Provide a restricted host file with the central operator token}
+networks:
+  hi5central:
+    external: true
