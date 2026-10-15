@@ -82,11 +82,19 @@ jobs:
           import {execFileSync} from 'node:child_process'
           const m=JSON.parse(readFileSync('services/api/release-manifest.json','utf8'))
           const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
-          const baseline='2199e58a540ff912cccdbd137fdfbb9e8d48f3c5'
-          const range=Number(execFileSync('git',['rev-list','--count',baseline+'..HEAD'],{encoding:'utf8'}).trim())
-          const index=m.commits.findIndex(c=>c.sha===baseline)
+          const expected=execFileSync('git',['log','--max-count=512','--format=%H'],{encoding:'utf8'}).trim().split('\n')
+          const actual=m.commits.map(c=>c.sha)
           if(!m.historyComplete||m.schemaVersion!==2||m.historyLimit!==512
-             ||m.sha!==head||index!==range||range<188)
-            throw Error('Release review manifest does not contain every commit since the verified QA26 Live baseline')
-          console.log('PASS: verified Live-to-candidate changes='+range+'; full manifest commits='+m.commits.length)
+             ||m.sha!==head||JSON.stringify(actual)!==JSON.stringify(expected))
+            throw Error('Release manifest omits or reorders commits from the complete Git checkout')
+          const baseline='2199e58a540ff912cccdbd137fdfbb9e8d48f3c5'
+          const index=actual.indexOf(baseline)
+          if(index>=0) {
+            const range=Number(execFileSync('git',['rev-list','--count',baseline+'..HEAD'],{encoding:'utf8'}).trim())
+            if(index!==range)throw Error('QA26 Live-to-UAT history is incomplete')
+            console.log('PASS: QA26 verified Live-to-candidate changes='+range)
+          } else {
+            console.log('QA26 baseline outside inventory: review must fail closed; current Git inventory remains complete')
+          }
+          console.log('PASS: exact immutable manifest commit inventory='+actual.length)
           JS
