@@ -13,27 +13,32 @@ const LOCK_NAMESPACE='hi5central-release-gateway'
 const invalid=reason=>Object.assign(new Error(reason),{code:'GATEWAY_LEASE_GUARD'})
 function assertArguments(opts){
   if(!gatewayNames.has(opts?.gateway)
-    ||!UUID.test(String(opts?.jobId||''))
-    ||!UUID.test(String(opts?.tenantId||''))
-    ||!UUID.test(String(opts?.leaseToken||''))
-    ||!Number.isSafeInteger(opts?.leaseFence)||opts.leaseFence<1
     ||!/^[a-zA-Z0-9_.:-]{1,120}$/.test(String(opts?.workerId||'')))
-    throw invalid('Invalid gateway resource, worker identity or fenced rollout lease.')
+    throw invalid('Invalid gateway or worker identity.')
 }
 const acquireSql='SELECT pg_try_advisory_lock(hashtext($1),hashtext($2)) AS acquired'
 const releaseSql='SELECT pg_advisory_unlock(hashtext($1),hashtext($2)) AS released'
+
 /**
- * @returns {Promise<{acquired:boolean,result?:any,reason?:string}>}
- * If busy, the caller MUST preserve the queued job for the next worker poll.
- * Only call claimDueRollouts after obtaining this lock.
+ * Acquire the shared gateway mutex BEFORE claiming a pending rollout.
+ *
+ * The callback claims a job under its ordinary SKIP LOCKED transaction,
+ * then calls registerClaim(job) with jobId/tenantId/leaseToken/leaseFence.
+ * The callback must call assertFencedLease directly BEFORE the route write
+ * and again before declaring deployment success. Retain this PG session
+ * for the entire cutover, including its public health verification.
+ *
+ * Lock contention returns {acquired:false}; the other tenant remains queued
+ * and is claimed on the next scheduler iteration.
  */
 export async function withGatewayLock(pool,opts,operation){
   assertArguments(opts)
   if(typeof operation!=='function')throw invalid('Worker cutover callback missing.')
   const client=await pool.connect()
-  let held=false
-  const {gateway,jobId,tenantId,leaseToken,leaseFence,workerId}=opts
+  let held=false,owner=null
+  const {gateway,workerId}=opts
   async function assertFencedLease(){
+    if(!owner)throw invalid('Gateway writer has not registered a fenced rollout job.')
     const state=await client.query([
       'SELECT j.id FROM tenant_release_rollout_jobs j',
       'JOIN platform_release_gateway_owners o ON o.job_id=j.id',
@@ -41,29 +46,34 @@ export async function withGatewayLock(pool,opts,operation){
       "AND j.lease_fence=$4 AND j.status='running'",
       'AND j.lease_expires_at>now()',
       'AND o.gateway=$5 AND o.worker_id=$6 AND o.lease_fence=j.lease_fence',
-    ].join(' '),[jobId,tenantId,leaseToken,leaseFence,gateway,workerId])
-    if(state.rowCount!==1)throw invalid('Stale gateway fence or expired worker lease: no route write permitted.')
+    ].join(' '),[owner.jobId,owner.tenantId,owner.leaseToken,
+      owner.leaseFence,gateway,workerId])
+    if(state.rowCount!==1)
+      throw invalid('Stale gateway fence or expired worker lease: route write denied.')
     return true
   }
-  try{
-    const attempt=await client.query(acquireSql,[LOCK_NAMESPACE,gateway])
-    if(!attempt.rows[0]?.acquired)
-      return {acquired:false,reason:'Shared '+gateway+' gateway is deploying another tenant.'}
-    held=true
+  async function registerClaim(job){
+    if(owner)throw invalid('This gateway already owns a rollout claim.')
+    const {jobId,tenantId,leaseToken,leaseFence}=job||{}
+    if(!UUID.test(String(jobId||''))||!UUID.test(String(tenantId||''))
+      ||!UUID.test(String(leaseToken||''))
+      ||!Number.isSafeInteger(leaseFence)||leaseFence<1)
+      throw invalid('Invalid fenced release claim.')
     const eligible=await client.query([
       'SELECT id FROM tenant_release_rollout_jobs WHERE id=$1 AND tenant_id=$2',
       "AND environment=$3 AND status='running'",
       'AND lease_token=$4 AND lease_fence=$5 AND lease_expires_at>now()',
     ].join(' '),[jobId,tenantId,gateway,leaseToken,leaseFence])
-    if(eligible.rowCount!==1)throw invalid('Unleased, expired or mismatched rollout job.')
+    if(eligible.rowCount!==1)throw invalid('Unleased, expired or mismatched job.')
     const previous=await client.query(
-      'SELECT job_id,tenant_id,lease_fence FROM platform_release_gateway_owners WHERE gateway=$1',
+      'SELECT job_id FROM platform_release_gateway_owners WHERE gateway=$1',
       [gateway])
     if(previous.rowCount&&previous.rows[0].job_id!==jobId){
-      const old=await client.query(
-        "SELECT 1 FROM tenant_release_rollout_jobs WHERE id=$1 AND status='running' AND lease_expires_at>now()",
-        [previous.rows[0].job_id])
-      if(old.rowCount)return {acquired:false,reason:'Previous gateway owner has a valid lease.'}
+      const old=await client.query([
+        'SELECT 1 FROM tenant_release_rollout_jobs WHERE id=$1',
+        "AND status='running' AND lease_expires_at>now()",
+      ].join(' '),[previous.rows[0].job_id])
+      if(old.rowCount)throw invalid('Previous gateway owner still holds a valid lease.')
     }
     await client.query([
       'INSERT INTO platform_release_gateway_owners',
@@ -74,21 +84,32 @@ export async function withGatewayLock(pool,opts,operation){
       'lease_fence=excluded.lease_fence,worker_id=excluded.worker_id,',
       'acquired_at=now(),heartbeat_at=now()',
     ].join(' '),[gateway,jobId,tenantId,leaseFence,workerId])
+    owner={jobId,tenantId,leaseToken,leaseFence}
     await assertFencedLease()
-    const heartbeat=async()=>{
-      await assertFencedLease()
-      await client.query('UPDATE platform_release_gateway_owners SET heartbeat_at=now() WHERE gateway=$1 AND job_id=$2 AND worker_id=$3',
-        [gateway,jobId,workerId])
-    }
-    const result=await operation({gateway,jobId,workerId,assertFencedLease,heartbeat})
+  }
+  async function heartbeat(){
+    await assertFencedLease()
+    await client.query([
+      'UPDATE platform_release_gateway_owners SET heartbeat_at=now()',
+      'WHERE gateway=$1 AND job_id=$2 AND worker_id=$3',
+    ].join(' '),[gateway,owner.jobId,workerId])
+  }
+  try{
+    const attempt=await client.query(acquireSql,[LOCK_NAMESPACE,gateway])
+    if(!attempt.rows[0]?.acquired)
+      return {acquired:false,reason:'Another tenant is deploying through '+gateway+'.'}
+    held=true
+    const result=await operation({
+      gateway,workerId,registerClaim,assertFencedLease,heartbeat,
+    })
     return {acquired:true,result}
   }finally{
     if(held){
       try{
-        await client.query([
+        if(owner)await client.query([
           'DELETE FROM platform_release_gateway_owners',
           'WHERE gateway=$1 AND job_id=$2 AND worker_id=$3 AND lease_fence=$4',
-        ].join(' '),[gateway,jobId,workerId,leaseFence])
+        ].join(' '),[gateway,owner.jobId,workerId,owner.leaseFence])
       }finally{
         try{await client.query(releaseSql,[LOCK_NAMESPACE,gateway])}
         finally{client.release()}
