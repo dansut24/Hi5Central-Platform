@@ -34,13 +34,13 @@ export function renderQaOuterHandoff(environment,{upstream=QA[environment]?.upst
   ].join('\n')+'\n'
 }
 
-export function validateQaHandoffCoverage(caddyfile,environment){
+export function validateQaHandoffCoverage(caddyfile,environment,{upstream=QA[environment]?.upstream}={}){
   // Advisory linter only: CI verifies actual HTTP flow through both proxies.
-  // The live operator must also inspect ALL edge paths targeting QA.
+  // The live operator must inspect ALL edge paths targeting QA.
   const q=QA[environment]
-  if(!q)throw Error('Invalid QA environment.')
+  if(!q||!allowed.test(String(upstream||'')))throw Error('Invalid QA environment/upstream.')
   const proxies=[...String(caddyfile||'').matchAll(/reverse_proxy\s+([^\s{]+)\s*\{([^}]+)\}/g)]
-    .filter(match=>match[1]===q.upstream)
+    .filter(match=>match[1]===upstream)
   if(proxies.length===0)throw Error('No QA upstream found in gateway handoff.')
   if(proxies.some(([,upstream,block])=>!block.includes('header_up X-Hi5-Tenant-Host ')))
     throw Error('An outer QA proxy could forward an untrusted client tenant header.')
