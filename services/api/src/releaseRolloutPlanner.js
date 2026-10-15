@@ -164,6 +164,7 @@ export function planTenantRelease({tenant,release,gates={},now=new Date()}={}){
   if(!window.ok)return block(stage,window.reason)
   return {tenantId:tenant.id,mode:tenant.mode,stage,status:'scheduled',
     scheduledAt:window.scheduledAt,buildSha:sha,
+    expectedDurationMinutes:release.expectedDeployMinutes??15,
     idempotencyKey:`${tenant.id}:${stage}:${sha}`,reason:'Awaiting host-verified activation within tenant maintenance window.'}
 }
 
