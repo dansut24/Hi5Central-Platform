@@ -37,7 +37,7 @@ export function pinnedDevDatabaseUrl(raw){
  * The caller must hold a database transaction until this call completes.
  */
 export async function relayOneRequestedRelease({
-  db,fetcher,authority,token,allowedSha,
+  db,fetcher,authority,token,allowedSha,reconcileOnly=false,
 }={}){
   if(!SHA.test(String(allowedSha||'')))throw fail('A single pinned QA release SHA is required.')
   if(authority!=='http://hi5central-api:3001')
@@ -65,13 +65,25 @@ export async function relayOneRequestedRelease({
     buildSha:row.build_sha,versionLabel:row.version_label,title:row.title,
     summary:row.summary,entries:row.entries,
   }
-  const response=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
-    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token.trim()},
-    body:JSON.stringify(request),signal:AbortSignal.timeout(10000),
-  })
-  const ack=await response.json().catch(()=>({}))
-  if(!response.ok||ack.published!==true||ack.buildSha!==allowedSha)
-    throw fail('Central authority refused Dev publication (HTTP '+response.status+').')
+  // A lost SSH session can interrupt Dev acknowledgement after the central
+  // authority commits the immutable notes. Reconcile from the public central
+  // catalogue in that case; never DELETE/re-INSERT an existing release.
+  // Normal mode can also recover an HTTP 409, but ONLY after exact readback.
+  let ack={}
+  let alreadyPublished=false
+  if(!reconcileOnly){
+    const response=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
+      method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token.trim()},
+      body:JSON.stringify(request),signal:AbortSignal.timeout(10000),
+    })
+    ack=await response.json().catch(()=>({}))
+    if(response.status===409)alreadyPublished=true
+    else if(!response.ok||ack.published!==true||ack.buildSha!==allowedSha)
+      throw fail('Central authority refused Dev publication (HTTP '+response.status+').')
+    alreadyPublished ||= ack.alreadyPublished===true
+  }else{
+    alreadyPublished=true
+  }
 
   const readback=await fetcher(authority+'/api/v1/updates/published',{
     headers:{Accept:'application/json'},signal:AbortSignal.timeout(10000),
@@ -98,16 +110,16 @@ export async function relayOneRequestedRelease({
   ])
   if(updated.rowCount!==1)throw fail('Dev request changed before central acknowledgement.')
   return {status:'published',buildSha:allowedSha,publishedAt:persisted.publishedAt,
-    alreadyPublished:ack.alreadyPublished===true}
+    alreadyPublished}
 }
 
-export async function runRelayCycle({pool,fetcher,authority,token,allowedSha}){
+export async function runRelayCycle({pool,fetcher,authority,token,allowedSha,reconcileOnly=false}){
   const client=await pool.connect()
   try{
     await client.query('BEGIN')
     await client.query("SET LOCAL lock_timeout='4000ms'")
     await client.query("SET LOCAL statement_timeout='35000ms'")
-    const result=await relayOneRequestedRelease({db:client,fetcher,authority,token,allowedSha})
+    const result=await relayOneRequestedRelease({db:client,fetcher,authority,token,allowedSha,reconcileOnly})
     await client.query('COMMIT')
     return result
   }catch(error){
@@ -133,9 +145,10 @@ export async function verifyCentralPublicationCredential({fetcher,authority,toke
 
 export async function startReleasePublicationRelay({
   databaseUrlFile,publicationTokenFile,allowedSha,authority,
-  once=false,preflight=false,fetcher=fetch,
+  once=false,preflight=false,reconcileOnly=false,fetcher=fetch,
 }={}){
   if(!SHA.test(String(allowedSha||'')))throw fail('Pin a legitimate single Dev SHA.')
+  if(reconcileOnly&&(!once||preflight))throw fail('Reconciliation must be one-shot and separate from preflight.')
   if(authority!=='http://hi5central-api:3001')throw fail('Untrusted central authority.')
   if(!databaseUrlFile||!publicationTokenFile)throw fail('Mounted secret files are required.')
   const databaseUrl=pinnedDevDatabaseUrl(readFileSync(databaseUrlFile,'utf8').trim())
@@ -158,9 +171,9 @@ export async function startReleasePublicationRelay({
     }
     do{
       try{
-        const result=await runRelayCycle({pool,fetcher,authority,token,allowedSha})
+        const result=await runRelayCycle({pool,fetcher,authority,token,allowedSha,reconcileOnly})
         if(result.status==='published')
-          console.log(JSON.stringify({type:'release_notes_published',...result}))
+          console.log(JSON.stringify({type:reconcileOnly?'release_notes_reconciled':'release_notes_published',...result}))
         if(once)return result
       }catch(error){
         console.error(JSON.stringify({type:'publication_relay_error',
