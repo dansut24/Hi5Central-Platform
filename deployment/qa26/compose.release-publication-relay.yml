@@ -16,6 +16,7 @@ services:
     mem_limit: 128m
     networks:
       - hi5central
+      - hi5central-dev_hi5internal
     environment:
       DEV_DATABASE_URL_FILE: /run/secrets/qa_dev_db
       RELEASE_OPERATOR_TOKEN_FILE: /run/secrets/qa_operator_token
@@ -31,4 +32,6 @@ secrets:
     file: ${QA_RELEASE_OPERATOR_SECRET_FILE:?Provide a restricted host file with the central operator token}
 networks:
   hi5central:
+    external: true
+  hi5central-dev_hi5internal:
     external: true
