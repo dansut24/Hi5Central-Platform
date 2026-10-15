@@ -8,10 +8,15 @@ import {createHash} from 'node:crypto'
 import {writeFileSync,mkdtempSync,rmSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {removeQaTenantVersionOverride,QA_HOSTS} from './qa-tenant-scoped-route.mjs'
 
-const TEST_SHA='9041ed0fc0908badfd1ceb9d638215caef5e431b'
+const SYSTEM_BASE_SHA='9041ed0fc0908badfd1ceb9d638215caef5e431b'
+const TEST_SHA=process.env.H5C_QA_PREVIOUS_SHA||SYSTEM_BASE_SHA
 const KEEP=process.env.H5C_QA_KEEP_ON_SUCCESS==='1'
-const CANDIDATE_SHA='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
+const CANDIDATE_SHA=process.env.H5C_QA_TARGET_SHA||'ddbb869e228ac0d78d3a985daba3fb7059bb0530'
+if(!/^[a-f0-9]{40}$/.test(CANDIDATE_SHA)||!/^[a-f0-9]{40}$/.test(TEST_SHA))
+  throw Error('An exact old and new immutable version SHA is required.')
+if(TEST_SHA===CANDIDATE_SHA)throw Error('Version target is already current.')
 const gateway='hi5central-test-gateway'
 const allow=['h5c-managed-qa26-test.hi5central.com','h5c-custom-qa26-test.hi5central.com']
 const target=process.env.H5C_QA_TENANT_HOST||allow[0]
@@ -22,7 +27,7 @@ if(!/^[a-f0-9]{40}$/.test(PEER_SHA))throw Error('Invalid observed QA peer revisi
 const configVolume='hi5central-test_gateway_runtime_config'
 const backupVolume='hi5central_qa_route_rollback_backups'
 const network='hi5central-test_hi5internal'
-const pool='hi5pool-test-qa-rollback-ddbb'
+const pool='hi5pool-test-qa-release-'+CANDIDATE_SHA.slice(0,12)
 const containers=[pool+'-api',pool+'-web']
 const stamp=Date.now().toString()
 const stage='h5c-qa-stage-'+stamp
@@ -158,13 +163,13 @@ try{
     'ghcr.io/dansut24/hi5central-platform-api:sha-'+CANDIDATE_SHA,
     'ghcr.io/dansut24/hi5central-platform-itsm:sha-'+CANDIDATE_SHA,
   ]
-  for(const image of images)jsonImage(image)
+  for(const image of images){run(['pull',image]);jsonImage(image)}
   const baseline=originalFromVolume()
   const baselineHash=sha(baseline)
   // Ensure the recovery image is present before any gateway manipulation.
   run(['pull','docker:27-cli'])
   const originalTag=inspect('hi5central-test-control-server-1').Config.Image
-  if(!originalTag.endsWith(TEST_SHA))throw Error('Unexpected running Test baseline.')
+  if(!originalTag.endsWith(SYSTEM_BASE_SHA))throw Error('Unexpected shared Test baseline.')
   const existing=containers.map(name=>{
     try{return inspect(name)}catch{return null}
   })
@@ -190,10 +195,12 @@ try{
   await Promise.all(containers.map(waitHealthy))
   const needle='http://test.hi5central.com {'
   if(baseline.split(needle).length!==2)throw Error('QA Test site boundary ambiguous.')
-  if(baseline.includes('header X-Forwarded-Host '+target))
-    throw Error('Target tenant already has a version override; replan instead.')
-  const suffix=target.includes('-managed-')?'Managed':'Custom'
-  const candidateMatcher='qaRealCandidate'+suffix,apiMatcher='qaRealApi'+suffix
+  const previousMatcher=QA_HOSTS.get(target)
+  const currentRoute=baseline.includes('  @'+previousMatcher+' header X-Forwarded-Host '+target)
+    ?removeQaTenantVersionOverride({config:baseline,host:target}).config:baseline
+  const isManaged=target.includes('-managed-')
+  const candidateMatcher=isManaged?'qaRealCandidate':'qaRealCandidateCustom'
+  const apiMatcher=isManaged?'qaRealApi':'qaRealApiCustom'
   const injection=[
     '  # QA-only exact tenant release; peer versions remain pinned',
     '  @'+candidateMatcher+' header X-Forwarded-Host '+target,
@@ -207,7 +214,7 @@ try{
     '    }',
     '  }',
   ].join('\n')
-  const next=baseline.replace(needle,needle+'\n'+injection)
+  const next=currentRoute.replace(needle,needle+'\n'+injection)
   validated(next)
   saveOriginal(baseline)
   startWatchdog()
@@ -237,7 +244,7 @@ try{
   if(changed)try{
     restore()
     await publicSha(target,TEST_SHA,20)
-    await publicSha(control,TEST_SHA,20)
+    await publicSha(control,PEER_SHA,20)
     markRecovered()
     console.error('AUTOMATIC_ROLLBACK_CONFIRMED')
   }catch(e){console.error('AUTOMATIC_ROLLBACK_FAILED; independent 150s watchdog still active:',e.message)}
