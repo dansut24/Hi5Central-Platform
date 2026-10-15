@@ -129,8 +129,13 @@ try{
  reload(newActive,'h5c-admin-worker-'+stamp)
  changedLive=true
  if(!routeIsEnabled())throw Error('Live Caddy runtime did not enable staff Admin audit route.')
- if(sha('https://admin.hi5central.com/release-manifest.json')!==target)
-  throw Error('Public Admin frontend did not switch to exact official image.')
+ // Admin Vite frontend intentionally uses SPA fallback; unlike ITSM it
+ // does not serve release-manifest.json. Validate active Caddy upstream, its
+ // public healthz, and the exact immutable OCI label on the staged container.
+ if(status('https://admin.hi5central.com/healthz')!=='200')
+  throw Error('Public Admin Centre frontend healthcheck failed.')
+ if(!routeIsEnabled())
+  throw Error('Live Admin route lost official canary upstream.')
  if(status('https://api.hi5central.com/api/platform/v1/releases/worker-activity')!=='401')
   throw Error('Cross-tenant staff audit endpoint not protected by authentication.')
  if(sha('https://api.hi5central.com/api/v1/updates/version')!==rootBefore)
