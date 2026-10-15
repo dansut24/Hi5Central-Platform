@@ -103,12 +103,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     't.status AS tenant_status,p.update_mode',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
-    'JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha AND c.status=\'approved\'',
+    "JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha AND c.status='approved'",
     'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
     "WHERE ((j.status IN ('scheduled','deferred') AND j.scheduled_at<=$1)",
     "OR (j.status='running' AND j.lease_expires_at<=$1))",
     'AND j.attempt_count<j.max_attempts',
-    'AND ($3::text IS NULL OR j.environment=$3)'
+    'AND ($3::text IS NULL OR j.environment=$3)',
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
   ].join(' '),[at,limit,environment])
