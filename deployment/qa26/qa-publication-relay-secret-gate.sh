@@ -14,11 +14,16 @@ require_file() {
     { echo 'SECRET_FILE_MUST_BE_MODE_0400_AND_OWNED_BY_RELAY_UID_100' >&2; exit 1; }
   [ -s "$file" ] || { echo 'EMPTY_SECRET_FILE' >&2; exit 1; }
 }
+dir=/etc/hi5central/qa-release-relay
+[ -d "$dir" ] && [ ! -L "$dir" ] &&
+[ "$(stat -c %u "$dir")" = 0 ] &&
+[ "$(stat -c %a "$dir")" = 700 ] ||
+  { echo 'UNSAFE_SECRETS_DIRECTORY' >&2; exit 1; }
 require_file "$QA_RELEASE_DEV_DB_SECRET_FILE"
 require_file "$QA_RELEASE_PUBLICATION_TOKEN_SECRET_FILE"
 docker network inspect hi5central >/dev/null
 docker network inspect hi5central-dev_hi5internal >/dev/null
-docker image inspect hi5central-release-publication-relay:qa-local-20261015 >/dev/null
+docker image inspect hi5central-release-publication-relay:qa-scoped-v1 >/dev/null
 if docker ps -a --format '{{.Names}}' |grep -Fx 'hi5central-release-publication-relay-qa26' >/dev/null; then
   echo 'RELAY_CONTAINER_ALREADY_PRESENT' >&2; exit 1
 fi
