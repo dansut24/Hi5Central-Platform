@@ -68,12 +68,32 @@ def main() -> None:
     if DEV_URL.exists() or TOKEN.exists() or DEV_URL.is_symlink() or TOKEN.is_symlink():
         abort("Secret files already exist. Rotate with a separate reviewed procedure.")
 
+    # PostgreSQL's boolean-to-text coercion returns "false"/"true",
+    # whereas psql renders bare boolean columns as "f"/"t". Avoid
+    # relying on either presentation by returning an explicit sentinel.
     role = psql(
-        "SELECT rolname || ':' || rolcanlogin || ':' || rolsuper "
+        "SELECT CASE WHEN "
+        "NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole "
+        "AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls "
+        "AND NOT rolinherit "
+        "AND has_schema_privilege(rolname,'public','USAGE') "
+        "AND has_column_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','build_sha','SELECT') "
+        "AND has_column_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','status','UPDATE') "
+        "AND has_column_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','published_at','UPDATE') "
+        "AND NOT has_column_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','summary','UPDATE') "
+        "AND NOT has_table_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','INSERT') "
+        "AND NOT has_table_privilege(rolname,"
+          "'public.hi5central_release_note_drafts','DELETE') "
+        "THEN 'SAFE_NOLOGIN' ELSE 'UNSAFE' END "
         "FROM pg_roles WHERE rolname='hi5_release_publisher';"
     )
-    if role != f"{ROLE}:f:f":
-        abort("Dev-only publisher role was not bootstrapped as NOLOGIN/non-superuser.")
+    if role != "SAFE_NOLOGIN":
+        abort("Dev publisher role missing or unexpectedly privileged; review its grants.")
 
     password = secrets.token_urlsafe(48)
     publisher_token = secrets.token_urlsafe(48)
