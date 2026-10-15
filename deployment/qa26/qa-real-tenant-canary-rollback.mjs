@@ -94,7 +94,10 @@ function writeContainerFile(filename,value){
   run(['cp',path,stage+':/tmp/'+filename])
 }
 function originalFromVolume(){
-  return run(['exec',gateway,'cat','/etc/caddy/Caddyfile'])+'\n'
+  const result=spawnSync('docker',['exec',gateway,'cat','/etc/caddy/Caddyfile'],
+    {encoding:'utf8',timeout:30000,maxBuffer:1024*1024})
+  if(result.status!==0)throw Error('Could not read original gateway config.')
+  return result.stdout
 }
 function saveOriginal(config){
   run(['volume','create',backupVolume])
@@ -153,6 +156,8 @@ try{
   for(const image of images)jsonImage(image)
   const baseline=originalFromVolume()
   const baselineHash=sha(baseline)
+  // Ensure the recovery image is present before any gateway manipulation.
+  run(['pull','docker:27-cli'])
   const originalTag=inspect('hi5central-test-control-server-1').Config.Image
   if(!originalTag.endsWith(TEST_SHA))throw Error('Unexpected running Test baseline.')
   if(containers.some(name=>{
