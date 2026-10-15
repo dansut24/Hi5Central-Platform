@@ -115,7 +115,7 @@ function finish(job,outcome,extra={}){
   if(result!=='1')throw Error('Stale lease or failed durable result recording ('+result+').')
 }
 function rollback(filename,tenantHost){
-  if(!snapshot.test(filename)||!ACCEPTED.has([...ACCEPTED].find(([,host])=>host===tenantHost)?.[0]))
+  if(!snapshot.test(filename)||![...ACCEPTED.values()].includes(tenantHost))
     throw Error('Unsafe rollback snapshot or tenant hostname.')
   // Never restore an earlier WHOLE-gateway snapshot here; another QA tenant
   // may have shipped successfully since this tenant's original backup.
