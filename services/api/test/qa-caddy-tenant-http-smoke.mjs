@@ -65,7 +65,8 @@ async function assertRoute(port,slug,api,web){
   assert.deepEqual(w,{status:200,body:web},host+' frontend must resolve correct immutable pool')
 }
 try{
-  docker('network','create','--internal',net)
+  // Disposable CI-only bridge allows localhost port publishing for HTTP proof.
+  docker('network','create',net)
   for(const [pool,version] of [[oldPool,'old'],[newPool,'new']]){
     for(const [role,port] of [['api',3001],['web',80]]){
       const name=pool+'-'+role
