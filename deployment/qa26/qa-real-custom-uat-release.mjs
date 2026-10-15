@@ -63,7 +63,8 @@ function clone(source,name,image,mem){
     '--security-opt','no-new-privileges:true']
   if(old.Config.User)args.push('--user',old.Config.User)
   if(old.Config.WorkingDir)args.push('--workdir',old.Config.WorkingDir)
-  for(const env of old.Config.Env||[])args.push('--env',env)
+  for(const env of old.Config.Env||[])if(!env.startsWith('API_URL='))args.push('--env',env)
+  if(name.endsWith('-web'))args.push('--env','API_URL=same-origin')
   for(const mount of old.Mounts||[]){
     if(mount.Type!=='volume')throw Error('Unexpected UAT mount type.')
     args.push('--mount','type=volume,source='+mount.Name+
