@@ -2,7 +2,7 @@
 // the same major/minor Caddy version used by QA on the IONOS VPS.
 // Never writes to a running proxy or uses customer data.
 import {buildHostRoutingManifest} from '../src/runtimePoolControl.js'
-import {renderQaTenantCaddyRoutes} from '../src/renderQaTenantCaddyRoutes.js'
+import {renderQaTenantCaddyRoutes,renderQaTenantTrustedHostHandles} from '../src/renderQaTenantCaddyRoutes.js'
 
 const now=new Date('2026-10-15T11:30:00Z'),sha='d'.repeat(40)
 const entries=['ci-managed-a','ci-custom-a','ci-managed-b','ci-custom-b'].map((slug,index)=>{
@@ -18,4 +18,17 @@ const entries=['ci-managed-a','ci-custom-a','ci-managed-b','ci-custom-b'].map((s
   }
 })
 const manifest=buildHostRoutingManifest({environment:'test',rows:entries,now})
-process.stdout.write(renderQaTenantCaddyRoutes(manifest))
+if(process.argv.includes('--trusted')){
+  process.stdout.write([
+    'http://test.hi5central.com {',
+    renderQaTenantTrustedHostHandles(manifest),
+    '    @fallbackApi path /api/*',
+    '    handle @fallbackApi {',
+    '        reverse_proxy control-server:3001',
+    '    }',
+    '    handle {',
+    '        reverse_proxy itsm-web:80',
+    '    }',
+    '}','',
+  ].join('\n'))
+}else process.stdout.write(renderQaTenantCaddyRoutes(manifest))
