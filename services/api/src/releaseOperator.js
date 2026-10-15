@@ -8,6 +8,7 @@ import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
+import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -439,7 +440,9 @@ export function registerReleaseOperatorRoutes(app) {
     const evidence=String(body?.evidence||'').slice(0,4000)
     if(!/^[0-9a-f-]{36}$/.test(tenantId)||!/^[a-z0-9-]{1,80}$/.test(slug)
       ||!/^[0-9a-f]{40}$/.test(sha)||!Array.isArray(approved)
-      ||approved.length>70||approved.some(v=>!/^[0-9a-f]{40}$/.test(String(v))))
+      ||!approved.length||approved.length>MAX_RELEASE_HISTORY_COMMITS
+      ||new Set(approved).size!==approved.length
+      ||approved.some(v=>!/^[0-9a-f]{40}$/.test(String(v))))
       return c.json({error:'Invalid UAT review report.'},400)
     // UAT's tenant has the same UUID but a sandbox-specific slug. Resolve
     // canonical Live slug using the independently stored central tenant UUID;
