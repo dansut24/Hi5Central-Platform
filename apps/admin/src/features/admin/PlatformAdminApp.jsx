@@ -8,6 +8,7 @@ import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
 import { UatProductionPromotion } from './UatProductionPromotion.jsx'
+import { WorkerActivity } from './WorkerActivity.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -68,6 +69,7 @@ function adminAccentStyle(value) {
 const navigation = [
   { id:'overview', label:'Overview', section:'Platform', icon:Database },
   { id:'releases', label:'Releases & environments', section:'Platform', icon:RefreshCw },
+  { id:'workerActivity', label:'Worker activity', section:'Platform', icon:Activity },
   { id:'tenants', label:'Tenants', section:'Customers', icon:Building2 },
   { id:'billing', label:'Billing', section:'Commercial', icon:CreditCard },
   { id:'licenses', label:'MSP licensing', section:'Commercial', icon:KeyRound },
@@ -79,6 +81,7 @@ const navigation = [
 const pageMeta = {
   overview:['CONTROL PLANE','Platform overview','Hi5Central-wide operations, customers and software safety.'],
   releases:['RELEASE CONTROL','Releases & environments','Move individual changes through Test, UAT approval and explicit Live promotion.'],
+  workerActivity:['DEPLOYMENT AUDIT','Worker activity','See when each tenant was updated, the exact version, timing, outcomes and rollback history.'],
   tenants:['CUSTOMERS','Tenants','Manage tenant ownership, products, lifecycle and key workspace details.'],
   billing:['COMMERCIAL','Billing','Manage tenant plans, billing status, pricing, trials and renewals.'],
   licenses:['LICENSING AUTHORITY','MSP licensing','Issue, control and audit signed Self-Hosted MSP entitlements.'],
@@ -1243,7 +1246,7 @@ export function PlatformAdminApp() {
     return()=>window.removeEventListener('popstate',onPop)
   },[])
   async function load(target=view){
-    if(!user||target==='winget')return
+    if(!user||target==='winget'||target==='workerActivity')return
     setError('')
     try{
       const path={overview:'/overview',releases:'/releases/overview',tenants:'/tenants',billing:'/tenants',licenses:'/licenses',qualification:'/qualification',catalogue:'/software/catalogue',audit:'/audit'}[target]
@@ -1253,7 +1256,7 @@ export function PlatformAdminApp() {
       setData(prev=>({...prev,[target]:value}))
     }catch(err){if(err.status===401)setUser(null);else setError(err.message)}
   }
-  useEffect(()=>{if(user&&view!=='winget')load(view)},[user,view])
+  useEffect(()=>{if(user&&view!=='winget'&&view!=='workerActivity')load(view)},[user,view])
   useEffect(()=>{document.querySelector('.rmm-main-scroll')?.scrollTo?.({top:0,behavior:'auto'})},[view])
   if(loading)return <main className="hi5-loading-shell" data-theme={theme} aria-label="Loading Hi5Central"><img className="hi5-loading-mark" src="/hi5central-logo.png" alt="" /></main>
   if(!user)return <Login onLogin={()=>window.location.reload()}/>
@@ -1301,6 +1304,7 @@ export function PlatformAdminApp() {
   function renderPage(){
     if(view==='overview')return <Overview data={data.overview} refresh={()=>load('overview')}/>
     if(view==='releases')return <Releases data={data.releases} refresh={()=>load('releases')} query={query} canApproveSharedReleases={['owner','admin'].includes(user?.role)}/>
+    if(view==='workerActivity')return <WorkerActivity api={api}/>
     if(view==='tenants')return <Tenants items={data.tenants} refresh={()=>load('tenants')} query={query}/>
     if(view==='billing')return <Billing items={data.billing} refresh={()=>load('billing')} query={query}/>
     if(view==='licenses')return <Licenses items={data.licenses} refresh={()=>load('licenses')} query={query}/>
