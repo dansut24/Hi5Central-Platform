@@ -11,6 +11,26 @@ const canonical=value=>{
 }
 const equal=(a,b)=>JSON.stringify(canonical(a))===JSON.stringify(canonical(b))
 
+/** Dual-network Docker relays must never resolve generic "postgres" to the
+ * Live database. Explicitly target the known isolated Dev PostgreSQL service.
+ * Keep the credential itself in a read-only secret file.
+ */
+export function pinnedDevDatabaseUrl(raw){
+  if(typeof raw!=='string'||!/^postgres(?:ql)?:\/\//.test(raw))
+    throw fail('A valid Dev PostgreSQL secret is required.')
+  let parsed
+  try{parsed=new URL(raw)}
+  catch{throw fail('Dev PostgreSQL connection URL is malformed.')}
+  if(!['postgres','hi5central-dev-postgres-1'].includes(parsed.hostname)
+    ||!parsed.username||!parsed.password||parsed.pathname!=='/hi5central'
+    ||!(parsed.port===''||parsed.port==='5432'))
+    throw fail('Dev database secret must point to the expected isolated Dev service.')
+  parsed.hostname='hi5central-dev-postgres-1'
+  parsed.port='5432'
+  return parsed.toString()
+}
+
+
 /** Only a previously authenticated Dev author's explicit publication request
  * can reach the central protected publication API. This does not certify any
  * GitHub run, queue a tenant deployment or unpause global rollouts.
@@ -103,7 +123,7 @@ export async function startReleasePublicationRelay({
   if(!SHA.test(String(allowedSha||'')))throw fail('Pin a legitimate single Dev SHA.')
   if(authority!=='http://hi5central-api:3001')throw fail('Untrusted central authority.')
   if(!databaseUrlFile||!operatorTokenFile)throw fail('Mounted secret files are required.')
-  const databaseUrl=readFileSync(databaseUrlFile,'utf8').trim()
+  const databaseUrl=pinnedDevDatabaseUrl(readFileSync(databaseUrlFile,'utf8').trim())
   const token=readFileSync(operatorTokenFile,'utf8').trim()
   if(!/^postgres(?:ql)?:\/\//.test(databaseUrl)||token.length<32)
     throw fail('Configured database URL/token are invalid.')
