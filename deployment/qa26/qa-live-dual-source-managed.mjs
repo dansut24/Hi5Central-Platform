@@ -120,6 +120,8 @@ function restore(){
 function errorOrFirst(a,b){return a||b}
 try{
  initial()
+ if(mode==='--apply'&&process.env.H5C_QA_MANAGED_PROD_APPROVED!=='yes')
+   throw Error('Persisting a QA Production route requires explicit operator approval.')
  peerBefore=json('https://'+peer+'/release-manifest.json').sha
  prodApiBefore=json('https://api.hi5central.com/api/v1/updates/version').sha
  const nextLive=proposed(sourceLive),nextDisk=proposed(sourceDisk)
@@ -136,8 +138,7 @@ try{
  // Watchdog reverts both independently if Node crashes after either update.
  const watcher='sleep 155; if [ ! -e /backup/'+prefix+'.done ]; then '+
   'cp /backup/'+prefix+'.disk.Caddyfile /host/Caddyfile; '+
-  'docker exec -i hi5central-web sh -c '+
-  '\047cat >/tmp/qa-dual-restore-'+stamp+'.Caddyfile && caddy reload --config /tmp/qa-dual-restore-'+stamp+'.Caddyfile --adapter caddyfile\047'+
+  "docker exec -i hi5central-web sh -c 'cat >/tmp/qa-dual-restore-"+stamp+".Caddyfile && caddy reload --config /tmp/qa-dual-restore-"+stamp+".Caddyfile --adapter caddyfile'"+
   ' </backup/'+prefix+'.live.Caddyfile >/dev/null 2>&1 || true; fi'
  d(['run','-d','--rm','--name',guard,'--network','none',
    '--mount','type=bind,source='+diskPath+',target=/host/Caddyfile',
@@ -156,7 +157,7 @@ try{
  if(!cfg.includes('apiUrl: "" || window.location.origin'))
    throw Error('QA Managed Production frontend does not use same-origin API.')
  const session=spawnSync('curl',['-sS','-o','/dev/null','-w','%{http_code}',
- '-k','--max-time','8','https://'+hostname+'/api/v1/auth/session'],{encoding:'utf8',timeout:12000})
+ '--max-time','8','https://'+hostname+'/api/v1/auth/session'],{encoding:'utf8',timeout:12000})
  if(session.status!==0||session.stdout.trim()!=='401')
    throw Error('Host-only session endpoint not protected.')
  if(json('https://'+peer+'/release-manifest.json').sha!==peerBefore
