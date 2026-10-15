@@ -11,7 +11,9 @@ import {withGatewayLock,recordReleaseWorkerHeartbeat} from './releaseGatewayCoor
 import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenantReleaseQueue.js'
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
+import {parseQaReleaseTenantSlugs,assertQaReleaseTenantAllowed} from './releaseQaCohort.js'
 
+const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
 const gateway=process.env.RELEASE_GATEWAY
 if(!['test','uat','live'].includes(gateway))
   throw Error('Set RELEASE_GATEWAY to test, uat or live.')
@@ -78,6 +80,7 @@ async function guards(job){
     ||ctx.build_sha!==job.buildSha||ctx.tenant_status!=='active'
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
+  assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
   if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
     throw Error('Managed customers have no UAT.')
   if(gateway==='uat'||gateway==='live'){
@@ -270,7 +273,7 @@ async function step(){
   await heartbeat('idle')
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
-      limit:1,environment:gateway,leaseSeconds:600}))
+      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs}))
     const job=claim.claimed?.[0]
     if(!job){await heartbeat(claim.paused?'paused':'idle');return false}
     await gate.registerClaim({jobId:job.id,tenantId:job.tenantId,
@@ -364,7 +367,7 @@ try{
       "to_regclass('public.tenant_release_rollout_jobs') IS NOT NULL AS queue",
     ].join(' '))
     if(Object.values(r.rows[0]).some(x=>x!==true))throw Error('Executor schema incomplete.')
-    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway)
+    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,'qaTenants='+qaTenantSlugs.length)
   }else{
     do{
       try{await step()}catch(e){
