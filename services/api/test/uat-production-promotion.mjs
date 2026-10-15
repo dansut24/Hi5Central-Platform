@@ -29,6 +29,13 @@ test('Reject missing, withdrawn, duplicate or malformed customer UAT approvals',
   assert.equal(gate({review:{...request,approved_change_shas:[other,other]}}).code,'INVALID_CHANGE_SELECTION')
   assert.equal(gate({review:{...request,approved_change_shas:['wrong']}}).code,'INVALID_CHANGE_SELECTION')
 })
+test('A reviewed 188-change release is accepted as a complete bounded selection, never trimmed to 70',()=>{
+  const approved=Array.from({length:188},(_,i)=>i.toString(16).padStart(40,'0'))
+  assert.equal(gate({review:{...request,approved_change_shas:approved}}).allowed,true)
+  assert.equal(gate({review:{...request,approved_change_shas:[]}}).code,'INVALID_CHANGE_SELECTION')
+  const oversized=Array.from({length:513},(_,i)=>i.toString(16).padStart(40,'0'))
+  assert.equal(gate({review:{...request,approved_change_shas:oversized}}).code,'INVALID_CHANGE_SELECTION')
+})
 test('Never promote unpublished or stale/unverified/replaced API or ITSM builds',()=>{
   assert.equal(gate({published:false}).code,'NOT_PUBLISHED')
   assert.equal(gate({uat:{...uat,verified:false}}).code,'UAT_MISMATCH')
