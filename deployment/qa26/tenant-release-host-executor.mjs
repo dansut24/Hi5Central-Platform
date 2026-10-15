@@ -134,6 +134,29 @@ async function writeGateway(contents){
   await dockerWithInput(['exec','-i',c.gateway,'sh','-c',
     'cat >/tmp/h5c-release-executor.Caddyfile && caddy reload --config /tmp/h5c-release-executor.Caddyfile --adapter caddyfile'],contents)
 }
+async function assertCurrentFencedHostLease(){
+  const id=process.env.H5C_RELEASE_JOB_ID
+  const token=process.env.H5C_RELEASE_LEASE_TOKEN
+  const fence=Number(process.env.H5C_RELEASE_LEASE_FENCE)
+  if(!/^[a-f0-9-]{36}$/.test(String(id||''))
+    ||!/^[a-f0-9-]{36}$/.test(String(token||''))
+    ||!Number.isSafeInteger(fence)||fence<1)
+    throw Error('Missing valid direct host lease identity.')
+  const query='SELECT CASE WHEN EXISTS (SELECT 1 FROM tenant_release_rollout_jobs j '+
+    'JOIN tenants t ON t.id=j.tenant_id '+
+    'JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha '+
+    "WHERE j.id='"+id+"' AND j.lease_token='"+token+"' "+
+    'AND j.lease_fence='+fence+' AND j.status=\'running\' '+
+    'AND j.lease_expires_at>now() AND j.environment=\''+environment+'\' '+
+    'AND j.build_sha=\''+sha+'\' AND t.slug=\''+slug+'\' '+
+    "AND t.status='active' AND c.status='approved') "+
+    'AND (SELECT paused=false FROM platform_release_rollout_control WHERE singleton=true) '+
+    "THEN 'ALLOW' ELSE 'DENY' END'",
+  const decision=await docker('exec','hi5central-postgres','sh','-c',
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "'+query+'"')
+  if(decision.trim()!=='ALLOW')throw Error('Stale or revoked database lease: refusing public gateway write.')
+}
+
 async function restore(original,liveJson){
   if(environment==='live'){
     // JSON is captured from Caddy's *active* admin API, unlike the stale
@@ -228,6 +251,7 @@ try{
   // Source CAS before modifying a shared Caddy configuration.
   const actual=await fileHost()
   if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
+  await assertCurrentFencedHostLease()
   await writeGateway(plan.config)
   let verified=false
   for(let i=0;i<16;i++){
