@@ -19,6 +19,11 @@ on:
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releasePublicationRelay.mjs'
+      - 'services/api/src/releasePublicationRelayDaemon.mjs'
+      - 'services/api/test/release-publication-relay.mjs'
+      - 'deployment/qa26/Dockerfile.release-publication-relay'
+      - 'deployment/qa26/compose.release-publication-relay.yml'
       - 'services/api/src/tenantRuntimeReleaseLifecycle.js'
       - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
       - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
@@ -60,6 +65,9 @@ jobs:
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
+          node --check src/releasePublicationRelay.mjs
+          node --check src/releasePublicationRelayDaemon.mjs
+          node --test test/release-publication-relay.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
       - name: Validate generated tenant routes using QA Caddy version
         run: |
