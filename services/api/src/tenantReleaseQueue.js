@@ -108,7 +108,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     const allowedEnvironment=(row.environment==='uat'&&row.update_mode==='admin_controlled')
       ||(row.environment==='test')
       ||(row.environment==='live')
-    const window=maintenanceWindowStatus(row.maintenance_window||{},at)
+    const configured=row.maintenance_window && typeof row.maintenance_window==='object'
+      && typeof row.maintenance_window.timezone==='string'
+      && Array.isArray(row.maintenance_window.days)
+      && row.maintenance_window.days.length>0
+    const window=configured?maintenanceWindowStatus(row.maintenance_window,at)
+      :{allowed:false,reason:'Explicit tenant maintenance window is missing.'}
     if(row.tenant_status!=='active'||!allowedEnvironment||!window.allowed){
       await db.query([
         "UPDATE tenant_release_rollout_jobs SET status='deferred',lease_token=NULL,",
@@ -133,7 +138,7 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
       "VALUES($1,$2,$3,$4,'claimed',$5)",
     ].join(' '),[row.id,row.tenant_id,row.environment,row.build_sha,fence.rows[0].lease_fence])
     claimed.push({id:row.id,tenantId:row.tenant_id,environment:row.environment,
-      buildSha:row.build_sha,leaseToken:lease,leaseFence:fence.rows[0].lease_fence})
+      buildSha:row.build_sha,leaseToken:lease,leaseFence:Number(fence.rows[0].lease_fence)})
   }
   return {claimed,deferred,paused:false}
 }
