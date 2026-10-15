@@ -137,7 +137,19 @@ export async function startReleasePublicationRelay({
     const schema=await pool.query(
       "SELECT to_regclass('public.hi5central_release_note_drafts') IS NOT NULL AS ready")
     if(schema.rows[0]?.ready!==true)throw fail('Dev release-note migrations missing.')
-    if(preflight)return {status:'preflight_pass',allowedSha}
+    if(preflight){
+      // Invalid (empty) notes are rejected AFTER bearer authentication and
+      // BEFORE the central publishing write; a 400 proves the token is accepted
+      // without creating any release or changing editorial state.
+      const probe=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
+        method:'POST',headers:{'Content-Type':'application/json',
+          Authorization:'Bearer '+token},
+        body:'{}',signal:AbortSignal.timeout(7500),
+      })
+      if(probe.status!==400)
+        throw fail('Protected central publication preflight failed (HTTP '+probe.status+').')
+      return {status:'preflight_pass',allowedSha}
+    }
     do{
       try{
         const result=await runRelayCycle({pool,fetcher,authority,token,allowedSha})
