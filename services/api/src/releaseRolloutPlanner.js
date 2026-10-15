@@ -25,6 +25,36 @@ const blockAt=(blocks,at,end)=>{
 }
 
 /**
+ * Re-evaluate the tenant's *entire remaining cutover duration* at the instant
+ * a worker claims a job. A start-time-only gate could cross a window end or
+ * customer blackout. No caller may rely solely on the original queued time.
+ */
+export function activeTenantMaintenanceWindow({
+  policy,now=new Date(),durationMinutes=15,blackouts=[]
+}={}){
+  const fail=reason=>({allowed:false,reason})
+  const at=validDate(now)
+  if(!at)return fail('Invalid current time.')
+  if(!policy?.timezone||!Array.isArray(policy.days)||!policy.days.length
+    ||!Number.isInteger(durationMinutes)||durationMinutes<1||durationMinutes>240)
+    return fail('Explicit maintenance policy and bounded duration are required.')
+  if(absoluteWindowLength(policy)<Math.max(30,durationMinutes))
+    return fail('Configured maintenance window is too short.')
+  const endExclusive=new Date(at.getTime()+durationMinutes*60000)
+  const first=maintenanceWindowStatus(policy,at)
+  const last=maintenanceWindowStatus(policy,new Date(endExclusive.getTime()-1))
+  if(!first.allowed||!last.allowed)
+    return fail(!first.allowed?first.reason:'Insufficient time remaining in the maintenance window.')
+  if(!Array.isArray(blackouts))
+    return fail('Customer blackout configuration must be an array.')
+  const overlap=blockAt(blackouts,at,endExclusive)
+  if(overlap.invalid)return fail('Invalid customer blackout range.')
+  if(overlap.blocked)return fail('Cutover overlaps a customer blackout period.')
+  return {allowed:true,reason:'Full cutover fits the approved window with no blackout.',
+    startsAt:at.toISOString(),endsAt:endExclusive.toISOString()}
+}
+
+/**
  * Returns a UTC instant inside an explicitly configured IANA-timezone window.
  * Scan in UTC (not arithmetic on wall-clock timestamps) so spring-forward gaps
  * cannot be scheduled and repeated autumn times map to actual UTC instants.
