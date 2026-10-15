@@ -6,7 +6,7 @@ services:
     build:
       context: ../..
       dockerfile: deployment/qa26/Dockerfile.release-publication-relay
-    image: hi5central-release-publication-relay:qa-20261015
+    image: hi5central-release-publication-relay:qa-scoped-v1
     container_name: hi5central-release-publication-relay
     read_only: true
     restart: unless-stopped
