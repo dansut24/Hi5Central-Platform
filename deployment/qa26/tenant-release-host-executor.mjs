@@ -9,7 +9,7 @@ import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 
-const [environment,slug,sha,mode]=process.argv.slice(2)
+const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{1,43}[a-z0-9])?$/
 const CONFIG={
@@ -24,9 +24,9 @@ const CONFIG={
     source:'https://api.hi5central.com',backup:'hi5central_release_live_backups'},
 }
 if(!CONFIG[environment]||!SLUG.test(String(slug||''))||!SHA.test(String(sha||''))
-  ||!['--preflight','--stage','--apply'].includes(mode))
-  throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--stage|--apply>')
-if(mode==='--apply'&&(process.env.H5C_RELEASE_LEASE_AUTH!=='worker-gateway-fenced'
+  ||!['--preflight','--stage','--apply','--restore'].includes(mode))
+  throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--stage|--apply|--restore>')
+if(['--apply','--restore'].includes(mode)&&(process.env.H5C_RELEASE_LEASE_AUTH!=='worker-gateway-fenced'
   ||!/^[a-f0-9-]{36}$/.test(String(process.env.H5C_RELEASE_JOB_ID||''))))
   throw Error('A fenced, server-verified lease is required for host cutover.')
 const c=CONFIG[environment]
@@ -144,6 +144,25 @@ async function restore(original,liveJson){
     await dockerWithInput(['exec','-i',c.gateway,'sh','-c',
       'cat >/tmp/h5c-release-restore.json && caddy reload --config /tmp/h5c-release-restore.json'],liveJson)
   }else await writeGateway(original)
+}
+// Compensating rollback for a host cutover whose durable database commit failed.
+// The same gateway session lock remains held by the caller.
+if(mode==='--restore'){
+  const prefix='release-'+environment+'-'
+  if(!restoreKey||!restoreKey.startsWith(prefix)||
+    !/^release-(test|uat|live)-[0-9]{12,16}-[a-z0-9-]+$/.test(restoreKey)||
+    !restoreKey.endsWith(host.replaceAll('.','-')))
+    throw Error('Restore key is not bound to this exact tenant and environment.')
+  const load=ext=>docker('run','--rm','--network','none',
+    '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
+    'busybox:1.36','cat','/backup/'+restoreKey+'.'+ext)
+  const previous=await load('caddy')
+  const json=environment==='live'?await load('json'):''
+  await restore(previous,json)
+  const served=await shaPublic('https://'+host+'/api/v1/updates/version')
+  if(served===sha)throw Error('Restored route still serves the failed release.')
+  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
+  process.exit(0)
 }
 let prior='',liveJson='',active=false,watcher='',backupKey=''
 try{
