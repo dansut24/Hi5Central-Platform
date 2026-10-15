@@ -177,10 +177,10 @@ async function persistVerified(job,ctx,result){
       publicHost:result.host,verifiedAt:new Date().toISOString()})])
   })
 }
-async function failJob(job,reason){
+async function failJob(job,reason,outcome='failed'){
   await clientTx(async tx=>{
     await finishRollout(tx,{jobId:job.id,leaseToken:job.leaseToken,
-      leaseFence:job.leaseFence,outcome:'failed',now:new Date()})
+      leaseFence:job.leaseFence,outcome,now:new Date()})
     await tx.query('UPDATE tenant_release_rollout_jobs SET last_error=$2 WHERE id=$1',
       [job.id,String(reason).slice(0,400)])
   })
@@ -207,8 +207,10 @@ async function step(){
     }
     leaseTimer=setInterval(()=>renew().catch(()=>{leaseFailed=true}),45000)
     const started=Date.now()
+    let activated=null,activatedSlug=null
     try{
       const ctx=await guards(job)
+      activatedSlug=ctx.slug
       await gate.assertFencedLease()
       const output=await shell('node',[
         'deployment/qa26/tenant-release-host-executor.mjs',
@@ -218,6 +220,7 @@ async function step(){
         H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)})
       const line=output.trim().split('\n').at(-1)
       const result=JSON.parse(line)
+      activated=result
       if(result.status!=='verified'||result.buildSha!==job.buildSha
         ||result.environment!==gateway)throw Error('Host execution proof mismatches the lease.')
       if(leaseFailed)throw Error('Database lease renewal failed during host cutover.')
@@ -227,9 +230,31 @@ async function step(){
       console.log(JSON.stringify({type:'deployment_verified',jobId:job.id,
         host:result.host,sha:job.buildSha,elapsedMs:Date.now()-started}))
     }catch(e){
+      let compensated=false
+      if(activated?.status==='verified'&&activated.backup&&activatedSlug){
+        try{
+          const output=await shell('node',[
+            'deployment/qa26/tenant-release-host-executor.mjs',
+            gateway,activatedSlug,job.buildSha,'--restore',activated.backup,
+          ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
+            H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
+            H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)},90000)
+          const proof=JSON.parse(output.trim().split('\n').at(-1))
+          compensated=proof.status==='rolled_back'&&proof.environment===gateway
+        }catch(restoreError){
+          console.error('DURABLE_RELEASE_ROLLBACK_FAILED',restoreError.message)
+        }
+      }
+      if(activated&&!compensated){
+        await pool.query([
+          'UPDATE platform_release_rollout_control SET paused=true,',
+          "reason='Host cutover could not be confirmed rolled back; operator review required',updated_at=now()",
+          'WHERE singleton=true',
+        ].join(' ')).catch(()=>{})
+      }
       console.error(JSON.stringify({type:'deployment_failed',jobId:job.id,
-        gateway,error:String(e.message||e).slice(0,400)}))
-      try{await failJob(job,e.message)}catch(err){
+        gateway,compensated,error:String(e.message||e).slice(0,400)}))
+      try{await failJob(job,e.message,compensated?'rolled_back':'failed')}catch(err){
         console.error('DURABLE_JOB_FINALISATION_FAILED',err.message)}
       await heartbeat('error',null,e.message).catch(()=>{})
     }finally{clearInterval(leaseTimer)}
