@@ -26,7 +26,7 @@ export function verifiedCustomerRoute({route,pool,offer,slug,now=new Date()}){
   const verified=verifiedRuntimePool(pool,now)
   return verified.verified?{ok:true}:{ok:false,reason:verified.reason}
 }
-export function scheduledPromotionGate({offer,preference,uatOffer,pool,now=new Date()}){
+export function scheduledPromotionGate({offer,preference,uatOffer,testGate,pool,now=new Date()}){
   if(offer?.environment!=='live'||offer.state!=='scheduled')
     return {allowed:false,reason:'No scheduled Production update.'}
   if(!pool||pool.id!==offer.pool_id||pool.build_sha!==offer.build_sha||
@@ -34,27 +34,33 @@ export function scheduledPromotionGate({offer,preference,uatOffer,pool,now=new D
     return {allowed:false,reason:'Production pool revision mismatch.'}
   const healthy=verifiedRuntimePool(pool,now)
   if(!healthy.verified)return {allowed:false,reason:healthy.reason}
-  if(!uatOffer||uatOffer.build_sha!==offer.build_sha||!uatOffer.uat_accepted_at||
-    !['uat_accepted','active'].includes(uatOffer.state))
-    return {allowed:false,reason:'Matching customer UAT approval is missing.'}
   if(offer.update_mode!==preference?.update_mode)
     return {allowed:false,reason:'Update mode changed after scheduling.'}
   if(!offer.maintenance_not_before||
     new Date(offer.maintenance_not_before).getTime()>now.getTime())
     return {allowed:false,reason:'Release start time has not arrived.'}
-  if(preference.update_mode==='admin_controlled')
+  const window=maintenanceWindowStatus(preference.maintenance_window,now)
+  if(!window.allowed)return {allowed:false,reason:window.reason}
+  if(preference.update_mode==='admin_controlled'){
+    if(!uatOffer||uatOffer.build_sha!==offer.build_sha||!uatOffer.uat_accepted_at
+      ||!['uat_accepted','active'].includes(uatOffer.state))
+      return {allowed:false,reason:'Matching customer UAT approval is missing.'}
     return offer.promotion_approved_at&&offer.promotion_approved_by
-      ?{allowed:true,reason:'Customer-controlled release approved.'}
+      ?{allowed:true,reason:'Custom release approved within maintenance window.'}
       :{allowed:false,reason:'Customer approval is missing.'}
+  }
   if(preference.update_mode!=='hi5_managed'||preference.live_auto_promote!==true)
     return {allowed:false,reason:'Managed updates are paused.'}
+  // Managed tenants have only Test + Live, NEVER a UAT offer.
+  if(testGate?.state!=='passed'||testGate.build_sha!==offer.build_sha
+    ||Number(testGate.passed_canary_count)<2)
+    return {allowed:false,reason:'Platform Test/canary approval is missing.'}
   const hours=Number(preference.live_delay_hours)
-  const accepted=new Date(uatOffer.uat_accepted_at).getTime()
-  if(!Number.isInteger(hours)||hours<0||hours>720||!Number.isFinite(accepted)||
-    now.getTime()-accepted<hours*3600000)
-    return {allowed:false,reason:'Minimum managed UAT delay has not elapsed.'}
-  const window=maintenanceWindowStatus(preference.maintenance_window,now)
-  return {allowed:window.allowed,reason:window.reason}
+  const accepted=new Date(testGate.passed_at||'').getTime()
+  if(!Number.isInteger(hours)||hours<0||hours>720||!Number.isFinite(accepted)
+    ||accepted>now.getTime()||now.getTime()-accepted<hours*3600000)
+    return {allowed:false,reason:'Minimum Managed Test soak/delay has not elapsed.'}
+  return {allowed:true,reason:'Managed Test-approved release is inside maintenance window.'}
 }
 function checkIds(...ids){
   if(!ids.every(id=>uuid.test(String(id||''))))
@@ -112,13 +118,25 @@ export async function scheduleTenantLive({db,tenantId,offerId,userId,
   ].join(' '),[offerId,tenantId])).rows[0]
   if(!row||row.state!=='offered')throw refuse('No unscheduled Production offer for this customer.')
   if(row.update_mode!==row.current_mode)throw refuse('Update preference changed; request a new offer.')
-  const accepted=(await db.query([
-    'SELECT build_sha,uat_accepted_at FROM tenant_runtime_update_offers',
-    "WHERE tenant_id=$1 AND environment='uat' AND build_sha=$2",
-    "AND state IN ('uat_accepted','active') AND uat_accepted_at IS NOT NULL",
-    'ORDER BY uat_accepted_at DESC LIMIT 1',
-  ].join(' '),[tenantId,row.build_sha])).rows[0]
-  if(!accepted)throw refuse('The same build must be accepted in UAT first.')
+  // Two independent gates: Custom requires its own UAT acceptance;
+  // Managed requires a platform Test/canary signoff instead of any UAT row.
+  let accepted=null,testGate=null
+  if(row.update_mode==='admin_controlled'){
+    accepted=(await db.query([
+      'SELECT build_sha,uat_accepted_at FROM tenant_runtime_update_offers',
+      "WHERE tenant_id=$1 AND environment='uat' AND build_sha=$2",
+      "AND state IN ('uat_accepted','active') AND uat_accepted_at IS NOT NULL",
+      'ORDER BY uat_accepted_at DESC LIMIT 1',
+    ].join(' '),[tenantId,row.build_sha])).rows[0]
+    if(!accepted)throw refuse('The same build must be accepted in customer UAT first.')
+  }else if(row.update_mode==='hi5_managed'){
+    testGate=(await db.query([
+      'SELECT build_sha,state,passed_at,passed_canary_count',
+      'FROM platform_release_test_qa_gates',
+      "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
+    ].join(' '),[row.build_sha])).rows[0]
+    if(!testGate)throw refuse('A verified platform Test/canary quality gate is required.')
+  }else throw refuse('Unknown tenant update mode.')
   const pool=(await db.query('SELECT * FROM platform_runtime_pools WHERE id=$1 AND environment=$2',
     [row.pool_id,'live'])).rows[0]
   if(!pool||pool.build_sha!==row.build_sha||!verifiedRuntimePool(pool,now).verified)
@@ -140,7 +158,7 @@ export async function scheduleTenantLive({db,tenantId,offerId,userId,
     const hours=Number(row.live_delay_hours)
     if(!Number.isInteger(hours)||hours<0||hours>720)throw refuse('Invalid managed release delay.')
     start=new Date(Math.max(now.getTime(),
-      new Date(accepted.uat_accepted_at).getTime()+hours*3600000))
+      new Date(testGate.passed_at).getTime()+hours*3600000))
   }
   const updated=await db.query([
     "UPDATE tenant_runtime_update_offers SET state='scheduled',",
