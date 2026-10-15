@@ -25,16 +25,16 @@ export function prepareTenantCaddyRoute({config,tenantSlug,environment,buildSha}
     throw Error('Gateway changed since its known environment route was validated.')
   const begin='# H5C_RELEASE_ROUTE_BEGIN '+host
   const end='# H5C_RELEASE_ROUTE_END '+host
-  let base=config
-  const first=base.indexOf(begin),last=base.indexOf(end)
+  const first=config.indexOf(begin),last=config.indexOf(end)
+  let previous=null
   if((first<0)!==(last<0))throw Error('Unpaired tenant route markers.')
   if(first>=0){
-    if(base.indexOf(begin,first+begin.length)>=0||base.indexOf(end,last+end.length)>=0)
+    if(config.indexOf(begin,first+begin.length)>=0||config.indexOf(end,last+end.length)>=0)
       throw Error('Duplicate tenant route markers.')
-    const left=base.lastIndexOf('\n',first-1)+1
-    const right=base.indexOf('\n',last)
+    const left=config.lastIndexOf('\n',first-1)+1
+    const right=config.indexOf('\n',last)
     if(right<0||right-left>1300)throw Error('Untrusted previous route boundaries.')
-    base=base.slice(0,left)+base.slice(right+1)
+    previous={left,right}
   }
   const pair=releasePair(buildSha)
   const key='h5cRelease'+routeDigest(host).slice(0,12)
@@ -54,7 +54,9 @@ export function prepareTenantCaddyRoute({config,tenantSlug,environment,buildSha}
     p+'}',
     p+end,
   ].join('\n')+'\n'
-  const next=base.replace(anchor,environment==='live'?block+anchor:anchor+'\n'+block)
+  const next=previous?
+    config.slice(0,previous.left)+block+config.slice(previous.right+1):
+    config.replace(anchor,environment==='live'?block+anchor:anchor+'\n'+block.trimEnd())
   if(next===config)throw Error('Empty route change.')
   return {host,environment,buildSha,api:pair.api,web:pair.web,
     originalSha256:routeDigest(config),newSha256:routeDigest(next),
@@ -82,11 +84,9 @@ export function undoTenantCaddyRoute({current,original,host}={}){
   const result=extract(current)
   if(!original.includes(begin))return result.clean
   const prior=extract(original)
-  const anchor=original.includes('http://test.hi5central.com {')?
-    'http://test.hi5central.com {':original.includes('http://uat.hi5central.com {')?
-      'http://uat.hi5central.com {':
-      '    # Isolated QA onboarding recovery frontend; other customers untouched.'
-  if(result.clean.split(anchor).length!==2)throw Error('Peer gateway structure has changed.')
-  return result.clean.replace(anchor,anchor.includes('http://')?
-    anchor+'\n'+prior.block:prior.block+anchor)
+  const first=current.indexOf(begin)
+  const left=current.lastIndexOf('\n',first-1)+1
+  const right=current.indexOf('\n',current.indexOf(end))
+  if(right<0)throw Error('Missing target block line boundary.')
+  return current.slice(0,left)+prior.block+current.slice(right+1)
 }
