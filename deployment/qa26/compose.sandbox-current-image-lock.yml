@@ -4,6 +4,6 @@
 # environment-specific overrides. Does not alter credentials, storage or networks.
 services:
   control-server:
-    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-4fad62ab8578bda7c2d4aa5fdd4df8c4983257b7
+    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-78b8c703c0edf5a1cadb4a1c9208e1d9b7b2ad09
   itsm-web:
-    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-4fad62ab8578bda7c2d4aa5fdd4df8c4983257b7
+    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-78b8c703c0edf5a1cadb4a1c9208e1d9b7b2ad09
