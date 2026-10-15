@@ -44,8 +44,12 @@ const innerConfig=rows=>{
     'http://test.hi5central.com {',
     renderQaTenantTrustedHostHandles(manifest),
     '    @fallbackApi path /api/*',
-    '    handle @fallbackApi { reverse_proxy '+poolOld+'-api:3001 }',
-    '    handle { reverse_proxy '+poolOld+'-web:80 }',
+    '    handle @fallbackApi {',
+    '        reverse_proxy '+poolOld+'-api:3001',
+    '    }',
+    '    handle {',
+    '        reverse_proxy '+poolOld+'-web:80',
+    '    }',
     '}','',
   ].join('\n')
 }
@@ -53,7 +57,9 @@ const edgeFragment=renderQaOuterHandoff('test',{upstream:inner+':80'})
 const edgeConfig=[
   ':80 {',
   edgeFragment,
-  '    handle { respond "blocked" 404 }',
+  '    handle {',
+  '        respond "blocked" 404',
+  '    }',
   '}','',
 ].join('\n')
 writeFileSync(join(dir,'edge.Caddyfile'),edgeConfig)
