@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
+import { ItsmConfigurationHistory } from './ItsmConfigurationHistory.jsx'
+import { UatSelectiveConfigurationPromotion } from './UatSelectiveConfigurationPromotion.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -120,6 +122,7 @@ function SandboxReleaseOverview() {
         </div>
       </div>
     </section>
+    {isUat?<ItsmConfigurationHistory/>:null}
   </div>
 }
 
@@ -353,6 +356,8 @@ function LiveProductionReleaseManagement() {
     </section>
 
     <TenantRuntimeUpdates updateMode={policy.updateMode}/>
+    {policy.updateMode==='admin_controlled'?<UatSelectiveConfigurationPromotion/>:null}
+    <ItsmConfigurationHistory/>
 
     {platformAvailable ? (
     <section className="production-settings-panel">

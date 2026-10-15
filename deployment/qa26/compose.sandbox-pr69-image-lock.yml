@@ -1,0 +1,10 @@
+# Hi5Central existing Test/UAT shared-pool PR69 candidate image lock.
+# This file is NOT a deployment instruction or permission to bypass a blocked step.
+# Before in-place activation: verify runtime/identity compatibility, existing
+# volumes, the active gateway, user sessions and the approved execution mechanism.
+# No tenant-specific sidecars, network mounts or extra tenant databases.
+services:
+  control-server:
+    image: ghcr.io/dansut24/hi5central-platform-api:qa26-pr69-32747727ecb96f72b2ba4dbbc500fadf3be1df81
+  itsm-web:
+    image: ghcr.io/dansut24/hi5central-platform-itsm:qa26-pr69-32747727ecb96f72b2ba4dbbc500fadf3be1df81

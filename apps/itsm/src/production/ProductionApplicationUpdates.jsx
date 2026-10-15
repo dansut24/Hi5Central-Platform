@@ -261,6 +261,7 @@ function DevReleaseReadiness({data}){
 export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
   const [data,setData]=useState(null)
   const [review,setReview]=useState(null)
+  const [reviewScope,setReviewScope]=useState(null)
   const [canReview,setCanReview]=useState(false)
   const [loading,setLoading]=useState(true)
   const [error,setError]=useState('')
@@ -278,6 +279,9 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
           const {review:next}=await api('/api/v1/updates/uat-review')
           const restored=decodeEvidence(next?.evidence)
           setReview(next);setEvidence(restored.notes);setUatChecks(restored.checks);setCanReview(true)
+          const scope=await api('/api/v1/updates/uat-review-scope')
+            .catch(error=>({knownBaseline:false,reason:error.message}))
+          setReviewScope(scope)
         }catch(e){if(e.status===403)setCanReview(false);else throw e}
       }
     }catch(e){setError(e.message)}
@@ -286,13 +290,12 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   useEffect(()=>{refresh()},[])
   async function requestLive(){
     if(uatChecks.length!==UAT_CHECKS.length||evidence.trim().length<12){setError('Complete all UAT checks and enter test evidence before requesting promotion.');return}
-    if(!data||busy||!window.confirm('Submit this tested UAT version for a Platform Admin to approve for Live? This will not deploy code automatically.'))return
+    if(!reviewScope?.knownBaseline||!reviewScope.reviewChangeCount){setError(reviewScope?.reason||'Full Live-to-UAT history has not been verified.');return}
+    if(!data||busy||!window.confirm('Confirm testing and approval of ALL '+reviewScope.reviewChangeCount+' commits since Production '+short(reviewScope.baselineSha)+'? This requests shared Live deployment review only; it does not deploy code.'))return
     setBusy(true);setError('')
     try{
-      const response=await fetch('https://api.hi5central.com/api/v1/updates/version',{cache:'no-store'})
-      const live= response.ok?await response.json():{}
       await api('/api/v1/updates/uat-review',{method:'POST',body:JSON.stringify({
-        acceptWholeBuild:true,baselineSha:live.sha||'',evidence:encodeEvidence(uatChecks,evidence),requestLive:true})})
+        acceptWholeBuild:true,baselineSha:reviewScope.baselineSha,evidence:encodeEvidence(uatChecks,evidence),requestLive:true})})
       setReview({status:'requested',buildSha:data.sha,evidence})
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
@@ -337,6 +340,11 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
           <small>{review?.status==='requested'?'Promotion requested':candidate?'Published candidate':'Awaiting Dev release'}</small></div>
         <p>{candidate?'Review the Dev-authored release notes above and record testing before requesting Live deployment.':
           'The Dev team must release the customer-facing notes for this version before UAT can request promotion.'}</p>
+        <div className="hi5-release-scope" aria-live="polite">
+          {reviewScope?.knownBaseline
+            ?<p><strong>Complete code-change scope:</strong> {reviewScope.reviewChangeCount} commits from Production {short(reviewScope.baselineSha)} to UAT {short(reviewScope.buildSha)}. Approval covers the whole build, not selected code commits. Read the release notes and verify the affected workflows.</p>
+            :<p role="alert"><CircleAlert size={15}/> {reviewScope?.reason||'Checking complete Live-to-UAT history…'} Production approval is unavailable until the full history is verified.</p>}
+        </div>
         <div className="hi5-release-acceptance-checklist" aria-label="New feature: UAT acceptance checklist">
           <strong><ClipboardCheck size={16}/> UAT acceptance checklist</strong>
           <small>Complete these checks against the running candidate before requesting Production promotion.</small>
@@ -350,7 +358,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
         <textarea rows={2} placeholder="What was tested in UAT, and what passed?" aria-label="UAT test evidence"
           value={evidence} onChange={e=>setEvidence(e.target.value)} />
         <div className="hi5-updates-approval-actions">
-          <button type="button" className="is-primary" disabled={busy||!candidate||review?.status==='requested'||evidence.trim().length<12||uatChecks.length!==UAT_CHECKS.length}
+          <button type="button" className="is-primary" disabled={busy||!candidate||!reviewScope?.knownBaseline||!reviewScope.reviewChangeCount||review?.status==='requested'||evidence.trim().length<12||uatChecks.length!==UAT_CHECKS.length}
             onClick={requestLive}><Rocket size={15}/> Request Live promotion</button>
         </div>
       </div>:null}

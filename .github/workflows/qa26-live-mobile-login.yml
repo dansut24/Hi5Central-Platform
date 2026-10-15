@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/qa26-public-login-webkit.cjs'
+      - 'scripts/qa26-public-surfaces.mjs'
       - '.github/workflows/qa26-live-mobile-login.yml'
   workflow_dispatch:
 permissions:

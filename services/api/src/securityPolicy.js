@@ -16,7 +16,7 @@ export function securitySettings(row) {
   const sessionHours = allowedSessionHours.has(requestedHours) ? requestedHours : 12
 
   return {
-    requireMfa: Boolean(security.requireMfa),
+    requireMfa: true,
     sessionHours,
     passwordPolicy: security.passwordPolicy === 'standard' ? 'standard' : 'strong',
     auditRetention: ['90', '365', '730'].includes(String(security.auditRetention || '365'))
@@ -26,10 +26,18 @@ export function securitySettings(row) {
   }
 }
 
+// Completed tenants always require centrally verified MFA across Live/Test/UAT.
+// Tenant onboarding settings must never downgrade the platform-wide policy.
 export function mfaRequiredFor(row) {
-  if (!row?.onboarding_completed_at) return false
-  const security = securitySettings(row)
-  return security.requireMfa && ['owner', 'admin'].includes(row.tenant_role)
+  return Boolean(row?.onboarding_completed_at)
+}
+
+export function loginRequiresMfa(row) {
+  return mfaRequiredFor(row)
+}
+
+export function sandboxPolicyRequiresMfa(row) {
+  return mfaRequiredFor(row)
 }
 
 export function sessionTtlSeconds(row) {
@@ -46,18 +54,8 @@ export function mfaGraceEndsAt(row) {
   return new Date(timestamp + MFA_GRACE_MINUTES * 60 * 1000)
 }
 
-export function sessionNeedsMfa(row, now = new Date()) {
-  if (!mfaRequiredFor(row)) return false
-  if (row?.mfa_verified_at) return false
-
-  const graceEndsAt = mfaGraceEndsAt(row)
-  if (!graceEndsAt) return true
-
-  const sessionCreatedAt = row?.session_created_at || row?.created_at
-  const enforcedAt = securitySettings(row).mfaEnforcedAt || row.onboarding_completed_at
-  const createdBeforeEnforcement = sessionCreatedAt && enforcedAt
-    ? new Date(sessionCreatedAt).getTime() <= new Date(enforcedAt).getTime()
-    : false
-
-  return !(createdBeforeEnforcement && now.getTime() < graceEndsAt.getTime())
+// Align session restoration with the login policy: no password-only
+// session can be accepted after tenant onboarding is complete.
+export function sessionNeedsMfa(row) {
+  return mfaRequiredFor(row) && !Boolean(row?.mfa_verified_at)
 }

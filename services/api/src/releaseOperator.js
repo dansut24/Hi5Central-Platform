@@ -6,6 +6,9 @@ import { verifiedRuntimePool } from './runtimePoolPolicy.js'
 import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
+import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
+import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
+import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -217,6 +220,25 @@ function actionPayload(row) {
 }
 
 export function registerReleaseOperatorRoutes(app) {
+  // Separate deployment-job worker readiness from the legacy environment
+  // action operator. A heartbeat never claims or deploys a job by itself.
+  app.post('/api/platform-operator/v1/deployments/executor-heartbeat',async c=>{
+    const denied=requireOperator(c)
+    if(denied)return denied
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'The central Live authority owns executor readiness.'},403)
+    const body=await c.req.json().catch(()=>null)
+    if(body?.workerId!==APPLICATION_RELEASE_EXECUTOR_ID
+      ||body?.capability!==APPLICATION_RELEASE_EXECUTOR_CAPABILITY)
+      return c.json({error:'Unknown application deployment executor capability.'},400)
+    const result=await pool.query([
+      'INSERT INTO platform_application_release_executor_heartbeats(worker_id,capability,observed_at)',
+      'VALUES($1,$2,now()) ON CONFLICT(worker_id) DO UPDATE',
+      'SET capability=EXCLUDED.capability,observed_at=now()',
+      'RETURNING worker_id,observed_at',
+    ].join(' '),[APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY])
+    return c.json({acknowledged:true,workerId:result.rows[0].worker_id,observedAt:result.rows[0].observed_at})
+  })
   registerTenantUatHostAttestation(app,requireOperator)
   registerRuntimeScheduleOperator(app,requireOperator)
   // Host-attested pools are immutable Docker image revisions. Neither the
@@ -418,15 +440,31 @@ export function registerReleaseOperatorRoutes(app) {
     const evidence=String(body?.evidence||'').slice(0,4000)
     if(!/^[0-9a-f-]{36}$/.test(tenantId)||!/^[a-z0-9-]{1,80}$/.test(slug)
       ||!/^[0-9a-f]{40}$/.test(sha)||!Array.isArray(approved)
-      ||approved.length>70||approved.some(v=>!/^[0-9a-f]{40}$/.test(String(v))))
+      ||!approved.length||approved.length>MAX_RELEASE_HISTORY_COMMITS
+      ||new Set(approved).size!==approved.length
+      ||approved.some(v=>!/^[0-9a-f]{40}$/.test(String(v))))
       return c.json({error:'Invalid UAT review report.'},400)
+    // UAT's tenant has the same UUID but a sandbox-specific slug. Resolve
+    // canonical Live slug using the independently stored central tenant UUID;
+    // do not trust the submitted tenant name or let one customer review another.
+    const known=await pool.query([
+      'SELECT t.slug,p.update_mode FROM tenants t',
+      'JOIN tenant_release_preferences p ON p.tenant_id=t.id',
+      'WHERE t.id=$1 AND t.status=$2 LIMIT 1',
+    ].join(' '),[tenantId,'active'])
+    const mapped=canonicalUatReviewSlug({liveSlug:known.rows[0]?.slug,uatSlug:slug})
+    if(!mapped.ok||known.rows[0]?.update_mode!=='admin_controlled')
+      return c.json({error:'UAT review does not match an active Custom Live tenant.'},409)
+    if(String(evidence).trim().length<20)
+      return c.json({error:'UAT review requires recorded testing evidence.'},400)
+    // Exactly one central pending review per immutable tenant/build.
     const key=tenantId+':'+sha
     const row=await pool.query([
       'INSERT INTO platform_application_release_requests',
       '(request_key,source_tenant_slug,build_sha,approved_change_shas,evidence,reviewed_at)',
       'VALUES($1,$2,$3,$4::jsonb,$5,$6)',
       'ON CONFLICT(request_key) DO NOTHING RETURNING request_key,status',
-    ].join(' '),[key,slug,sha,JSON.stringify(approved),evidence,body.reviewedAt||new Date().toISOString()])
+    ].join(' '),[key,mapped.slug,sha,JSON.stringify(approved),evidence,body.reviewedAt||new Date().toISOString()])
     return c.json({received:true,requestKey:key,created:row.rowCount>0})
   })
 

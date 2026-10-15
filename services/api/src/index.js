@@ -8,6 +8,9 @@ import { attachAccess, effectiveAccessForUser } from './access.js'
 import { registerApiTokenRoutes } from './apiTokens.js'
 import { registerApplicationUpdatesRoutes } from './applicationUpdates.js'
 import { enforceWorkspacePermissions } from './accessGate.js'
+import { createSandboxRmmGuard } from './sandboxRmmBoundary.js'
+import { liveRmmAccessAllowed } from './liveDirectoryBridge.js'
+import { qa26StagingActive,qa26CanServe,qa26SessionMatchesOrigin } from './qa26Staging.js'
 import { configuredPoolBoundary,checkPoolTenantRequest } from './runtimePoolTenantGuard.js'
 import { registerCmdbRoutes } from './cmdb.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
@@ -53,9 +56,10 @@ import { registerReleaseOperatorRoutes } from './releaseOperator.js'
 import { registerReleaseFeedRoutes, startReleaseFeedScheduler } from './releaseFeed.js'
 import { registerProjectRoutes } from './projects.js'
 import { verifyPassword } from './password.js'
-import { validExistingTenantSlug, validNewTenantSlug } from './tenantSlugPolicy.js'
+import { validExistingTenantSlug, validNewTenantSlug, tenantSlugFromHostname, tenantMayServeWorkspace } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
+import { registerUatConfigurationPromotionRoutes } from './uatConfigurationPromotionRoutes.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
 import {
@@ -73,6 +77,7 @@ const scryptAsync = promisify(scrypt)
 const app = new Hono()
 const port = Number(process.env.PORT || 3001)
 const backgroundWorkersEnabled = !['0', 'false', 'off', 'no'].includes(String(process.env.BACKGROUND_WORKERS_ENABLED || 'true').trim().toLowerCase())
+const qa26Preview=qa26StagingActive()
 const marketingUrl = deployment.marketingUrl || deployment.appUrl || `https://${deployment.rootDomain}`
 
 const reservedSlugs = new Set([
@@ -166,9 +171,52 @@ app.use('/api/*',async(c,next)=>{
   if(!decision.allowed)return c.json({error:decision.reason},decision.status)
   return next()
 })
+// QA sidecars fail closed outside the two authorised QA26 origins.
+// A spoofed browser Origin alone never authorises another tenant's session.
+app.use('/api/v1/*', async(c,next)=>{
+  if(!qa26Preview)return next()
+  const origin=c.req.header('origin')
+  const environment=deployment.runtimeEnvironment
+  const path=c.req.path
+  if(!qa26CanServe(origin,environment,path))
+    return c.json({error:'QA26 candidate API only.'},403)
+  // The Live People service uses a separate long-lived bearer credential and
+  // independently validates the tenant/environment grant in its route handler.
+  if(path!=='/api/v1/internal/organisation/directory-snapshot'){
+    const session=await resolveSession(c)
+    if(session&&!qa26SessionMatchesOrigin(session.slug,origin,environment))
+      return c.json({error:'QA26 tenant session does not match the preview origin.'},403)
+  }
+  return next()
+})
+// Sandbox and isolated QA previews deny ALL RMM/agent HTTP APIs before routing.
+app.use('/api/v1/*', createSandboxRmmGuard(qa26Preview?'test':deployment.runtimeEnvironment))
 app.use('/api/v1/*', enforceWorkspacePermissions)
 
 app.get('/live', (c) => c.json({ status: 'ok', service: 'hi5central-api' }))
+
+// Caddy's wildcard workspace route asks the Live tenant authority before
+// serving a hostname. This works for newly committed signups without creating
+// a separate Caddy rule, tenant container, DNS record or manual reload.
+// No user or company details are returned; the gate only permits serving the UI.
+app.get('/internal/routing/tenant-host', async (c) => {
+  c.header('Cache-Control', 'no-store, max-age=0')
+  const slug = tenantSlugFromHostname(
+    c.req.header('x-hi5-tenant-host'),
+    deployment.rootDomain,
+    reservedSlugs,
+  )
+  if (!slug) return c.redirect(marketingUrl, 302)
+  // The Live authority's tenant lifecycle migration may lag Test/UAT.
+  // Use the canonical tenants table; never require optional lifecycle tables
+  // for the public workspace route to function after signup.
+  const result = await pool.query(
+    'SELECT status FROM tenants WHERE slug=$1 LIMIT 1', [slug],
+  )
+  if (!tenantMayServeWorkspace(result.rows[0])) return c.redirect(marketingUrl, 302)
+  return c.body(null, 204)
+})
+
 app.get('/health', async (c) => {
   try {
     await pool.query('SELECT 1')
@@ -732,6 +780,7 @@ registerCmdbRoutes(app)
 registerKnowledgeRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
+registerUatConfigurationPromotionRoutes(app)
 registerUserPreferenceRoutes(app)
 registerSecurityRoutes(app)
 registerMfaRoutes(app)
@@ -762,12 +811,20 @@ console.log('[API] Routes registered; checking PostgreSQL...')
 await pool.query('SELECT 1')
 console.log('[API] PostgreSQL ready; connecting to Redis...')
 await ensureRedisConnected()
-console.log('[API] Redis ready; initializing RMM agent broker...')
-await initializeAgentBroker()
-console.log('[API] RMM agent broker initialized; starting schedulers...')
-startLicensingRefreshScheduler()
-startReleaseFeedScheduler()
-if (backgroundWorkersEnabled) {
+const rmmRuntimeEnabled = !qa26Preview && liveRmmAccessAllowed(deployment.runtimeEnvironment)
+if (rmmRuntimeEnabled) {
+  console.log('[API] Redis ready; initializing RMM agent broker...')
+  await initializeAgentBroker()
+  console.log('[API] RMM agent broker initialized; starting schedulers...')
+} else {
+  console.log('[API] ITSM sandbox: Live RMM broker and agent services disabled')
+}
+if(!qa26Preview){
+  startLicensingRefreshScheduler()
+  startReleaseFeedScheduler()
+}
+if (backgroundWorkersEnabled && rmmRuntimeEnabled) {
+  // Directory and RMM operational sync jobs are Live/isolated-Dev only.
   startMicrosoftSyncScheduler()
   startRmmVulnerabilitySyncScheduler()
   startSoftwareVendorSyncScheduler()
@@ -775,16 +832,18 @@ if (backgroundWorkersEnabled) {
   startRmmNetworkDiscoveryScheduler()
   startRmmMacOuiScheduler()
 } else {
-  console.log('Background workers disabled for this Control Server instance')
+  console.log('Directory/RMM operational workers disabled for this Control Server instance')
 }
 console.log('[API] Starting HTTP listener...')
 const server = serve({ fetch: app.fetch, hostname: '0.0.0.0', port })
-attachRmmAgentWebSocket(server)
-attachRmmViewerWebSocket(server)
-attachRmmConnectWebSockets(server)
-attachRmmDeviceToolWebSocket(server)
+if (rmmRuntimeEnabled) {
+  attachRmmAgentWebSocket(server)
+  attachRmmViewerWebSocket(server)
+  attachRmmConnectWebSockets(server)
+  attachRmmDeviceToolWebSocket(server)
+}
 console.log(`Hi5Central API listening on port ${port}`)
-if (deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
+if (!qa26Preview && deployment.runtimeEnvironment === 'live' && process.env.TENANT_SANDBOX_BACKFILL_ENABLED === 'true') {
   void backfillCompletedTenantSandboxes().catch(error => {
     console.error('Tenant sandbox rollout backfill failed', {code:error.code || 'UNKNOWN'})
   })

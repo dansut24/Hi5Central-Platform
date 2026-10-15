@@ -8,6 +8,9 @@ import { pool } from '../src/db.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from '../src/tenantEnvironmentProvisioner.js'
 import { assignEnvironmentPermissions, permittedTenantEnvironment, environmentMembers } from '../src/tenantEnvironmentAccess.js'
 import { establishEnvironmentSession } from '../src/environmentDirectSession.js'
+import { registerOrganisationRoutes } from '../src/organisation.js'
+import { readCanonicalDirectory } from '../src/liveDirectoryBridge.js'
+import { recordItsmConfigurationChange, listItsmConfigurationChanges } from '../src/itsmConfigurationChanges.js'
 
 const { Client }=pg
 const testDb=process.env.TENANT_TEST_DATABASE_URL
@@ -36,13 +39,15 @@ try {
   assert.equal(ready.uat.status,'ready',JSON.stringify(ready))
   for(const [i,env] of ['test','uat'].entries()) {
     const db=clients[i]
-    const t=await db.query(`SELECT t.slug,ts.tenant_url,ts.configuration,ts.onboarding_step
+    const t=await db.query(`SELECT t.slug,ts.tenant_url,ts.configuration,ts.modules,ts.rmm_url,ts.onboarding_step
       FROM tenants t JOIN tenant_settings ts ON ts.tenant_id=t.id WHERE t.id=$1`,[tenantId])
     assert.equal(t.rowCount,1,'tenant must exist in '+env)
     assert.equal(t.rows[0].slug,slug+'-'+env)
     assert.equal(t.rows[0].tenant_url,'https://'+slug+'-'+env+'.hi5central.com')
     assert.equal(t.rows[0].onboarding_step,'complete')
     assert.equal(t.rows[0].configuration.company.displayName,'Source Branding')
+    assert.equal(t.rows[0].modules.rmm,false,'RMM must not exist as an ITSM sandbox module')
+    assert.equal(t.rows[0].rmm_url,null,'RMM URL must always point to Live, never UAT/Test')
     const member=await db.query('SELECT role,status FROM tenant_memberships WHERE tenant_id=$1 AND user_id=$2',[tenantId,userId])
     assert.equal(member.rows[0].role,'owner')
     assert.equal(member.rows[0].status,'active')
@@ -61,6 +66,14 @@ try {
   assert.deepEqual(statuses.rows.sort((a,b)=>a.environment.localeCompare(b.environment)),[
     {environment:'live',status:'ready'}, {environment:'test',status:'ready'}, {environment:'uat',status:'ready'},
   ])
+  // Live is the user directory authority. Reconciliation updates safe profile
+  // projections without copying passwords, MFA secrets or ITSM configuration.
+  await source.query('UPDATE users SET name=$2 WHERE id=$1',[userId,'Renamed Live Owner'])
+  await provisionTenantSandboxes(tenantId,cfg)
+  for(const db of clients){
+    const name=await db.query('SELECT name FROM users WHERE id=$1',[userId])
+    assert.equal(name.rows[0]?.name,'Renamed Live Owner')
+  }
   // Only trusted service calls may redeem a ticket, and a ticket can be
   // used once for exactly one environment. The URL fragment never reaches
   // the static site/server in an HTTP request.
@@ -192,7 +205,106 @@ try {
   }
   const repeatBackfill=await backfillCompletedTenantSandboxes({source})
   assert.equal(repeatBackfill.tenants,0,'reconciliation must not create duplicate work')
-  console.log('PASS: 2 environment DBs, separate tenant data, owner login identity, correct URLs, retry preservation, no unrelated tenant copy')
+  // Managed tenants get a Test workspace, never UAT and never RMM sandbox state.
+  const managedSlug='managed-'+suffix
+  const managedTenant=await source.query("INSERT INTO tenants(slug,company_name,status) VALUES($1,'Managed QA organisation','active') RETURNING id",[managedSlug])
+  const managedId=managedTenant.rows[0].id
+  await source.query("INSERT INTO tenant_memberships(tenant_id,user_id,role,status) VALUES($1,$2,'owner','active')",[managedId,userId])
+  await source.query(`INSERT INTO tenant_settings(tenant_id,modules,onboarding_step,onboarding_completed_at,onboarding_data,configuration,tenant_url,portal_url,rmm_url)
+    VALUES($1,'{"itsm":true,"rmm":true}'::jsonb,'complete',now(),'{}','{}',$2,$3,$4)`,
+    [managedId,'https://'+managedSlug+'.hi5central.com','https://'+managedSlug+'-portal.hi5central.com','https://'+managedSlug+'-rmm.hi5central.com'])
+  await source.query("INSERT INTO tenant_release_preferences(tenant_id,update_mode) VALUES($1,'hi5_managed') ON CONFLICT(tenant_id) DO UPDATE SET update_mode='hi5_managed'",[managedId])
+  const managed=await provisionTenantSandboxes(managedId,cfg)
+  assert.deepEqual(Object.keys(managed),['test'],'managed tenant must not provision UAT')
+  assert.equal(managed.test.status,'ready')
+  const liveManaged=await source.query('SELECT modules,rmm_url FROM tenant_settings WHERE tenant_id=$1',[managedId])
+  assert.equal(liveManaged.rows[0].modules.rmm,true,'Live RMM module must remain enabled')
+  assert(liveManaged.rows[0].rmm_url?.includes('-rmm.'))
+  const testManaged=await clients[0].query('SELECT modules,rmm_url FROM tenant_settings WHERE tenant_id=$1',[managedId])
+  assert.equal(testManaged.rows[0].modules.rmm,false)
+  assert.equal(testManaged.rows[0].rmm_url,null)
+  assert.equal((await clients[1].query('SELECT 1 FROM tenants WHERE id=$1',[managedId])).rowCount,0)
+  assert.equal(await permittedTenantEnvironment(managedId,userId,'uat'),false)
+  await assert.rejects(()=>assignEnvironmentPermissions(managedId,userId,{test:true,uat:true},userId,{sync:false}),/does not have a UAT/)
+  assert.equal((await environmentMembers(managedId)).find(x=>x.userId===userId).uat,false)
+  console.log('PASS: Custom Test+UAT, Managed Test only; shared identity projections, no sandbox RMM and Live RMM preserved')
+
+  // Full integration of the central Live-owned directory: real source tables,
+  // service credential validation, current environment grant and read-through.
+  const directoryApp=new Hono()
+  registerOrganisationRoutes(directoryApp)
+  await source.query(
+    `INSERT INTO organisation_people(tenant_id,external_key,user_id,name,email)
+     VALUES($1,$2,$3,$4,$5) ON CONFLICT (tenant_id,external_key)
+     DO UPDATE SET name=EXCLUDED.name,email=EXCLUDED.email`,
+    [tenantId,'USR-'+userId.slice(0,12).toUpperCase(),userId,'Renamed Live Owner',userEmail],
+  )
+  const directoryRequest=(requestedTenantId,requestedUserId,env,token=process.env.ENV_IDENTITY_SHARED_SECRET)=>
+    directoryApp.request('/api/v1/internal/organisation/directory-snapshot',{
+      method:'POST',
+      headers:{'content-type':'application/json','authorization':'Bearer '+token},
+      body:JSON.stringify({tenantId:requestedTenantId,userId:requestedUserId,environment:env}),
+    })
+  const anonymousDirectory=await directoryRequest(tenantId,userId,'uat','invalid-credential')
+  assert.equal(anonymousDirectory.status,401,'directory never returns people without service credential')
+  const forbiddenDirectory=await directoryRequest(unrelated.rows[0].id,userId,'uat')
+  assert.equal(forbiddenDirectory.status,403,'cross-tenant access must be rejected by Live')
+  const revokedDirectory=await directoryRequest(tenantId,memberId,'uat')
+  assert.equal(revokedDirectory.status,403,'revoked UAT grant must not read Live People')
+  const allowedDirectory=await directoryRequest(tenantId,userId,'uat')
+  assert.equal(allowedDirectory.status,200,'granted Custom UAT identity may read Live directory')
+  const allowedPayload=await allowedDirectory.json()
+  assert(allowedPayload.directory.people.some(x=>x.email===userEmail&&x.name==='Renamed Live Owner'))
+  const forwarded=await readCanonicalDirectory(tenantId,userId,{
+    environment:'uat',apiUrl:'https://identity.example.invalid',
+    secret:process.env.ENV_IDENTITY_SHARED_SECRET,
+    fetcher:async(url,options)=>directoryApp.request(new URL(url).pathname,{
+      method:options.method,headers:options.headers,body:options.body,
+    }),
+  })
+  assert.deepEqual(forwarded,allowedPayload.directory,'sandbox read-through must return the current Live directory')
+  console.log('PASS: Live-owned People read-through with real Postgres, active access and cross-tenant isolation')
+
+  // Exercise the audit schema itself against real, fully migrated Live/Test/UAT databases.
+  const previousConfig={sla:{targetHours:8},notifications:true}
+  const changedConfig={sla:{targetHours:6},notifications:true}
+  const recordedUat=await recordItsmConfigurationChange({
+    db:clients[1],tenantId,actorUserId:userId,environment:'uat',
+    before:previousConfig,after:changedConfig,
+  })
+  assert.equal(recordedUat.recorded,true)
+  const recordedAgain=await recordItsmConfigurationChange({
+    db:clients[1],tenantId,actorUserId:userId,environment:'uat',
+    before:changedConfig,after:changedConfig,
+  })
+  assert.equal(recordedAgain.recorded,false,'saving without changes must not generate another event')
+  assert.equal((await listItsmConfigurationChanges({
+    db:clients[1],tenantId,environment:'uat',
+  })).length,1)
+  assert.deepEqual(await listItsmConfigurationChanges({
+    db:clients[1],tenantId:managedId,environment:'uat',
+  }),[],'audit must not leak across tenants')
+  assert.equal((await recordItsmConfigurationChange({
+    db:clients[0],tenantId,actorUserId:userId,environment:'test',
+    before:previousConfig,after:changedConfig,
+  })).recorded,false,'Test intentionally has no config change ledger')
+  const recordedLive=await recordItsmConfigurationChange({
+    db:source,tenantId,actorUserId:userId,environment:'live',
+    before:previousConfig,after:changedConfig,
+  })
+  assert.equal(recordedLive.recorded,true)
+  assert.equal((await listItsmConfigurationChanges({
+    db:source,tenantId,environment:'live',
+  })).length,1)
+  const stored=await clients[1].query(
+    'SELECT before_sha256,after_sha256,changed_keys FROM itsm_configuration_change_events WHERE tenant_id=$1 AND environment=$2',
+    [tenantId,'uat'],
+  )
+  assert.deepEqual(stored.rows[0].changed_keys,['sla'])
+  assert.match(stored.rows[0].before_sha256,/^[a-f0-9]{64}$/)
+  assert.match(stored.rows[0].after_sha256,/^[a-f0-9]{64}$/)
+  console.log('PASS: migrated Live/UAT ledger, Test untracked, unchanged-write suppression and tenant isolation')
+
 }finally {
   for(const c of clients)await c.end().catch(()=>{})
   await source.end()

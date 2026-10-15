@@ -514,6 +514,7 @@ function RecordWorkspace({ route }) {
   const [requesterAssets, setRequesterAssets] = useState([])
   const [recordDevices, setRecordDevices] = useState([])
   const [rmmAccess, setRmmAccess] = useState({ checked: false, canView: false, canRemote: false })
+  const [remoteBusyDevice, setRemoteBusyDevice] = useState('')
   const [workflowAccess, setWorkflowAccess] = useState({ canManageTasks: false, userId: '', tenantRole: '' })
   const [workbenchMode, setWorkbenchMode] = useState(() => window.localStorage.getItem('hi5central-record-workbench-mode') === 'focus' ? 'focus' : 'workbench')
   const [inspectorCollapsed, setInspectorCollapsed] = useState(() => {
@@ -932,6 +933,37 @@ function RecordWorkspace({ route }) {
       ]
 
 
+  async function startRecordRemote(device) {
+    const id=String(device?.agentDeviceId||'')
+    if (deploymentConfig().runtimeEnvironment!=='live'||!rmmAccess.canRemote||!device?.agentOnline||!id||remoteBusyDevice) {
+      setError('Remote control is only available for authorised online devices in Live RMM.')
+      return
+    }
+    // Open synchronously on the technician's click to avoid popup blockers.
+    const viewerWindow=window.open('about:blank','_blank')
+    if (viewerWindow) viewerWindow.opener=null
+    setRemoteBusyDevice(id)
+    setError('')
+    try {
+      const payload=await apiJson('/api/v1/rmm/remote-sessions',{
+        method:'POST',
+        body:JSON.stringify({agentDeviceId:id,mode:'console',viewerClient:'browser'}),
+      })
+      const launch=new URL(String(payload.browserUrl||''))
+      const permittedUrl=new URL(rmmDeviceHref(device.rmmReference||device.reference||''))
+      if (launch.protocol!=='https:'||launch.origin!==permittedUrl.origin||
+          launch.pathname!=='/rmm-viewer/index.html')
+        throw new Error('RMM returned an unexpected remote-viewer destination.')
+      if (viewerWindow&&!viewerWindow.closed) viewerWindow.location.replace(launch.href)
+      else window.location.assign(launch.href)
+    }catch(error){
+      if(viewerWindow&&!viewerWindow.closed)viewerWindow.close()
+      setError(error.message||'Remote desktop could not be started.')
+    }finally{
+      setRemoteBusyDevice('')
+    }
+  }
+
   const renderInspector = (mobile = false) => {
     if (!mobile && !contextPinned && !inspectorDrawerOpen) return null
 
@@ -1020,7 +1052,7 @@ function RecordWorkspace({ route }) {
           {!contextPinned && !compactWorkbench ? <button type="button" className="record-lab-context-pin" onClick={() => { setWorkbenchMode('workbench'); setInspectorCollapsed(false); setInspectorDrawerOpen(false) }} title="Pin context beside activity"><Pin size={16} /><span>Pin</span></button> : null}
           <button type="button" className="record-lab-inspector-collapse" onClick={() => { setInspectorDrawerOpen(false); setInspectorCollapsed(true) }} title={!contextPinned ? 'Close record context' : 'Unpin context'} aria-label={!contextPinned ? 'Close record context' : 'Unpin record context'}>{!contextPinned ? <X size={17} /> : <PanelLeftClose size={17} />}</button>
         </div> : null}</header>
-        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
+        {contextView === 'home' ? <>{coreContext}<RecordLinkedDevices devices={managedDevices} canView={rmmAccess.canView} canRemote={rmmAccess.canRemote} getDeviceUrl={rmmDeviceHref} onStartRemote={startRecordRemote} remoteBusy={Boolean(remoteBusyDevice)} onShowAll={() => setContextView('assets')} />{contextMenu}</> : peekContent}
       </section>
     </aside>
   }

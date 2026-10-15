@@ -1,0 +1,9 @@
+# Shared Test/UAT pool runtime policy, candidate release only.
+# This policy applies to the existing Test and UAT control-server services.
+# Disable all background workers in ITSM sandbox runtimes. Live RMM and
+# the independent software qualification pipeline are intentionally unaffected.
+# No new service, volume, port, network or tenant is declared.
+services:
+  control-server:
+    environment:
+      BACKGROUND_WORKERS_ENABLED: "false"

@@ -1,0 +1,100 @@
+name: Reviewed UAT to Production Promotion
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/uatProductionPromotion.js'
+      - 'services/api/src/applicationReleaseExecutor.js'
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releaseReviewRange.js'
+      - 'services/api/src/applicationUpdates.js'
+      - 'services/api/test/release-review-range.mjs'
+      - '.github/scripts/generate-release-manifest.mjs'
+      - 'services/api/migrations/platform-admin/155_app_release_executor_heartbeat.sql'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/uat-production-promotion.mjs'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - 'apps/admin/src/features/admin/UatProductionPromotion.jsx'
+      - 'apps/admin/src/features/admin/UatProductionPromotion.css'
+      - '.github/workflows/uat-production-promotion.yml'
+      - 'deployment/qa26/managed-vps-app-release-executor.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  server-policy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check source and run fail-closed release gate regression
+        run: |
+          node --check src/uatProductionPromotion.js
+          node --check src/applicationReleaseExecutor.js
+          node --check src/releaseOperator.js
+          node --check src/releaseReviewRange.js
+          node --check src/applicationUpdates.js
+          node --check src/platformAdmin.js
+          node --test test/uat-production-promotion.mjs test/release-review-range.mjs
+      - run: npm ci --ignore-scripts
+      - run: npm run build:runtime
+  native-app-executor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate native operator source without Docker privileges
+        run: |
+          python -m py_compile deployment/qa26/managed-vps-app-release-executor.py
+          python deployment/qa26/managed-vps-app-release-executor.py --help
+  admin-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+  release-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Generate and verify complete baseline-aware release manifest
+        run: |
+          node .github/scripts/generate-release-manifest.mjs
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs'
+          import {execFileSync} from 'node:child_process'
+          const m=JSON.parse(readFileSync('services/api/release-manifest.json','utf8'))
+          const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+          const expected=execFileSync('git',['log','--max-count=512','--format=%H'],{encoding:'utf8'}).trim().split('\n')
+          const actual=m.commits.map(c=>c.sha)
+          if(!m.historyComplete||m.schemaVersion!==2||m.historyLimit!==512
+             ||m.sha!==head||JSON.stringify(actual)!==JSON.stringify(expected))
+            throw Error('Release manifest omits or reorders commits from the complete Git checkout')
+          const baseline='2199e58a540ff912cccdbd137fdfbb9e8d48f3c5'
+          const index=actual.indexOf(baseline)
+          if(index>=0) {
+            const range=Number(execFileSync('git',['rev-list','--count',baseline+'..HEAD'],{encoding:'utf8'}).trim())
+            if(index!==range)throw Error('QA26 Live-to-UAT history is incomplete')
+            console.log('PASS: QA26 verified Live-to-candidate changes='+range)
+          } else {
+            console.log('QA26 baseline outside inventory: review must fail closed; current Git inventory remains complete')
+          }
+          console.log('PASS: exact immutable manifest commit inventory='+actual.length)
+          JS
