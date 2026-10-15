@@ -12,6 +12,7 @@ on:
       - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
       - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
       - 'services/api/migrations/platform-admin/160_tenant_test_runtime_assignments.sql'
+      - 'services/api/migrations/platform-admin/161_release_rollout_blackouts.sql'
       - 'services/api/test/runtime-pool-policy.mjs'
       - 'services/api/test/runtime-route-manifest.mjs'
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
