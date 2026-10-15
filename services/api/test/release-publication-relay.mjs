@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {relayOneRequestedRelease,runRelayCycle,pinnedDevDatabaseUrl} from '../src/releasePublicationRelay.mjs'
+import {relayOneRequestedRelease,runRelayCycle,pinnedDevDatabaseUrl,verifyCentralPublicationCredential} from '../src/releasePublicationRelay.mjs'
 const sha='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'
 const token='x'.repeat(36),authority='http://hi5central-api:3001'
 const data={
@@ -111,4 +111,21 @@ test('Dual-network relay pins the Dev Postgres container, never the Live DB',()=
     'postgresql://postgres:5432/hi5central',
     'not-a-postgres-url',
   ])assert.throws(()=>pinnedDevDatabaseUrl(unsafe),/Dev PostgreSQL|Dev database/)
+})
+
+test('Nonpublishing central credential preflight accepts only HTTP 400',async()=>{
+  const seen=[]
+  const fetcher=async(url,opts)=>{
+    seen.push({url,method:opts.method,body:opts.body})
+    return {status:400}
+  }
+  assert.equal(await verifyCentralPublicationCredential({fetcher,
+    authority,token}),true)
+  assert.deepEqual(seen,[{url:authority+'/api/platform-operator/v1/releases/publish',
+    method:'POST',body:'{}'}])
+  for(const status of [201,202,204,401,403,404,502]){
+    await assert.rejects(()=>verifyCentralPublicationCredential({
+      authority,token,fetcher:async()=>({status}),
+    }),/preflight failed/)
+  }
 })
