@@ -144,6 +144,14 @@ async function persistVerified(job,ctx,result){
         "public_host=excluded.public_host,state='active',checked_at=now()",
       ].join(' '),[job.tenantId,gateway,poolId,job.buildSha,result.host])
       if(gateway==='uat'){
+        const stagedLivePool=await registerVerifiedPool(tx,'live',job.buildSha)
+        await tx.query([
+          'INSERT INTO tenant_runtime_update_offers',
+          '(tenant_id,environment,pool_id,build_sha,update_mode,state)',
+          "SELECT $1,'live',$2,$3,'admin_controlled','offered'",
+          'WHERE NOT EXISTS (SELECT 1 FROM tenant_runtime_update_offers',
+          "WHERE tenant_id=$1 AND environment='live' AND build_sha=$3)",
+        ].join(' '),[job.tenantId,stagedLivePool,job.buildSha])
         await tx.query([
           'INSERT INTO tenant_runtime_update_offers',
           '(tenant_id,environment,pool_id,build_sha,update_mode,state)',
@@ -212,6 +220,17 @@ async function step(){
       const ctx=await guards(job)
       activatedSlug=ctx.slug
       await gate.assertFencedLease()
+      if(gateway==='uat'){
+        // Pre-stage the immutable Production pair without altering any tenant route.
+        // Customer approval must see a verified candidate Live pool.
+        const staged=await shell('node',[
+          'deployment/qa26/tenant-release-host-executor.mjs',
+          'live',ctx.slug,job.buildSha,'--stage',
+        ])
+        const poolProof=JSON.parse(staged.trim().split('\n').at(-1))
+        if(poolProof.status!=='pool_verified'||poolProof.buildSha!==job.buildSha)
+          throw Error('Official immutable Production candidate could not be pre-staged.')
+      }
       const output=await shell('node',[
         'deployment/qa26/tenant-release-host-executor.mjs',
         gateway,ctx.slug,job.buildSha,'--apply',
