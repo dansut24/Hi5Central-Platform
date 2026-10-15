@@ -114,9 +114,12 @@ function finish(job,outcome,extra={}){
   ].join('\n'))
   if(result!=='1')throw Error('Stale lease or failed durable result recording ('+result+').')
 }
-function rollback(filename){
-  if(!snapshot.test(filename))throw Error('Unsafe rollback backup file reference.')
-  command('sh',[resolve('deployment/qa26/qa-real-tenant-route-restore.sh'),filename],
+function rollback(filename,tenantHost){
+  if(!snapshot.test(filename)||!ACCEPTED.has([...ACCEPTED].find(([,host])=>host===tenantHost)?.[0]))
+    throw Error('Unsafe rollback snapshot or tenant hostname.')
+  // Never restore an earlier WHOLE-gateway snapshot here; another QA tenant
+  // may have shipped successfully since this tenant's original backup.
+  command('node',[resolve('deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs'),tenantHost,'--apply'],
     {timeout:60000})
 }
 async function processOnce(){
@@ -167,7 +170,7 @@ async function processOnce(){
   }catch(e){
     console.error('REAL_QA_JOB_FAILED',job.id,e.message)
     let recovered=false
-    if(backup){try{rollback(backup);recovered=true}catch(err){
+    if(backup){try{rollback(backup,ACCEPTED.get(job.slug));recovered=true}catch(err){
       console.error('ROUTE_ROLLBACK_FAILED',err.message)}}
     try{finish(job,recovered?'rolled_back':'failed',{reason:'host-execution-failed'})}
     catch(err){console.error('QUEUE_COMPLETION_FAILED',err.message)}
