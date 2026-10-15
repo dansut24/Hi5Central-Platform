@@ -13,4 +13,5 @@ COPY deployment/qa26/qa-real-tenant-route-restore.sh /operator/deployment/qa26/q
 RUN node --check deployment/qa26/qa-real-release-queue-worker.mjs \
  && node --check deployment/qa26/qa-real-tenant-canary-rollback.mjs \
  && chmod 0500 deployment/qa26/qa-real-tenant-route-restore.sh
-CMD ["node","deployment/qa26/qa-real-release-queue-worker.mjs","--loop"]
+ENTRYPOINT ["node"]
+CMD ["deployment/qa26/qa-real-release-queue-worker.mjs","--loop"]
