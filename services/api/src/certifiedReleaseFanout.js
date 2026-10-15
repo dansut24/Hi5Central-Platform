@@ -115,7 +115,7 @@ export async function fanoutCertifiedRelease(db,{
   })])
   if(!releases.rowCount)throw fail('A human-approved, checked and published official release is required.')
   const release=releases.rows[0]
-  const tenants=await db.query([
+  const tenantsSql=[
     'SELECT t.id,t.slug,t.status,p.update_mode AS mode,',
     'p.test_auto_sync,p.uat_auto_stage,p.live_auto_promote,',
     'p.live_delay_hours,p.maintenance_window,p.blackout_periods,',
@@ -124,8 +124,9 @@ export async function fanoutCertifiedRelease(db,{
     'JOIN tenant_settings ts ON ts.tenant_id=t.id',
     "WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL",
     "AND COALESCE((ts.modules->>'itsm')::boolean,false)=true",
+    "AND t.id > COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)",
     'ORDER BY t.id LIMIT $1',
-  ].join(' '),[limit])
+  ].join(' ')
   // Automatic quality signoff uses only DESIGNATED real customer Test jobs
   // with a host-verified event, a complete soak and separate staff certification.
   const canaries=await db.query([
@@ -153,7 +154,11 @@ export async function fanoutCertifiedRelease(db,{
   const qa=await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])
   const gate=qa.rows[0]||null
   const report={releaseSha:sha,scanned:0,queued:0,alreadyQueued:0,blocked:0,reasons:[]}
-  for(const row of tenants.rows){
+  let tenantCursor=null
+  for(;;){
+    const tenants=await db.query(tenantsSql,[limit,tenantCursor])
+    if(!tenants.rows.length)break
+    for(const row of tenants.rows){
     report.scanned++
     const tenant={
       id:row.id,status:row.status,mode:row.mode,itsm:row.itsm,
@@ -189,6 +194,9 @@ export async function fanoutCertifiedRelease(db,{
     if(!activated.activated && activated.reason==='No queued rollout for this tenant/environment.')
       throw fail('New release job was not durably recorded.')
     report.queued++
+  }
+    tenantCursor=tenants.rows[tenants.rows.length-1].id
+    if(tenants.rows.length<limit)break
   }
   await db.query([
     'INSERT INTO platform_release_fanout_checkpoints',
