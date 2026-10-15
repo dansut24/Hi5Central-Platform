@@ -7,7 +7,7 @@
  */
 import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {prepareTenantCaddyRoute} from './tenantCaddyVersionRoutes.js'
+import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 
 const [environment,slug,sha,mode]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
