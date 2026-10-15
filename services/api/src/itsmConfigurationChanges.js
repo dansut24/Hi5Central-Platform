@@ -84,8 +84,8 @@ export async function recordItsmConfigurationChange({
   const valueChanges=changedPaths===null?[]:itsmAuditValueChanges(before,after,changedPaths)
   const result=await db.query(
     'INSERT INTO itsm_configuration_change_events '+
-    '(tenant_id,environment,entity_key,before_sha256,after_sha256,changed_keys,actor_user_id,value_changes) '+
-    'VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8::jsonb) RETURNING id,recorded_at',
+    '(tenant_id,environment,entity_key,before_sha256,after_sha256,changed_keys,actor_user_id,value_changes,recorded_at) '+
+    'VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8::jsonb,clock_timestamp()) RETURNING id,recorded_at',
     [tenantId,environment,changedPaths===null?'tenant_settings.itsm':'tenant_settings.itsm.delta-v2',beforeHash,afterHash,changedKeys,actorUserId,JSON.stringify(valueChanges)],
   )
   return { recorded:true,id:result.rows[0]?.id,changedKeys,valueChanges }
