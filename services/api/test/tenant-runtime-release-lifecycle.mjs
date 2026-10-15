@@ -28,20 +28,24 @@ const liveOffer={environment:'live',pool_id:livePool.id,build_sha:sha,state:'sch
 const approved={state:'uat_accepted',build_sha:sha,uat_accepted_at:'2026-10-10T01:00:00Z'}
 const managed={update_mode:'hi5_managed',live_auto_promote:true,live_delay_hours:24,
  maintenance_window:{timezone:'Europe/London',days:['mon'],start:'02:00',end:'05:00'}}
-const gate=(o=liveOffer,p=managed,u=approved,l=livePool,time=now)=>scheduledPromotionGate({
- offer:o,preference:p,uatOffer:u,pool:l,now:time})
+const platformTest={state:'passed',build_sha:sha,passed_at:'2026-10-10T01:00:00Z',
+ passed_canary_count:2}
+const gate=(o=liveOffer,p=managed,u=approved,l=livePool,time=now,quality=platformTest)=>scheduledPromotionGate({
+ offer:o,preference:p,uatOffer:u,testGate:quality,pool:l,now:time})
 assert.equal(gate().allowed,true)
-assert.equal(gate(liveOffer,managed,null).allowed,false)
+assert.equal(gate(liveOffer,managed,null).allowed,true,'Managed requires Test, never UAT')
+assert.equal(gate(liveOffer,managed,approved,livePool,now,null).allowed,false,'Missing platform Test signoff blocks Managed')
 assert.equal(gate(liveOffer,{...managed,live_auto_promote:false}).allowed,false)
 assert.equal(gate(liveOffer,{...managed,update_mode:'admin_controlled'}).allowed,false)
-assert.equal(gate(liveOffer,managed,{...approved,build_sha:'b'.repeat(40)}).allowed,false)
+assert.equal(gate(liveOffer,managed,{...approved,build_sha:'b'.repeat(40)}).allowed,true,'Managed ignores unrelated UAT offers')
+assert.equal(gate(liveOffer,managed,approved,livePool,now,{...platformTest,build_sha:'b'.repeat(40)}).allowed,false)
 assert.equal(gate({...liveOffer,maintenance_not_before:new Date(now.getTime()+60000)}).allowed,false)
 assert.equal(gate(liveOffer,{...managed,live_delay_hours:72}).allowed,false)
 assert.equal(gate(liveOffer,{...managed,maintenance_window:{...managed.maintenance_window,days:['tue']}}).allowed,false)
 const custom={...liveOffer,update_mode:'admin_controlled'}
-assert.equal(gate(custom,{update_mode:'admin_controlled'},approved).allowed,false)
+assert.equal(gate(custom,{update_mode:'admin_controlled',maintenance_window:managed.maintenance_window},approved).allowed,false)
 assert.equal(gate({...custom,promotion_approved_at:now,promotion_approved_by:'user-1'},{
- update_mode:'admin_controlled'},approved).allowed,true)
+ update_mode:'admin_controlled',maintenance_window:managed.maintenance_window},approved).allowed,true)
 
 const ids=['a1111111-1111-4111-8111-111111111111',
  'b2222222-2222-4222-8222-222222222222',
