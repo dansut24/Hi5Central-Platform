@@ -1,0 +1,16 @@
+# QA-only Docker-socket operator, deliberately NOT the shared Production worker.
+# Builds on the actual VPS; runs only allowlisted QA26 Test jobs and honours
+# the central PostgreSQL pause. Docker socket access is host-root-equivalent.
+FROM docker:27-cli
+RUN apk add --no-cache nodejs curl
+WORKDIR /operator
+COPY services/api/package.json /operator/services/api/package.json
+COPY services/api/src/runtimePoolPolicy.js /operator/services/api/src/runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js /operator/services/api/src/releaseRolloutPlanner.js
+COPY deployment/qa26/qa-real-release-queue-worker.mjs /operator/deployment/qa26/qa-real-release-queue-worker.mjs
+COPY deployment/qa26/qa-real-tenant-canary-rollback.mjs /operator/deployment/qa26/qa-real-tenant-canary-rollback.mjs
+COPY deployment/qa26/qa-real-tenant-route-restore.sh /operator/deployment/qa26/qa-real-tenant-route-restore.sh
+RUN node --check deployment/qa26/qa-real-release-queue-worker.mjs \
+ && node --check deployment/qa26/qa-real-tenant-canary-rollback.mjs \
+ && chmod 0500 deployment/qa26/qa-real-tenant-route-restore.sh
+CMD ["node","deployment/qa26/qa-real-release-queue-worker.mjs","--loop"]
