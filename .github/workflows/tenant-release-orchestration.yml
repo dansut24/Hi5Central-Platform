@@ -61,6 +61,12 @@ jobs:
             caddy:2.11.4-alpine caddy adapt \
               --config /etc/caddy/Caddyfile --adapter caddyfile > /tmp/h5c-qa-route-preview.json
           test -s /tmp/h5c-qa-route-preview.json
+          node test/generate-qa-caddy-fixture.mjs --trusted > /tmp/h5c-qa-route-preview.Caddyfile
+          docker run --rm --network none \
+            -v /tmp/h5c-qa-route-preview.Caddyfile:/etc/caddy/Caddyfile:ro \
+            caddy:2.11.4-alpine caddy adapt \
+              --config /etc/caddy/Caddyfile --adapter caddyfile > /tmp/h5c-qa-route-preview.json
+          test -s /tmp/h5c-qa-route-preview.json
           rm -f /tmp/h5c-qa-route-preview.Caddyfile /tmp/h5c-qa-route-preview.json
       - name: Live HTTP multi-tenant gateway switch and rollback (CI Docker only)
         run: node test/qa-caddy-tenant-http-smoke.mjs
