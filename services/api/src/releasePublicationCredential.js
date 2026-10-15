@@ -31,3 +31,12 @@ export function publicationBearerAuthorised(header,settings=process.env){
   }
   return authorised===1
 }
+
+/** Bound at the receiving Live authority, not merely trusted from the relay.
+ * A stolen QA publication token must never publish a different build.
+ */
+export function publicationShaAuthorised(buildSha,settings=process.env){
+  const expected=String(settings.RELEASE_PUBLICATION_ALLOWED_SHA||'')
+  return /^[a-f0-9]{40}$/.test(expected)
+    &&typeof buildSha==='string'&&buildSha===expected
+}
