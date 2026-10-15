@@ -1,0 +1,17 @@
+# Dedicated QA26 Managed Production rollout executor. Only named QA tenant,
+# one exact immutable SHA, and a fenced durable PostgreSQL lease.
+# Docker socket is privileged host access, only install on authorized VPS.
+FROM docker:27-cli
+RUN apk add --no-cache nodejs curl
+WORKDIR /operator
+COPY services/api/package.json /operator/services/api/package.json
+COPY services/api/src/runtimePoolPolicy.js /operator/services/api/src/runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js /operator/services/api/src/releaseRolloutPlanner.js
+COPY deployment/qa26/qa-real-managed-live-worker.mjs /operator/deployment/qa26/qa-real-managed-live-worker.mjs
+COPY deployment/qa26/qa-live-dual-source-managed.mjs /operator/deployment/qa26/qa-live-dual-source-managed.mjs
+COPY deployment/qa26/qa-live-dual-source-restore.mjs /operator/deployment/qa26/qa-live-dual-source-restore.mjs
+RUN node --check deployment/qa26/qa-real-managed-live-worker.mjs \
+ && node --check deployment/qa26/qa-live-dual-source-managed.mjs \
+ && node --check deployment/qa26/qa-live-dual-source-restore.mjs
+ENTRYPOINT ["node"]
+CMD ["deployment/qa26/qa-real-managed-live-worker.mjs","--loop"]
