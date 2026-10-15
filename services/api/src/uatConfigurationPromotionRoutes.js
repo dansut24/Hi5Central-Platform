@@ -127,12 +127,6 @@ export function registerUatConfigurationPromotionRoutes(app){
           events:uat.events,uatConfig:uat.uatConfig,liveConfig:live,priorPromotions:history,
         }).find(x=>x.eventId===body.eventId&&x.path===body.path)
         const updated=prepareSelectiveItsmPromotion({candidate,liveConfig:live})
-        const recorded=await db.query(
-          `INSERT INTO itsm_configuration_promotions
-            (tenant_id,uat_event_id,setting_path,before_value,after_value,approved_by)
-           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6) RETURNING id,applied_at`,
-          [auth.session.tenant_id,candidate.eventId,candidate.path,
-           JSON.stringify(candidate.before),JSON.stringify(candidate.after),auth.session.user_id])
         await db.query(
           `UPDATE tenant_settings SET
            configuration=jsonb_set(
@@ -145,6 +139,15 @@ export function registerUatConfigurationPromotionRoutes(app){
           db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
           environment:'live',before:live,after:updated.configuration,changedPaths:updated.changedPaths,
         })
+        // Promotion time is strictly after its own audit event; a later Live
+        // edit of this path can be detected precisely even across transactions.
+        const recorded=await db.query(
+          `INSERT INTO itsm_configuration_promotions
+            (tenant_id,uat_event_id,setting_path,before_value,after_value,approved_by,applied_at)
+           VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,clock_timestamp())
+           RETURNING id,applied_at`,
+          [auth.session.tenant_id,candidate.eventId,candidate.path,
+           JSON.stringify(candidate.before),JSON.stringify(candidate.after),auth.session.user_id])
         return {id:recorded.rows[0].id,status:'applied',path:candidate.path,
           before:candidate.before,after:candidate.after,appliedAt:recorded.rows[0].applied_at}
       })
