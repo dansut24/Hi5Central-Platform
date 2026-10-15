@@ -92,7 +92,38 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
       "SELECT count(*)::int AS n FROM tenant_release_rollout_jobs WHERE tenant_id=ANY($1::uuid[]) AND status='running'",
       [tenants.map(t=>t.id)])
     assert.equal(others.rows[0].n,3,'success of one tenant must not modify other tenant job states')
-    console.log('PASS: four isolated tenants; queued->scheduled->claimed; paused-by-default, idempotent, fenced, attested; next version ordered')
+    // Reuse the exact released SHA after Test passes to create the second
+    // tenant-specific wave. Managed has NO UAT job. Custom has NO automatic
+    // Live job until the tenant administrator approves the tested UAT build.
+    const passedTest={sha,state:'succeeded',completedAt:'2026-10-15T09:00:00Z'}
+    const nextWave=planReleaseCohort({tenants,release,now:start,
+      gates:{test:passedTest,productionWaveOpen:true}})
+    assert.deepEqual(nextWave.map(p=>p.stage),['live','uat','live','uat'])
+    const nextJobs=await tx(db=>enqueueReleasePlans(db,{plans:nextWave,releaseRef:'ci-release-1'}))
+    assert.equal(nextJobs.length,4)
+    assert(nextJobs.every(p=>p.state==='pending'))
+    const unapproved=planReleaseCohort({tenants,release,now:start,
+      gates:{test:passedTest,uat:{sha,state:'succeeded',completedAt:'2026-10-15T09:45:00Z'},
+        productionWaveOpen:true}})
+    assert.equal(unapproved.filter(p=>p.mode==='admin_controlled'&&p.stage==='live'&&p.status==='blocked').length,2)
+    const approvedTenants=tenants.filter(t=>t.mode==='admin_controlled').map(t=>({
+      ...t,uatAcceptance:{sha,approved:true,approvedBy:'qa-owner',approvedAt:'2026-10-15T09:50:00Z'},
+    }))
+    const approvedPlans=planReleaseCohort({tenants:approvedTenants,release,now:start,
+      gates:{test:passedTest,uat:{sha,state:'succeeded',completedAt:'2026-10-15T09:45:00Z'},
+        productionWaveOpen:true}})
+    assert(approvedPlans.every(p=>p.stage==='live'&&p.status==='scheduled'))
+    const customerLive=await tx(db=>enqueueReleasePlans(db,{plans:approvedPlans,releaseRef:'ci-release-1'}))
+    assert.equal(customerLive.length,2)
+    const total=await pool.query(
+      'SELECT environment,count(*)::int AS n FROM tenant_release_rollout_jobs WHERE tenant_id=ANY($1::uuid[]) AND build_sha=$2 GROUP BY environment ORDER BY environment',
+      [tenants.map(t=>t.id),sha])
+    assert.deepEqual(Object.fromEntries(total.rows.map(x=>[x.environment,x.n])),
+      {live:4,test:4,uat:2})
+    assert.equal((await pool.query(
+      "SELECT count(*)::int AS n FROM tenant_release_rollout_jobs j JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id WHERE j.tenant_id=ANY($1::uuid[]) AND p.update_mode='hi5_managed' AND j.environment='uat'",
+      [tenants.map(t=>t.id)])).rows[0].n,0)
+    console.log('PASS: four synthetic tenants flowed Dev release -> Test -> (Managed Live / Custom UAT) -> tenant-approved Custom Live without RMM or cross-tenant leakage')
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
