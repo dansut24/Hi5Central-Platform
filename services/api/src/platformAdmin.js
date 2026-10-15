@@ -729,7 +729,7 @@ export function registerPlatformAdminRoutes(app) {
   app.get('/api/platform/v1/releases/certifications',async c=>{
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
-    const [certified,checkpoints]=await Promise.all([
+    const [certified,checkpoints,published]=await Promise.all([
       pool.query([
         'SELECT c.build_sha,c.status,c.ci_run_url,c.approved_at,c.created_at,',
         'n.version_label,n.title',
@@ -738,8 +738,9 @@ export function registerPlatformAdminRoutes(app) {
         'ORDER BY c.created_at DESC LIMIT 80',
       ].join(' ')),
       pool.query('SELECT * FROM platform_release_fanout_checkpoints ORDER BY last_scan_at DESC LIMIT 80'),
+      pool.query('SELECT build_sha,version_label,title,published_at FROM hi5central_published_release_notes ORDER BY published_at DESC LIMIT 80'),
     ])
-    return c.json({certifications:certified.rows,fanout:checkpoints.rows})
+    return c.json({certifications:certified.rows,fanout:checkpoints.rows,published:published.rows})
   })
 
   app.post('/api/platform/v1/releases/certifications/approve',async c=>{
