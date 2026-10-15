@@ -13,6 +13,7 @@ on:
       - 'services/api/src/renderQaTenantCaddyRoutes.js'
       - 'services/api/src/qaGatewayHostHandoff.js'
       - 'services/api/test/qa-caddy-outer-handoff-smoke.mjs'
+      - 'services/api/test/qa-caddy-native-forwarded-host-smoke.mjs'
       - 'services/api/test/generate-qa-caddy-fixture.mjs'
       - 'services/api/test/qa-caddy-tenant-http-smoke.mjs'
       - 'services/api/src/tenantRoutePreviewOperator.js'
@@ -79,6 +80,7 @@ jobs:
         run: |
           node test/qa-caddy-tenant-http-smoke.mjs
           node test/qa-caddy-outer-handoff-smoke.mjs
+          node test/qa-caddy-native-forwarded-host-smoke.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
