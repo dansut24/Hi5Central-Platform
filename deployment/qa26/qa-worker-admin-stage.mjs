@@ -57,10 +57,21 @@ for(const item of entries){
  if(prior.Config.User)args.push('--user',prior.Config.User)
  if(prior.Config.WorkingDir)args.push('--workdir',prior.Config.WorkingDir)
  for(const env of prior.Config.Env||[]){
-   if(item.kind==='api'&&env.startsWith('BACKGROUND_WORKERS_ENABLED='))continue
+   if(item.kind==='api'&&(
+     env.startsWith('BACKGROUND_WORKERS_ENABLED=')
+     ||env.startsWith('RELEASE_OPERATOR_TOKEN=')
+     ||env.startsWith('RELEASE_OPERATOR_TOKEN_FILE=')))continue
    args.push('--env',env)
  }
- if(item.kind==='api')args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
+ if(item.kind==='api'){
+   args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
+   // Same read-only secret volume as the trusted host release publisher.
+   args.push('--env','RELEASE_OPERATOR_TOKEN_FILE=/config/operator.token')
+   if((prior.Mounts||[]).some(m=>m.Destination==='/config'))
+     throw Error('Conflicting API mount at operator secret path.')
+   args.push('--mount',
+     'type=volume,source=hi5central-release-operator-config,target=/config,readonly')
+ }
  for(const m of prior.Mounts||[]){
    if(!['volume','bind'].includes(m.Type))throw Error('Unexpected Admin baseline mount.')
    const source=m.Type==='volume'?m.Name:m.Source
@@ -74,6 +85,8 @@ await Promise.all(entries.map(e=>healthy(e.to)))
 const api=entries[0].to,web=entries[1].to
 if(get(api+':3001','/api/platform/v1/releases/worker-activity')!=='401')
  throw Error('Worker audit route must reject unauthenticated callers.')
+if(get(api+':3001','/api/platform/v1/releases/certifications')!=='401')
+ throw Error('Certification API must be protected for staff only.')
 if(get(web+':80','/healthz')!=='200')
  throw Error('Candidate Admin Centre frontend healthcheck failed.')
 const check=run(['exec',web,'sh','-c',
