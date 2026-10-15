@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {relayOneRequestedRelease,runRelayCycle,pinnedDevDatabaseUrl,verifyCentralPublicationCredential} from '../src/releasePublicationRelay.mjs'
 const sha='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'
-const token='x'.repeat(36),authority='http://hi5central-api:3001'
+const token='x'.repeat(64),authority='http://hi5central-api:3001'
 const data={
   build_sha:sha,version_label:'2026.10.15',title:'October 2026 Platform Update',
   summary:'Improvements to ITSM release and configuration management.',
