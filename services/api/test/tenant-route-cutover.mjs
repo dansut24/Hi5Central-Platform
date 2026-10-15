@@ -83,7 +83,7 @@ test('invalid or stale jobs, pools, tenants, and Managed UAT are denied',()=>{
   assert.throws(()=>plan(0,{candidate:{...row(0,next),build_sha:current}}),/must match/)
   assert.throws(()=>plan(0,{candidate:{...row(0,next),api_target:'public.example.com:443'}}),/internal/)
   assert.throws(()=>plan(0,{candidate:{...row(0,next),last_seen_at:'2026-10-15T11:00:00Z'}}),/stale/)
-  assert.throws(()=>plan(0,{mode:'hi5_managed',environment:'uat'}),/not entitled/)
+  assert.throws(()=>plan(0,{mode:'hi5_managed',environment:'uat',job:{...lease(0),environment:'uat'}}),/not entitled/)
   assert.throws(()=>plan(0,{itsmEntitled:false}),/not entitled/)
   assert.throws(()=>plan(0,{activeRows:[...ids.map((_,j)=>row(j)),row(0)]}),/duplicate/)
   assert.throws(()=>plan(0,{slug:'another-tenant'}),/must match/)
