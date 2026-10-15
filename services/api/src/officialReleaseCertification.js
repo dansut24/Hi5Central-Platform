@@ -23,11 +23,17 @@ export async function verifyOfficialReleaseRun({sha,runUrl,token,fetcher=fetch}=
   if(!SHA.test(String(sha||'')))throw failed('Exact immutable SHA40 required.')
   const id=RUN_URL.exec(String(runUrl||''))?.[1]
   if(!id)throw failed('Use an official Hi5Central Actions run URL.')
-  if(!token||String(token).length<10)
-    throw failed('Configure the GitHub read-only release verification credential.')
+  // GitHub's public Actions run/job metadata is independently accessible
+  // without a credential for this public repository. Prefer a read-only token
+  // to avoid anonymous API rate limits, but never accept user-supplied proof.
+  // A private repository automatically fails closed if no token is configured.
   const headers={'Accept':'application/vnd.github+json',
-    'Authorization':'Bearer '+token,'X-GitHub-Api-Version':'2022-11-28',
+    'X-GitHub-Api-Version':'2022-11-28',
     'User-Agent':'Hi5Central-Release-Auditor'}
+  if(token){
+    if(String(token).length<10)throw failed('Invalid configured GitHub release credential.')
+    headers.Authorization='Bearer '+token
+  }
   const root='https://api.github.com/repos/dansut24/Hi5Central-Platform/actions/runs/'+id
   const run=await request(fetcher,root,headers)
   if(run.head_sha!==sha||run.name!==RELEASE_WORKFLOW||
