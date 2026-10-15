@@ -168,6 +168,15 @@ export function registerUatConfigurationPromotionRoutes(app){
              FROM itsm_configuration_promotions WHERE id=$1 AND tenant_id=$2 FOR UPDATE`,
           [id,auth.session.tenant_id])
         if(!previous.rowCount)throw Object.assign(new Error('Promotion not found.'),{status:404})
+        const since=await db.query(
+          `SELECT 1 FROM itsm_configuration_change_events
+            WHERE tenant_id=$1 AND environment='live' AND recorded_at > (
+              SELECT applied_at FROM itsm_configuration_promotions WHERE id=$2 AND tenant_id=$1
+            ) AND $3=ANY(changed_keys)
+            LIMIT 1`,
+          [auth.session.tenant_id,id,previous.rows[0].setting_path])
+        if(since.rowCount)
+          throw Object.assign(new Error('This setting was edited in Production after promotion. Review it before reverting.'),{status:409})
         const updated=prepareSelectiveItsmRevert({promotion:previous.rows[0],liveConfig:live})
         await db.query(
           `UPDATE tenant_settings SET
