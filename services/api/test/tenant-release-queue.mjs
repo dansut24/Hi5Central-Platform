@@ -57,6 +57,15 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
       assert.equal(first.activated,true)
       assert.equal((await tx(db=>activateNextPendingRollout(db,{tenantId:tenant.id,environment:'test'}))).activated,false)
     }
+    // A host verification alone cannot mark platform Test as customer-ready;
+    // SQL requires human signoff, at least two canary results, and evidence.
+    await assert.rejects(pool.query([
+      'INSERT INTO platform_release_test_qa_gates',
+      '(build_sha,state,passed_canary_count,passed_at)',
+      "VALUES($1,'passed',1,now())",
+    ].join(' '),[sha]),/constraint/)
+    assert.equal((await pool.query(
+      'SELECT count(*)::int AS n FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])).rows[0].n,0)
     const paused=await tx(db=>claimDueRollouts(db,{now:due}))
     assert.equal(paused.paused,true,'global default must block all workers')
     assert.equal(paused.claimed.length,0)
