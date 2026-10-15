@@ -8,7 +8,7 @@
 
 - Dev PostgreSQL is `hi5central-dev-postgres-1:5432/hi5central` on Docker network `hi5central-dev_hi5internal`. Existing Dev application role `hi5central` is superuser; **do not share it with the relay**.
 - Dedicated DB role `hi5_release_publisher` has `NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`, a three-connection cap, `SELECT` on necessary columns of only `public.hi5central_release_note_drafts`, and `UPDATE` only on `status` and `published_at`. No INSERT, DELETE, editing notes, access to other tenant tables or Live DB.
-- Central publication-only bearer is entirely separate from `RELEASE_OPERATOR_TOKEN`. The Live API stores only `RELEASE_PUBLICATION_TOKEN_SHA256` (lowercase hex SHA-256 digest), with optional `RELEASE_PUBLICATION_TOKEN_SHA256_NEXT` for a planned rotation. The bearer works **only** at `POST /api/platform-operator/v1/releases/publish`. All deployment, Admin, certification and scheduling routes remain on their existing independent authorisation paths.
+- Central publication-only bearer is entirely separate from `RELEASE_OPERATOR_TOKEN`. The Live API stores only `RELEASE_PUBLICATION_TOKEN_SHA256` (lowercase hex SHA-256 digest), with optional `RELEASE_PUBLICATION_TOKEN_SHA256_NEXT` for a planned rotation. The bearer works **only** at `POST /api/platform-operator/v1/releases/publish` **and only for the exact central-side `RELEASE_PUBLICATION_ALLOWED_SHA`**. All deployment, Admin, certification and scheduling routes remain on their existing independent authorisation paths.
 - No central API publishing is possible until the **reviewed code change** in `services/api/src/releaseOperator.js` and its new `releasePublicationCredential.js` helper are deployed. Do not inject the new environment hash into the old Live API image and presume it supports this protocol.
 - The one-off relay is pinned to one Dev SHA, requires real staff-submitted `publication_requested`, compares central publication/readback content, then acknowledges exactly the matching Dev row. Global rollout remains paused.
 
@@ -50,9 +50,10 @@ Build and deploy the targeted new API code with the publication credential guard
 
 ```dotenv
 RELEASE_PUBLICATION_TOKEN_SHA256=<hash printed by the administrator script>
+RELEASE_PUBLICATION_ALLOWED_SHA=9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
 ```
 
-**The value above is a placeholder**, not a credential. Never include the actual bearer in any container environment variable, ticket or GitHub commit. The existing `RELEASE_OPERATOR_TOKEN` is unchanged and remains unavailable to the relay. Verify that unauthenticated publication returns HTTP 401 and that the old deployment operator token does not authorise the publication endpoint. With the relay's new token, the nonpublishing `POST {}` preflight must return HTTP 400. Deploying the entire draft PR's API image over shared Live is **not approved**: isolate the reviewed authentication change, preserve existing Live routes and be able to roll back.
+**The hash line above contains a placeholder**, not a bearer credential. Never include the actual bearer in any container environment variable, ticket or GitHub commit. The existing `RELEASE_OPERATOR_TOKEN` is unchanged and remains unavailable to the relay. Verify that unauthenticated publication returns HTTP 401 and that the old deployment operator token does not authorise the publication endpoint. With the relay's new token, the nonpublishing `POST {}` preflight must return HTTP 400. Deploying the entire draft PR's API image over shared Live is **not approved**: isolate the reviewed authentication change, preserve existing Live routes and be able to roll back.
 
 ## Gate E — secret metadata and Docker isolation
 
