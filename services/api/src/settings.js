@@ -2,7 +2,7 @@ import { hasPermission } from './access.js'
 import { registerAccessRoutes } from './accessRoutes.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { tracksItsmConfiguration } from './tenantEnvironmentPolicy.js'
-import { recordItsmConfigurationChange, listItsmConfigurationChanges } from './itsmConfigurationChanges.js'
+import { recordItsmConfigurationChange, listItsmConfigurationChanges, applyItsmSettingsEdits } from './itsmConfigurationChanges.js'
 import { pool, withTransaction } from './db.js'
 import { registerKnowledgeRoutes } from './knowledge.js'
 import { registerLiveChatOperationsRoutes } from './liveChatOperations.js'
@@ -91,19 +91,37 @@ export function registerSettingsRoutes(app) {
     let body
     try { body = await c.req.json() } catch { return c.json({ error: 'A valid JSON request body is required.' }, 400) }
     let data = body?.data
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return c.json({ error: 'Settings data must be an object.' }, 400)
-    if (JSON.stringify(data).length > 40_000) return c.json({ error: 'Settings data is too large.' }, 413)
+    const itsmEdits=area==='itsm'?body?.edits:null
+    if(area==='itsm'){
+      // Legacy whole-area saves materialise every frontend default and create
+      // false-positive audit records. Force a fresh client to use leaf patches.
+      if(!Array.isArray(itsmEdits))
+        return c.json({error:'Refresh the Settings page before saving ITSM changes.'},409)
+      if(itsmEdits.length>100)
+        return c.json({error:'Too many ITSM changes in one save.'},400)
+      if(JSON.stringify(itsmEdits).length>40_000)
+        return c.json({error:'ITSM settings changes are too large.'},413)
+    }else{
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return c.json({ error: 'Settings data must be an object.' }, 400)
+      if (JSON.stringify(data).length > 40_000) return c.json({ error: 'Settings data is too large.' }, 413)
+    }
 
     await withTransaction(async (client) => {
       let newlyEnforcedMfa = false
       let previousSecurity = null
       let previousItsm = null
-      if (tracksItsmConfiguration(deployment.runtimeEnvironment,area)) {
+      let changedPaths = null
+      if (area === 'itsm') {
         const currentResult = await client.query(
           'SELECT onboarding_data,configuration FROM tenant_settings WHERE tenant_id=$1 FOR UPDATE',
           [auth.session.tenant_id],
         )
         previousItsm = asObject(effectiveConfiguration(currentResult.rows[0] || {}).itsm)
+        // Server applies edits only against the persisted row under lock.
+        // Newly displayed UI defaults do not become dirty tenant settings.
+        const patched=applyItsmSettingsEdits(previousItsm,itsmEdits)
+        data=patched.configuration
+        changedPaths=patched.changedPaths
       }
       if (area === 'security') {
         const currentResult = await client.query(
@@ -116,17 +134,20 @@ export function registerSettingsRoutes(app) {
         newlyEnforcedMfa = normalised.newlyEnforced
       }
 
-      await client.query(
-        `UPDATE tenant_settings
-         SET configuration=jsonb_set(CASE WHEN configuration='{}'::jsonb THEN COALESCE(onboarding_data,'{}'::jsonb) ELSE configuration END,ARRAY[$2::text],$3::jsonb,true),updated_at=now()
-         WHERE tenant_id=$1`,
-        [auth.session.tenant_id, area, JSON.stringify(data)],
-      )
+      if (area!=='itsm'||changedPaths.length>0) {
+        await client.query(
+          `UPDATE tenant_settings
+           SET configuration=jsonb_set(CASE WHEN configuration='{}'::jsonb THEN COALESCE(onboarding_data,'{}'::jsonb) ELSE configuration END,ARRAY[$2::text],$3::jsonb,true),updated_at=now()
+           WHERE tenant_id=$1`,
+          [auth.session.tenant_id, area, JSON.stringify(data)],
+        )
+      }
 
-      if (previousItsm !== null) {
+      if (area==='itsm'&&changedPaths.length>0
+          &&tracksItsmConfiguration(deployment.runtimeEnvironment,area)) {
         await recordItsmConfigurationChange({
           db:client,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
-          environment:deployment.runtimeEnvironment,before:previousItsm,after:data,
+          environment:deployment.runtimeEnvironment,before:previousItsm,after:data,changedPaths,
         })
       }
 
