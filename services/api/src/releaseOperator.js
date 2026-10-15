@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
@@ -12,6 +13,15 @@ import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
 
 function configuredToken() {
+  // Use the existing host operator's trusted Docker secret volume when
+  // available. Never log its contents, and fail closed if configured but
+  // missing/unreadable. Environment-variable fallback is for legacy hosts.
+  const file = String(process.env.RELEASE_OPERATOR_TOKEN_FILE || '').trim()
+  if (file) {
+    if (file !== '/config/operator.token') return ''
+    try { return String(readFileSync(file, 'utf8')).trim() }
+    catch { return '' }
+  }
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
 }
 
