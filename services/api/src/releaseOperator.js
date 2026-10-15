@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes } from './applicationUpdates.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised} from './releasePublicationCredential.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -27,6 +28,18 @@ function requireOperator(c) {
 }
 
 
+
+/** Publication-only capability. Existing deployment operator token is not
+ * accepted for editorial actions; absent config always fails closed.
+ */
+function requirePublicationOperator(c){
+  if(publicationTokenDigests().length===0)
+    return c.json({error:'Publication-only operator is not configured.',
+      code:'RELEASE_PUBLICATION_TOKEN_UNAVAILABLE'},503)
+  if(!publicationBearerAuthorised(c.req.header('authorization')))
+    return c.json({error:'Publication-only authentication required.'},401)
+  return null
+}
 
 function localWindowParts(timeZone, date = new Date()) {
   try {
@@ -217,7 +230,7 @@ export function registerReleaseOperatorRoutes(app) {
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
   app.post('/api/platform-operator/v1/releases/publish',async c=>{
-    const denied=requireOperator(c)
+    const denied=requirePublicationOperator(c)
     if(denied)return denied
     if(deployment.runtimeEnvironment!=='live')
       return c.json({error:'Only the central release authority may publish customer updates.'},403)
@@ -225,6 +238,8 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
+    if(!publicationShaAuthorised(notes.buildSha))
+      return c.json({error:'Release is outside this publication-only token scope.'},403)
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])
