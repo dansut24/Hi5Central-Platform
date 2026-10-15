@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto'
 import {maintenanceWindowStatus} from './runtimePoolPolicy.js'
-import {nextTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
+import {nextTenantMaintenanceWindow,activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 
 const SHA=/^[a-f0-9]{40}$/
 const ENV=new Set(['test','uat','live'])
@@ -21,7 +21,9 @@ export async function enqueueReleasePlans(db,{plans,releaseRef=''}) {
   for(const plan of plans){
     if(plan.status!=='scheduled'){results.push({tenantId:plan.tenantId,stage:plan.stage,state:'blocked',reason:plan.reason});continue}
     if(!UUID.test(String(plan.tenantId))||!SHA.test(String(plan.buildSha))
-      ||!ENV.has(plan.stage)||!goodDate(plan.scheduledAt))
+      ||!ENV.has(plan.stage)||!goodDate(plan.scheduledAt)
+      ||!Number.isInteger(plan.expectedDurationMinutes)
+      ||plan.expectedDurationMinutes<1||plan.expectedDurationMinutes>240)
       throw invalid('Invalid tenant, environment, immutable release or time.')
     const existing=await db.query(
       'SELECT id,status,scheduled_at FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND environment=$2 AND build_sha=$3',
@@ -33,10 +35,11 @@ export async function enqueueReleasePlans(db,{plans,releaseRef=''}) {
     }
     const created=await db.query([
       'INSERT INTO tenant_release_rollout_jobs',
-      '(tenant_id,environment,build_sha,status,scheduled_at,release_ref)',
-      "VALUES($1,$2,$3,'pending',$4,$5)",
+      '(tenant_id,environment,build_sha,status,scheduled_at,release_ref,expected_duration_minutes)',
+      "VALUES($1,$2,$3,'pending',$4,$5,$6)",
       'ON CONFLICT (tenant_id,environment,build_sha) DO NOTHING RETURNING id',
-    ].join(' '),[plan.tenantId,plan.stage,plan.buildSha,plan.scheduledAt,String(releaseRef).slice(0,200)])
+    ].join(' '),[plan.tenantId,plan.stage,plan.buildSha,plan.scheduledAt,
+      String(releaseRef).slice(0,200),plan.expectedDurationMinutes])
     const row=created.rows[0]||(await db.query(
       'SELECT id FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND environment=$2 AND build_sha=$3',
       [plan.tenantId,plan.stage,plan.buildSha])).rows[0]
@@ -92,7 +95,8 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     return {claimed:[],paused:true,reason:control.rows[0]?.reason||'No explicit rollout enablement.'}
   const queued=await db.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,j.scheduled_at,j.attempt_count,j.max_attempts,',
-    'p.maintenance_window,t.status AS tenant_status,p.update_mode',
+    'j.expected_duration_minutes,p.maintenance_window,p.blackout_periods,',
+    't.status AS tenant_status,p.update_mode',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
     'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
@@ -113,8 +117,11 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
       && typeof row.maintenance_window.timezone==='string'
       && Array.isArray(row.maintenance_window.days)
       && row.maintenance_window.days.length>0
-    const window=configured?maintenanceWindowStatus(row.maintenance_window,at)
-      :{allowed:false,reason:'Explicit tenant maintenance window is missing.'}
+    const window=configured?activeTenantMaintenanceWindow({
+      policy:row.maintenance_window,now:at,
+      durationMinutes:row.expected_duration_minutes,
+      blackouts:row.blackout_periods,
+    }):{allowed:false,reason:'Explicit tenant maintenance window is missing.'}
     if(row.tenant_status!=='active'||!allowedEnvironment||!window.allowed){
       const reason=row.tenant_status!=='active'
         ?'Tenant is not active.'
@@ -124,7 +131,9 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
       // Ineligible/missing policies retry only after a day and never deploy.
       const reschedule=configured&&row.tenant_status==='active'&&allowedEnvironment
         ?nextTenantMaintenanceWindow({policy:row.maintenance_window,
-            now:at,notBefore:new Date(at.getTime()+60000),durationMinutes:15})
+            now:at,notBefore:new Date(at.getTime()+60000),
+            durationMinutes:row.expected_duration_minutes,
+            blackouts:row.blackout_periods})
         :{ok:false}
       const next=reschedule.ok?new Date(reschedule.scheduledAt)
         :new Date(at.getTime()+86400000)
