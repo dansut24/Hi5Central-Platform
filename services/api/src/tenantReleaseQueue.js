@@ -84,9 +84,9 @@ export async function activateNextPendingRollout(db,{tenantId,environment}){
  * live window, tenant scope, and host proof must be rechecked before a route
  * switch. Default global pause protects environments until full E2E tests pass.
  */
-export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120}={}){
+export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null}={}){
   const at=goodDate(now)
-  if(!at||!Number.isInteger(limit)||limit<1||limit>50
+  if(!at||(environment!==null&&!ENV.has(environment))||!Number.isInteger(limit)||limit<1||limit>50
     ||!Number.isInteger(leaseSeconds)||leaseSeconds<30||leaseSeconds>600)
     throw invalid('Invalid worker clock, lease or batch size.')
   // Serialize queue claim transactions for shared gateways across different
@@ -103,19 +103,21 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     't.status AS tenant_status,p.update_mode',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
+    'JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha AND c.status=\'approved\'',
     'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
     "WHERE ((j.status IN ('scheduled','deferred') AND j.scheduled_at<=$1)",
     "OR (j.status='running' AND j.lease_expires_at<=$1))",
     'AND j.attempt_count<j.max_attempts',
+    'AND ($3::text IS NULL OR j.environment=$3)'
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
-  ].join(' '),[at,limit])
+  ].join(' '),[at,limit,environment])
   const claimed=[],deferred=[]
   // UAT and Live each currently share one Caddy gateway. Do not issue a
   // second running job for either resource until its first cutover completes.
   // The unique partial DB index also rejects any direct SQL worker bypass.
   const inUse=await db.query(
-    "SELECT DISTINCT environment FROM tenant_release_rollout_jobs WHERE status='running' AND environment IN ('uat','live')")
+    "SELECT DISTINCT environment FROM tenant_release_rollout_jobs WHERE status='running' AND lease_expires_at>$1 AND environment IN ('uat','live')",[at])
   const busyGateways=new Set(inUse.rows.map(x=>x.environment))
   for(const row of queued.rows){
     if(['uat','live'].includes(row.environment)&&busyGateways.has(row.environment))
