@@ -9,7 +9,7 @@ import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
 
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
-if(process.argv.some(x=>!['--once','--preflight'].includes(x)))
+if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
   throw Error('Supported arguments: --once or --preflight')
 const dbUrl=process.env.DATABASE_URL
 if(!dbUrl||!/^postgres(?:ql)?:\/\//.test(dbUrl))
