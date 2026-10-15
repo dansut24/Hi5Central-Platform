@@ -90,6 +90,10 @@ try{
   assert.throws(()=>validateQaHandoffCoverage(edgeFragment.replace(
     'header_up X-Hi5-Tenant-Host test.hi5central.com','header_down X-Hi5-Tenant-Host test.hi5central.com'
   ),'test',{upstream:inner+':80'}),/untrusted/)
+  // Validate the exact outer and inner gateway configs independently.
+  for(const file of ['edge.Caddyfile','inner.Caddyfile','inner-next.Caddyfile'])
+    docker('run','--rm','--network','none','-v',dir+':/etc/caddy:ro',
+      'caddy:2.11.4-alpine','caddy','adapt','--config','/etc/caddy/'+file)
   docker('network','create',network)
   for(const [pool,version] of [[poolOld,'old'],[poolNew,'new']]){
     for(const [role,port] of [['api',3001],['web',80]]){
@@ -101,11 +105,11 @@ try{
       containers.push(name)
     }
   }
-  docker('run','-d','--rm','--network',network,'--name',inner,
+  docker('run','-d','--network',network,'--name',inner,
     '-v',dir+':/etc/caddy:ro',
     'caddy:2.11.4-alpine','caddy','run','--config','/etc/caddy/inner.Caddyfile')
   containers.push(inner)
-  docker('run','-d','--rm','--network',network,'--name',edge,
+  docker('run','-d','--network',network,'--name',edge,
     '-p','127.0.0.1::80','-v',dir+':/etc/caddy:ro',
     'caddy:2.11.4-alpine','caddy','run','--config','/etc/caddy/edge.Caddyfile')
   containers.push(edge)
@@ -129,6 +133,16 @@ try{
   docker('exec',inner,'caddy','reload','--config','/etc/caddy/inner.Caddyfile')
   for(const slug of slugs)await expect(port,slug+'-test.hi5central.com','old')
   console.log('PASS: outer+inner Caddy HTTP, 4 tenant hosts, 1 upgraded, 3 unchanged, forged headers blocked, rollback restored.')
+}catch(error){
+  for(const name of [inner,edge]){
+    try{
+      const state=docker('inspect','-f','{{.State.Status}}',name)
+      console.error('QA_GATEWAY_FAILURE',name,state)
+      const logs=execFileSync('docker',['logs',name],{encoding:'utf8'})
+      console.error(logs.slice(-5000))
+    }catch{}
+  }
+  throw error
 }finally{
   for(const name of containers.reverse())try{docker('rm','-f',name)}catch{}
   try{docker('network','rm',network)}catch{}
