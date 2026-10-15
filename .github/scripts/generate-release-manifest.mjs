@@ -7,9 +7,14 @@ import { dirname } from 'node:path'
 function git(args) {
   return execFileSync('git',args,{encoding:'utf8',maxBuffer:16*1024*1024}).trim()
 }
+// A shallow checkout can masquerade as a complete review manifest.
+if (git(['rev-parse','--is-shallow-repository']) !== 'false') {
+  throw new Error('A complete Git checkout is required for release approval history.')
+}
+const MAX_REVIEW_HISTORY=512
 const sha=git(['rev-parse','HEAD'])
 const committedAt=git(['show','-s','--format=%cI','HEAD'])
-const commits=git(['log','-100','--format=%H%x09%cI%x09%s'])
+const commits=git(['log','-'+MAX_REVIEW_HISTORY,'--format=%H%x09%cI%x09%s'])
   .split('\n').filter(Boolean).map(line=>{
     const [id,date,...rest]=line.split('\t')
     const subject=rest.join('\t').trim().slice(0,240)
@@ -32,13 +37,18 @@ const commits=git(['log','-100','--format=%H%x09%cI%x09%s'])
     return {sha:id,date,subject,kind,components,files,migrations}
   })
 const manifest={
-  schemaVersion:1,
+  schemaVersion:2,
+  historyComplete:true,
+  historyLimit:MAX_REVIEW_HISTORY,
+  historyTruncated:git(['rev-list','--max-count='+String(MAX_REVIEW_HISTORY+1),'HEAD']).split('\n').length>MAX_REVIEW_HISTORY,
   version:sha.slice(0,12),
   releaseName:committedAt.slice(0,10).replaceAll('-','.')+'+'+sha.slice(0,8),
   sha,
   builtAt:committedAt,
   releaseChannel:'preview',
-  commits:commits.filter(c=>c.files.length),
+  // Preserve even empty/merge commits: every revision between Live and UAT
+  // must be represented, not merely revisions that changed ordinary files.
+  commits,
 }
 for(const filename of ['services/api/release-manifest.json','apps/itsm/public/release-manifest.json']){
   mkdirSync(dirname(filename),{recursive:true})
