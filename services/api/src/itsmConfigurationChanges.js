@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { tracksItsmConfiguration } from './tenantEnvironmentPolicy.js'
+import { itsmAuditValueChanges } from './itsmAuditValueDisplay.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -78,13 +79,16 @@ export async function recordItsmConfigurationChange({
   const beforeHash=itsmConfigurationHash(before),afterHash=itsmConfigurationHash(after)
   if (beforeHash===afterHash) return { recorded:false }
   const changedKeys=changedPaths===null?itsmChangedKeys(before,after):changedPaths
+  // Only delta-v2 leaf edits are eligible. Legacy snapshot comparisons
+  // cannot safely identify actual edited values.
+  const valueChanges=changedPaths===null?[]:itsmAuditValueChanges(before,after,changedPaths)
   const result=await db.query(
     'INSERT INTO itsm_configuration_change_events '+
-    '(tenant_id,environment,entity_key,before_sha256,after_sha256,changed_keys,actor_user_id) '+
-    'VALUES ($1,$2,$3,$4,$5,$6::text[],$7) RETURNING id,recorded_at',
-    [tenantId,environment,changedPaths===null?'tenant_settings.itsm':'tenant_settings.itsm.delta-v2',beforeHash,afterHash,changedKeys,actorUserId],
+    '(tenant_id,environment,entity_key,before_sha256,after_sha256,changed_keys,actor_user_id,value_changes) '+
+    'VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8::jsonb) RETURNING id,recorded_at',
+    [tenantId,environment,changedPaths===null?'tenant_settings.itsm':'tenant_settings.itsm.delta-v2',beforeHash,afterHash,changedKeys,actorUserId,JSON.stringify(valueChanges)],
   )
-  return { recorded:true,id:result.rows[0]?.id,changedKeys }
+  return { recorded:true,id:result.rows[0]?.id,changedKeys,valueChanges }
 }
 
 export async function listItsmConfigurationChanges({
@@ -95,6 +99,7 @@ export async function listItsmConfigurationChanges({
   const result=await db.query(
     'SELECT id,environment,entity_key AS "entityKey",before_sha256 AS "beforeHash",'+
     'after_sha256 AS "afterHash",changed_keys AS "changedKeys",'+
+    'value_changes AS "valueChanges",'+
     'actor_user_id AS "actorUserId",recorded_at AS "recordedAt" '+
     'FROM itsm_configuration_change_events '+
     'WHERE tenant_id=$1 AND environment=$2 '+
