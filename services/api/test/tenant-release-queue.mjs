@@ -132,7 +132,25 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     assert.equal((await pool.query(
       "SELECT count(*)::int AS n FROM tenant_release_rollout_jobs j JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id WHERE j.tenant_id=ANY($1::uuid[]) AND p.update_mode='hi5_managed' AND j.environment='uat'",
       [tenants.map(t=>t.id)])).rows[0].n,0)
-    console.log('PASS: four synthetic tenants flowed Dev release -> Test -> (Managed Live / Custom UAT) -> tenant-approved Custom Live without RMM or cross-tenant leakage')
+    // A newly scheduled follow-up may not be claimed if the same tenant's
+    // blackout begins during the expected deployment duration. It is deferred
+    // to the next permitted maintenance window rather than retried in a loop.
+    const blackoutTenant=tenants.find(t=>t.id===job.tenantId)
+    const blackout=[{startsAt:'2026-10-15T11:42:00Z',endsAt:'2026-10-15T12:00:00Z'}]
+    await pool.query(
+      'UPDATE tenant_release_preferences SET blackout_periods=$2::jsonb WHERE tenant_id=$1',
+      [blackoutTenant.id,JSON.stringify(blackout)])
+    const delayed=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
+    assert.equal(delayed.claimed.length,0)
+    assert.equal(delayed.deferred.length,1)
+    assert.match(delayed.deferred[0].reason,/blackout/)
+    const backoff=await pool.query(
+      'SELECT status,scheduled_at,attempt_count FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2',
+      [blackoutTenant.id,shaNext])
+    assert.equal(backoff.rows[0].status,'deferred')
+    assert(backoff.rows[0].scheduled_at>due)
+    assert.equal(backoff.rows[0].attempt_count,0)
+    console.log('PASS: four synthetic tenants flowed Dev release -> Test -> (Managed Live / Custom UAT) -> tenant-approved Custom Live without RMM or cross-tenant leakage; blackout deferral preserved')
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
