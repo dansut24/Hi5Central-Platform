@@ -24,8 +24,8 @@ const CONFIG={
     source:'https://api.hi5central.com',backup:'hi5central_release_live_backups'},
 }
 if(!CONFIG[environment]||!SLUG.test(String(slug||''))||!SHA.test(String(sha||''))
-  ||!['--preflight','--apply'].includes(mode))
-  throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--apply>')
+  ||!['--preflight','--stage','--apply'].includes(mode))
+  throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--stage|--apply>')
 if(mode==='--apply'&&(process.env.H5C_RELEASE_LEASE_AUTH!=='worker-gateway-fenced'
   ||!/^[a-f0-9-]{36}$/.test(String(process.env.H5C_RELEASE_JOB_ID||''))))
   throw Error('A fenced, server-verified lease is required for host cutover.')
@@ -156,11 +156,14 @@ try{
       newSha:sha,sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
     process.exit(0)
   }
+  if(mode==='--stage')console.log('STAGING_ONLY_NO_CUSTOMER_ROUTE',environment,sha)
   const currentControl=await cmd('docker',['exec','hi5central-postgres','sh','-c',
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT paused FROM platform_release_rollout_control WHERE singleton=true;"'])
-  if(currentControl.trim()!=='f')throw Error('Global customer rollout is paused.')
-  prior=await shaPublic('https://'+host+'/api/v1/updates/version')
-  if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
+  if(mode==='--apply'&&currentControl.trim()!=='f')throw Error('Global customer rollout is paused.')
+  if(mode==='--apply'){
+    prior=await shaPublic('https://'+host+'/api/v1/updates/version')
+    if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
+  }
   for(const type of ['api','itsm']){
     const image='ghcr.io/dansut24/hi5central-platform-'+type+':sha-'+sha
     await cmd('docker',['pull',image],null,210000)
@@ -171,6 +174,11 @@ try{
       type==='itsm')
   }
   await Promise.all([healthy(plan.api),healthy(plan.web)])
+  if(mode==='--stage'){
+    console.log(JSON.stringify({status:'pool_verified',environment,buildSha:sha,
+      api:plan.api,web:plan.web}))
+    process.exit(0)
+  }
   if(environment==='live')liveJson=await gatewayRuntime()
   await docker('volume','create',c.backup)
   backupKey='release-'+environment+'-'+Date.now()+'-'+plan.host.replaceAll('.','-')
