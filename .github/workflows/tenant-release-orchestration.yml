@@ -8,9 +8,12 @@ on:
       - 'services/api/src/runtimePoolManagedScheduler.js'
       - 'services/api/src/runtimePoolControl.js'
       - 'services/api/src/tenantRouteCutover.js'
+      - 'services/api/src/tenantRouteActivationGate.js'
+      - 'services/api/test/tenant-route-activation-gate.mjs'
       - 'services/api/src/renderQaTenantCaddyRoutes.js'
       - 'services/api/src/qaGatewayHostHandoff.js'
       - 'services/api/test/qa-caddy-outer-handoff-smoke.mjs'
+      - 'services/api/test/qa-caddy-native-forwarded-host-smoke.mjs'
       - 'services/api/test/generate-qa-caddy-fixture.mjs'
       - 'services/api/test/qa-caddy-tenant-http-smoke.mjs'
       - 'services/api/src/tenantRoutePreviewOperator.js'
@@ -46,6 +49,8 @@ jobs:
           node --check src/releaseRolloutPlanner.js
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
+          node --check src/tenantRouteActivationGate.js
+          node --test test/tenant-route-activation-gate.mjs
           node --check src/renderQaTenantCaddyRoutes.js
           node --check src/qaGatewayHostHandoff.js
           node --check src/tenantRoutePreviewOperator.js
@@ -75,6 +80,7 @@ jobs:
         run: |
           node test/qa-caddy-tenant-http-smoke.mjs
           node test/qa-caddy-outer-handoff-smoke.mjs
+          node test/qa-caddy-native-forwarded-host-smoke.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
