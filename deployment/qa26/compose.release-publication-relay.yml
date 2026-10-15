@@ -19,17 +19,17 @@ services:
       - hi5central-dev_hi5internal
     environment:
       DEV_DATABASE_URL_FILE: /run/secrets/qa_dev_db
-      RELEASE_OPERATOR_TOKEN_FILE: /run/secrets/qa_operator_token
+      RELEASE_PUBLICATION_TOKEN_FILE: /run/secrets/qa_publication_token
       CENTRAL_RELEASE_AUTHORITY_URL: http://hi5central-api:3001
       RELEASE_PUBLICATION_ALLOWED_SHA: 9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
     secrets:
       - qa_dev_db
-      - qa_operator_token
+      - qa_publication_token
 secrets:
   qa_dev_db:
     file: ${QA_RELEASE_DEV_DB_SECRET_FILE:?Provide a restricted host file with the Dev PostgreSQL URL}
-  qa_operator_token:
-    file: ${QA_RELEASE_OPERATOR_SECRET_FILE:?Provide a restricted host file with the central operator token}
+  qa_publication_token:
+    file: ${QA_RELEASE_PUBLICATION_TOKEN_SECRET_FILE:?Provide the new dedicated publication-only bearer file}
 networks:
   hi5central:
     external: true
