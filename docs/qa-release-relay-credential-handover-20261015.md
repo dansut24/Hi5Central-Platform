@@ -64,7 +64,7 @@ export QA_RELEASE_PUBLICATION_TOKEN_SECRET_FILE=/etc/hi5central/qa-release-relay
 sh deployment/qa26/qa-publication-relay-secret-gate.sh
 ```
 
-The gate checks file existence, root-isolated directory, UID 100/mode 0400, Docker image and Dev+Live networks without opening secret files. The relay image is `hi5central-release-publication-relay:qa-local-20261015` only after rebuilding it from the final reviewed source and verifying its immutable digest. The VPS currently has Docker but no `docker compose` CLI; use a separately reviewed Docker CLI run that binds **only those two host secret files read-only**, runs non-root with `--read-only --cap-drop ALL --security-opt no-new-privileges:true`, joins `hi5central-dev_hi5internal` and `hi5central`, and exposes no ports or Docker socket.
+The gate checks file existence, root-isolated directory, UID 100/mode 0400, Docker image and Dev+Live networks without opening secret files. The relay image is `hi5central-release-publication-relay:qa-scoped-v1` only after rebuilding it from the final reviewed source and verifying its immutable digest. The VPS currently has Docker but no `docker compose` CLI; use a separately reviewed Docker CLI run that binds **only those two host secret files read-only**, runs non-root with `--read-only --cap-drop ALL --security-opt no-new-privileges:true`, joins `hi5central-dev_hi5internal` and `hi5central`, and exposes no ports or Docker socket.
 
 **Do not switch the generic Dev DB hostname `postgres` into a dual-network relay.** The code pins it to `hi5central-dev-postgres-1`.
 
