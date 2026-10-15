@@ -1,6 +1,6 @@
-// Isolated, disposable live-HTTP QA for two tenants on one Caddy gateway.
-// Uses real Caddy 2.11.4 and BusyBox backends on a private CI Docker network.
-// NO contact with the Hi5Central VPS, production DNS, customers or databases.
+// Real, isolated two-gateway QA integration: production-style outer Host
+// rewriting, trusted original tenant host, per-tenant version switch + rollback.
+// All containers and routes are disposable on the CI runner; no VPS access.
 import assert from 'node:assert/strict'
 import {execFileSync} from 'node:child_process'
 import {mkdtempSync,writeFileSync,rmSync} from 'node:fs'
@@ -8,10 +8,10 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import http from 'node:http'
 import {buildTenantRouteCutover} from '../src/tenantRouteCutover.js'
-import {renderQaTenantCaddyRoutes} from '../src/renderQaTenantCaddyRoutes.js'
+import {renderQaTenantTrustedHostHandles} from '../src/renderQaTenantCaddyRoutes.js'
 
 const seed=process.pid.toString(10)
-const net='h5c-route-ci-'+seed, gateway='h5c-ci-caddy-'+seed
+const net='h5c-route-ci-'+seed, inner='h5c-ci-qa-'+seed, edge='h5c-ci-edge-'+seed
 const oldPool='hi5pool-test-ci'+seed+'-old',newPool='hi5pool-test-ci'+seed+'-new'
 const containers=[]
 const temp=mkdtempSync(join(tmpdir(),'h5c-route-ci-'))
@@ -28,7 +28,7 @@ const poolRow=(tenant,pool,sha)=>({
   pool_state:'verified',api_target:pool+'-api:3001',web_target:pool+'-web:80',
   verified_at:'2026-10-15T11:28:00Z',last_seen_at:'2026-10-15T11:29:00Z',
 })
-const existing=[poolRow(0,oldPool,SHA_OLD),poolRow(1,oldPool,SHA_OLD)]
+const active=[poolRow(0,oldPool,SHA_OLD),poolRow(1,oldPool,SHA_OLD)]
 const job={
   id:'33333333-3333-4333-8333-333333333333',
   tenant_id:ids[0],environment:'test',build_sha:SHA_NEW,status:'running',
@@ -39,30 +39,51 @@ const job={
 const plan=buildTenantRouteCutover({
   environment:'test',tenantId:ids[0],slug:slugs[0],
   mode:modes[0],itsmEntitled:true,job,
-  candidate:poolRow(0,newPool,SHA_NEW),activeRows:existing,now,
+  candidate:poolRow(0,newPool,SHA_NEW),activeRows:active,now,
 })
-writeFileSync(join(temp,'Caddyfile'),renderQaTenantCaddyRoutes(plan.rollback))
-writeFileSync(join(temp,'new.Caddyfile'),renderQaTenantCaddyRoutes(plan.stage))
+const renderInner=manifest=>[
+  'http://test.hi5central.com {',
+  renderQaTenantTrustedHostHandles(manifest),
+  '    @fallbackApi path /api/*',
+  '    handle @fallbackApi {',
+  '        reverse_proxy '+oldPool+'-api:3001',
+  '    }',
+  '    handle {',
+  '        reverse_proxy '+oldPool+'-web:80',
+  '    }',
+  '}','',
+].join('\n')
+writeFileSync(join(temp,'Caddyfile'),renderInner(plan.rollback))
+writeFileSync(join(temp,'new.Caddyfile'),renderInner(plan.stage))
+writeFileSync(join(temp,'edge.Caddyfile'),[
+  ':80 {',
+  '    reverse_proxy '+inner+':80 {',
+  '        header_up Host test.hi5central.com',
+  '        header_up X-Hi5-Tenant-Host {http.request.host}',
+  '    }',
+  '}','',
+].join('\n'))
+
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))
-function get(port,host,path){
+function get(port,host,path,extra={}){
   return new Promise((resolve,reject)=>{
-    const request=http.request({hostname:'127.0.0.1',port,path,
-      method:'GET',headers:{Host:host},timeout:3000},response=>{
+    const req=http.request({hostname:'127.0.0.1',port,path,method:'GET',
+      headers:{Host:host,...extra},timeout:3000},response=>{
       let body=''
       response.on('data',chunk=>{body+=chunk.toString()})
       response.on('end',()=>resolve({status:response.statusCode,body:body.trim()}))
     })
-    request.on('error',reject)
-    request.on('timeout',()=>request.destroy(Error('Caddy request timed out.')))
-    request.end()
+    req.on('error',reject)
+    req.on('timeout',()=>req.destroy(Error('QA Caddy response timeout.')))
+    req.end()
   })
 }
 async function assertRoute(port,slug,api,web){
   const host=slug+'-test.hi5central.com'
   const a=await get(port,host,'/api/')
   const w=await get(port,host,'/')
-  assert.deepEqual(a,{status:200,body:api},host+' API must resolve correct immutable pool')
-  assert.deepEqual(w,{status:200,body:web},host+' frontend must resolve correct immutable pool')
+  assert.deepEqual(a,{status:200,body:api},host+' API exact-version assertion')
+  assert.deepEqual(w,{status:200,body:web},host+' frontend exact-version assertion')
 }
 async function waitForRoute(port,slug,api,web){
   let last
@@ -73,43 +94,47 @@ async function waitForRoute(port,slug,api,web){
   throw last
 }
 try{
-  // Disposable CI-only bridge allows localhost port publishing for HTTP proof.
   docker('network','create',net)
   for(const [pool,version] of [[oldPool,'old'],[newPool,'new']]){
     for(const [role,port] of [['api',3001],['web',80]]){
-      const name=pool+'-'+role
-      const content=version+'-'+role
-      const command='mkdir -p /www/api; printf '+content+' > /www/index.html; printf '+
-        content+' > /www/api/index.html; httpd -f -p '+port+' -h /www'
+      const name=pool+'-'+role,body=version+'-'+role
+      const command='mkdir -p /www/api; printf '+body+' > /www/index.html; printf '+
+        body+' > /www/api/index.html; httpd -f -p '+port+' -h /www'
       docker('run','-d','--rm','--network',net,'--name',name,
         'busybox:1.36','sh','-c',command)
       containers.push(name)
     }
   }
-  docker('run','-d','--rm','--network',net,'--name',gateway,
-    '-p','127.0.0.1::80','-v',temp+':/etc/caddy:ro',
+  docker('run','-d','--rm','--network',net,'--name',inner,
+    '-v',temp+':/etc/caddy:ro',
     'caddy:2.11.4-alpine','caddy','run','--config','/etc/caddy/Caddyfile')
-  containers.push(gateway)
-  const port=Number(docker('port',gateway,'80/tcp').split(':').at(-1))
+  containers.push(inner)
+  docker('run','-d','--rm','--network',net,'--name',edge,
+    '-p','127.0.0.1::80','-v',temp+':/etc/caddy:ro',
+    'caddy:2.11.4-alpine','caddy','run','--config','/etc/caddy/edge.Caddyfile')
+  containers.push(edge)
+  const port=Number(docker('port',edge,'80/tcp').split(':').at(-1))
   assert(Number.isInteger(port)&&port>1024)
-  let ready=false
-  for(let attempt=0;attempt<25;attempt++){
-    try{await assertRoute(port,slugs[0],'old-api','old-web');ready=true;break}
-    catch{await sleep(200)}
-  }
-  assert.equal(ready,true,'Initial Caddy routes never became healthy')
-  await assertRoute(port,slugs[1],'old-api','old-web')
-
-  // A real, atomic Caddy config reload changes one host's version only.
-  docker('exec',gateway,'caddy','reload','--config','/etc/caddy/new.Caddyfile')
-  await waitForRoute(port,slugs[0],'new-api','new-web')
-  await waitForRoute(port,slugs[1],'old-api','old-web')
-
-  // Failback is the exact previously verified generation, not a heuristic.
-  docker('exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile')
   await waitForRoute(port,slugs[0],'old-api','old-web')
   await waitForRoute(port,slugs[1],'old-api','old-web')
-  console.log('PASS real Caddy HTTP: two isolated tenants, one changed, untouched peer, old→new→rollback.')
+
+  // The outer gateway MUST overwrite a caller-supplied spoofed identity
+  // header. Only the real Host: custom tenant may select its route.
+  let spoofed=await get(port,slugs[1]+'-test.hi5central.com','/api/',{
+    'X-Hi5-Tenant-Host':slugs[0]+'-test.hi5central.com'})
+  assert.deepEqual(spoofed,{status:200,body:'old-api'})
+  docker('exec',inner,'caddy','reload','--config','/etc/caddy/new.Caddyfile')
+  await waitForRoute(port,slugs[0],'new-api','new-web')
+  await waitForRoute(port,slugs[1],'old-api','old-web')
+  spoofed=await get(port,slugs[1]+'-test.hi5central.com','/api/',{
+    'X-Hi5-Tenant-Host':slugs[0]+'-test.hi5central.com'})
+  assert.deepEqual(spoofed,{status:200,body:'old-api'},
+    'Spoofed routing header must not reveal the upgraded tenant release')
+
+  docker('exec',inner,'caddy','reload','--config','/etc/caddy/Caddyfile')
+  await waitForRoute(port,slugs[0],'old-api','old-web')
+  await waitForRoute(port,slugs[1],'old-api','old-web')
+  console.log('PASS two-hop Caddy HTTP: original Host safely preserved through rewrite, isolated tenant upgrade, peer unchanged, spoof denied, rollback.')
 }finally{
   for(const c of containers.reverse()){
     try{docker('rm','-f',c)}catch{}
