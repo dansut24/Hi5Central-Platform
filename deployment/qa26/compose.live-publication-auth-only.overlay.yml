@@ -1,0 +1,10 @@
+# Reviewed one-service override. Use only after the read-only preflight passes.
+# The deployment operator provides a SHA-256 digest, not a reusable bearer.
+# Existing API environment, networks, secrets and volumes are inherited from
+# the exact three immutable compose inputs recorded on running hi5central-api.
+services:
+  api:
+    image: hi5central-api:qa-publication-auth-fdee74c
+    environment:
+      RELEASE_PUBLICATION_TOKEN_SHA256: ${RELEASE_PUBLICATION_TOKEN_SHA256:?Set the SHA256 digest of the new dedicated publication-only bearer}
+      RELEASE_PUBLICATION_ALLOWED_SHA: 9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
