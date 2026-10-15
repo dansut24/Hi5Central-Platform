@@ -94,7 +94,8 @@ export function planTenantRelease({tenant,release,gates={},now=new Date()}={}){
       return block('test','Verified Test completion or soak policy invalid.')
     stage=tenant.mode==='admin_controlled'?'uat':'live'
     readyAfter=new Date(completed.getTime()+soak*60000)
-    if(readyAfter>now)return block(stage,'Platform Test soak period has not completed.')
+    // The soak period contributes to the earliest schedule date. Jobs may
+    // be queued ahead of time, but may never activate before it has elapsed.
     if(tenant.mode==='admin_controlled'){
       if(uat?.sha!==sha||uat.state!=='succeeded'){
         stage='uat'
