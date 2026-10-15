@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {relayOneRequestedRelease,runRelayCycle} from '../src/releasePublicationRelay.mjs'
+import {relayOneRequestedRelease,runRelayCycle,pinnedDevDatabaseUrl} from '../src/releasePublicationRelay.mjs'
 const sha='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'
 const token='x'.repeat(36),authority='http://hi5central-api:3001'
 const data={
@@ -95,4 +95,20 @@ test('DB transaction rolls back if central API fails; no generic deployment acti
     authority,token,allowedSha:sha}),/refused/)
   assert.deepEqual(events,['BEGIN','ROLLBACK','release'].flatMap((x,i)=>
     i===0?[x]:[x]).filter(Boolean)) // SET statements excluded
+})
+
+test('Dual-network relay pins the Dev Postgres container, never the Live DB',()=>{
+  const original='postgresql://qa_user:only_for_tests@postgres:5432/hi5central'
+  const trusted=pinnedDevDatabaseUrl(original)
+  assert.equal(new URL(trusted).hostname,'hi5central-dev-postgres-1')
+  assert.equal(new URL(trusted).username,'qa_user')
+  assert.equal(pinnedDevDatabaseUrl(trusted),trusted)
+  for(const unsafe of [
+    'postgresql://qa_user:fake@hi5central-postgres:5432/hi5central',
+    'postgresql://qa_user:fake@postgres:5432/production',
+    'postgresql://qa_user:fake@localhost:5432/hi5central',
+    'postgresql://qa_user:fake@postgres:5433/hi5central',
+    'postgresql://postgres:5432/hi5central',
+    'not-a-postgres-url',
+  ])assert.throws(()=>pinnedDevDatabaseUrl(unsafe),/Dev PostgreSQL|Dev database/)
 })
