@@ -8,6 +8,8 @@ on:
       - 'services/api/src/runtimePoolManagedScheduler.js'
       - 'services/api/src/runtimePoolControl.js'
       - 'services/api/src/tenantRouteCutover.js'
+      - 'services/api/src/renderQaTenantCaddyRoutes.js'
+      - 'services/api/test/generate-qa-caddy-fixture.mjs'
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
@@ -41,6 +43,7 @@ jobs:
           node --check src/releaseRolloutPlanner.js
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
+          node --check src/renderQaTenantCaddyRoutes.js
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
@@ -49,6 +52,16 @@ jobs:
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
+      - name: Validate generated tenant routes using QA Caddy version
+        run: |
+          node test/generate-qa-caddy-fixture.mjs > /tmp/h5c-qa-route-preview.Caddyfile
+          docker run --rm --network none \
+            -v /tmp/h5c-qa-route-preview.Caddyfile:/etc/caddy/Caddyfile:ro \
+            caddy:2.11.4-alpine caddy adapt \
+              --config /etc/caddy/Caddyfile --adapter caddyfile > /tmp/h5c-qa-route-preview.json
+          test -s /tmp/h5c-qa-route-preview.json
+          rm -f /tmp/h5c-qa-route-preview.Caddyfile /tmp/h5c-qa-route-preview.json
+
   rollout-queue:
     runs-on: ubuntu-latest
     services:
