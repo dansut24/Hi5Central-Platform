@@ -54,7 +54,7 @@ function clone(oldName,newName,image,memory){
       throw Error('Existing Dev pool must be inspected: '+newName)
     return
   }catch(error){
-    if(!String(error.message).includes('No such object'))
+    if(!/no such object/i.test(String(error.message)))
       throw error
   }
   const source=inspect(oldName)
