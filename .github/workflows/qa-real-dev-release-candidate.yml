@@ -1,0 +1,81 @@
+name: Real Hi5Central Dev Release Candidate (QA)
+on:
+  push:
+    branches: ['feat/qa-tenant-gateway-version-activator-20261015']
+    paths:
+      - '.github/workflows/qa-real-dev-release-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: qa-real-dev-candidate-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  static-gates:
+    name: Dev candidate release compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate rollout and version routing
+        run: |
+          set -euo pipefail
+          node --check services/api/src/releaseRolloutPlanner.js
+          node --check services/api/src/tenantReleaseQueue.js
+          node --check deployment/qa26/qa-real-release-queue-worker.mjs
+          node --check deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs
+          node --test services/api/test/release-rollout-planner.mjs services/api/test/tenant-route-cutover.mjs
+  build-images:
+    name: Publish ${{ matrix.name }} immutable Dev candidate
+    needs: static-gates
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - name: itsm
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build immutable API or ITSM
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            com.hi5central.release.stage=dev-candidate
+          cache-from: type=gha,scope=qa-real-${{ matrix.name }}
+          cache-to: type=gha,scope=qa-real-${{ matrix.name }},mode=max
+  verify-and-record:
+    name: Verify exact API+ITSM Dev release pair
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Check immutable image tags exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          for type in api itsm; do
+            docker buildx imagetools inspect "ghcr.io/dansut24/hi5central-platform-${type}:sha-${{ github.sha }}" >/dev/null
+            echo "VERIFIED Dev candidate ${type} sha-${{ github.sha }}"
+          done
+          echo "No customer assignment or Production promotion has occurred."
