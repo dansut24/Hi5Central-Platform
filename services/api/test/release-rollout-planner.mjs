@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {nextTenantMaintenanceWindow,planReleaseCohort,planTenantRelease} from '../src/releaseRolloutPlanner.js'
+import {activeTenantMaintenanceWindow,nextTenantMaintenanceWindow,planReleaseCohort,planTenantRelease} from '../src/releaseRolloutPlanner.js'
 
 const sha='c'.repeat(40)
 const now=new Date('2026-10-15T10:00:00Z') // Thursday 11:00 Europe/London
@@ -91,4 +91,26 @@ test('invalid windows, missing timezone and invalid blackout must fail closed',(
   assert.equal(nextTenantMaintenanceWindow({now,policy:maintenance,blackouts:[{startsAt:'bad',endsAt:'bad'}]}).ok,false)
   assert.equal(nextTenantMaintenanceWindow({now,policy:{...maintenance,timezone:'Mars/Olympus'}}).ok,false)
   assert.equal(planTenantRelease({tenant:tenant('paused','hi5_managed'),release:{...release,securityPassed:false},now}).status,'blocked')
+})
+
+test('claim-time gate requires full remaining duration and respects actual blackout periods',()=>{
+  const inside=activeTenantMaintenanceWindow({policy:maintenance,
+    now:'2026-10-15T11:30:00Z',durationMinutes:15})
+  assert.equal(inside.allowed,true)
+  const overrun=activeTenantMaintenanceWindow({policy:maintenance,
+    now:'2026-10-15T12:55:00Z',durationMinutes:15})
+  assert.equal(overrun.allowed,false)
+  assert.match(overrun.reason,/Insufficient time/)
+  const blackout=activeTenantMaintenanceWindow({policy:maintenance,
+    now:'2026-10-15T11:30:00Z',durationMinutes:15,blackouts:[
+      {startsAt:'2026-10-15T11:42:00Z',endsAt:'2026-10-15T12:00:00Z'}]})
+  assert.equal(blackout.allowed,false)
+  assert.match(blackout.reason,/blackout/)
+  const outside=activeTenantMaintenanceWindow({policy:maintenance,
+    now:'2026-10-15T10:59:00Z',durationMinutes:15})
+  assert.equal(outside.allowed,false)
+  assert.equal(activeTenantMaintenanceWindow({policy:{...maintenance,days:[]},
+    now:'2026-10-15T11:30:00Z'}).allowed,false)
+  assert.equal(activeTenantMaintenanceWindow({policy:maintenance,
+    now:'2026-10-15T11:30:00Z',blackouts:'none'}).allowed,false)
 })
