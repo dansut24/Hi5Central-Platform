@@ -52,3 +52,36 @@ export function removeQaTenantVersionOverride({config,host}={}){
     removedBlock:lines.slice(start,end+1).join('\n'),
   }
 }
+
+/**
+ * Restore exactly one tenant's previous route from its own saved gateway
+ * snapshot. Keep every other tenant's *current* route (not the snapshot
+ * version). Essential when one tenant rolls back after peers have updated.
+ */
+export function restoreQaTenantFromSnapshot({current,snapshot,host}={}){
+  if(!QA_HOSTS.has(host))throw Error('Only QA26 Test tenant routes are supported.')
+  if(typeof current!=='string'||typeof snapshot!=='string')
+    throw Error('Both actual and saved Caddyfile sources are required.')
+  const marker='  @'+QA_HOSTS.get(host)+' header X-Forwarded-Host '+host
+  const currentOverride=current.includes(marker)
+    ?removeQaTenantVersionOverride({config:current,host}):null
+  const snapshotOverride=snapshot.includes(marker)
+    ?removeQaTenantVersionOverride({config:snapshot,host}):null
+  if(!currentOverride)throw Error('Target currently lacks a version override.')
+  const clean=currentOverride.config
+  const anchor='http://test.hi5central.com {'
+  if(clean.split(anchor).length!==2)
+    throw Error('Cannot safely place the restored tenant-specific route.')
+  const restored=snapshotOverride?.removedBlock
+    ?clean.replace(anchor,anchor+'\n'+snapshotOverride.removedBlock)
+    :clean
+  const peer=[...QA_HOSTS.keys()].find(v=>v!==host)
+  const pMarker='  @'+QA_HOSTS.get(peer)+' header X-Forwarded-Host '+peer
+  if(current.includes(pMarker)!==restored.includes(pMarker))
+    throw Error('Rollback would affect an independently deployed peer.')
+  if(restored===current)throw Error('Rollback would be a no-op.')
+  return {host,config:restored,
+    originalSha256:checksum(current),
+    restoredSha256:checksum(restored),
+    previousRoute:snapshotOverride?.removedBlock||null}
+}
