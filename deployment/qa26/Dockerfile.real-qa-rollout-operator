@@ -4,6 +4,7 @@
 FROM docker:27-cli
 RUN apk add --no-cache nodejs curl
 WORKDIR /operator
+COPY deployment/qa26/qa-worker-heartbeat.mjs /operator/deployment/qa26/qa-worker-heartbeat.mjs
 COPY services/api/package.json /operator/services/api/package.json
 COPY services/api/src/runtimePoolPolicy.js /operator/services/api/src/runtimePoolPolicy.js
 COPY services/api/src/releaseRolloutPlanner.js /operator/services/api/src/releaseRolloutPlanner.js
