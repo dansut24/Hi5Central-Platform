@@ -4,10 +4,11 @@ const HOST=/^[a-z0-9](?:[a-z0-9-]{1,50}[a-z0-9])?[.]hi5central[.]com$/
 const SHA=/^[a-f0-9]{40}$/
 const ENV=new Set(['test','uat','live'])
 export const routeDigest=value=>createHash('sha256').update(value).digest('hex')
-export const releasePair=sha=>({
-  api:'hi5pool-'+sha.slice(0,12)+'-api',
-  web:'hi5pool-'+sha.slice(0,12)+'-web',
-})
+export const releasePair=(sha,environment)=>{
+  if(!SHA.test(String(sha||''))||!ENV.has(environment))throw Error('Invalid versioned pool identity.')
+  return {api:'hi5pool-'+environment+'-'+sha.slice(0,12)+'-api',
+    web:'hi5pool-'+environment+'-'+sha.slice(0,12)+'-web'}
+}
 /**
  * Pure tenant-scoped Caddy change. No Docker, database or files.
  * Repeated updates replace only that tenant's tagged block.
@@ -36,7 +37,7 @@ export function prepareTenantCaddyRoute({config,tenantSlug,environment,buildSha}
     if(right<0||right-left>1300)throw Error('Untrusted previous route boundaries.')
     previous={left,right}
   }
-  const pair=releasePair(buildSha)
+  const pair=releasePair(buildSha,environment)
   const key='h5cRelease'+routeDigest(host).slice(0,12)
   const p=environment==='live'?'    ':'  '
   const matcher=environment==='live'?'host '+host:'header X-Forwarded-Host '+host
