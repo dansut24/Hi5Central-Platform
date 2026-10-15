@@ -75,3 +75,19 @@ export async function readWorkerDeploymentEvents(db,id){
   ].join(' ')
   return (await db.query(sql,[id])).rows
 }
+
+export async function readWorkerHeartbeats(db){
+  // Older single-VPS deployments may not have applied metadata migration 162.
+  // Return no heartbeats rather than synthesising "online" from Docker logs.
+  const exists=await db.query("SELECT to_regclass('public.platform_release_worker_heartbeats') AS name")
+  if(!exists.rows[0]?.name)return []
+  const result=await db.query([
+    'SELECT worker_id,gateway,state,version_sha,current_job_id,',
+    'last_poll_at,last_success_at,last_error,',
+    'EXTRACT(EPOCH FROM (now()-last_poll_at))::int AS age_seconds',
+    'FROM platform_release_worker_heartbeats',
+    'ORDER BY gateway,worker_id LIMIT 100',
+  ].join(' '))
+  return result.rows.map(row=>({...row,
+    online:Number(row.age_seconds)<120,age_seconds:Number(row.age_seconds)}))
+}
