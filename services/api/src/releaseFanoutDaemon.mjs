@@ -28,7 +28,8 @@ async function assertSchema(){
  "to_regclass('public.platform_release_fanout_checkpoints') IS NOT NULL AS journal,",
  "to_regclass('public.tenant_release_rollout_jobs') IS NOT NULL AS jobs,",
  "to_regclass('public.platform_release_test_qa_gates') IS NOT NULL AS test_gate,",
- "to_regclass('public.platform_release_gateway_owners') IS NOT NULL AS gateway_lock",
+ "to_regclass('public.platform_release_gateway_owners') IS NOT NULL AS gateway_lock,",
+ "to_regclass('public.platform_release_canary_tenants') IS NOT NULL AS canary_cohort",
  ].join(' '))
  const state=rows.rows[0]
  if(Object.values(state).some(v=>v!==true))
