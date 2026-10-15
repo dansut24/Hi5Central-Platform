@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {buildTenantRouteCutover,routeCutoverPrecondition} from '../src/tenantRouteCutover.js'
-import {renderQaTenantCaddyRoutes} from '../src/renderQaTenantCaddyRoutes.js'
+import {renderQaTenantCaddyRoutes,renderQaTenantTrustedHostHandles} from '../src/renderQaTenantCaddyRoutes.js'
 
 const now=new Date('2026-10-15T11:30:00Z')
 const current='a'.repeat(40),next='b'.repeat(40)
@@ -105,6 +105,10 @@ test('QA Caddy route snippets are deterministic, exact-host and digest-bound',()
   assert.match(reverted,/reverse_proxy hi5pool-test-rollout-managed-a-old-api:3001/)
   assert.equal(rendered.split('@tenantApi path \/api\/*').length-1,4)
   assert.equal(renderQaTenantCaddyRoutes(p.stage),rendered)
+  const trusted=renderQaTenantTrustedHostHandles(p.stage)
+  assert.match(trusted,/X-Hi5-Tenant-Host rollout-managed-a-test\.hi5central\.com/)
+  assert.match(trusted,/handle @tenantRelease0/)
+  assert.match(trusted,/reverse_proxy hi5pool-test-rollout-managed-a-new-api:3001/)
   assert.throws(()=>renderQaTenantCaddyRoutes({...p.stage,
     entries:p.stage.entries.map((r,i)=>i===0?{...r,webUpstream:'evil.example.com:443'}:r)}),/Untrusted/)
   assert.throws(()=>renderQaTenantCaddyRoutes({...p.stage,
