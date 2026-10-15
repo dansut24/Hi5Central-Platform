@@ -8,8 +8,9 @@ RUN printf '%s\n' '{"name":"hi5central-release-planner","private":true,"type":"m
 COPY services/api/src/runtimePoolPolicy.js ./runtimePoolPolicy.js
 COPY services/api/src/releaseRolloutPlanner.js ./releaseRolloutPlanner.js
 COPY services/api/src/tenantReleaseQueue.js ./tenantReleaseQueue.js
+COPY services/api/src/releaseQaCohort.js ./releaseQaCohort.js
 COPY services/api/src/certifiedReleaseFanout.js ./certifiedReleaseFanout.js
 COPY services/api/src/releaseFanoutDaemon.mjs ./releaseFanoutDaemon.mjs
-RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js
+RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js && node --check releaseQaCohort.js
 USER scheduler
 ENTRYPOINT ["node","releaseFanoutDaemon.mjs"]
