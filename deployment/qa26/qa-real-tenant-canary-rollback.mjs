@@ -10,10 +10,13 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 const TEST_SHA='9041ed0fc0908badfd1ceb9d638215caef5e431b'
+const KEEP=process.env.H5C_QA_KEEP_ON_SUCCESS==='1'
 const CANDIDATE_SHA='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
 const gateway='hi5central-test-gateway'
-const target='h5c-managed-qa26-test.hi5central.com'
-const control='h5c-custom-qa26-test.hi5central.com'
+const allow=['h5c-managed-qa26-test.hi5central.com','h5c-custom-qa26-test.hi5central.com']
+const target=process.env.H5C_QA_TENANT_HOST||allow[0]
+if(!allow.includes(target))throw Error('Only explicitly approved QA26 Test tenant hosts may be routed.')
+const control=allow.find(host=>host!==target)
 const configVolume='hi5central-test_gateway_runtime_config'
 const backupVolume='hi5central_qa_route_rollback_backups'
 const network='hi5central-test_hi5internal'
@@ -25,7 +28,7 @@ const watchdog='h5c-qa-rollback-watch-'+stamp
 const temp=mkdtempSync(join(tmpdir(),'hi5-qa-real-'))
 const sha=s=>createHash('sha256').update(s).digest('hex')
 let backupName='',watchdogRunning=false,stageExists=false
-let changed=false
+let changed=false,successPersist=false
 const run=(args,input)=>{
   const result=spawnSync('docker',args,{encoding:'utf8',input,timeout:120000,
     maxBuffer:16*1024*1024})
@@ -196,13 +199,22 @@ try{
   await publicSha(target,CANDIDATE_SHA,20)
   await publicSha(control,TEST_SHA,20)
   console.log('REAL_HOST_HTTP_VERIFIED_TARGET_AND_UNCHANGED_PEER')
-  restore()
-  await publicSha(target,TEST_SHA,20)
-  await publicSha(control,TEST_SHA,20)
-  if(sha(originalFromVolume())!==baselineHash)
-    throw Error('Restored Caddyfile differs from original.')
-  markRecovered()
-  console.log('ROLLBACK_PASS original route restored and verified, SHA256 '+baselineHash)
+  if(KEEP){
+    // The rollout worker may retain the route only after observing the exact
+    // candidate and an unaffected peer. Keep the old route in a durable volume.
+    markRecovered()
+    successPersist=true
+    console.log('QA_ROUTE_PROMOTED '+target+' '+CANDIDATE_SHA)
+    console.log('QA_ROLLBACK_SNAPSHOT '+backupName)
+  }else{
+    restore()
+    await publicSha(target,TEST_SHA,20)
+    await publicSha(control,TEST_SHA,20)
+    if(sha(originalFromVolume())!==baselineHash)
+      throw Error('Restored Caddyfile differs from original.')
+    markRecovered()
+    console.log('ROLLBACK_PASS original route restored and verified, SHA256 '+baselineHash)
+  }
 }catch(error){
   console.error('REAL_QA_TEST_FAILURE '+error.message)
   if(changed)try{
@@ -214,10 +226,10 @@ try{
   }catch(e){console.error('AUTOMATIC_ROLLBACK_FAILED; independent 150s watchdog still active:',e.message)}
   process.exitCode=1
 }finally{
-  if(watchdogRunning&&!changed){
+  if(watchdogRunning&&(!changed||successPersist)){
     try{run(['stop','-t','1',watchdog])}catch{}
   }
-  if(stageExists&&!changed)try{run(['rm','-f',stage])}catch{}
+  if(stageExists&&(!changed||successPersist))try{run(['rm','-f',stage])}catch{}
   for(const name of containers){
     if(!changed)try{run(['rm','-f',name])}catch{}
   }
