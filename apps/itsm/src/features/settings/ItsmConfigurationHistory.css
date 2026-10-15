@@ -121,3 +121,52 @@
     padding:11px;
   }
 }
+
+
+/* Audit value comparisons: legible on a narrow iPhone without sacrificing
+   readable field names or overflowing the workspace. */
+[data-hi5-itsm-config-history] .hi5-config-history-keys li.hi5-config-history-value-item {
+  display:grid;
+  align-content:start;
+  gap:8px;
+  flex:1 1 220px;
+  padding:10px 12px;
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-item>strong {
+  font-size:12px;
+  line-height:1.4;
+  color:var(--ink,#15243c);
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-change {
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-change>span:not(.hi5-config-history-arrow) {
+  display:grid;
+  gap:2px;
+  min-width:65px;
+  flex:1 1 65px;
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-change small,
+[data-hi5-itsm-config-history] .hi5-config-history-no-values {
+  font-size:10px;
+  line-height:1.4;
+  color:var(--muted,#68778c);
+  font-weight:500;
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-change b {
+  font-size:12px;
+  line-height:1.4;
+  overflow-wrap:anywhere;
+}
+[data-hi5-itsm-config-history] .hi5-config-history-arrow {
+  flex:none;
+  color:var(--muted,#68778c);
+}
+[data-hi5-itsm-config-history] .hi5-config-history-value-change .hi5-config-history-default-note {
+  width:100%;
+  flex-basis:100%;
+}
