@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {publicationBearerAuthorised,publicationTokenDigests} from '../src/releasePublicationCredential.js'
+import {publicationBearerAuthorised,publicationTokenDigests,publicationShaAuthorised} from '../src/releasePublicationCredential.js'
 
 const active='A'.repeat(63)+'9', next='B'.repeat(63)+'2'
 const sha=v=>createHash('sha256').update(v).digest('hex')
@@ -40,4 +40,16 @@ test('Reject short, multiline, malformed and partial publication bearer values',
     'bearer '+active,'Bearer '+active+' ',
     'Bearer '+active+'!', 'Bearer '+active+'\r\n',
   ])assert.equal(publicationBearerAuthorised(bad,settings),false)
+})
+
+test('Publication token is bound to exactly one immutable QA Dev build SHA',()=>{
+  const allowed='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'
+  const settings={RELEASE_PUBLICATION_ALLOWED_SHA:allowed}
+  assert.equal(publicationShaAuthorised(allowed,settings),true)
+  for(const other of [
+    '',null,undefined,'latest',allowed.toUpperCase(),
+    '4a363cf9054b0b3667fd450f36e354b704ec2166',
+  ])assert.equal(publicationShaAuthorised(other,settings),false)
+  assert.equal(publicationShaAuthorised(allowed,{}),false)
+  assert.equal(publicationShaAuthorised(allowed,{RELEASE_PUBLICATION_ALLOWED_SHA:'*'}),false)
 })
