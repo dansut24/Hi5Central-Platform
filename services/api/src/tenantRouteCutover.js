@@ -98,7 +98,20 @@ export function buildTenantRouteCutover({
     requirement:'Gateway must verify the before hash, active lease, time window, host readiness and signed operator identity before switching.'}
 }
 
-/** Prevent concurrent tenant deployments from overwriting a newer generation. */
+const routePlanKeys=[
+  'schemaVersion','tenantId','hostname','environment','jobId','leaseFence',
+  'buildSha','previousRoute','targetRoute','previousManifestSha256',
+  'targetManifestSha256','activeTenantCount','targetTenantCount',
+  'unchangedOtherTenants','noOp',
+]
+const sha256=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
+const manifestDigest=manifest=>sha256({
+  schemaVersion:manifest?.schemaVersion,
+  environment:manifest?.environment,
+  entries:manifest?.entries,
+})
+
+/** Prevent concurrent tenant deployments or altered payloads from going live. */
 export function routeCutoverPrecondition({plan,activeManifestSha256,leaseFence}={}){
   if(!SHA256.test(String(plan?.planSha256||''))
     ||!SHA256.test(String(plan?.previousManifestSha256||''))
@@ -106,6 +119,13 @@ export function routeCutoverPrecondition({plan,activeManifestSha256,leaseFence}=
     ||!SHA256.test(String(activeManifestSha256||''))
     ||!Number.isSafeInteger(leaseFence)||leaseFence<1)
     return {allowed:false,reason:'Invalid route generation or worker lease.'}
+  // Recompute digests from the exact payload that will be applied. SHA-256
+  // checks accidental/tampered bytes, not the identity of the signer.
+  const core=Object.fromEntries(routePlanKeys.map(key=>[key,plan[key]]))
+  if(sha256(core)!==plan.planSha256
+    ||manifestDigest(plan.stage)!==plan.targetManifestSha256
+    ||manifestDigest(plan.rollback)!==plan.previousManifestSha256)
+    return {allowed:false,reason:'Route snapshot contents changed after approval.'}
   if(plan.leaseFence!==leaseFence)return {allowed:false,reason:'Stale rollout lease fence.'}
   if(plan.previousManifestSha256!==activeManifestSha256)
     return {allowed:false,reason:'Gateway routing changed; recompute the tenant-specific plan.'}
