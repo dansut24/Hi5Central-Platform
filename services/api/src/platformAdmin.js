@@ -1149,12 +1149,13 @@ export function registerPlatformAdminRoutes(app) {
       return c.json({ error: 'liveDelayHours must be between 0 and 720.' }, 400)
     }
     const managed = updateMode === 'hi5_managed'
+    const uatAutoStage = !managed
 
     const result = await pool.query(
       `INSERT INTO tenant_release_preferences
         (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,
          live_delay_hours,allow_emergency_security_updates,maintenance_window,updated_by)
-       VALUES ($1,$2,true,$3,$3,$4,$5,$6::jsonb,$7)
+       VALUES ($1,$2,true,$3,$4,$5,$6,$7::jsonb,$8)
        ON CONFLICT (tenant_id) DO UPDATE SET
          update_mode=EXCLUDED.update_mode,
          test_auto_sync=true,
@@ -1172,6 +1173,7 @@ export function registerPlatformAdminRoutes(app) {
       [
         tenantId,
         updateMode,
+        uatAutoStage,
         managed,
         delay,
         body?.allowEmergencySecurityUpdates !== false,
@@ -1182,6 +1184,8 @@ export function registerPlatformAdminRoutes(app) {
 
     await audit(c, auth.session, 'release.tenant_preferences.updated', 'tenant', tenantId, {
       updateMode,
+      uatAutoStage,
+      liveAutoPromote: managed,
       liveDelayHours: delay,
       allowEmergencySecurityUpdates: body?.allowEmergencySecurityUpdates !== false,
     })
