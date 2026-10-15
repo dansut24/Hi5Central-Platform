@@ -67,7 +67,6 @@ jobs:
           node --check src/tenantRuntimeReleaseLifecycle.js
           node --check src/releasePublicationRelay.mjs
           node --check src/releasePublicationRelayDaemon.mjs
-          node --test test/release-publication-relay.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
       - name: Validate generated tenant routes using QA Caddy version
         run: |
@@ -123,3 +122,4 @@ jobs:
         run: |
           npm run migrate
           node --test test/tenant-release-queue.mjs
+          node --test test/release-publication-relay.mjs
