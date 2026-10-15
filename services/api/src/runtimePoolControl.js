@@ -52,7 +52,7 @@ export async function tenantRuntimePoolState(database,tenantId){
   }
 }
 export function buildHostRoutingManifest({environment,rows,now=new Date(),domain='hi5central.com'}){
-  if(!['uat','live'].includes(environment))throw Error('Unsupported route environment.')
+  if(!['test','uat','live'].includes(environment))throw Error('Unsupported route environment.')
   const entries=[],seen=new Set()
   for(const row of rows){
     if(row.environment!==environment)throw Error('Route environment mismatch.')
@@ -73,7 +73,7 @@ export function buildHostRoutingManifest({environment,rows,now=new Date(),domain
   return {...payload,sha256:createHash('sha256').update(JSON.stringify(payload)).digest('hex')}
 }
 export async function preparePoolOffer({db,tenantId,environment,poolId,now=new Date()}){
-  if(!['uat','live'].includes(environment))throw Error('Invalid release environment.')
+  if(!['test','uat','live'].includes(environment))throw Error('Invalid release environment.')
   const tenant=await db.query('SELECT t.id,t.slug,p.update_mode,p.live_delay_hours,p.maintenance_window FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id WHERE t.id=$1 AND t.status=$2',[tenantId,'active'])
   if(!tenant.rowCount)throw Error('Active customer or update policy not found.')
   const pool=await db.query('SELECT * FROM platform_runtime_pools WHERE id=$1 AND environment=$2',[poolId,environment])
