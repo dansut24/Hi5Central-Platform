@@ -1,0 +1,78 @@
+name: Tenant Release Rollout Orchestration
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/releaseRolloutPlanner.js'
+      - 'services/api/src/tenantReleaseQueue.js'
+      - 'services/api/src/runtimePoolPolicy.js'
+      - 'services/api/src/runtimePoolManagedScheduler.js'
+      - 'services/api/src/runtimePoolControl.js'
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/tenantRuntimeReleaseLifecycle.js'
+      - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
+      - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
+      - 'services/api/migrations/platform-admin/160_tenant_test_runtime_assignments.sql'
+      - 'services/api/migrations/platform-admin/161_release_rollout_blackouts.sql'
+      - 'services/api/test/runtime-pool-policy.mjs'
+      - 'services/api/test/runtime-route-manifest.mjs'
+      - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
+      - 'services/api/test/release-rollout-planner.mjs'
+      - 'services/api/test/tenant-release-queue.mjs'
+      - '.github/workflows/tenant-release-orchestration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-planning:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Syntax and automated multi-tenant release planning
+        run: |
+          node --check src/releaseRolloutPlanner.js
+          node --check src/tenantReleaseQueue.js
+          node --test test/release-rollout-planner.mjs
+          node --check src/runtimePoolPolicy.js
+          node --check src/runtimePoolControl.js
+          node --check src/runtimePoolManagedScheduler.js
+          node --check src/tenantRuntimeReleaseLifecycle.js
+          node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
+  rollout-queue:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_rollout_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_rollout_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_rollout_ci
+      DEPLOYMENT_MODE: managed
+      RUNTIME_ENVIRONMENT: live
+      NODE_ENV: test
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci --ignore-scripts
+      - name: Isolated Postgres migration and transaction tests
+        run: |
+          npm run migrate
+          node --test test/tenant-release-queue.mjs

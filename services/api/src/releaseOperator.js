@@ -290,14 +290,18 @@ export function registerReleaseOperatorRoutes(app) {
       return c.json({error:'Route plans must originate from the central Live authority.'},403)
     const body=await c.req.json().catch(()=>null)
     const environment=String(body?.environment||'')
-    if(!['uat','live'].includes(environment))
-      return c.json({error:'Only UAT and Live support customer route assignments.'},400)
+    if(!['test','uat','live'].includes(environment))
+      return c.json({error:'Only ITSM Test, UAT and Live support customer route assignments.'},400)
     const assignments=await pool.query([
-      'SELECT t.slug,a.environment,a.pool_id,a.build_sha,',
+      'SELECT t.slug,rp.update_mode,',
+      "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm_entitled,",
+      'a.environment,a.pool_id,a.build_sha,',
       'p.build_sha AS pool_build_sha,p.state AS pool_state,p.api_target,p.web_target,',
       'p.verified_at,p.last_seen_at',
       'FROM tenant_runtime_assignments a',
       'JOIN tenants t ON t.id=a.tenant_id AND t.status=$2',
+      'JOIN tenant_release_preferences rp ON rp.tenant_id=t.id',
+      'JOIN tenant_settings ts ON ts.tenant_id=t.id',
       'JOIN platform_runtime_pools p ON p.id=a.pool_id AND p.environment=a.environment',
       'WHERE a.environment=$1 ORDER BY t.slug',
     ].join(' '),[environment,'active'])

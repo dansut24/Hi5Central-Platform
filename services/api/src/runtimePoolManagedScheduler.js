@@ -44,10 +44,13 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
    'q.build_sha AS pool_build_sha,q.state AS pool_state,',
    'q.api_target,q.web_target,q.last_seen_at,q.verified_at,',
    'a.state AS uat_state,a.build_sha AS uat_build_sha,',
-   'a.uat_accepted_at AS uat_time',
+   'a.uat_accepted_at AS uat_time,',
+   'g.state AS platform_test_state,g.passed_at AS platform_test_time,',
+   'g.passed_canary_count AS platform_test_count',
    'FROM tenant_runtime_update_offers o',
    'JOIN tenant_release_preferences p ON p.tenant_id=o.tenant_id',
    'JOIN platform_runtime_pools q ON q.id=o.pool_id AND q.environment=o.environment',
+   'LEFT JOIN platform_release_test_qa_gates g ON g.build_sha=o.build_sha',
    'LEFT JOIN LATERAL (SELECT state,build_sha,uat_accepted_at',
    'FROM tenant_runtime_update_offers u',
    "WHERE u.tenant_id=o.tenant_id AND u.environment='uat'",
@@ -70,6 +73,10 @@ export function registerRuntimeScheduleOperator(app,requireOperator){
     },
     uatOffer:row.uat_state?{
      state:row.uat_state,build_sha:row.uat_build_sha,uat_accepted_at:row.uat_time,
+    }:null,
+    testGate:row.platform_test_state?{
+     state:row.platform_test_state,build_sha:row.build_sha,
+     passed_at:row.platform_test_time,passed_canary_count:row.platform_test_count,
     }:null,now,
    })
    const item={id:row.id,tenantId:row.tenant_id,
