@@ -69,7 +69,8 @@ function clone(source,name,image,memory){
     '--security-opt','no-new-privileges:true']
   if(spec.User)args.push('--user',spec.User)
   if(spec.WorkingDir)args.push('--workdir',spec.WorkingDir)
-  for(const env of spec.Env||[])args.push('--env',env)
+  for(const env of spec.Env||[])if(!env.startsWith('API_URL='))args.push('--env',env)
+  if(name.endsWith('-web'))args.push('--env','API_URL=same-origin')
   for(const m of original.Mounts||[]){
     if(m.Type!=='volume')throw Error('Unexpected API bind-mount layout.')
     args.push('--mount','type=volume,source='+m.Name+',target='+m.Destination+
