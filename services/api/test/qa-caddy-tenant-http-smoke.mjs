@@ -64,6 +64,14 @@ async function assertRoute(port,slug,api,web){
   assert.deepEqual(a,{status:200,body:api},host+' API must resolve correct immutable pool')
   assert.deepEqual(w,{status:200,body:web},host+' frontend must resolve correct immutable pool')
 }
+async function waitForRoute(port,slug,api,web){
+  let last
+  for(let attempt=0;attempt<30;attempt++){
+    try{return await assertRoute(port,slug,api,web)}
+    catch(error){last=error;await sleep(150)}
+  }
+  throw last
+}
 try{
   // Disposable CI-only bridge allows localhost port publishing for HTTP proof.
   docker('network','create',net)
@@ -94,13 +102,13 @@ try{
 
   // A real, atomic Caddy config reload changes one host's version only.
   docker('exec',gateway,'caddy','reload','--config','/etc/caddy/new.Caddyfile')
-  await assertRoute(port,slugs[0],'new-api','new-web')
-  await assertRoute(port,slugs[1],'old-api','old-web')
+  await waitForRoute(port,slugs[0],'new-api','new-web')
+  await waitForRoute(port,slugs[1],'old-api','old-web')
 
   // Failback is the exact previously verified generation, not a heuristic.
   docker('exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile')
-  await assertRoute(port,slugs[0],'old-api','old-web')
-  await assertRoute(port,slugs[1],'old-api','old-web')
+  await waitForRoute(port,slugs[0],'old-api','old-web')
+  await waitForRoute(port,slugs[1],'old-api','old-web')
   console.log('PASS real Caddy HTTP: two isolated tenants, one changed, untouched peer, old→new→rollback.')
 }finally{
   for(const c of containers.reverse()){
