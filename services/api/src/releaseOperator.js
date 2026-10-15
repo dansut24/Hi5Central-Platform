@@ -6,6 +6,7 @@ import { verifiedRuntimePool } from './runtimePoolPolicy.js'
 import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
+import {registerTenantRoutePreviewOperator} from './tenantRoutePreviewOperator.js'
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
@@ -241,6 +242,7 @@ export function registerReleaseOperatorRoutes(app) {
   })
   registerTenantUatHostAttestation(app,requireOperator)
   registerRuntimeScheduleOperator(app,requireOperator)
+  registerTenantRoutePreviewOperator(app,requireOperator)
   // Host-attested pools are immutable Docker image revisions. Neither the
   // tenant browser nor Platform Admin can provide an arbitrary upstream.
   app.post('/api/platform-operator/v1/runtime-pools/attest',async c=>{
