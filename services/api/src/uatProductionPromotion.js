@@ -1,4 +1,5 @@
 import { APPLICATION_SHA_PATTERN } from './applicationDeployment.js'
+import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
 
 /**
  * A shared Production API/ITSM upgrade affects every tenant on that runtime.
@@ -18,7 +19,7 @@ export function assessUatProductionPromotion({review,uat,live,published=false}={
     return {allowed:false,code:'MISSING_TEST_EVIDENCE',reason:'UAT test evidence must include at least 20 characters.'}
   }
   const approved=review.approved_change_shas
-  if (!Array.isArray(approved) || approved.length>70
+  if (!Array.isArray(approved) || !approved.length || approved.length>MAX_RELEASE_HISTORY_COMMITS
     || approved.some(sha=>!APPLICATION_SHA_PATTERN.test(String(sha||'')))
     || new Set(approved).size!==approved.length) {
     return {allowed:false,code:'INVALID_CHANGE_SELECTION',reason:'UAT-approved changes are invalid or duplicated.'}
