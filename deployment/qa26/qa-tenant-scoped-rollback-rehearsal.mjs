@@ -39,21 +39,22 @@ const volumeExec=(cmd,input)=>call(['run','--rm','-i','--network','none',
 const validate=caddy=>call(['run','--rm','-i','--network','none',
  '--entrypoint','sh','caddy:2.11.4-alpine','-c',
  'cat >/tmp/Caddyfile && caddy adapt --config /tmp/Caddyfile --adapter caddyfile >/dev/null'],caddy)
-let armed=false,modified=false,restored=false,complete=false
+let armed=false,modified=false,restored=false,complete=false,peerInitial=null
 const restore=()=>{
  volumeExec('set -e; cp /backup/'+backup+' /gateway/Caddyfile; chmod 644 /gateway/Caddyfile')
  call(['exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
  modified=false
- if(publicSha(host)!==originalSha||publicSha(peer)!==originalSha)
-   throw Error('Gateway rollback did not restore both current SHA values.')
+ if(publicSha(host)!==originalSha||publicSha(peer)!==peerInitial)
+   throw Error('Gateway rollback did not restore the exact observed SHA values.')
  restored=true
 }
 try{
  if(sql('SELECT paused FROM platform_release_rollout_control WHERE singleton=true;')!=='t')
   throw Error('Global rollout switch is not paused.')
  const old=gatewayBytes(),before=checksum(old)
- if(publicSha(host)!==originalSha||publicSha(peer)!==originalSha)
-  throw Error('Both current tenant routes must serve the same official QA release.')
+ peerInitial=publicSha(peer)
+ if(publicSha(host)!==originalSha||![fallbackSha,originalSha].includes(peerInitial))
+  throw Error('Target must serve the QA release and the peer must be an allowed QA version.')
  const plan=removeQaTenantVersionOverride({config:old,host})
  validate(plan.config)
  volumeExec('set -eu; cat > /backup/'+backup+'; chmod 600 /backup/'+backup,
@@ -75,15 +76,15 @@ try{
     '; cat > /gateway/Caddyfile',plan.config)
  modified=true
  call(['exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
- if(publicSha(host)!==fallbackSha||publicSha(peer)!==originalSha)
+ if(publicSha(host)!==fallbackSha||publicSha(peer)!==peerInitial)
   throw Error('Scoped rollback did not isolate the selected tenant.')
- console.log('SCOPED_ROLLBACK_VERIFIED',host,'->',fallbackSha.slice(0,8),'peer',originalSha.slice(0,8))
+ console.log('SCOPED_ROLLBACK_VERIFIED',host,'->',fallbackSha.slice(0,8),'peer',peerInitial.slice(0,8))
  if(!apply){
    restore()
    if(checksum(gatewayBytes())!==before)throw Error('Final gateway checksum mismatch.')
    console.log('RESTORED_BOTH_TENANTS',originalSha)
  }else{
-   console.log('SCOPED_ROLLBACK_APPLIED',host,'previous='+fallbackSha,'peer='+originalSha)
+   console.log('SCOPED_ROLLBACK_APPLIED',host,'previous='+fallbackSha,'peer='+peerInitial)
  }
  volumeExec('touch /backup/'+backup+'.done')
  complete=true
