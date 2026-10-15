@@ -63,8 +63,8 @@ export function tenantReleaseEligibility({
 }={}){
   if(!preference||!['admin_controlled','hi5_managed'].includes(preference.update_mode))
     return {state:'blocked',reason:'Tenant has no valid update preference.'}
-  if(!['uat','live'].includes(environment))
-    return {state:'blocked',reason:'Only UAT and Live can receive customer release assignments.'}
+  if(!['test','uat','live'].includes(environment))
+    return {state:'blocked',reason:'Only ITSM Test, UAT and Live support customer release assignments.'}
   // A Managed customer must never receive UAT, even if a caller submits a
   // forged UAT pool or accidentally leaves an old UAT assignment behind.
   if(preference.update_mode==='hi5_managed'&&environment==='uat')
@@ -73,6 +73,8 @@ export function tenantReleaseEligibility({
   const verified=verifiedRuntimePool(pool,now)
   if(!verified.verified||pool.environment!==environment)
     return {state:'waiting_for_pool',reason:verified.reason||'No matching verified pool for this environment.'}
+  if(environment==='test')
+    return {state:'available_in_test',reason:'Test will be scheduled in the tenant maintenance window.'}
   if(preference.update_mode==='admin_controlled'){
     if(environment==='uat')return {state:'available_in_uat',reason:'Customer can begin UAT testing.'}
     return uatAccepted?{state:'ready_for_customer_approval',reason:'Customer can schedule an approved Production release.'}
@@ -105,7 +107,7 @@ export function resolvedCustomerPool({assignment,pool,environment,generationActi
 }
 export function customerPoolHostname(slug,environment,domain='hi5central.com'){
   if(!/^[a-z0-9][a-z0-9-]{1,45}[a-z0-9]$/.test(slug)
-    ||!['uat','live'].includes(environment)||!/^[a-z0-9.-]+$/.test(domain))
+    ||!['test','uat','live'].includes(environment)||!/^[a-z0-9.-]+$/.test(domain))
     throw Error('Invalid tenant hostname for pool routing.')
-  return (environment==='uat'?slug+'-uat':slug)+'.'+domain
+  return (environment==='live'?slug:slug+'-'+environment)+'.'+domain
 }
