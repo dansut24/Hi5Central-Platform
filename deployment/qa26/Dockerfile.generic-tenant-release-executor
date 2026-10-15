@@ -1,7 +1,7 @@
 # Generic approved-release executor. Requires Docker socket only on the
 # trusted VPS, not in the API, admin frontend or PostgreSQL-only planner.
 FROM docker:27-cli
-RUN apk add --no-cache nodejs curl \
+RUN apk add --no-cache nodejs npm curl \
  && printf '%s\n' '{"name":"hi5central-release-executor","type":"module","private":true,"dependencies":{"pg":"8.23.0"}}' >/tmp/package.json \
  && mkdir -p /runner && cp /tmp/package.json /runner/package.json \
  && cd /runner && npm install --omit=dev --ignore-scripts --no-audit --no-fund
