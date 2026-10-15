@@ -42,7 +42,9 @@ jobs:
           node --check services/api/src/certifiedReleaseFanout.js
           node --check services/api/src/officialReleaseCertification.js
           node --check services/api/src/releaseFanoutDaemon.mjs
-          node --test services/api/test/release-rollout-planner.mjs services/api/test/tenant-route-cutover.mjs services/api/test/release-gateway-coordinator.mjs
+          node --check services/api/src/tenantLiveBaseline.js
+          node --check deployment/qa26/tenant-release-host-executor.mjs
+          node --test services/api/test/tenant-live-baseline.mjs services/api/test/tenant-caddy-version-routes.mjs services/api/test/release-rollout-planner.mjs services/api/test/tenant-route-cutover.mjs services/api/test/release-gateway-coordinator.mjs
   security-compatibility:
     name: Security and migration compatibility
     runs-on: ubuntu-latest
