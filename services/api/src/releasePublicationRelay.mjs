@@ -116,6 +116,21 @@ export async function runRelayCycle({pool,fetcher,authority,token,allowedSha}){
   }finally{client.release()}
 }
 
+/** Nonpublishing credential check: the central endpoint authenticates first,
+ * then rejects invalid notes with HTTP 400. A 201 here is unsafe.
+ */
+export async function verifyCentralPublicationCredential({fetcher,authority,token}){
+  if(authority!=='http://hi5central-api:3001'||typeof token!=='string'||token.length<32)
+    throw fail('The central publication credential or authority is invalid.')
+  const probe=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
+    method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},
+    body:'{}',signal:AbortSignal.timeout(7500),
+  })
+  if(probe.status!==400)
+    throw fail('Protected central publication preflight failed (HTTP '+probe.status+').')
+  return true
+}
+
 export async function startReleasePublicationRelay({
   databaseUrlFile,operatorTokenFile,allowedSha,authority,
   once=false,preflight=false,fetcher=fetch,
@@ -138,16 +153,7 @@ export async function startReleasePublicationRelay({
       "SELECT to_regclass('public.hi5central_release_note_drafts') IS NOT NULL AS ready")
     if(schema.rows[0]?.ready!==true)throw fail('Dev release-note migrations missing.')
     if(preflight){
-      // Invalid (empty) notes are rejected AFTER bearer authentication and
-      // BEFORE the central publishing write; a 400 proves the token is accepted
-      // without creating any release or changing editorial state.
-      const probe=await fetcher(authority+'/api/platform-operator/v1/releases/publish',{
-        method:'POST',headers:{'Content-Type':'application/json',
-          Authorization:'Bearer '+token},
-        body:'{}',signal:AbortSignal.timeout(7500),
-      })
-      if(probe.status!==400)
-        throw fail('Protected central publication preflight failed (HTTP '+probe.status+').')
+      await verifyCentralPublicationCredential({fetcher,authority,token})
       return {status:'preflight_pass',allowedSha}
     }
     do{
