@@ -5,6 +5,10 @@ on:
       - 'services/api/src/uatProductionPromotion.js'
       - 'services/api/src/applicationReleaseExecutor.js'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releaseReviewRange.js'
+      - 'services/api/src/applicationUpdates.js'
+      - 'services/api/test/release-review-range.mjs'
+      - '.github/scripts/generate-release-manifest.mjs'
       - 'services/api/migrations/platform-admin/155_app_release_executor_heartbeat.sql'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/uat-production-promotion.mjs'
@@ -32,8 +36,10 @@ jobs:
           node --check src/uatProductionPromotion.js
           node --check src/applicationReleaseExecutor.js
           node --check src/releaseOperator.js
+          node --check src/releaseReviewRange.js
+          node --check src/applicationUpdates.js
           node --check src/platformAdmin.js
-          node --test test/uat-production-promotion.mjs
+          node --test test/uat-production-promotion.mjs test/release-review-range.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:runtime
   native-app-executor:
@@ -59,3 +65,28 @@ jobs:
           node-version: '24'
       - run: npm ci --ignore-scripts
       - run: npm run build
+  release-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Generate and verify complete baseline-aware release manifest
+        run: |
+          node .github/scripts/generate-release-manifest.mjs
+          node --input-type=module <<'JS'
+          import {readFileSync} from 'node:fs'
+          import {execFileSync} from 'node:child_process'
+          const m=JSON.parse(readFileSync('services/api/release-manifest.json','utf8'))
+          const head=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()
+          const baseline='2199e58a540ff912cccdbd137fdfbb9e8d48f3c5'
+          const range=Number(execFileSync('git',['rev-list','--count',baseline+'..HEAD'],{encoding:'utf8'}).trim())
+          const index=m.commits.findIndex(c=>c.sha===baseline)
+          if(!m.historyComplete||m.schemaVersion!==2||m.historyLimit!==512
+             ||m.sha!==head||index!==range||range<188)
+            throw Error('Release review manifest does not contain every commit since the verified QA26 Live baseline')
+          console.log('PASS: verified Live-to-candidate changes='+range+'; full manifest commits='+m.commits.length)
+          JS
