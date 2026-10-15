@@ -60,7 +60,7 @@ function claim(){
     "AND t.slug IN ('h5c-managed-qa26','h5c-custom-qa26')",
     'AND t.status=\'active\' AND j.scheduled_at<=now()',
     'AND j.attempt_count<j.max_attempts',
-    'ORDER BY j.scheduled_at,j.id FOR UPDATE OF j SKIP LOCKED LIMIT 1),',
+    'ORDER BY j.scheduled_at,j.id LIMIT 1 FOR UPDATE OF j SKIP LOCKED),',
     'claimed AS (UPDATE tenant_release_rollout_jobs j SET',
     "status='running',attempt_count=attempt_count+1,",
     'lease_token=gen_random_uuid(),lease_fence=lease_fence+1,',
