@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {heartbeat} from './qa-worker-heartbeat.mjs'
 // A dedicated, durable QA UAT operator. NEVER touches Managed UAT, Live, RMM.
 // A matching, verified Test rollout with 2-minute QA-specific soak must
 // succeed before the Custom UAT job may be claimed from the shared queue.
@@ -150,7 +151,7 @@ async function execute(){
 const mode=process.argv[2]||'--once'
 if(!['--once','--loop'].includes(mode))throw Error('Usage: --once or --loop')
 do{
-  try{await execute()}catch(e){
+  try{heartbeat('qa26-custom-uat-release-operator','idle',TARGET);await execute()}catch(e){
     console.error('UAT_WORKER_ERROR',e.message)
     if(mode==='--once')process.exitCode=1
   }
