@@ -65,6 +65,24 @@ export function changesSince(versions,liveSha){
     commits:versions.changes,
   },liveSha)
 }
+// A UAT browser may request a review, but the range is computed from the
+// actual Live version endpoint, never from a caller-selected baseline.
+async function verifiedLiveReviewScope() {
+  let liveVersion
+  try {
+    const response=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/version',
+      {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
+    if(!response.ok)throw new Error('Production version verification failed.')
+    liveVersion=await response.json()
+  }catch {
+    throw new Error('Production version unavailable; release approval is blocked.')
+  }
+  const baselineSha=String(liveVersion?.sha||'')
+  if(!SHA.test(baselineSha)||liveVersion?.environment!=='live')
+    throw new Error('Verified Production application revision is unavailable.')
+  const scope=changesSince(releaseCatalog(),baselineSha)
+  return {...scope,baselineSha,buildSha:manifest.sha,reviewChangeCount:scope.changes.length}
+}
 async function requireUser(c,admin=false){
   const session=await resolveSession(c)
   if(!session)return {error:c.json({error:'Authentication required.'},401)}
@@ -240,6 +258,21 @@ export function registerApplicationUpdatesRoutes(app){
       message:'Dev release publication requested. Customers see it only after the trusted release operator publishes the notes centrally.'},202)
   })
 
+  app.get('/api/v1/updates/uat-review-scope',async c=>{
+    const auth=await requireUser(c,true)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='uat')return c.json({error:'Reviews are recorded in UAT.'},403)
+    try {
+      const scope=await verifiedLiveReviewScope()
+      return c.json({buildSha:scope.buildSha,baselineSha:scope.baselineSha,
+        knownBaseline:scope.knownBaseline,reviewChangeCount:scope.reviewChangeCount,
+        reason:scope.reason})
+    }catch(error) {
+      return c.json({buildSha:manifest.sha,knownBaseline:false,reviewChangeCount:0,
+        reason:error.message||'Release review is temporarily unavailable.'})
+    }
+  })
+
   app.get('/api/v1/updates/uat-review',async c=>{
     const auth=await requireUser(c,true)
     if(auth.error)return auth.error
@@ -277,24 +310,13 @@ export function registerApplicationUpdatesRoutes(app){
         return c.json({error:'Hi5Central must publish the developer-written release notes from Dev before this version can be requested for Live.'},409)
     }
     if(request) {
-      // Approval must be complete for the *verified* current Live baseline.
-      // A caller-supplied SHA, truncated history, or missing Live API is not
-      // grounds to silently approve the newest 70/100 visible commits.
-      let liveVersion
-      try {
-        const live=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/version',
-          {headers:{Accept:'application/json'},signal:AbortSignal.timeout(3500)})
-        if(!live.ok)return c.json({error:'Live version verification failed; UAT approval is blocked.'},409)
-        liveVersion=await live.json()
-      }catch {
-        return c.json({error:'Production version unavailable; refresh and retry before requesting Live.'},409)
-      }
-      const verifiedProductionSha=String(liveVersion?.sha||'')
-      if(!SHA.test(verifiedProductionSha)||liveVersion?.environment!=='live')
-        return c.json({error:'Verified Live application revision is unavailable.'},409)
-      if(verifiedProductionSha!==baselineSha)
+      // The requested release must cover every commit since the trusted Live
+      // revision; incomplete manifests and missing/changed baselines fail shut.
+      let comparison
+      try {comparison=await verifiedLiveReviewScope()}
+      catch(error){return c.json({error:error.message},409)}
+      if(comparison.baselineSha!==baselineSha)
         return c.json({error:'Production changed during UAT review. Refresh and compare the releases again.'},409)
-      const comparison=changesSince(releaseCatalog(),verifiedProductionSha)
       if(!comparison.knownBaseline)
         return c.json({error:comparison.reason||'Complete Live-to-UAT history unavailable.'},409)
       if(!comparison.changes.length)
