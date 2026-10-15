@@ -56,6 +56,11 @@ export function buildHostRoutingManifest({environment,rows,now=new Date(),domain
   const entries=[],seen=new Set()
   for(const row of rows){
     if(row.environment!==environment)throw Error('Route environment mismatch.')
+    if(row.itsm_entitled!==true)throw Error('Tenant has no active ITSM entitlement.')
+    if(!['hi5_managed','admin_controlled'].includes(row.update_mode))
+      throw Error('Tenant update mode is unverified.')
+    if(environment==='uat'&&row.update_mode!=='admin_controlled')
+      throw Error('Managed tenants must never receive UAT routes.')
     const host=customerPoolHostname(row.slug,environment,domain)
     if(seen.has(host))throw Error('Duplicate tenant hostname in routing plan.')
     seen.add(host)
@@ -74,8 +79,15 @@ export function buildHostRoutingManifest({environment,rows,now=new Date(),domain
 }
 export async function preparePoolOffer({db,tenantId,environment,poolId,now=new Date()}){
   if(!['test','uat','live'].includes(environment))throw Error('Invalid release environment.')
-  const tenant=await db.query('SELECT t.id,t.slug,p.update_mode,p.live_delay_hours,p.maintenance_window FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id WHERE t.id=$1 AND t.status=$2',[tenantId,'active'])
-  if(!tenant.rowCount)throw Error('Active customer or update policy not found.')
+  const tenant=await db.query([
+    'SELECT t.id,t.slug,p.update_mode,p.live_delay_hours,p.maintenance_window,',
+    "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm_entitled",
+    'FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id',
+    'JOIN tenant_settings ts ON ts.tenant_id=t.id',
+    'WHERE t.id=$1 AND t.status=$2',
+  ].join(' '),[tenantId,'active'])
+  if(!tenant.rowCount||tenant.rows[0].itsm_entitled!==true)
+    throw Error('Active ITSM customer or update policy not found.')
   const pool=await db.query('SELECT * FROM platform_runtime_pools WHERE id=$1 AND environment=$2',[poolId,environment])
   if(!pool.rowCount)throw Error('Pool has not been registered in this environment.')
   const release=await db.query('SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',[pool.rows[0].build_sha])
