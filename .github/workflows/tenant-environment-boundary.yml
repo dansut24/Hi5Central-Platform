@@ -23,7 +23,11 @@ on:
       - 'services/api/src/settings.js'
       - 'services/api/migrations/itsm/154_itsm_configuration_change_events.sql'
       - 'services/api/test/itsm-configuration-history.mjs'
+      - 'services/api/test/itsm-leaf-settings.mjs'
       - 'apps/itsm/src/features/settings/ItsmConfigurationHistory.jsx'
+      - 'apps/itsm/src/features/settings/ProductionSettingsWorkspace.jsx'
+      - 'apps/itsm/src/features/settings/itsmSettingsDelta.js'
+      - 'apps/itsm/src/features/settings/itsmSettingsDelta.test.mjs'
       - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
       - '.github/workflows/tenant-environment-boundary.yml'
   workflow_dispatch:
@@ -43,7 +47,7 @@ jobs:
       - run: node --check src/tenantEnvironmentPolicy.js && node --check src/tenantEnvironmentProvisioner.js && node --check src/tenantEnvironmentAccess.js && node --check src/tenantRelease.js
       - run: node --check scripts/qa26-readiness.mjs
       - run: node --check src/itsmConfigurationChanges.js && node --check src/settings.js && node --check src/liveDirectoryBridge.js && node --check src/qa26Staging.js && node --check src/organisation.js && node --check src/rmmRemote.js && node --check src/rmmConnect.js && node --check src/sandboxRmmBoundary.js && node --check src/index.js
-      - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs test/shared-live-directory.mjs test/sandbox-rmm-boundary.mjs test/qa26-preview-boundary.mjs
+      - run: node --test test/tenant-environment-boundary.mjs test/itsm-configuration-history.mjs test/itsm-leaf-settings.mjs test/shared-live-directory.mjs test/sandbox-rmm-boundary.mjs test/qa26-preview-boundary.mjs
       - run: npm ci --ignore-scripts
       - run: npm run build:runtime
   itsm:
@@ -57,4 +61,5 @@ jobs:
         with:
           node-version: '24'
       - run: npm ci --ignore-scripts
+      - run: node --test src/features/settings/itsmSettingsDelta.test.mjs
       - run: npm run build
