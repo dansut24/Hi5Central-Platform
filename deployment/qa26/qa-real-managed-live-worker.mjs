@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {heartbeat} from './qa-worker-heartbeat.mjs'
 // Durable Managed QA Production worker: exact Test-canary release, only named
 // QA26 Managed tenant, maintenance window, QA soak/approval, fenced DB lease.
 // This is NOT general customer Live automation; remains disabled by default.
@@ -151,7 +152,7 @@ async function execute(){
 const mode=process.argv[2]||'--once'
 if(!['--once','--loop'].includes(mode))throw Error('Use --once or --loop.')
 do{
- try{await execute()}catch(e){
+ try{heartbeat('qa26-managed-live-release-operator','idle',SHA);await execute()}catch(e){
   console.error('MANAGED_LIVE_WORKER_ERROR',e.message)
   if(mode==='--once')process.exitCode=1
  }
