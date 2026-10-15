@@ -1,5 +1,6 @@
 import {nextTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {enqueueReleasePlans,activateNextPendingRollout} from './tenantReleaseQueue.js'
+import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
 
 const SHA=/^[a-f0-9]{40}$/
 const allowedStages=new Set(['test','uat','live'])
@@ -95,10 +96,13 @@ export function scheduledCustomerRelease({decision,tenant,sha,now=new Date(),
  * No Docker, Caddy, production route change or employee approval here.
  */
 export async function fanoutCertifiedRelease(db,{
-  sha,now=new Date(),limit=200,testSoakMinutes=30,
+  sha,now=new Date(),limit=200,testSoakMinutes=30,qaTenantSlugs=null,
 }={}){
   if(!SHA.test(String(sha||''))||!Number.isInteger(limit)||limit<1||limit>2000)
     throw fail('Exact immutable revision and bounded tenant batch required.')
+  // Until a separately approved general rollout, every production planner scan
+  // must use an exact QA tenant cohort. No unscoped publication/fanout.
+  const allowlist=parseQaReleaseTenantSlugs(Array.isArray(qaTenantSlugs)?qaTenantSlugs.join(','):'')
   const lock=await db.query('SELECT pg_try_advisory_xact_lock(hashtext($1),hashtext($2)) AS locked',
     ['hi5central-certified-release-fanout',sha])
   if(!lock.rows[0]?.locked)return {locked:true,queued:0,blocked:0}
@@ -124,6 +128,7 @@ export async function fanoutCertifiedRelease(db,{
     'JOIN tenant_settings ts ON ts.tenant_id=t.id',
     "WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL",
     "AND COALESCE((ts.modules->>'itsm')::boolean,false)=true",
+    'AND t.slug = ANY($3::text[])',
     "AND t.id > COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)",
     'ORDER BY t.id LIMIT $1',
   ].join(' ')
@@ -132,13 +137,15 @@ export async function fanoutCertifiedRelease(db,{
   const canaries=await db.query([
     'SELECT j.id,j.tenant_id,j.completed_at FROM tenant_release_rollout_jobs j',
     'JOIN platform_release_canary_tenants c ON c.tenant_id=j.tenant_id AND c.enabled=true',
+    'JOIN tenants t ON t.id=j.tenant_id',
     "WHERE j.environment='test' AND j.build_sha=$1 AND j.status='succeeded'",
+    'AND t.slug = ANY($4::text[])',
     'AND j.completed_at IS NOT NULL',
     "AND j.completed_at <= ($2::timestamptz - make_interval(mins=>$3::int))",
     'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
     "WHERE e.job_id=j.id AND e.event_type='verified' AND e.fence=j.lease_fence)",
     'ORDER BY j.completed_at DESC LIMIT 10000',
-  ].join(' '),[sha,now,testSoakMinutes])
+  ].join(' '),[sha,now,testSoakMinutes,allowlist])
   const designated=[...new Map(canaries.rows.map(j=>[j.tenant_id,j])).values()]
   if(designated.length>=2){
     const evidence={automatic:true,source:'two-verified-designated-test-canaries',
@@ -156,7 +163,7 @@ export async function fanoutCertifiedRelease(db,{
   const report={releaseSha:sha,scanned:0,queued:0,alreadyQueued:0,blocked:0,reasons:[]}
   let tenantCursor=null
   for(;;){
-    const tenants=await db.query(tenantsSql,[limit,tenantCursor])
+    const tenants=await db.query(tenantsSql,[limit,tenantCursor,allowlist])
     if(!tenants.rows.length)break
     for(const row of tenants.rows){
     report.scanned++
