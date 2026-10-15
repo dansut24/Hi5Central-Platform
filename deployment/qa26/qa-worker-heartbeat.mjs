@@ -13,10 +13,13 @@ export function heartbeat(workerId,state,versionSha=null){
     ||(versionSha&&!SHA.test(versionSha)))
     throw Error('Unrecognised release worker heartbeat.')
   const qs=x=>"'"+x+"'"
+  const reportedState=state==='idle'
+    ? "CASE WHEN (SELECT paused FROM platform_release_rollout_control WHERE singleton=true) THEN 'paused' ELSE 'idle' END"
+    : qs(state)
   const statement=[
     'INSERT INTO platform_release_worker_heartbeats',
     '(worker_id,gateway,state,version_sha,last_poll_at,last_success_at,last_error)',
-    'VALUES('+qs(workerId)+','+qs(gateway)+','+qs(state)+','+
+    'VALUES('+qs(workerId)+','+qs(gateway)+','+reportedState+','+
       (versionSha?qs(versionSha):'NULL')+",now(),"+
       (state==='error'?'NULL':'now()')+",'')",
     'ON CONFLICT(worker_id) DO UPDATE SET',
