@@ -80,6 +80,30 @@ async function guards(job){
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
   if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
     throw Error('Managed customers have no UAT.')
+  if(gateway==='uat'||gateway==='live'){
+    const verifiedTest=await pool.query([
+      'SELECT 1 FROM tenant_release_rollout_jobs j',
+      'WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3',
+      "AND j.status='succeeded' AND j.completed_at IS NOT NULL",
+      'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
+      "WHERE e.job_id=j.id AND e.event_type='verified'",
+      'AND e.fence=j.lease_fence) LIMIT 1',
+    ].join(' '),[job.tenantId,'test',job.buildSha])
+    if(!verifiedTest.rowCount)
+      throw Error('The exact tenant Test release must be verified before UAT or Production.')
+  }
+  if(gateway==='live'&&ctx.update_mode==='admin_controlled'){
+    const verifiedUat=await pool.query([
+      'SELECT 1 FROM tenant_release_rollout_jobs j',
+      'WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3',
+      "AND j.status='succeeded' AND j.completed_at IS NOT NULL",
+      'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
+      "WHERE e.job_id=j.id AND e.event_type='verified'",
+      'AND e.fence=j.lease_fence) LIMIT 1',
+    ].join(' '),[job.tenantId,'uat',job.buildSha])
+    if(!verifiedUat.rowCount)
+      throw Error('Custom Production requires the matching, host-verified UAT deployment.')
+  }
   const within=activeTenantMaintenanceWindow({
     policy:ctx.maintenance_window,blackouts:ctx.blackout_periods,
     durationMinutes:ctx.expected_duration_minutes,now:new Date(),
