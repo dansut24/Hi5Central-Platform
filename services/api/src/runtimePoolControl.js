@@ -80,17 +80,28 @@ export async function preparePoolOffer({db,tenantId,environment,poolId,now=new D
   if(!pool.rowCount)throw Error('Pool has not been registered in this environment.')
   const release=await db.query('SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',[pool.rows[0].build_sha])
   if(!release.rowCount)throw Error('Dev has not published this exact application release.')
-  let uatAccepted=false,uatAcceptedAt=null
-  if(environment==='live'){
-    const approved=await db.query('SELECT state,uat_accepted_at FROM tenant_runtime_update_offers WHERE tenant_id=$1 AND environment=$2 AND build_sha=$3 AND state IN ($4,$5) ORDER BY updated_at DESC LIMIT 1',[tenantId,'uat',pool.rows[0].build_sha,'uat_accepted','active'])
-    uatAccepted=Boolean(approved.rowCount)
-    uatAcceptedAt=approved.rows[0]?.uat_accepted_at
-  }
+  let uatAccepted=false,testPassed=false,testPassedAt=null
   const preference=tenant.rows[0]
+  if(environment==='live'&&preference.update_mode==='admin_controlled'){
+    const approved=await db.query([
+      'SELECT state FROM tenant_runtime_update_offers',
+      "WHERE tenant_id=$1 AND environment='uat' AND build_sha=$2",
+      "AND state IN ('uat_accepted','active') ORDER BY updated_at DESC LIMIT 1",
+    ].join(' '),[tenantId,pool.rows[0].build_sha])
+    uatAccepted=Boolean(approved.rowCount)
+  }else if(environment==='live'&&preference.update_mode==='hi5_managed'){
+    const qa=await db.query([
+      'SELECT passed_at FROM platform_release_test_qa_gates',
+      "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
+    ].join(' '),[pool.rows[0].build_sha])
+    testPassed=Boolean(qa.rowCount)
+    testPassedAt=qa.rows[0]?.passed_at
+  }
   const eligibility=tenantReleaseEligibility({
-    preference,pool:pool.rows[0],environment,uatAccepted,uatAcceptedAt,published:true,now,
+    preference,pool:pool.rows[0],environment,uatAccepted,testPassed,testPassedAt,
+    published:true,now,
   })
-  if(['blocked','waiting_for_pool','unreleased','awaiting_uat'].includes(eligibility.state))
+  if(['blocked','waiting_for_pool','unreleased','awaiting_uat','awaiting_test'].includes(eligibility.state))
     throw Error(eligibility.reason)
   const created=await db.query("INSERT INTO tenant_runtime_update_offers (tenant_id,environment,pool_id,build_sha,update_mode,state) VALUES($1,$2,$3,$4,$5,'offered') RETURNING id,tenant_id,environment,pool_id,build_sha,state,created_at",
     [tenantId,environment,poolId,pool.rows[0].build_sha,preference.update_mode])
