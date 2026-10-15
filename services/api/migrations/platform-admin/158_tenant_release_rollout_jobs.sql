@@ -27,10 +27,12 @@ CREATE TABLE IF NOT EXISTS tenant_release_rollout_jobs (
   CHECK (status <> 'running' OR lease_token IS NOT NULL)
 );
 
--- Prevent two separate releases from concurrently activating one tenant/env.
-CREATE UNIQUE INDEX IF NOT EXISTS unique_running_tenant_environment_rollout
+-- At most one queued-or-running release may own an environment. Newer
+-- releases remain 'pending' until the previous one completes/cancels; this
+-- supports tenant ordering without attempting two route switches at once.
+CREATE UNIQUE INDEX IF NOT EXISTS unique_active_tenant_environment_rollout
   ON tenant_release_rollout_jobs (tenant_id,environment)
-  WHERE status='running';
+  WHERE status IN ('scheduled','deferred','running');
 CREATE INDEX IF NOT EXISTS due_release_rollout_jobs
   ON tenant_release_rollout_jobs(status,scheduled_at,id)
   WHERE status IN ('scheduled','deferred','running');
