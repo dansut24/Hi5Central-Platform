@@ -19,6 +19,10 @@ on:
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releasePublicationCredential.js'
+      - 'services/api/test/release-publication-credential.mjs'
+      - 'deployment/qa26/bootstrap-release-publisher-dev-only.sql'
+      - 'deployment/qa26/provision-release-publisher-admin.py'
       - 'services/api/src/releasePublicationRelay.mjs'
       - 'services/api/src/releasePublicationRelayDaemon.mjs'
       - 'services/api/test/release-publication-relay.mjs'
@@ -65,6 +69,8 @@ jobs:
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
+          node --check src/releasePublicationCredential.js
+          node --test test/release-publication-credential.mjs
           node --check src/releasePublicationRelay.mjs
           node --check src/releasePublicationRelayDaemon.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
