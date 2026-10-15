@@ -223,6 +223,26 @@ try{
   console.log('GATEWAY_SWITCH_APPLIED '+target+' -> '+CANDIDATE_SHA.slice(0,8))
   await publicSha(target,CANDIDATE_SHA,20)
   await publicSha(control,PEER_SHA,20)
+  // Browser verification: all API requests must follow the TENANT version,
+  // not the older environment-wide test-api.hi5central.com runtime config.
+  const get=url=>{
+    const r=spawnSync('curl',['-fsS','--max-time','8',url],
+      {encoding:'utf8',timeout:12000})
+    if(r.status!==0)throw Error('Tenant frontend resource could not be fetched.')
+    return r.stdout
+  }
+  const manifest=JSON.parse(get('https://'+target+'/release-manifest.json'))
+  const clientConfig=get('https://'+target+'/runtime-config.js')
+  if(manifest.sha!==CANDIDATE_SHA
+     ||!clientConfig.includes('apiUrl: "" || window.location.origin')
+     ||!clientConfig.includes('window.__HI5_API_BASE__'))
+    throw Error('Tenant frontend is not paired with its same-origin versioned API.')
+  const auth=spawnSync('curl',['-sS','-o','/dev/null','-w','%{http_code}',
+    '--max-time','8','https://'+target+'/api/v1/auth/session'],
+    {encoding:'utf8',timeout:12000})
+  if(auth.status!==0||auth.stdout.trim()!=='401')
+    throw Error('Protected tenant API/session boundary did not return 401.')
+  console.log('TENANT_FRONTEND_API_SAME_ORIGIN_VERIFIED',target,CANDIDATE_SHA)
   console.log('REAL_HOST_HTTP_VERIFIED_TARGET_AND_UNCHANGED_PEER')
   if(KEEP){
     // The rollout worker may retain the route only after observing the exact
