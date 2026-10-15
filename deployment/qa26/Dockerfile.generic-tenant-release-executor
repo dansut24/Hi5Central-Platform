@@ -1,0 +1,20 @@
+# Generic approved-release executor. Requires Docker socket only on the
+# trusted VPS, not in the API, admin frontend or PostgreSQL-only planner.
+FROM docker:27-cli
+RUN apk add --no-cache nodejs curl \
+ && printf '%s\n' '{"name":"hi5central-release-executor","type":"module","private":true,"dependencies":{"pg":"8.23.0"}}' >/tmp/package.json \
+ && mkdir -p /runner && cp /tmp/package.json /runner/package.json \
+ && cd /runner && npm install --omit=dev --ignore-scripts --no-audit --no-fund
+WORKDIR /runner
+COPY services/api/src/releaseGatewayCoordinator.js /runner/services/api/src/releaseGatewayCoordinator.js
+COPY services/api/src/tenantReleaseQueue.js /runner/services/api/src/tenantReleaseQueue.js
+COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js /runner/services/api/src/releaseRolloutPlanner.js
+COPY services/api/src/tenantCaddyVersionRoutes.js /runner/services/api/src/tenantCaddyVersionRoutes.js
+COPY services/api/src/tenantReleaseExecutor.mjs /runner/services/api/src/tenantReleaseExecutor.mjs
+COPY deployment/qa26/tenant-release-host-executor.mjs /runner/deployment/qa26/tenant-release-host-executor.mjs
+COPY services/api/package.json /runner/services/api/package.json
+RUN node --check services/api/src/tenantReleaseExecutor.mjs \
+ && node --check deployment/qa26/tenant-release-host-executor.mjs \
+ && node --check services/api/src/tenantReleaseQueue.js
+ENTRYPOINT ["node","services/api/src/tenantReleaseExecutor.mjs"]
