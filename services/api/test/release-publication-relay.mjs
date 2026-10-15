@@ -15,7 +15,7 @@ const asExpected={
   buildSha:sha,versionLabel:data.version_label,title:data.title,
   summary:data.summary,entries:data.entries,
 }
-function scenario({changed=false,centralFails=false,readbackFails=false,selected=data}={}){
+function scenario({changed=false,centralFails=false,centralConflict=false,readbackFails=false,readbackMissing=false,selected=data}={}){
   let posted=0,updated=0;
   const db={query:async(q,args)=>{
     if(q.startsWith('SELECT build_sha'))return {rowCount:selected?1:0,rows:selected?[selected]:[]}
@@ -33,12 +33,14 @@ function scenario({changed=false,centralFails=false,readbackFails=false,selected
       assert.equal(opts.method,'POST')
       assert.equal(opts.headers.Authorization,'Bearer '+token)
       assert.deepEqual(JSON.parse(opts.body),asExpected)
-      return {ok:!centralFails,status:centralFails?503:201,
-        json:async()=>centralFails?{error:'Unavailable'}:{published:true,buildSha:sha}}
+      return {ok:!centralFails&&!centralConflict,status:centralFails?503:centralConflict?409:201,
+        json:async()=>centralFails?{error:'Unavailable'}:centralConflict
+          ?{error:'An existing release differs by JSON field order.'}
+          :{published:true,buildSha:sha}}
     }
     assert.equal(url,authority+'/api/v1/updates/published')
     return {ok:true,status:200,json:async()=>({
-      releases:[{...asExpected,publishedAt:'2026-10-15T21:29:00.000Z',
+      releases:readbackMissing?[]:[{...asExpected,publishedAt:'2026-10-15T21:29:00.000Z',
         ...(readbackFails?{title:'Tampered'}:{})}],
     })}
   }
@@ -128,4 +130,42 @@ test('Nonpublishing central credential preflight accepts only HTTP 400',async()=
       authority,token,fetcher:async()=>({status}),
     }),/preflight failed/)
   }
+})
+
+test('Disconnected first publication is reconciled read-only from immutable central catalogue',async()=>{
+  const s=scenario()
+  const a=await relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha,reconcileOnly:true})
+  assert.equal(a.status,'published')
+  assert.equal(a.alreadyPublished,true)
+  assert.deepEqual(s.counters(),{posted:0,updated:1})
+})
+test('409 duplicate publication is only acknowledged after exact central readback',async()=>{
+  const s=scenario({centralConflict:true})
+  const a=await relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha})
+  assert.equal(a.status,'published')
+  assert.equal(a.alreadyPublished,true)
+  assert.deepEqual(s.counters(),{posted:1,updated:1})
+})
+test('409 with mismatched central release fails closed, never acknowledges Dev',async()=>{
+  const s=scenario({centralConflict:true,readbackFails:true})
+  await assert.rejects(()=>relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha}),/did not match/)
+  assert.deepEqual(s.counters(),{posted:1,updated:0})
+})
+test('Reconciliation refuses missing or altered central release with zero write or POST',async()=>{
+  for(const opts of [{readbackMissing:true},{readbackFails:true}]){
+    const s=scenario(opts)
+    await assert.rejects(()=>relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+      authority,token,allowedSha:sha,reconcileOnly:true}),/did not match/)
+    assert.deepEqual(s.counters(),{posted:0,updated:0})
+  }
+})
+test('Reconciliation never accepts a nonrequested Dev release, even if centrally present',async()=>{
+  const s=scenario({selected:null})
+  const a=await relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha,reconcileOnly:true})
+  assert.equal(a.status,'no_pending')
+  assert.deepEqual(s.counters(),{posted:0,updated:0})
 })
