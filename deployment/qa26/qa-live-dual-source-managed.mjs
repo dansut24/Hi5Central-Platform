@@ -96,7 +96,13 @@ function reload(config,label){
    config,90000)
 }
 function initial(){
- if(pause()!=='t')throw Error('Global kill switch must be enabled for manual QA rehearsal.')
+ const currentPause=pause()
+ if(mode==='--rehearse'&&currentPause!=='t')
+   throw Error('Manual QA rehearsal requires the global pause.')
+ if(mode==='--apply'&&currentPause!=='f')
+   throw Error('Durable leased QA Live execution requires explicitly enabled scheduler.')
+ if(mode==='--apply'&&process.env.H5C_QA_MANAGED_PROD_APPROVED!=='yes')
+   throw Error('Leased Managed QA Live execution is not approved.')
  const imagePair=['api','web'].map(role=>{
    const c='hi5pool-live-qa-release-4a363cf9054b-'+role
    return JSON.parse(d(['inspect',c]))[0]
