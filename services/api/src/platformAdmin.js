@@ -327,6 +327,19 @@ async function requireAdmin(c, roles = null) {
   return { session }
 }
 
+async function requireStaffWorkerAudit(c){
+  if(!originAllowed(c))
+    return {error:c.json({error:'Hi5Central Admin Centre origin required.'},403)}
+  const session=await resolveAdminSession(c)
+  if(!session)return {error:c.json({error:'Staff sign-in required.'},401)}
+  const membership=await pool.query(
+    "SELECT role FROM platform_admin_members WHERE user_id=$1 AND status='active' AND role IN ('owner','admin','support','read_only')",
+    [session.user_id])
+  if(!membership.rowCount)
+    return {error:c.json({error:'Hi5Central staff access is required.'},403)}
+  return {session}
+}
+
 function adminPayload(session, tenantSession = null) {
   const configuration = tenantSession?.configuration && Object.keys(tenantSession.configuration).length
     ? tenantSession.configuration
@@ -2292,7 +2305,7 @@ export function registerPlatformAdminRoutes(app) {
   // Staff-only, read-only durable release operator audit. Worker secrets,
   // session tokens and raw environment files are never sent to the browser.
   app.get('/api/platform/v1/releases/worker-activity',async c=>{
-    const auth=await requireAdmin(c,new Set(['owner','admin','support','read_only']))
+    const auth=await requireStaffWorkerAudit(c)
     if(auth.error)return auth.error
     try{
       const result=await readWorkerDeployments(pool,{
@@ -2307,7 +2320,7 @@ export function registerPlatformAdminRoutes(app) {
   })
 
   app.get('/api/platform/v1/releases/worker-activity/:id/events',async c=>{
-    const auth=await requireAdmin(c,new Set(['owner','admin','support','read_only']))
+    const auth=await requireStaffWorkerAudit(c)
     if(auth.error)return auth.error
     try{return c.json({events:await readWorkerDeploymentEvents(pool,c.req.param('id'))})}
     catch(error){return c.json({error:error.message||'Worker events are unavailable.'},400)}
