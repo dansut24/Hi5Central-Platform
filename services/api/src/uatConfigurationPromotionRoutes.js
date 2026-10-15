@@ -56,7 +56,7 @@ async function readUatCandidates(tenantId,canonicalSlug){
     if(!tenant.rowCount||tenant.rows[0].slug!==canonicalSlug+'-uat'||tenant.rows[0].status!=='active')
       throw Object.assign(new Error('UAT tenant does not match the active Live customer.'),{status:409})
     const events=await db.query(
-      `SELECT id,entity_key,value_changes,recorded_at
+      `SELECT id,entity_key,changed_keys,value_changes,recorded_at
        FROM itsm_configuration_change_events
        WHERE tenant_id=$1 AND environment='uat'
          AND entity_key='tenant_settings.itsm.delta-v2'
