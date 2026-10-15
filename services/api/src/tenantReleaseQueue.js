@@ -84,11 +84,14 @@ export async function activateNextPendingRollout(db,{tenantId,environment}){
  * live window, tenant scope, and host proof must be rechecked before a route
  * switch. Default global pause protects environments until full E2E tests pass.
  */
-export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null}={}){
+export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null}={}){
   const at=goodDate(now)
   if(!at||(environment!==null&&!ENV.has(environment))||!Number.isInteger(limit)||limit<1||limit>50
     ||!Number.isInteger(leaseSeconds)||leaseSeconds<30||leaseSeconds>600)
     throw invalid('Invalid worker clock, lease or batch size.')
+  if(qaTenantSlugs!==null&&(!Array.isArray(qaTenantSlugs)||!qaTenantSlugs.length
+    ||qaTenantSlugs.length>24||qaTenantSlugs.some(s=>typeof s!=='string'||!/^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/.test(s))))
+    throw invalid('Unsafe QA rollout lease cohort.')
   // Serialize queue claim transactions for shared gateways across different
   // worker processes. Session-level gateway lock stays held separately for
   // the host cutover; this xact lock only protects fair dequeue decisions.
@@ -109,9 +112,10 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     "OR (j.status='running' AND j.lease_expires_at<=$1))",
     'AND j.attempt_count<j.max_attempts',
     'AND ($3::text IS NULL OR j.environment=$3)',
+    'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
-  ].join(' '),[at,limit,environment])
+  ].join(' '),[at,limit,environment,qaTenantSlugs])
   const claimed=[],deferred=[]
   // UAT and Live each currently share one Caddy gateway. Do not issue a
   // second running job for either resource until its first cutover completes.
