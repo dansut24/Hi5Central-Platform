@@ -19,8 +19,13 @@ const ACCEPTED=new Map([
   ['h5c-managed-qa26','h5c-managed-qa26-test.hi5central.com'],
   ['h5c-custom-qa26','h5c-custom-qa26-test.hi5central.com'],
 ])
-const TARGET='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
-const REF='qa26-real-test-v1'
+const TARGET=process.env.H5C_QA_TARGET_SHA||'ddbb869e228ac0d78d3a985daba3fb7059bb0530'
+const REF=process.env.H5C_QA_RELEASE_REF||'qa26-real-test-v1'
+const PREVIOUS=process.env.H5C_QA_PREVIOUS_SHA||'9041ed0fc0908badfd1ceb9d638215caef5e431b'
+if(!/^[a-f0-9]{40}$/.test(TARGET)||!/^[a-f0-9]{40}$/.test(PREVIOUS)
+  ||!/^qa26-real-(test-v1|dev-[a-f0-9]{12})$/.test(REF)
+  ||(REF.startsWith('qa26-real-dev-')&&REF!=='qa26-real-dev-'+TARGET.slice(0,12)))
+  throw Error('QA rollout needs an exact reviewed candidate SHA and release reference.')
 const UUID=/^[a-f0-9-]{36}$/
 const SHA=/^[a-f0-9]{40}$/
 const snapshot=/^test-before-real-route-[0-9]+[.]Caddyfile$/
@@ -37,7 +42,7 @@ function validateJob(job){
   if(!job||!UUID.test(String(job.id))||!UUID.test(String(job.tenantId))
     ||!UUID.test(String(job.token))||!Number.isInteger(Number(job.fence))
     ||!SHA.test(String(job.buildSha))||job.buildSha!==TARGET
-    ||job.environment!=='test'||!ACCEPTED.has(job.slug)
+    ||job.environment!=='test'||job.previousSha!==PREVIOUS||!ACCEPTED.has(job.slug)
     ||!['hi5_managed','admin_controlled'].includes(job.mode))
     throw Error('Claimed job fails QA-only tenant, release or lease allowlist.')
   if(Number(job.duration)<1||Number(job.duration)>240)
@@ -77,6 +82,7 @@ function claim(){
     "'buildSha',c.build_sha,'duration',c.expected_duration_minutes,",
     "'token',c.lease_token,'fence',c.lease_fence,",
     "'scheduledAt',c.scheduled_at,'expiresAt',c.lease_expires_at,",
+    "'previousSha',c.previous_build_sha,"
     "'maintenance',p.maintenance_window,'blackouts',p.blackout_periods)::text",
     'FROM claimed c JOIN tenants t ON t.id=c.tenant_id',
     'JOIN tenant_release_preferences p ON p.tenant_id=t.id',
@@ -117,10 +123,10 @@ function finish(job,outcome,extra={}){
 function rollback(filename,tenantHost){
   if(!snapshot.test(filename)||![...ACCEPTED.values()].includes(tenantHost))
     throw Error('Unsafe rollback snapshot or tenant hostname.')
-  // Never restore an earlier WHOLE-gateway snapshot here; another QA tenant
-  // may have shipped successfully since this tenant's original backup.
-  command('node',[resolve('deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs'),tenantHost,'--apply'],
-    {timeout:60000})
+  command('node',[
+    resolve('deployment/qa26/qa-tenant-scoped-restore-from-snapshot.mjs'),
+    tenantHost,filename,TARGET,PREVIOUS,
+  ],{timeout:60000})
 }
 async function processOnce(){
   const job=claim()
@@ -142,16 +148,22 @@ async function processOnce(){
     const targetHost=ACCEPTED.get(job.slug)
     const originalHost=[...ACCEPTED.values()].find(host=>host!==targetHost)
     const old=command('curl',['-fsS','--max-time','8','https://'+targetHost+'/api/v1/updates/version'])
-    if(JSON.parse(old).sha!=='9041ed0fc0908badfd1ceb9d638215caef5e431b')
+    if(JSON.parse(old).sha!==PREVIOUS)
       throw Error('Test tenant no longer matches verified release baseline.')
     const peerBefore=JSON.parse(command('curl',['-fsS','--max-time','8',
       'https://'+originalHost+'/api/v1/updates/version']))
     if(!SHA.test(String(peerBefore.sha||'')))
       throw Error('Unverified peer revision before QA route cutover.')
+    if(REF.startsWith('qa26-real-dev-')){
+      const devSha=JSON.parse(command('curl',['-fsS','--max-time','8',
+        'https://dev-api.hi5central.com/api/v1/updates/version'])).sha
+      if(devSha!==TARGET)throw Error('Real Dev release does not match scheduled immutable QA candidate.')
+    }
     const worker=spawnSync('node',[resolve('deployment/qa26/qa-real-tenant-canary-rollback.mjs')],
       {encoding:'utf8',timeout:190000,maxBuffer:1024*1024,
         env:{...process.env,H5C_QA_KEEP_ON_SUCCESS:'1',
-          H5C_QA_TENANT_HOST:targetHost,H5C_QA_PEER_SHA:peerBefore.sha}})
+          H5C_QA_TENANT_HOST:targetHost,H5C_QA_PEER_SHA:peerBefore.sha,
+          H5C_QA_TARGET_SHA:TARGET,H5C_QA_PREVIOUS_SHA:PREVIOUS}})
     for(const line of String(worker.stdout||'').split('\n')){
       if(line.startsWith('QA_ROLLBACK_SNAPSHOT '))backup=line.split(' ')[1]
       if(line.startsWith('QA_ROUTE_PROMOTED '))console.log(line)
