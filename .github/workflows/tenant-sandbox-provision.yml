@@ -6,6 +6,7 @@ on:
       - 'services/api/src/index.js'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/test/tenant-environment-provisioning.mjs'
+      - 'services/api/test/four-provisioned-tenant-release.mjs'
       - '.github/workflows/tenant-sandbox-provision.yml'
   workflow_dispatch:
 permissions:
@@ -59,3 +60,7 @@ jobs:
           DATABASE_URL="$TENANT_UAT_DATABASE_URL" npm run migrate
       - name: End-to-end isolated tenant provisioning
         run: node test/tenant-environment-provisioning.mjs
+      - name: Four provisioned tenants plus one scheduled release (disposable DBs)
+        run: |
+          node --check test/four-provisioned-tenant-release.mjs
+          node test/four-provisioned-tenant-release.mjs
