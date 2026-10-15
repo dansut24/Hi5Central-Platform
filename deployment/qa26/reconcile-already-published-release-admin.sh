@@ -6,8 +6,8 @@ set +x
 umask 077
 
 SHA="9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0"
-IMAGE="hi5central-release-publication-relay:qa-reconcile-v1"
-EXPECTED_IMAGE_ID="sha256:98c8f36c5d2c325fab627b540fe5f57a6855c53ba12dfc4079167cc08162e107"
+IMAGE="hi5central-release-publication-relay:qa-reconcile-microsecond"
+EXPECTED_IMAGE_ID="sha256:8a11bccf93c0903cd302cd9d1b08fb42af453d9fb8f40bffe56f8a2312128af6"
 NAME="hi5central-release-publication-reconcile-qa26"
 ROOT="/etc/hi5central/qa-release-relay"
 DB_SECRET="$ROOT/dev-db.url"
