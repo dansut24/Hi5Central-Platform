@@ -117,9 +117,11 @@ export function registerUatConfigurationPromotionRoutes(app){
     // The browser supplies only event identity and field path. Values are
     // always derived from the protected UAT ledger and locked Live DB row.
     try{
-      const uat=await readUatCandidates(auth.session.tenant_id,auth.slug)
       const result=await withTransaction(async db=>{
         const live=await liveConfig(db,auth.session.tenant_id,true)
+        // Refresh trusted UAT state AFTER acquiring the Live row lock. A
+        // stale browser preview never authorises a Production write.
+        const uat=await readUatCandidates(auth.session.tenant_id,auth.slug)
         const history=await promotionRows(db,auth.session.tenant_id)
         const candidate=evaluateUatConfigurationCandidates({
           events:uat.events,uatConfig:uat.uatConfig,liveConfig:live,priorPromotions:history,
