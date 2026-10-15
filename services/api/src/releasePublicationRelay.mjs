@@ -48,7 +48,8 @@ export async function relayOneRequestedRelease({
     throw fail('Trusted database and HTTP capabilities are required.')
 
   const selected=await db.query([
-    'SELECT build_sha,version_label,title,summary,entries,status,requested_at,edited_by',
+    'SELECT build_sha,version_label,title,summary,entries,status,requested_at,',
+    'requested_at::text AS requested_at_exact,edited_by',
     'FROM hi5central_release_note_drafts',
     "WHERE status='publication_requested' AND build_sha=$1",
     'AND requested_at IS NOT NULL AND edited_by IS NOT NULL',
@@ -58,7 +59,8 @@ export async function relayOneRequestedRelease({
   if(selected.rowCount!==1)throw fail('Unexpected duplicate Dev release request.')
   const row=selected.rows[0]
   if(row.build_sha!==allowedSha||row.status!=='publication_requested'
-    ||!row.requested_at||!row.edited_by||!Array.isArray(row.entries)
+    ||!row.requested_at||typeof row.requested_at_exact!=='string'
+    ||!row.requested_at_exact||!row.edited_by||!Array.isArray(row.entries)
     ||row.entries.length<1||row.entries.length>35)
     throw fail('Dev release request is incomplete or changed.')
   const request={
@@ -102,11 +104,11 @@ export async function relayOneRequestedRelease({
     "SET status='published',published_at=$2",
     "WHERE build_sha=$1 AND status='publication_requested'",
     'AND version_label=$3 AND title=$4 AND summary=$5',
-    'AND entries=$6::jsonb AND requested_at=$7 AND edited_by=$8',
+    'AND entries=$6::jsonb AND requested_at=$7::timestamptz AND edited_by=$8',
     'RETURNING build_sha,status,published_at',
   ].join(' '),[
     allowedSha,persisted.publishedAt,row.version_label,row.title,row.summary,
-    JSON.stringify(row.entries),row.requested_at,row.edited_by,
+    JSON.stringify(row.entries),row.requested_at_exact,row.edited_by,
   ])
   if(updated.rowCount!==1)throw fail('Dev request changed before central acknowledgement.')
   return {status:'published',buildSha:allowedSha,publishedAt:persisted.publishedAt,
