@@ -9,6 +9,8 @@ on:
       - 'services/api/src/runtimePoolControl.js'
       - 'services/api/src/tenantRouteCutover.js'
       - 'services/api/src/renderQaTenantCaddyRoutes.js'
+      - 'services/api/src/qaGatewayHostHandoff.js'
+      - 'services/api/test/qa-caddy-outer-handoff-smoke.mjs'
       - 'services/api/test/generate-qa-caddy-fixture.mjs'
       - 'services/api/test/qa-caddy-tenant-http-smoke.mjs'
       - 'services/api/src/tenantRoutePreviewOperator.js'
@@ -45,6 +47,7 @@ jobs:
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
           node --check src/renderQaTenantCaddyRoutes.js
+          node --check src/qaGatewayHostHandoff.js
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
@@ -69,7 +72,9 @@ jobs:
           test -s /tmp/h5c-qa-route-preview.json
           rm -f /tmp/h5c-qa-route-preview.Caddyfile /tmp/h5c-qa-route-preview.json
       - name: Live HTTP multi-tenant gateway switch and rollback (CI Docker only)
-        run: node test/qa-caddy-tenant-http-smoke.mjs
+        run: |
+          node test/qa-caddy-tenant-http-smoke.mjs
+          node test/qa-caddy-outer-handoff-smoke.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
