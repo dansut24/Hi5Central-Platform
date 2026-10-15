@@ -1,9 +1,16 @@
 name: Real Hi5Central Dev Release Candidate (QA)
 on:
   push:
-    branches: ['feat/qa-tenant-gateway-version-activator-20261015']
+    branches:
+      - develop
+      - feat/qa-tenant-gateway-version-activator-20261015
     paths:
       - '.github/workflows/qa-real-dev-release-candidate.yml'
+      - '.github/scripts/generate-release-manifest.mjs'
+      - 'services/api/**'
+      - 'apps/itsm/**'
+      - 'apps/admin/**'
+      - 'deployment/qa26/**'
   workflow_dispatch:
 permissions:
   contents: read
