@@ -6,7 +6,7 @@ function settingLabel(key) {
   return String(key || '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ')
+    .replace(/\./g, ' → ')\n    .replace(/[_-]+/g, ' ')
     .replace(/\b(sla|cmdb|itsm)\b/gi, token => token.toUpperCase())
     .replace(/\bLive Chat\b/gi, 'Live Chat')
     .trim() || 'ITSM setting'
@@ -52,6 +52,7 @@ export function ItsmConfigurationHistory() {
       <div className="hi5-config-history-list">
         {state.changes.map(change=>{
           const keys=Array.isArray(change.changedKeys)?change.changedKeys:[]
+          const legacy=change.entityKey!=='tenant_settings.itsm.delta-v2'
           const count=keys.length
           const at=new Date(change.recordedAt)
           const validAt=Number.isFinite(at.getTime())
@@ -59,12 +60,13 @@ export function ItsmConfigurationHistory() {
             <div className="hi5-config-history-head">
               <div className="hi5-config-history-title">
                 <span className="hi5-config-history-env">{change.environment?.toUpperCase()||'ITSM'}</span>
-                <strong>{count?count+' ITSM setting'+(count===1?'':'s')+' changed':'ITSM settings changed'}</strong>
+                <strong>{legacy?'Legacy full-settings save':count?count+' ITSM setting'+(count===1?'':'s')+' changed':'ITSM settings changed'}</strong>
               </div>
               <time dateTime={validAt?at.toISOString():undefined}>{changeDate(change.recordedAt)}</time>
             </div>
             <details className="hi5-config-history-details">
-              <summary>View changed settings</summary>
+              {legacy?<p className="hi5-config-history-legacy">This older save included {count} configuration section{count===1?'':'s'} and built-in defaults. It does not prove that you manually changed each one.</p>:null}
+              <summary>{legacy?'View included sections':'View changed settings'}</summary>
               {keys.length?<ul className="hi5-config-history-keys">
                 {keys.map(key=><li key={key}>{settingLabel(key)}</li>)}
               </ul>:<p>Changed keys were not recorded for this revision.</p>}
