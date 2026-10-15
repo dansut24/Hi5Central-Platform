@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {buildTenantRouteCutover,routeCutoverPrecondition} from '../src/tenantRouteCutover.js'
+import {renderQaTenantCaddyRoutes} from '../src/renderQaTenantCaddyRoutes.js'
 
 const now=new Date('2026-10-15T11:30:00Z')
 const current='a'.repeat(40),next='b'.repeat(40)
@@ -87,4 +88,20 @@ test('invalid or stale jobs, pools, tenants, and Managed UAT are denied',()=>{
   assert.throws(()=>plan(0,{itsmEntitled:false}),/not entitled/)
   assert.throws(()=>plan(0,{activeRows:[...ids.map((_,j)=>row(j)),row(0)]}),/duplicate/)
   assert.throws(()=>plan(0,{slug:'another-tenant'}),/must match/)
+})
+
+test('QA Caddy route snippets are deterministic, exact-host and digest-bound',()=>{
+  const p=plan(0)
+  const rendered=renderQaTenantCaddyRoutes(p.stage)
+  const reverted=renderQaTenantCaddyRoutes(p.rollback)
+  assert.match(rendered,/http:\/\/rollout-managed-a-test\.hi5central\.com/)
+  assert.match(rendered,/reverse_proxy hi5pool-test-rollout-managed-a-new-api:3001/)
+  assert.match(reverted,/reverse_proxy hi5pool-test-rollout-managed-a-old-api:3001/)
+  assert.equal(rendered.split('@tenantApi path \/api\/*').length-1,4)
+  assert.equal(renderQaTenantCaddyRoutes(p.stage),rendered)
+  assert.throws(()=>renderQaTenantCaddyRoutes({...p.stage,
+    entries:p.stage.entries.map((r,i)=>i===0?{...r,webUpstream:'evil.example.com:443'}:r)}),/Untrusted/)
+  assert.throws(()=>renderQaTenantCaddyRoutes({...p.stage,
+    sha256:'f'.repeat(64)}),/digest mismatch/)
+  assert.throws(()=>renderQaTenantCaddyRoutes({...p.stage,environment:'live'}),/Only an exact/)
 })
