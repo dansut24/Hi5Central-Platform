@@ -8,6 +8,7 @@ const data={
   summary:'Improvements to ITSM release and configuration management.',
   status:'publication_requested',requested_at:'2026-10-15T21:27:42.797Z',
   edited_by:'860dbd10-a968-4029-a724-fe6b2f697a8b',
+  requested_at_exact:'2026-10-15 21:27:42.797331+00',
   entries:[{title:'ITSM settings audit history',category:'improvement',
     description:'Previous and current values where available.'}],
 }
@@ -22,7 +23,7 @@ function scenario({changed=false,centralFails=false,centralConflict=false,readba
     if(q.startsWith('UPDATE hi5central_release_note_drafts')){
       updated++;
       assert.deepEqual(args.slice(0,1),[sha]);
-      assert.equal(args[6],data.requested_at);
+      assert.equal(args[6],data.requested_at_exact);
       return {rowCount:changed?0:1,rows:changed?[]:[{build_sha:sha,status:'published'}]}
     }
     throw Error('Unexpected SQL '+q)
@@ -167,5 +168,22 @@ test('Reconciliation never accepts a nonrequested Dev release, even if centrally
   const a=await relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
     authority,token,allowedSha:sha,reconcileOnly:true})
   assert.equal(a.status,'no_pending')
+  assert.deepEqual(s.counters(),{posted:0,updated:0})
+})
+
+test('Exact microsecond Dev timestamp is retained in guarded acknowledgement',async()=>{
+  const original='2026-10-15 21:27:42.797331+00'
+  assert.equal(data.requested_at_exact,original)
+  assert.notEqual(new Date(data.requested_at_exact).toISOString(),original)
+  const s=scenario({centralConflict:true})
+  const result=await relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha,reconcileOnly:true})
+  assert.equal(result.status,'published')
+  assert.deepEqual(s.counters(),{posted:0,updated:1})
+})
+test('Dev row missing full-precision timestamp fails closed with no acknowledgement',async()=>{
+  const s=scenario({selected:{...data,requested_at_exact:undefined}})
+  await assert.rejects(()=>relayOneRequestedRelease({db:s.db,fetcher:s.fetcher,
+    authority,token,allowedSha:sha,reconcileOnly:true}),/incomplete/)
   assert.deepEqual(s.counters(),{posted:0,updated:0})
 })
