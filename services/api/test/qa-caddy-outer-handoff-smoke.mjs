@@ -85,11 +85,11 @@ async function expect(port,host,expected,spoof=''){
   throw last
 }
 try{
-  const coverage=validateQaHandoffCoverage(edgeFragment,'test')
+  const coverage=validateQaHandoffCoverage(edgeFragment,'test',{upstream:inner+':80'})
   assert.equal(coverage.checkedQaProxies,2)
   assert.throws(()=>validateQaHandoffCoverage(edgeFragment.replace(
     'header_up X-Hi5-Tenant-Host test.hi5central.com','header_down X-Hi5-Tenant-Host test.hi5central.com'
-  ),'test'),/untrusted/)
+  ),'test',{upstream:inner+':80}),/untrusted/)
   docker('network','create',network)
   for(const [pool,version] of [[poolOld,'old'],[poolNew,'new']]){
     for(const [role,port] of [['api',3001],['web',80]]){
