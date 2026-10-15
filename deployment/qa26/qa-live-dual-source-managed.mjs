@@ -38,6 +38,14 @@ const helper=(script,input)=>d(['run','--rm','-i','--network','none',
  '--mount','type=volume,source='+vol+',target=/backup',
  'busybox:1.36','sh','-c',script],input)
 const disk=()=>helper('cat /host/Caddyfile')
+const liveRuntime=()=>JSON.parse(d(['exec','hi5central-web','wget',
+ '-q','-O','-','http://127.0.0.1:2019/config/']))
+const hasExactRelease=()=>{
+ const json=JSON.stringify(liveRuntime())
+ return json.includes('hi5pool-live-qa-release-4a363cf9054b-api:3001')
+  &&json.includes('hi5pool-live-qa-release-4a363cf9054b-web:80')
+  &&json.includes('h5c-managed-qa26.hi5central.com')
+}
 const publicGet=url=>{
  const p=spawnSync('curl',['-fsS','--max-time','8',url],{encoding:'utf8',timeout:12000})
  if(p.status!==0)throw Error('Unreachable external QA endpoint '+url)
@@ -111,6 +119,11 @@ function restore(){
    reload(original,'QA-restore-'+stamp)
  }catch(e){failure=errorOrFirst(failure,e)}
  if(failure)throw failure
+ if(hasExactRelease())
+   throw Error('Caddy live admin configuration still routes Managed QA to new release.')
+ const publicPrevious=json('https://h5c-managed-qa26.hi5central.com/release-manifest.json').sha
+ if(publicPrevious==='4a363cf9054b0b3667fd450f36e354b704ec2166')
+   throw Error('Public Managed QA remains on the candidate after rollback.')
  hostChanged=false;liveChanged=false
  if(hash(live())!==liveBefore||hash(disk())!==diskBefore)
    throw Error('Rollback hashes differ from separately preserved originals.')
@@ -124,6 +137,8 @@ try{
    throw Error('Persisting a QA Production route requires explicit operator approval.')
  peerBefore=json('https://'+peer+'/release-manifest.json').sha
  prodApiBefore=json('https://api.hi5central.com/api/v1/updates/version').sha
+ if(hasExactRelease())
+   throw Error('Live Caddy already has candidate route; deployment state was not clean.')
  const nextLive=proposed(sourceLive),nextDisk=proposed(sourceDisk)
  hashCode(nextLive);hashCode(nextDisk)
  d(['volume','create',vol])
@@ -151,6 +166,7 @@ try{
  hostChanged=true
  reload(nextLive,'QA-release-'+stamp)
  liveChanged=true
+ if(!hasExactRelease())throw Error('Live Caddy admin JSON did not activate the exact QA route.')
  if(json(testUrl).sha!==sha || json('https://'+hostname+'/release-manifest.json').sha!==sha)
    throw Error('Public QA Managed Live frontend and API revision mismatch.')
  const cfg=publicGet('https://'+hostname+'/runtime-config.js')
