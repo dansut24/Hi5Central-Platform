@@ -42,7 +42,7 @@ export function ItsmConfigurationHistory() {
   return <section className="production-settings-panel" data-hi5-itsm-config-history>
     <header><div>
       <h2>ITSM configuration change history</h2>
-      <p>Environment-specific ITSM settings only. People, login, theme, billing and live RMM devices are excluded. Comparison and selective promotion will follow in a separate reviewed phase.</p>
+      <p>Environment-specific ITSM settings only. People, login, theme, billing and live RMM devices are excluded. Choose individual UAT changes for Production in your Live Release Management page.</p>
     </div><button type="button" className="hi5-release-refresh" onClick={refresh} disabled={state.loading}>
       <RefreshCw size={15}/>Refresh
     </button></header>
