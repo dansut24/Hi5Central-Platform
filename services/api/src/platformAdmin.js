@@ -10,7 +10,7 @@ import { applicationDeployments } from './applicationDeployment.js'
 import { assessUatProductionPromotion } from './uatProductionPromotion.js'
 import {readApplicationReleaseExecutor} from './applicationReleaseExecutor.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
-import {readWorkerDeployments,readWorkerDeploymentEvents} from './platformWorkerAudit.js'
+import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} from './platformWorkerAudit.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -2313,9 +2313,11 @@ export function registerPlatformAdminRoutes(app) {
         environment:c.req.query('environment'),
         limit:c.req.query('limit'),offset:c.req.query('offset'),
       })
-      const control=await pool.query(
-        'SELECT paused,reason,updated_at FROM platform_release_rollout_control WHERE singleton=true')
-      return c.json({...result,control:control.rows[0]||{paused:true,reason:'No configured release controller.'}})
+      const [control,workers]=await Promise.all([
+        pool.query('SELECT paused,reason,updated_at FROM platform_release_rollout_control WHERE singleton=true'),
+        readWorkerHeartbeats(pool),
+      ])
+      return c.json({...result,workers,control:control.rows[0]||{paused:true,reason:'No configured release controller.'}})
     }catch(error){return c.json({error:error.message||'Worker activity is unavailable.'},400)}
   })
 
