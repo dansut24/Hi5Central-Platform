@@ -59,6 +59,7 @@ import { verifyPassword } from './password.js'
 import { validExistingTenantSlug, validNewTenantSlug, tenantSlugFromHostname, tenantMayServeWorkspace } from './tenantSlugPolicy.js'
 import { ensureRedisConnected, redis } from './redis.js'
 import { registerSettingsRoutes } from './settings.js'
+import { registerUatConfigurationPromotionRoutes } from './uatConfigurationPromotionRoutes.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerSecurityRoutes } from './security.js'
 import {
@@ -779,6 +780,7 @@ registerCmdbRoutes(app)
 registerKnowledgeRoutes(app)
 registerOrganisationRoutes(app)
 registerSettingsRoutes(app)
+registerUatConfigurationPromotionRoutes(app)
 registerUserPreferenceRoutes(app)
 registerSecurityRoutes(app)
 registerMfaRoutes(app)
