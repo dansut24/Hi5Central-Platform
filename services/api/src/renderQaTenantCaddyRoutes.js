@@ -69,10 +69,12 @@ export function renderQaTenantCaddyRoutes(manifest){
  * existing default handlers. It cannot be used safely if the trusted outer
  * header forwarding isn't installed and tested.
  */
-export function renderQaTenantTrustedHostHandles(manifest){
+function renderQaTenantHostHandles(manifest,header){
+  if(!['X-Hi5-Tenant-Host','X-Forwarded-Host'].includes(header))
+    throw Error('Untrusted header type for tenant route matcher.')
   const {environment,rows,hash}=validateQaManifest(manifest)
   const blocks=rows.map((row,index)=>[
-    '@tenantRelease'+index+' header X-Hi5-Tenant-Host '+row.host,
+    '@tenantRelease'+index+' header '+header+' '+row.host,
     'handle @tenantRelease'+index+' {',
     '    @releaseApi'+index+' path /api/*',
     '    handle @releaseApi'+index+' {',
@@ -88,4 +90,22 @@ export function renderQaTenantTrustedHostHandles(manifest){
     '# sha256='+hash,
     ...blocks,'',
   ].join('\n')
+}
+
+// Preferred handoff on Caddy v2.11+: the existing outer reverse_proxy
+// sets X-Forwarded-Host from the original request Host even when upstream
+// Host is rewritten to test/uat.hi5central.com. It discards untrusted
+// client-provided X-Forwarded-Host by default.
+//
+// CRITICAL: This is safe only when the public edge has no broad
+// trusted_proxies declaration and private QA gateway ports are not exposed
+// directly to the Internet. Verify both before activation.
+export function renderQaTenantForwardedHostHandles(manifest){
+  return renderQaTenantHostHandles(manifest,'X-Forwarded-Host')
+}
+
+// Legacy explicit-header option retained for already-reviewed QA layouts.
+// It requires the edge to overwrite client input on EVERY proxy route.
+export function renderQaTenantTrustedHostHandles(manifest){
+  return renderQaTenantHostHandles(manifest,'X-Hi5-Tenant-Host')
 }
