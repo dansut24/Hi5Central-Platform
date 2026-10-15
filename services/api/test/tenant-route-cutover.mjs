@@ -58,6 +58,12 @@ test('one tenant route changes and all other assigned tenants remain byte-identi
     activeManifestSha256:p.targetManifestSha256,leaseFence:2}).allowed,false)
   assert.equal(routeCutoverPrecondition({plan:p,
     activeManifestSha256:p.previousManifestSha256,leaseFence:1}).allowed,false)
+  const altered={...p,stage:{...p.stage,entries:p.stage.entries.map((row,i)=>
+    i===0?{...row,webUpstream:'attacker.internal:80'}:row)}}
+  assert.equal(routeCutoverPrecondition({plan:altered,
+    activeManifestSha256:p.previousManifestSha256,leaseFence:2}).allowed,false)
+  assert.equal(routeCutoverPrecondition({plan:{...p,targetRoute:{...p.targetRoute,buildSha:current}},
+    activeManifestSha256:p.previousManifestSha256,leaseFence:2}).allowed,false)
 })
 test('two tenants computed from one snapshot must serialize/replan after the first cutover',()=>{
   const first=plan(0),concurrent=plan(1)
