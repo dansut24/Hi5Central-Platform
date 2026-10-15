@@ -10,6 +10,7 @@ on:
       - 'services/api/src/tenantRouteCutover.js'
       - 'services/api/src/renderQaTenantCaddyRoutes.js'
       - 'services/api/test/generate-qa-caddy-fixture.mjs'
+      - 'services/api/test/qa-caddy-tenant-http-smoke.mjs'
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
@@ -61,6 +62,8 @@ jobs:
               --config /etc/caddy/Caddyfile --adapter caddyfile > /tmp/h5c-qa-route-preview.json
           test -s /tmp/h5c-qa-route-preview.json
           rm -f /tmp/h5c-qa-route-preview.Caddyfile /tmp/h5c-qa-route-preview.json
+      - name: Live HTTP multi-tenant gateway switch and rollback (CI Docker only)
+        run: node test/qa-caddy-tenant-http-smoke.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
