@@ -86,9 +86,10 @@ try{
     assert.equal(uat.rowCount,managed?0:1)
     if(!managed)assert.equal(uat.rows[0].slug,slug+'-uat')
     // No tenant ever receives another tenant's projected identity.
-    const member=await testDb.query(
+    const member=await testDb.query([
       'SELECT u.email,u.password_hash FROM users u JOIN tenant_memberships m',
-      'ON m.user_id=u.id WHERE m.tenant_id=$1', [id])
+      'ON m.user_id=u.id WHERE m.tenant_id=$1',
+    ].join(' '),[id])
     assert.equal(member.rowCount,1)
     assert.equal(member.rows[0].email,email)
     assert.equal(member.rows[0].password_hash,'environment-sso-only')
