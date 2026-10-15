@@ -8,6 +8,7 @@ import {createHash} from 'node:crypto'
 const SHA=/^[a-f0-9]{40}$/
 const targetSha=process.env.H5C_QA_TARGET_SHA
 const previousSha=process.env.H5C_QA_PREVIOUS_SHA
+const SHARED_UAT_SHA='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
 if(!SHA.test(String(targetSha||''))||!SHA.test(String(previousSha||''))
   ||targetSha===previousSha)
   throw Error('Require exact and different official target/previous SHA40.')
@@ -94,7 +95,7 @@ async function restore(){
   run(['exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
   modified=false
   await checkPublic('https://'+hostname+'/api/v1/updates/version',previousSha)
-  await checkPublic(shared,previousSha)
+  await checkPublic(shared,SHARED_UAT_SHA)
   if(sha256(getConfig())!==baselineHash)throw Error('UAT gateway backup was not restored byte-exactly.')
 }
 try{
@@ -108,16 +109,38 @@ try{
   }
   const oldApi=inspect('hi5central-uat-control-server-1')
   const oldWeb=inspect('hi5central-uat-itsm-web-1')
-  if(!oldApi?.Config.Image.endsWith(previousSha)||!oldWeb?.Config.Image.endsWith(previousSha))
+  if(!oldApi?.Config.Image.endsWith(SHARED_UAT_SHA)||!oldWeb?.Config.Image.endsWith(SHARED_UAT_SHA))
     throw Error('Shared UAT baseline differs from expected previously proven release.')
   await checkPublic('https://'+hostname+'/api/v1/updates/version',previousSha)
-  await checkPublic(shared,previousSha)
+  await checkPublic(shared,SHARED_UAT_SHA)
   baseline=getConfig()
   baselineHash=sha256(baseline)
   const anchor='http://uat.hi5central.com {'
-  if(baseline.split(anchor).length!==2
-    ||baseline.includes('header X-Forwarded-Host '+hostname))
-    throw Error('Unexpected or already switched Custom UAT gateway.')
+  if(baseline.split(anchor).length!==2)
+    throw Error('Unexpected shared Custom UAT gateway site.')
+  // A new release replaces only this tenant's previous route. Always keep
+  // the exact full pre-upgrade Caddyfile snapshot as the rollback target.
+  let routingBase=baseline
+  const match='  @qaCustomUatRelease header X-Forwarded-Host '+hostname
+  const lines=baseline.split('\n')
+  const found=lines.map((v,i)=>v===match?i:-1).filter(i=>i>=0)
+  if(found.length>1)throw Error('Duplicate Custom UAT tenant route.')
+  if(found.length===1){
+    const at=found[0]
+    if(lines[at+1]!=='  handle @qaCustomUatRelease {')
+      throw Error('Custom UAT release block changed unexpectedly.')
+    let depth=0,end=-1
+    for(let i=at+1;i<lines.length;i++){
+      if(lines[i].trim().endsWith('{'))depth++
+      if(lines[i].trim()==='}')depth--
+      if(depth===0){end=i;break}
+    }
+    if(end<0||end>at+17||lines[end]!=='  }')
+      throw Error('Custom UAT release boundaries not trusted.')
+    const start=at>0&&lines[at-1].startsWith('  # Custom QA UAT release')
+      ?at-1:at
+    routingBase=lines.slice(0,start).concat(lines.slice(end+1)).join('\n')
+  }
   const previous=names.map(inspect)
   if(previous.filter(Boolean).length===1)throw Error('Partial versioned UAT pool needs recovery.')
   if(previous.every(Boolean)){
@@ -145,7 +168,7 @@ try{
     '    }',
     '  }',
   ].join('\n')
-  const next=baseline.replace(anchor,anchor+'\n'+block)
+  const next=routingBase.replace(anchor,anchor+'\n'+block)
   validate(next)
   run(['volume','create',backupVol])
   volume('set -eu; cat >/backup/'+snapshot+'; chmod 600 /backup/'+snapshot,baseline)
@@ -165,7 +188,24 @@ try{
   modified=true
   run(['exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
   await checkPublic('https://'+hostname+'/api/v1/updates/version',targetSha)
-  await checkPublic(shared,previousSha)
+  await checkPublic(shared,SHARED_UAT_SHA)
+  const fetchPublic=url=>{
+    const r=spawnSync('curl',['-fsS','--max-time','8',url],
+      {encoding:'utf8',timeout:12000})
+    if(r.status!==0)throw Error('UAT frontend resource unavailable.')
+    return r.stdout
+  }
+  const manifest=JSON.parse(fetchPublic('https://'+hostname+'/release-manifest.json'))
+  const config=fetchPublic('https://'+hostname+'/runtime-config.js')
+  if(manifest.sha!==targetSha
+    ||!config.includes('apiUrl: "" || window.location.origin'))
+    throw Error('Custom UAT browser would call the stale shared API.')
+  const session=spawnSync('curl',['-sS','-o','/dev/null','-w','%{http_code}',
+    '--max-time','8','https://'+hostname+'/api/v1/auth/session'],
+    {encoding:'utf8',timeout:12000})
+  if(session.status!==0||session.stdout.trim()!=='401')
+    throw Error('Custom UAT protected tenant API did not return 401.')
+  console.log('CUSTOM_UAT_BROWSER_API_VERSION_BOUNDARY_PASS',targetSha)
   console.log('REAL_CUSTOM_UAT_HTTP_PASS',targetSha,'baseline',previousSha)
   if(!keep){
     await restore()
