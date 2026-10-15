@@ -17,6 +17,8 @@ const allow=['h5c-managed-qa26-test.hi5central.com','h5c-custom-qa26-test.hi5cen
 const target=process.env.H5C_QA_TENANT_HOST||allow[0]
 if(!allow.includes(target))throw Error('Only explicitly approved QA26 Test tenant hosts may be routed.')
 const control=allow.find(host=>host!==target)
+const PEER_SHA=process.env.H5C_QA_PEER_SHA||TEST_SHA
+if(!/^[a-f0-9]{40}$/.test(PEER_SHA))throw Error('Invalid observed QA peer revision.')
 const configVolume='hi5central-test_gateway_runtime_config'
 const backupVolume='hi5central_qa_route_rollback_backups'
 const network='hi5central-test_hi5internal'
@@ -28,7 +30,7 @@ const watchdog='h5c-qa-rollback-watch-'+stamp
 const temp=mkdtempSync(join(tmpdir(),'hi5-qa-real-'))
 const sha=s=>createHash('sha256').update(s).digest('hex')
 let backupName='',watchdogRunning=false,stageExists=false
-let changed=false,successPersist=false
+let changed=false,successPersist=false,reusedPool=false
 const run=(args,input)=>{
   const result=spawnSync('docker',args,{encoding:'utf8',input,timeout:120000,
     maxBuffer:16*1024*1024})
@@ -163,26 +165,41 @@ try{
   run(['pull','docker:27-cli'])
   const originalTag=inspect('hi5central-test-control-server-1').Config.Image
   if(!originalTag.endsWith(TEST_SHA))throw Error('Unexpected running Test baseline.')
-  if(containers.some(name=>{
-    try{return Boolean(inspect(name))}catch{return false}
-  }))throw Error('Previous QA candidate pool exists: inspect before retry.')
+  const existing=containers.map(name=>{
+    try{return inspect(name)}catch{return null}
+  })
+  if(existing.filter(Boolean).length===1)
+    throw Error('Half-created shared QA version pool exists: inspect before retry.')
+  if(existing.every(Boolean)){
+    for(let i=0;i<2;i++){
+      if(!existing[i].Config.Image.endsWith(CANDIDATE_SHA)
+        ||existing[i].State?.Health?.Status!=='healthy')
+        throw Error('Already-running version pool is not the exact healthy candidate.')
+    }
+    reusedPool=true
+    console.log('REUSE_HEALTHY_VERSION_POOL '+pool)
+  }
   backupName='test-before-real-route-'+stamp+'.Caddyfile'
   console.log('BASELINE_SHA256 '+baselineHash)
   console.log('WATCHDOG_RESTORE_SOURCE '+backupVolume+'/'+backupName)
   validated(baseline)
   await publicSha(target,TEST_SHA)
-  await publicSha(control,TEST_SHA)
-  clone('hi5central-test-control-server-1',containers[0],images[0],'512m')
-  clone('hi5central-test-itsm-web-1',containers[1],images[1],'256m')
+  await publicSha(control,PEER_SHA)
+  if(!reusedPool)clone('hi5central-test-control-server-1',containers[0],images[0],'512m')
+  if(!reusedPool)clone('hi5central-test-itsm-web-1',containers[1],images[1],'256m')
   await Promise.all(containers.map(waitHealthy))
   const needle='http://test.hi5central.com {'
   if(baseline.split(needle).length!==2)throw Error('QA Test site boundary ambiguous.')
+  if(baseline.includes('header X-Forwarded-Host '+target))
+    throw Error('Target tenant already has a version override; replan instead.')
+  const suffix=target.includes('-managed-')?'Managed':'Custom'
+  const candidateMatcher='qaRealCandidate'+suffix,apiMatcher='qaRealApi'+suffix
   const injection=[
-    '  # TEST ONLY: one tenant routed to candidate; everything else stays on the current Test pool',
-    '  @qaRealCandidate header X-Forwarded-Host '+target,
-    '  handle @qaRealCandidate {',
-    '    @qaRealApi path /api/*',
-    '    handle @qaRealApi {',
+    '  # QA-only exact tenant release; peer versions remain pinned',
+    '  @'+candidateMatcher+' header X-Forwarded-Host '+target,
+    '  handle @'+candidateMatcher+' {',
+    '    @'+apiMatcher+' path /api/*',
+    '    handle @'+apiMatcher+' {',
     '      reverse_proxy '+containers[0]+':3001',
     '    }',
     '    handle {',
@@ -197,7 +214,7 @@ try{
   activate(next)
   console.log('GATEWAY_SWITCH_APPLIED '+target+' -> '+CANDIDATE_SHA.slice(0,8))
   await publicSha(target,CANDIDATE_SHA,20)
-  await publicSha(control,TEST_SHA,20)
+  await publicSha(control,PEER_SHA,20)
   console.log('REAL_HOST_HTTP_VERIFIED_TARGET_AND_UNCHANGED_PEER')
   if(KEEP){
     // The rollout worker may retain the route only after observing the exact
@@ -209,7 +226,7 @@ try{
   }else{
     restore()
     await publicSha(target,TEST_SHA,20)
-    await publicSha(control,TEST_SHA,20)
+    await publicSha(control,PEER_SHA,20)
     if(sha(originalFromVolume())!==baselineHash)
       throw Error('Restored Caddyfile differs from original.')
     markRecovered()
@@ -231,7 +248,7 @@ try{
   }
   if(stageExists&&(!changed||successPersist))try{run(['rm','-f',stage])}catch{}
   for(const name of containers){
-    if(!changed)try{run(['rm','-f',name])}catch{}
+    if(!changed&&!reusedPool)try{run(['rm','-f',name])}catch{}
   }
   rmSync(temp,{recursive:true,force:true})
 }
