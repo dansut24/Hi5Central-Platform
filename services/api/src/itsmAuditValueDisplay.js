@@ -119,3 +119,22 @@ export function itsmAuditValueChanges(before,after,changedPaths) {
   }
   return result
 }
+
+/**
+ * Compare effective values ONLY for fields already allowlisted for audit
+ * display. Never accept arbitrary paths, free-text, or secret values.
+ */
+export function safePromotableSettingValue(configuration,path) {
+  if(typeof path!=='string'||path.length>220)return {allowed:false}
+  const kind=approvedKind(path)
+  if(!kind)return {allowed:false}
+  let value=getPath(configuration,path)
+  let source='saved'
+  if(value===undefined&&Object.prototype.hasOwnProperty.call(LABELLED_DEFAULTS,path)){
+    value=LABELLED_DEFAULTS[path]
+    source='default'
+  }
+  const safe=safeValue(kind,path,value)
+  return {allowed:true,kind,known:safe!==undefined,
+    value:safe===undefined?null:safe,source:safe===undefined?'unknown':source}
+}
