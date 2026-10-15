@@ -6,7 +6,10 @@
  */
 import pg from 'pg'
 import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
+import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
 
+// Prevent a QA-certified build from ever planning work outside the approved cohort.
+const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
 if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
@@ -54,6 +57,7 @@ async function cycle(){
     sha:approval.build_sha,
     limit:Number(process.env.RELEASE_PLANNER_TENANT_BATCH||200),
     testSoakMinutes:Number(process.env.RELEASE_PLANNER_TEST_SOAK_MINUTES||30),
+    qaTenantSlugs,
    })
    await client.query('COMMIT')
    if(result.queued||result.alreadyQueued)
@@ -70,7 +74,7 @@ async function cycle(){
 }
 try{
  await assertSchema()
- if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS')
+ if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length)
  else{
   do{
    try{await cycle()}
