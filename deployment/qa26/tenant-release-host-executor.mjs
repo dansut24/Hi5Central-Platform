@@ -8,6 +8,7 @@
 import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
+import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
@@ -73,6 +74,38 @@ async function shaPublic(url){
 }
 async function getText(url){
   return cmd('curl',['-fsS','--max-time','8',url],null,13000)
+}
+/** The two original QA26 Live frontends predate tenant same-origin API routes.
+ * Their /api path returns HTML, so verify the manifest and shared API
+ * separately. Every other tenant and all Test/UAT require actual JSON API.
+ */
+async function currentTenantRevision(){
+  const url='https://'+host
+  const versionResponse=await getText(url+'/api/v1/updates/version')
+  if(versionResponse.trimStart().startsWith('{'))
+    return resolveTenantCurrentRevision({environment,tenantSlug:slug,versionResponse})
+  if(environment!=='live'||!['h5c-managed-qa26','h5c-custom-qa26'].includes(slug))
+    return resolveTenantCurrentRevision({environment,tenantSlug:slug,versionResponse})
+  return resolveTenantCurrentRevision({
+    environment,tenantSlug:slug,versionResponse,
+    manifestResponse:await getText(url+'/release-manifest.json'),
+    runtimeConfigResponse:await getText(url+'/runtime-config.js'),
+    sharedApiVersionResponse:await getText('https://api.hi5central.com/api/v1/updates/version'),
+  })
+}
+/** Never silently reload a pending host Caddy revision over a different active
+ * mount. This would activate unrelated changes or a stale QA Live canary.
+ * Reconciliation needs separately reviewed dual-source activation/recovery.
+ */
+async function assertLiveGatewaySource(){
+  if(environment!=='live')return
+  const disk=await fileHost()
+  const mounted=await docker('exec',c.gateway,'cat','/etc/caddy/Caddyfile')
+  if(hash(disk)!==hash(mounted))
+    throw Error('Live gateway Caddy sources differ; dual-source gateway reconciliation required.')
+  const canaryBlocks=disk.match(/# QA26 LIVE CANARY BEGIN[\s\S]*?# QA26 LIVE CANARY END/g)||[]
+  if(canaryBlocks.some(block=>block.includes('host '+host)))
+    throw Error('Legacy QA Live canary would compete with exact tenant release route.')
 }
 async function clone(source,name,image,isWeb){
   const old=await dockerInspect(source)
@@ -184,13 +217,14 @@ if(mode==='--restore'){
   const previous=await load('caddy')
   const json=environment==='live'?await load('json'):''
   await restore(previous,json)
-  const served=await shaPublic('https://'+host+'/api/v1/updates/version')
+  const served=(await currentTenantRevision()).sha
   if(served===sha)throw Error('Restored route still serves the failed release.')
   console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
   process.exit(0)
 }
 let prior='',liveJson='',active=false,watcher='',backupKey=''
 try{
+  if(mode==='--preflight'||mode==='--apply')await assertLiveGatewaySource()
   const old=await fileHost()
   const plan=prepareTenantCaddyRoute({config:old,tenantSlug:slug,
     environment,buildSha:sha})
@@ -205,7 +239,7 @@ try{
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT paused FROM platform_release_rollout_control WHERE singleton=true;"'])
   if(mode==='--apply'&&currentControl.trim()!=='f')throw Error('Global customer rollout is paused.')
   if(mode==='--apply'){
-    prior=await shaPublic('https://'+host+'/api/v1/updates/version')
+    prior=(await currentTenantRevision()).sha
     if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
   }
   for(const type of ['api','itsm']){
