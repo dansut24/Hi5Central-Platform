@@ -21,7 +21,9 @@ const helper=(cmd,input)=>docker(['run','--rm','-i','--network','none',
  'busybox:1.36','sh','-c',cmd],input)
 const originalActive=helper('cat /backup/'+prefix+'.live.Caddyfile')
 const originalDisk=helper('cat /backup/'+prefix+'.disk.Caddyfile')
-const running=docker(['exec','hi5central-web','cat','/etc/caddy/Caddyfile'])
+const activeConfig=()=>JSON.stringify(JSON.parse(docker(['exec','hi5central-web','wget',
+ '-q','-O','-','http://127.0.0.1:2019/config/'])))
+const running=activeConfig()
 const hostCurrent=helper('cat /host/Caddyfile')
 const marker='    # QA26 LIVE CANARY BEGIN - exact Managed QA host, no other tenant'
 const tail='    # QA26 LIVE CANARY END\n\n'
@@ -33,7 +35,9 @@ const restoreCandidate=(value,previous)=>{
    throw Error('Existing gateway had independent changes; scoped rollback must be manually reviewed.')
  return recovered
 }
-restoreCandidate(running,originalActive)
+if(!running.includes('hi5pool-live-qa-release-4a363cf9054b-api:3001')
+ ||!running.includes('hi5pool-live-qa-release-4a363cf9054b-web:80'))
+ throw Error('Active Caddy runtime no longer serves the pinned Managed QA release.')
 restoreCandidate(hostCurrent,originalDisk)
 const manifest=url=>{
  const p=spawnSync('curl',['-fsS','--max-time','8',url],{encoding:'utf8',timeout:12000})
@@ -48,9 +52,10 @@ helper('set -eu; cat /backup/'+prefix+'.disk.Caddyfile > /host/Caddyfile')
 docker(['exec','-i','hi5central-web','sh','-c',
  'cat >/tmp/qa-managed-restore-'+prefix+'.Caddyfile && caddy reload --config /tmp/qa-managed-restore-'+prefix+'.Caddyfile --adapter caddyfile'],
  originalActive)
-const restoredActive=docker(['exec','hi5central-web','cat','/etc/caddy/Caddyfile'])
+const restoredActive=activeConfig()
 const restoredDisk=helper('cat /host/Caddyfile')
-if(sha(restoredActive)!==sha(originalActive)||sha(restoredDisk)!==sha(originalDisk))
+if(restoredActive.includes('hi5pool-live-qa-release-4a363cf9054b-api:3001')
+ ||sha(restoredDisk)!==sha(originalDisk))
  throw Error('Independent Managed Live gateway recovery is incomplete.')
 const actual=manifest('https://h5c-managed-qa26.hi5central.com/release-manifest.json')
 if(actual==='4a363cf9054b0b3667fd450f36e354b704ec2166')
