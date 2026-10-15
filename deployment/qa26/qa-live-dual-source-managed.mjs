@@ -104,7 +104,7 @@ function restore(){
  // Revert BOTH resources independently, even if the second reload fails.
  let failure=null
  try{
-   helper('set -eu; cp /backup/'+prefix+'.disk.Caddyfile /host/Caddyfile')
+   helper('set -eu; cat /backup/'+prefix+'.disk.Caddyfile > /host/Caddyfile')
  }catch(e){failure=e}
  try{
    const original=helper('cat /backup/'+prefix+'.live.Caddyfile')
@@ -137,7 +137,7 @@ try{
  console.log('RECOVERY_SNAPSHOTS',prefix+'.live.Caddyfile',prefix+'.disk.Caddyfile')
  // Watchdog reverts both independently if Node crashes after either update.
  const watcher='sleep 155; if [ ! -e /backup/'+prefix+'.done ]; then '+
-  'cp /backup/'+prefix+'.disk.Caddyfile /host/Caddyfile; '+
+  'cat /backup/'+prefix+'.disk.Caddyfile > /host/Caddyfile; '+
   "docker exec -i hi5central-web sh -c 'cat >/tmp/qa-dual-restore-"+stamp+".Caddyfile && caddy reload --config /tmp/qa-dual-restore-"+stamp+".Caddyfile --adapter caddyfile'"+
   ' </backup/'+prefix+'.live.Caddyfile >/dev/null 2>&1 || true; fi'
  d(['run','-d','--rm','--name',guard,'--network','none',
