@@ -70,7 +70,7 @@ for(const item of entries){
    if((prior.Mounts||[]).some(m=>m.Destination==='/config'))
      throw Error('Conflicting API mount at operator secret path.')
    args.push('--mount',
-     'type=volume,source=hi5central-release-operator-config,target=/config,readonly')
+     'type=volume,source=hi5central-release-operator-api-secret,target=/config,readonly')
  }
  for(const m of prior.Mounts||[]){
    if(!['volume','bind'].includes(m.Type))throw Error('Unexpected Admin baseline mount.')
@@ -87,6 +87,8 @@ if(get(api+':3001','/api/platform/v1/releases/worker-activity')!=='401')
  throw Error('Worker audit route must reject unauthenticated callers.')
 if(get(api+':3001','/api/platform/v1/releases/certifications')!=='401')
  throw Error('Certification API must be protected for staff only.')
+if(get(api+':3001','/api/platform-operator/v1/releases/publish')!=='404')
+ throw Error('Trusted operator route must only accept authenticated POST, never anonymous GET.')
 if(get(web+':80','/healthz')!=='200')
  throw Error('Candidate Admin Centre frontend healthcheck failed.')
 const check=run(['exec',web,'sh','-c',
