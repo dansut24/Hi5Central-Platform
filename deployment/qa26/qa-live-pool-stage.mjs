@@ -53,7 +53,7 @@ function clone(t,image){
  for(const mount of source.Mounts||[]){
    const mType=mount.Type
    if(!['volume','bind'].includes(mType))throw Error('Unexpected Live mount type '+mType)
-   const mountArg=['type='+mType,'source='+mount.Source,'target='+mount.Destination]
+   const mountArg=['type='+mType,'source='+(mType==='volume'?mount.Name:mount.Source),'target='+mount.Destination]
    if(!mount.RW)mountArg.push('readonly')
    args.push('--mount',mountArg.join(','))
  }
