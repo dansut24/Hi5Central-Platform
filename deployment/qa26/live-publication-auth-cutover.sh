@@ -76,6 +76,15 @@ Promise.all(["/live","/api/v1/updates/published"].map(p=>
  fetch("http://127.0.0.1:3001"+p,{signal:AbortSignal.timeout(3500)})))
 .then(xs=>{if(xs.some(x=>!x.ok))process.exitCode=1})
 .catch(()=>process.exitCode=1)'
+# Verify that the actual external gateway still routes to the healthy
+# central catalogue and that publication rejects unauthenticated clients.
+curl -fsS --max-time 10 -o /dev/null https://api.hi5central.com/api/v1/updates/published
+docker exec hi5central-api node -e '
+fetch("http://127.0.0.1:3001/api/platform-operator/v1/releases/publish",{
+  method:"POST",headers:{"Content-Type":"application/json"},body:"{}",
+  signal:AbortSignal.timeout(3500)
+}).then(r=>{if(r.status!==401)process.exitCode=1})
+.catch(()=>process.exitCode=1)'
 docker exec hi5central-api node -e '
 if(!/^[a-f0-9]{64}$/.test(String(process.env.RELEASE_PUBLICATION_TOKEN_SHA256||""))||
 process.env.RELEASE_PUBLICATION_ALLOWED_SHA!=="9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0")
