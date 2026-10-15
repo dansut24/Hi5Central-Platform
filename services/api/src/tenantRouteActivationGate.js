@@ -43,7 +43,9 @@ export function verifyTenantRouteActivation({
     ||tenant.status!=='active'||tenant.itsmEntitled!==true
     ||(stage==='uat'&&tenant.mode!=='admin_controlled'))
     return deny('Tenant lacks active ITSM entitlement for this environment.')
-  if(job.tenant_id!==tenant.id||job.status!=='running'||job.lease_fence!==plan.leaseFence
+  const fence=Number(job.lease_fence)
+  if(!Number.isSafeInteger(fence)||fence<1
+    ||job.tenant_id!==tenant.id||job.status!=='running'||fence!==plan.leaseFence
     ||job.environment!==plan.environment||job.id!==plan.jobId||plan.tenantId!==tenant.id
     ||plan.buildSha!==sha)
     return deny('Lease, route plan or tenant does not match current job.')
@@ -100,7 +102,7 @@ export function verifyTenantRouteActivation({
   }
   const compare=routeCutoverPrecondition({
     plan,activeManifestSha256:gatewayObservedSha256,
-    leaseFence:job.lease_fence,
+    leaseFence:fence,
   })
   if(!compare.allowed)return deny(compare.reason)
   if(plan.activationAllowed!==false)
@@ -108,7 +110,7 @@ export function verifyTenantRouteActivation({
   if(plan.targetRoute?.buildSha!==sha||plan.targetRoute?.host!==plan.hostname)
     return deny('Final tenant hostname or immutable release differs from approved plan.')
   return {allowed:true,stage,tenantId:tenant.id,buildSha:sha,
-    leaseFence:job.lease_fence,windowEndsAt:window.endsAt,
+    leaseFence:fence,windowEndsAt:window.endsAt,
     beforeSha256:plan.previousManifestSha256,
     afterSha256:plan.targetManifestSha256,
     reason:'Final checks passed. A separately authorised host controller may attempt the route change.'}
