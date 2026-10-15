@@ -7,8 +7,9 @@ import {spawnSync} from 'node:child_process'
 import {QA_HOSTS,removeQaTenantVersionOverride,checksum} from './qa-tenant-scoped-route.mjs'
 const allowed=[...QA_HOSTS.keys()]
 const host=process.argv[2]
-if(!allowed.includes(host)||process.argv[3]!=='--rehearse')
-  throw Error('Usage: node qa-tenant-scoped-rollback-rehearsal.mjs <exact-qa-host> --rehearse')
+const apply=process.argv[3]==='--apply'
+if(!allowed.includes(host)||!['--rehearse','--apply'].includes(process.argv[3]))
+  throw Error('Usage: node qa-tenant-scoped-rollback-rehearsal.mjs <exact-qa-host> --rehearse|--apply')
 const peer=allowed.find(v=>v!==host)
 const originalSha='ddbb869e228ac0d78d3a985daba3fb7059bb0530'
 const fallbackSha='9041ed0fc0908badfd1ceb9d638215caef5e431b'
@@ -38,7 +39,7 @@ const volumeExec=(cmd,input)=>call(['run','--rm','-i','--network','none',
 const validate=caddy=>call(['run','--rm','-i','--network','none',
  '--entrypoint','sh','caddy:2.11.4-alpine','-c',
  'cat >/tmp/Caddyfile && caddy adapt --config /tmp/Caddyfile --adapter caddyfile >/dev/null'],caddy)
-let armed=false,modified=false,restored=false
+let armed=false,modified=false,restored=false,complete=false
 const restore=()=>{
  volumeExec('set -e; cp /backup/'+backup+' /gateway/Caddyfile; chmod 644 /gateway/Caddyfile')
  call(['exec',gateway,'caddy','reload','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'])
@@ -77,10 +78,15 @@ try{
  if(publicSha(host)!==fallbackSha||publicSha(peer)!==originalSha)
   throw Error('Scoped rollback did not isolate the selected tenant.')
  console.log('SCOPED_ROLLBACK_VERIFIED',host,'->',fallbackSha.slice(0,8),'peer',originalSha.slice(0,8))
- restore()
- if(checksum(gatewayBytes())!==before)throw Error('Final gateway checksum mismatch.')
+ if(!apply){
+   restore()
+   if(checksum(gatewayBytes())!==before)throw Error('Final gateway checksum mismatch.')
+   console.log('RESTORED_BOTH_TENANTS',originalSha)
+ }else{
+   console.log('SCOPED_ROLLBACK_APPLIED',host,'previous='+fallbackSha,'peer='+originalSha)
+ }
  volumeExec('touch /backup/'+backup+'.done')
- console.log('RESTORED_BOTH_TENANTS',originalSha)
+ complete=true
  console.log('RESTORE_SNAPSHOT',backup,'sha256',before)
 }catch(error){
  console.error('SCOPED_ROLLBACK_TEST_FAILED',error.message)
@@ -88,5 +94,5 @@ try{
    console.error('RECOVERY_FAILED_WATCHDOG_ACTIVE',e.message)}
  process.exitCode=1
 }finally{
- if(armed&&!modified)try{call(['stop','-t','1',watchdog])}catch{}
+ if(armed&&(!modified||complete))try{call(['stop','-t','1',watchdog])}catch{}
 }
