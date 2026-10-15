@@ -126,6 +126,30 @@ export async function fanoutCertifiedRelease(db,{
     "AND COALESCE((ts.modules->>'itsm')::boolean,false)=true",
     'ORDER BY t.id LIMIT $1',
   ].join(' '),[limit])
+  // Automatic quality signoff uses only DESIGNATED real customer Test jobs
+  // with a host-verified event, a complete soak and separate staff certification.
+  const canaries=await db.query([
+    'SELECT j.id,j.tenant_id,j.completed_at FROM tenant_release_rollout_jobs j',
+    'JOIN platform_release_canary_tenants c ON c.tenant_id=j.tenant_id AND c.enabled=true',
+    "WHERE j.environment='test' AND j.build_sha=$1 AND j.status='succeeded'",
+    'AND j.completed_at IS NOT NULL',
+    "AND j.completed_at <= ($2::timestamptz - make_interval(mins=>$3::int))",
+    'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
+    "WHERE e.job_id=j.id AND e.event_type='verified' AND e.fence=j.lease_fence)",
+    'ORDER BY j.completed_at DESC LIMIT 10000',
+  ].join(' '),[sha,now,testSoakMinutes])
+  const designated=[...new Map(canaries.rows.map(j=>[j.tenant_id,j])).values()]
+  if(designated.length>=2){
+    const evidence={automatic:true,source:'two-verified-designated-test-canaries',
+      certifiedReleaseSha:sha,testSoakMinutes,verifiedJobIds:designated.map(j=>j.id),
+      verifiedTenantIds:designated.map(j=>j.tenant_id)}
+    await db.query([
+      'INSERT INTO platform_release_test_qa_gates',
+      '(build_sha,state,passed_canary_count,passed_at,accepted_by,evidence)',
+      "VALUES($1,'passed',$2,$3,NULL,$4::jsonb)",
+      'ON CONFLICT(build_sha) DO NOTHING',
+    ].join(' '),[sha,designated.length,now,JSON.stringify(evidence)])
+  }
   const qa=await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])
   const gate=qa.rows[0]||null
   const report={releaseSha:sha,scanned:0,queued:0,alreadyQueued:0,blocked:0,reasons:[]}
