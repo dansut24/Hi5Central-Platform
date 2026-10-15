@@ -30,7 +30,7 @@ A confirmed promotion loads the latest trusted UAT change under the locked Live 
 
 ## Database and release
 
-Migration: `services/api/migrations/itsm/157_itsm_configuration_promotions.sql`. Apply only to **Live** after approved backup and before releasing the new Live API. It creates one small audit table and index. UAT already uses migration `156_itsm_configuration_audit_value_summaries.sql` for its per-field event values. No schema changes are required to copy People, records or RMM.
+**Live migration order is required:** first `services/api/migrations/itsm/156_itsm_configuration_audit_value_summaries.sql` (the safe `value_changes` column), then `services/api/migrations/itsm/157_itsm_configuration_promotions.sql` (the per-field approval audit table). Read-only VPS inspection verified Live already has the ITSM change-event table from migration 154 but is missing BOTH migration 156's column and migration 157's table. Apply them to **Live only after approved backup and before releasing the new Live API**, using the normal migration/verification gate. UAT has already applied 156. The migration SQL files are staged on the VPS under `/opt/hi5central/hi5central-deploy/qa26-migrations/` but have NOT been executed against Production. Neither migration copies People, records or RMM data.
 
 The new Live route is `/api/v1/release-management/configuration-promotions`:
 - `GET`: customer-scoped read-only preview and approval history.
