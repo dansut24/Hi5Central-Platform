@@ -14,6 +14,9 @@ export function evaluateUatConfigurationCandidates({events,uatConfig,liveConfig,
   for(const event of events||[]) {
     if(!validPromotionId(event.id)||event.entity_key!=='tenant_settings.itsm.delta-v2'
       ||!Array.isArray(event.value_changes))continue
+    // A later UAT edit supersedes every older audit candidate, even when
+    // that new edit has no safe value-summary representation.
+    const newerKeys=Array.isArray(event.changed_keys)?event.changed_keys:[]
     for(const change of event.value_changes){
       const path=change?.path
       if(typeof path!=='string'||latest.has(path))continue
@@ -41,6 +44,7 @@ export function evaluateUatConfigurationCandidates({events,uatConfig,liveConfig,
         appliedAt:history?.applied_at||null,promotionId:history?.id||null,
       })
     }
+    for(const key of newerKeys)if(typeof key==='string')latest.add(key)
   }
   return items
 }
