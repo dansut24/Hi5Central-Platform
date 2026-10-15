@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto'
 import {maintenanceWindowStatus} from './runtimePoolPolicy.js'
+import {nextTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 
 const SHA=/^[a-f0-9]{40}$/
 const ENV=new Set(['test','uat','live'])
@@ -115,16 +116,28 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     const window=configured?maintenanceWindowStatus(row.maintenance_window,at)
       :{allowed:false,reason:'Explicit tenant maintenance window is missing.'}
     if(row.tenant_status!=='active'||!allowedEnvironment||!window.allowed){
+      const reason=row.tenant_status!=='active'
+        ?'Tenant is not active.'
+        :!allowedEnvironment?'Environment is not entitled under current tenant update mode.'
+          :window.reason
+      // Carry missed windows forward and avoid retry storms during blackouts.
+      // Ineligible/missing policies retry only after a day and never deploy.
+      const reschedule=configured&&row.tenant_status==='active'&&allowedEnvironment
+        ?nextTenantMaintenanceWindow({policy:row.maintenance_window,
+            now:at,notBefore:new Date(at.getTime()+60000),durationMinutes:15})
+        :{ok:false}
+      const next=reschedule.ok?new Date(reschedule.scheduledAt)
+        :new Date(at.getTime()+86400000)
       await db.query([
         "UPDATE tenant_release_rollout_jobs SET status='deferred',lease_token=NULL,",
-        'lease_expires_at=NULL,updated_at=$2,last_error=$3 WHERE id=$1',
-      ].join(' '),[row.id,at,window.allowed?'Tenant is inactive or environment is ineligible.':window.reason])
+        'lease_expires_at=NULL,scheduled_at=$4,updated_at=$2,last_error=$3 WHERE id=$1',
+      ].join(' '),[row.id,at,reason,next])
       await db.query([
         'INSERT INTO tenant_release_rollout_events(job_id,tenant_id,environment,build_sha,event_type,details)',
         "VALUES($1,$2,$3,$4,'deferred',$5::jsonb)",
       ].join(' '),[row.id,row.tenant_id,row.environment,row.build_sha,
-        JSON.stringify({reason:window.reason})])
-      deferred.push({id:row.id,reason:window.reason})
+        JSON.stringify({reason,scheduledAt:next.toISOString()})])
+      deferred.push({id:row.id,reason,scheduledAt:next.toISOString()})
       continue
     }
     const lease=randomUUID()
