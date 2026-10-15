@@ -10,6 +10,8 @@ COPY services/api/src/releaseRolloutPlanner.js /operator/services/api/src/releas
 COPY deployment/qa26/qa-real-release-queue-worker.mjs /operator/deployment/qa26/qa-real-release-queue-worker.mjs
 COPY deployment/qa26/qa-real-tenant-canary-rollback.mjs /operator/deployment/qa26/qa-real-tenant-canary-rollback.mjs
 COPY deployment/qa26/qa-real-tenant-route-restore.sh /operator/deployment/qa26/qa-real-tenant-route-restore.sh
+COPY deployment/qa26/qa-tenant-scoped-route.mjs /operator/deployment/qa26/qa-tenant-scoped-route.mjs
+COPY deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs /operator/deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs
 RUN node --check deployment/qa26/qa-real-release-queue-worker.mjs \
  && node --check deployment/qa26/qa-real-tenant-canary-rollback.mjs \
  && chmod 0500 deployment/qa26/qa-real-tenant-route-restore.sh
