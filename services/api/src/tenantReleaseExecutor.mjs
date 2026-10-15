@@ -193,7 +193,56 @@ async function failJob(job,reason,outcome='failed'){
       [job.id,String(reason).slice(0,400)])
   })
 }
+let lastHealthScan=0
+async function refreshVerifiedPools(){
+  // Never extend a health attestation just because a worker is running.
+  // Inspect both Docker containers; then independently check each active
+  // customer route before renewing its 15-minute UAT approval evidence.
+  const candidates=await pool.query([
+    'SELECT id,environment,build_sha,api_target,web_target',
+    'FROM platform_runtime_pools',
+    "WHERE environment=$1 AND state='verified'",
+    'ORDER BY last_seen_at ASC LIMIT 200',
+  ].join(' '),[gateway])
+  for(const record of candidates.rows){
+    try{
+      const pair=releasePair(record.build_sha,gateway)
+      const raw=await shell('docker',['inspect',pair.api,pair.web],{},20000)
+      const images=JSON.parse(raw)
+      if(images.length!==2||images.some(x=>x.State?.Health?.Status!=='healthy'))continue
+      await pool.query([
+        'UPDATE platform_runtime_pools SET last_seen_at=now(),updated_at=now()',
+        "WHERE id=$1 AND build_sha=$2 AND state='verified'",
+      ].join(' '),[record.id,record.build_sha])
+      if(gateway==='test')continue
+      const assigned=await pool.query([
+        'SELECT a.tenant_id,t.slug FROM tenant_runtime_assignments a',
+        'JOIN tenants t ON t.id=a.tenant_id',
+        'WHERE a.pool_id=$1 AND a.environment=$2 AND a.build_sha=$3',
+        "AND t.status='active' LIMIT 500",
+      ].join(' '),[record.id,gateway,record.build_sha])
+      for(const tenant of assigned.rows){
+        try{
+          const publicHost=tenant.slug+(gateway==='live'?'':'-'+gateway)+'.hi5central.com'
+          const version=JSON.parse(await shell('curl',[
+            '-fsS','--max-time','8','https://'+publicHost+'/api/v1/updates/version',
+          ],{},12000))
+          if(version.sha!==record.build_sha)continue
+          await pool.query([
+            'UPDATE tenant_runtime_route_attestations SET checked_at=now()',
+            'WHERE tenant_id=$1 AND environment=$2 AND pool_id=$3',
+            "AND build_sha=$4 AND state='active' AND public_host=$5",
+          ].join(' '),[tenant.tenant_id,gateway,record.id,record.build_sha,publicHost])
+        }catch{}
+      }
+    }catch{}
+  }
+}
 async function step(){
+  if(Date.now()-lastHealthScan>240000){
+    lastHealthScan=Date.now()
+    await refreshVerifiedPools().catch(e=>console.error('POOL_HEALTH_REFRESH_ERROR',e.message))
+  }
   await heartbeat('idle')
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
