@@ -6,7 +6,8 @@ function settingLabel(key) {
   return String(key || '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
-    .replace(/\./g, ' → ')\n    .replace(/[_-]+/g, ' ')
+    .replace(/\./g, ' → ')
+    .replace(/[_-]+/g, ' ')
     .replace(/\b(sla|cmdb|itsm)\b/gi, token => token.toUpperCase())
     .replace(/\bLive Chat\b/gi, 'Live Chat')
     .trim() || 'ITSM setting'
