@@ -290,8 +290,8 @@ export function registerReleaseOperatorRoutes(app) {
       return c.json({error:'Route plans must originate from the central Live authority.'},403)
     const body=await c.req.json().catch(()=>null)
     const environment=String(body?.environment||'')
-    if(!['uat','live'].includes(environment))
-      return c.json({error:'Only UAT and Live support customer route assignments.'},400)
+    if(!['test','uat','live'].includes(environment))
+      return c.json({error:'Only ITSM Test, UAT and Live support customer route assignments.'},400)
     const assignments=await pool.query([
       'SELECT t.slug,a.environment,a.pool_id,a.build_sha,',
       'p.build_sha AS pool_build_sha,p.state AS pool_state,p.api_target,p.web_target,',
