@@ -109,6 +109,11 @@ export function WorkerActivity({api}){
         <span>{count.running} running · {count.success} successful</span></div></article>
       <article className="rmm-card"><RotateCcw size={19}/><div><small>Failures and rollback</small>
         <strong>{count.failures}</strong><span>Includes jobs safely rolled back</span></div></article>
+      <article className="rmm-card"><ServerCog size={19}/><div><small>Workers reporting</small>
+        <strong>{(data.workers||[]).filter(w=>w.online).length} <small>of {(data.workers||[]).length}</small></strong>
+        <span title={(data.workers||[]).map(w=>w.worker_id+': '+w.state).join(' · ')}>
+          {(data.workers||[]).length?'Heartbeat within 2 minutes = online':'No heartbeats recorded yet'}
+        </span></div></article>
     </div>
     <section className="rmm-card h5-worker-panel">
       <div className="h5-worker-toolbar">
