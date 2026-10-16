@@ -231,6 +231,31 @@ async function restore(original,liveJson){
 }
 // Compensating rollback for a host cutover whose durable database commit failed.
 // The same gateway session lock remains held by the caller.
+// The worker invokes --confirm only after its durable verified job commit.
+if(mode==='--confirm'){
+  if(process.env.H5C_RELEASE_JOB_ID!==CANARY_JOB
+    ||!/^release-test-[0-9]{12,16}-h5c-managed-qa26-test-hi5central-com$/.test(String(restoreKey||'')))
+    throw Error('Confirm requires pinned job and exact backup identity.')
+  const permitted=await canarySqlQuery(`SELECT CASE WHEN
+    (SELECT paused FROM platform_release_rollout_control WHERE singleton=true)
+    AND EXISTS(
+      SELECT 1 FROM tenant_release_rollout_jobs j
+      JOIN platform_release_single_test_canary_permits p ON p.job_id=j.id
+      WHERE j.id='${CANARY_JOB}'::uuid
+      AND j.environment='test' AND j.build_sha='${CANARY_SHA}'
+      AND j.status='succeeded' AND j.completed_at IS NOT NULL
+      AND p.state='completed' AND p.tenant_id=j.tenant_id
+      AND p.build_sha=j.build_sha
+    ) THEN 'ALLOW' ELSE 'DENY' END`)
+  if(permitted!=='ALLOW')throw Error('Durable QA canary completion missing: watchdog remains armed.')
+  await docker('run','--rm','--network','none','--mount',
+    'type=volume,source='+c.backup+',target=/backup',
+    'busybox:1.36','touch','/backup/'+restoreKey+'.done')
+  const name='h5c-release-watch-test-'+restoreKey.split('-')[2]
+  try{await docker('stop','-t','1',name)}catch{}
+  console.log(JSON.stringify({status:'watchdog_confirmed',backup:restoreKey,jobId:CANARY_JOB}))
+  process.exit(0)
+}
 if(mode==='--restore'){
   const prefix='release-'+environment+'-'
   if(!restoreKey||!restoreKey.startsWith(prefix)||
@@ -307,8 +332,20 @@ try{
       'type=volume,source='+c.volume+',target=/gateway',
     '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   ]
-  const watch='sleep 360; if [ ! -e /backup/'+backupKey+'.done ]; then '+
-    restorePart+' fi'
+  // The independent watchdog checks the committed job outcome before
+  // restoring a gateway when SSH or the host caller disappears.
+  const committedSql=`SELECT CASE WHEN EXISTS(
+    SELECT 1 FROM tenant_release_rollout_jobs j
+    JOIN platform_release_single_test_canary_permits p ON p.job_id=j.id
+    WHERE j.id='${CANARY_JOB}'::uuid AND j.environment='test'
+    AND j.build_sha='${CANARY_SHA}' AND j.status='succeeded'
+    AND j.completed_at IS NOT NULL AND p.state='completed'
+  ) THEN 'COMMITTED' ELSE 'UNCOMMITTED' END`
+  const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'"
+  const check='docker exec hi5central-postgres sh -c '+quote(postgresSql(committedSql))
+  const watch='sleep 360; if [ ! -e /backup/'+backupKey+
+    '.done ]; then if [ "$('+check+')" != "COMMITTED" ]; then '+
+    restorePart+' fi; fi'
   watcher='h5c-release-watch-'+environment+'-'+backupKey.split('-')[2]
   await docker('run','-d','--rm','--name',watcher,'--network','none',
     ...mounts,'docker:27-cli','sh','-c',watch)
