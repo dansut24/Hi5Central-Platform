@@ -18,12 +18,18 @@ now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 [[ "$now" > "2026-10-16T13:00:00Z" &&
    "$now" < "2026-10-16T20:00:00Z" ]] ||
   { echo "CANARY_EXECUTE_BLOCKED: outside 2026-10-16 14:00–21:00 BST start window" >&2;exit 1; }
-# Separate container holds all 6 trusted control-plane environment variables
-# privately. Docker exec inherits its context without exporting any secret.
-container=hi5central-release-executor-test
-[[ "$(docker inspect "$container" --format '{{.State.Running}}')" == true ]] ||
-  { echo "CANARY_EXECUTE_BLOCKED: existing Test worker unavailable" >&2;exit 1; }
-docker exec "$container" test -f /runner/qa-single-test-canary/services/api/src/tenantReleaseExecutor.mjs
+# Never extract or inherit the running worker's environment. Use our newly
+# provisioned scoped credential file with a distinct, immutable worker image.
+image=hi5central-qa-single-test-canary:reviewed-v1
+label="$(docker image inspect "$image" --format '{{index .Config.Labels "hi5central.qa.reviewed_source"}}')"
+[[ "$label" == "$H5C_CANARY_REVIEWED_SHA" ]] ||
+  { echo "CANARY_EXECUTE_BLOCKED: staged worker source SHA changed" >&2;exit 1; }
+secretDir=/etc/hi5central/qa-single-test-canary
+secretFile="$secretDir/database.url"
+[[ -f "$secretFile" && ! -L "$secretFile"
+ && "$(stat -c '%a:%u:%g' "$secretDir")" == '700:0:0'
+ && "$(stat -c '%a:%u:%g' "$secretFile")" == '400:0:0' ]] ||
+  { echo "CANARY_EXECUTE_BLOCKED: dedicated restricted DB credential unavailable" >&2;exit 1; }
 for c in hi5pool-test-9f3cb1da7c27-api hi5pool-test-9f3cb1da7c27-web;do
   [[ "$(docker inspect "$c" --format '{{.State.Health.Status}}')" == healthy ]] ||
     { echo "CANARY_EXECUTE_BLOCKED: reviewed candidate not healthy" >&2;exit 1; }
@@ -43,7 +49,7 @@ for tenant in h5c-managed-qa26 h5c-custom-qa26;do
     { echo "CANARY_EXECUTE_BLOCKED: baseline or peer changed" >&2;exit 1; }
 done
 # Read-only DB guard BEFORE exercising the isolated worker.
-docker exec "$container" node -e '
+docker exec hi5central-certified-release-planner node -e '
 const{Client}=require("pg");
 (async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
 const id="2ab0c800-f01d-40f7-b1db-a624b4543b2a";
@@ -55,15 +61,23 @@ if(a.rows[0]?.paused!==true||b.rows[0]?.state!=="armed"||!b.rows[0]?.started||!b
 console.log("EXACT_TIMED_MANAGED_TEST_CANARY_GATE_PASS");
 await c.end()})().catch(e=>{console.error("CANARY_REJECTED");process.exit(1))'
 echo 'SINGLE_TEST_CANARY_START'
-# This isolated one-shot process is the only worker code that recognises
-# the ONE-job permit. Ordinary workers still see global paused=true.
-docker exec \
+# Execute a separate hardened ephemeral Docker container. The Docker socket
+# is required only for this trusted release worker's fenced gateway operations.
+# No broad production credentials are copied from any running container.
+docker run --rm --name h5c-qa-single-test-canary-20261016 \
+  --network hi5central --read-only --cap-drop ALL \
+  --security-opt no-new-privileges:true --pids-limit 128 --memory 384m \
+  --tmpfs /tmp:rw,nosuid,noexec,size=32m \
+  --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+  --mount "type=bind,source=$secretFile,target=/run/secrets/qa_canary_db_url,readonly" \
+  -e DATABASE_URL_FILE=/run/secrets/qa_canary_db_url \
+  -e RELEASE_GATEWAY=test \
   -e RELEASE_QA_TENANT_SLUGS=h5c-managed-qa26 \
   -e RELEASE_WORKER_ID=single-test-canary-20261016 \
   -e H5C_SINGLE_TEST_CANARY_JOB_ID="$JOB" \
-  "$container" node qa-single-test-canary/services/api/src/tenantReleaseExecutor.mjs --once
+  "$image" --once
 echo '=== FINAL AUDIT (never suppress a failed assertion) ==='
-docker exec "$container" node -e '
+docker exec hi5central-certified-release-planner node -e '
 const {Client}=require("pg");
 (async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();const id="2ab0c800-f01d-40f7-b1db-a624b4543b2a",sha="9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0";
 const p=await c.query("SELECT paused FROM platform_release_rollout_control WHERE singleton=true");
