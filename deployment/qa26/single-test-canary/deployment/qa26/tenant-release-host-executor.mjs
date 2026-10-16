@@ -277,7 +277,16 @@ if(mode==='--restore'){
   await restore(previous,json)
   const served=(await currentTenantRevision()).sha
   if(served===sha)throw Error('Restored route still serves the failed release.')
-  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
+  // An independently verified restore is terminal for this snapshot.
+  // Retire its watchdog so it cannot overwrite a different tenant's newer
+  // cutover on the shared TEST gateway 360 seconds later.
+  await docker('run','--rm','--network','none','--mount',
+    'type=volume,source='+c.backup+',target=/backup',
+    'busybox:1.36','touch','/backup/'+restoreKey+'.done')
+  const watchdog='h5c-release-watch-test-'+restoreKey.split('-')[2]
+  try{await docker('stop','-t','1',watchdog)}catch{}
+  console.log(JSON.stringify({status:'rolled_back',host,environment,
+    previousSha:served,watchdogRetired:true}))
   process.exit(0)
 }
 let prior='',liveJson='',active=false,watcher='',backupKey=''
