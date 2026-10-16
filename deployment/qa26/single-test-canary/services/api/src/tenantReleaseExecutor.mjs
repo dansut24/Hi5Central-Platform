@@ -69,7 +69,7 @@ async function jobContext(job){
   const query=await pool.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,',
     'j.expected_duration_minutes,t.slug,t.status AS tenant_status,',
-    'p.update_mode,p.maintenance_window,p.blackout_periods,p.live_auto_promote,',
+    'p.update_mode,p.test_auto_sync,p.maintenance_window,p.blackout_periods,p.live_auto_promote,',
     'c.status AS release_state,coalesce(ts.modules->> $2,$3) AS itsm',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
@@ -88,6 +88,8 @@ async function guards(job){
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
   assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
+  if(gateway==='test'&&ctx.test_auto_sync!==true)
+    throw Error('Tenant disabled automatic Test release after scheduling.')
   if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
     throw Error('Managed customers have no UAT.')
   if(gateway==='uat'||gateway==='live'){
