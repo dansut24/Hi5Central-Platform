@@ -1,4 +1,5 @@
 import {randomUUID} from 'node:crypto'
+import {requireQaTestJob,qaTestBuildSha} from './qaSixTestCohort.js'
 import {maintenanceWindowStatus} from './runtimePoolPolicy.js'
 import {nextTenantMaintenanceWindow,activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 
@@ -93,9 +94,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     ||qaTenantSlugs.length>24||qaTenantSlugs.some(s=>typeof s!=='string'||!/^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/.test(s))))
     throw invalid('Unsafe QA rollout lease cohort.')
   if(!UUID.test(String(qaCanaryJobId||''))||environment!=='test'
-    ||limit!==1||qaTenantSlugs?.length!==1||qaTenantSlugs[0]!=='h5c-managed-qa26'
-    ||qaCanaryJobId!=='2ab0c800-f01d-40f7-b1db-a624b4543b2a')
+    ||limit!==1||qaTenantSlugs?.length!==1)
     throw invalid('One exact QA Test job and one QA-only tenant must be pinned.')
+  // The exact UUID->tenant association is a frozen six-item manifest, not
+  // chosen by the operator or by an arbitrary database query.
+  requireQaTestJob({jobId:qaCanaryJobId,slug:qaTenantSlugs[0],
+    environment,buildSha:qaTestBuildSha})
   // Serialize queue claim transactions for shared gateways across different
   // worker processes. Session-level gateway lock stays held separately for
   // the host cutover; this xact lock only protects fair dequeue decisions.
@@ -114,15 +118,14 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     'JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha',
     "WHERE p.state='armed' AND p.environment='test'",
     'AND p.job_id=$1 AND p.tenant_id=j.tenant_id AND p.build_sha=j.build_sha',
-    "AND p.build_sha='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'",
-    "AND p.tenant_slug=t.slug AND t.slug='h5c-managed-qa26'",
+    'AND p.build_sha=$2 AND p.tenant_slug=t.slug AND t.slug=$3',
     "AND j.environment='test' AND j.status='scheduled'",
     "AND c.status='approved' AND c.approved_by=p.approved_by",
     'AND p.not_before<=now() AND p.expires_at>now()',
     "AND NOT EXISTS(SELECT 1 FROM tenant_release_rollout_jobs x",
     "WHERE x.status='running' AND x.lease_expires_at>now())",
     'FOR SHARE OF p',
-  ].join(' '),[qaCanaryJobId])
+  ].join(' '),[qaCanaryJobId,qaTestBuildSha,qaTenantSlugs[0]])
   if(permit.rowCount!==1)
     return {claimed:[],paused:true,reason:'Exact single-job Test canary is not armed or outside its window.'}
   const queued=await db.query([
