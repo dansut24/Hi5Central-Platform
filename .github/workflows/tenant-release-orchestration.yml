@@ -38,6 +38,11 @@ on:
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
       - 'services/api/test/release-rollout-planner.mjs'
       - 'services/api/test/tenant-release-queue.mjs'
+      - 'services/api/test/qa-single-test-canary-gate.mjs'
+      - 'services/api/test/qa-six-test-rollout-verifier.mjs'
+      - 'deployment/qa26/single-test-canary/**'
+      - 'deployment/qa26/Dockerfile.single-test-canary'
+      - 'deployment/qa26/verify-six-qa-test-rollouts.mjs'
       - '.github/workflows/tenant-release-orchestration.yml'
   workflow_dispatch:
 permissions:
@@ -65,6 +70,12 @@ jobs:
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
+          node --check ../../deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
+          node --check ../../deployment/qa26/single-test-canary/launcher.mjs
+          node --test test/qa-single-test-canary-gate.mjs test/qa-six-test-rollout-verifier.mjs
           node --check src/runtimePoolPolicy.js
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
