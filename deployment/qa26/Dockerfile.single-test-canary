@@ -3,6 +3,8 @@
 # No runtime mutations to the original read-only worker, no baked credentials.
 FROM hi5central-generic-release-executor:qa-cohort-11551068
 WORKDIR /runner
+COPY deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js \
+     /runner/services/api/src/qaSixTestCohort.js
 COPY deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js \
      /runner/services/api/src/tenantReleaseQueue.js
 COPY deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs \
