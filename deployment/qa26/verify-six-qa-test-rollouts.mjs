@@ -75,7 +75,11 @@ for(const slug of expected){
  const succeeded=job?.status==='succeeded'&&job.build_sha===expectedSha&&
   job.verified_events===1&&job.attempt_count>=1&&
   job.completed_at!==null&&Number(job.routed_generation)>0&&
-  job.assignments===1&&apiSha===expectedSha&&webSha===expectedSha
+  // The TEST release worker deliberately records route generation and a
+  // fenced 'verified' event, not tenant_runtime_assignments (which are
+  // currently persisted only for UAT/Live). Do not falsely fail a valid
+  // public Test cutover because no Test assignment row was written.
+  apiSha===expectedSha&&webSha===expectedSha
  const coherent=job&&job.status==='succeeded'?succeeded:httpOk
  if(!coherent)errors.push(slug+': job or public version proof is inconsistent')
  if((mode==='--expect-canaries'&&canaries.includes(slug))||mode==='--expect-six'){
