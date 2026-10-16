@@ -1,0 +1,19 @@
+# Immutable, isolated Test-only canary worker. Inherit verified Docker CLI,
+# bundled node_modules/pg and safe helper modules from the vetted QA worker.
+# No runtime mutations to the original read-only worker, no baked credentials.
+FROM hi5central-generic-release-executor:qa-cohort-11551068
+WORKDIR /runner
+COPY deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js \
+     /runner/services/api/src/tenantReleaseQueue.js
+COPY deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs \
+     /runner/services/api/src/tenantReleaseExecutor.mjs
+COPY deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs \
+     /runner/deployment/qa26/tenant-release-host-executor.mjs
+COPY deployment/qa26/single-test-canary/launcher.mjs \
+     /runner/deployment/qa26/single-test-canary-launcher.mjs
+RUN node --check services/api/src/tenantReleaseQueue.js \
+ && node --check services/api/src/tenantReleaseExecutor.mjs \
+ && node --check deployment/qa26/tenant-release-host-executor.mjs \
+ && node --check deployment/qa26/single-test-canary-launcher.mjs
+LABEL hi5central.qa.single_test_canary="h5c-managed-qa26:2026.10.15"
+ENTRYPOINT ["node","deployment/qa26/single-test-canary-launcher.mjs"]
