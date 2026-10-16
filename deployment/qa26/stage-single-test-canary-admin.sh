@@ -6,7 +6,7 @@ set -Eeuo pipefail
 set +x
 umask 077
 export LC_ALL=C
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 if [[ ! "${H5C_CANARY_REVIEWED_SHA:-}" =~ ^[a-f0-9]{40}$ ||
   "$(git rev-parse HEAD)" != "$H5C_CANARY_REVIEWED_SHA" ]]; then
