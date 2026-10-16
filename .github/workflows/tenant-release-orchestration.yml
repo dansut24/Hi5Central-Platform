@@ -43,6 +43,7 @@ on:
       - 'deployment/qa26/single-test-canary/**'
       - 'deployment/qa26/Dockerfile.single-test-canary'
       - 'deployment/qa26/verify-six-qa-test-rollouts.mjs'
+      - 'deployment/qa26/execute-six-qa-test-job-admin.mjs'
       - '.github/workflows/tenant-release-orchestration.yml'
   workflow_dispatch:
 permissions:
@@ -75,6 +76,7 @@ jobs:
           node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
           node --check ../../deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
           node --check ../../deployment/qa26/single-test-canary/launcher.mjs
+          node --check ../../deployment/qa26/execute-six-qa-test-job-admin.mjs
           node --test test/qa-single-test-canary-gate.mjs test/qa-six-test-rollout-verifier.mjs
           node --check src/runtimePoolPolicy.js
           node --check src/runtimePoolControl.js
