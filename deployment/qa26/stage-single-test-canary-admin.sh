@@ -8,7 +8,8 @@ umask 077
 export LC_ALL=C
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
-if [[ "$(git rev-parse HEAD)" != "__PINNED_COMMIT__" ]]; then
+if [[ ! "${H5C_CANARY_REVIEWED_SHA:-}" =~ ^[a-f0-9]{40}$ ||
+  "$(git rev-parse HEAD)" != "$H5C_CANARY_REVIEWED_SHA" ]]; then
   echo "CANARY_STAGE_BLOCKED: checkout the approved exact Git commit" >&2; exit 1
 fi
 TARGET=hi5central-release-executor-test
