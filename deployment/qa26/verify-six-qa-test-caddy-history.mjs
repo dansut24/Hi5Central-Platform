@@ -51,6 +51,7 @@ if(state.paused!==true||state.jobs.length!==6)
 const jobsById=new Map(qaTestEntries().map(x=>[x.id,x]))
 let expected=baseline
 let completed=0
+const completedSlugs=[]
 const seen=new Set()
 for(const j of state.jobs){
  const entry=jobsById.get(j.id)
@@ -65,6 +66,7 @@ for(const j of state.jobs){
   expected=prepareTenantCaddyRoute({config:expected,tenantSlug:j.slug,
     environment:'test',buildSha:qaTestBuildSha}).config
   completed++
+  completedSlugs.push(j.slug)
  }else if(j.status!=='scheduled'||j.attempt_count!==0||j.completed_at!==null
    ||j.verified_events!==0)
    throw Error('Unexpected Test job state before next cutover: '+j.slug)
@@ -104,5 +106,5 @@ for(const j of state.jobs){
   throw Error('Public API/frontend version differs from durable route history: '+j.slug)
 }
 console.log(JSON.stringify({status:'QA_SIX_TEST_GATEWAY_HISTORY_VERIFIED',
- globalPaused:true,verifiedCompleted:completed,remaining:6-completed,
+ globalPaused:true,verifiedCompleted:completed,completedSlugs,remaining:6-completed,
  exactSourceSha256:hash(expected),activeSourceMatch:true,publicApiWebMatch:true}))
