@@ -77,14 +77,14 @@ test('wrong canary id, wrong environment, wider cohort or bulk limit fail closed
   ]
   for(const extra of changes){
     const db=makeDb({paused:true,permit:1})
-    await assert.rejects(()=>claimDueRollouts(db,{...options,...extra}),/one exact QA Test job/)
+    await assert.rejects(()=>claimDueRollouts(db,{...options,...extra}),/one exact QA Test job/i)
     assert.equal(db.seen.length,0)
   }
 })
 test('missing canary job parameter cannot use normal batch-worker path',async()=>{
   const db=makeDb()
   await assert.rejects(()=>claimDueRollouts(db,{...options,qaCanaryJobId:null}),
-    /one exact QA Test job/)
+    /one exact QA Test job/i)
   assert.equal(db.seen.length,0)
 })
 process.on('exit',()=>rmSync(dest,{recursive:true,force:true}))
