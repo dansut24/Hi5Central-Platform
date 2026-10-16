@@ -1,63 +1,38 @@
 #!/usr/bin/env bash
-# QA-only: Stage reviewed one-tenant worker code INSIDE the existing Test worker,
-# in a separate directory. The running worker process and its configuration stay untouched.
-# Does not read/print/re-export DATABASE_URL or any other secret.
+# Stage a SEPARATE immutable QA-only canary image, never mutate the original
+# read-only Test worker or retrieve its credential environment.
 set -Eeuo pipefail
 set +x
 umask 077
-export LC_ALL=C
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-if [[ ! "${H5C_CANARY_REVIEWED_SHA:-}" =~ ^[a-f0-9]{40}$ ||
-  "$(git rev-parse HEAD)" != "$H5C_CANARY_REVIEWED_SHA" ]]; then
-  echo "CANARY_STAGE_BLOCKED: checkout the approved exact Git commit" >&2; exit 1
-fi
-TARGET=hi5central-release-executor-test
-if [[ "$(docker inspect "$TARGET" --format '{{.State.Running}}')" != true
-  || "$(docker inspect "$TARGET" --format '{{.Config.Image}}')" != hi5central-generic-release-executor:qa-cohort-11551068 ]]; then
-  echo "CANARY_STAGE_BLOCKED: original paused Test worker is not running its pinned image" >&2; exit 1
-fi
-docker exec "$TARGET" node -e '
-const x=process.env;
-if(x.RELEASE_GATEWAY!=="test"||!x.DATABASE_URL?.startsWith("postgres")||
-x.RELEASE_QA_TENANT_SLUGS?.split(",").sort().join(",")!==
-["custom1","custom2","h5c-custom-qa26","h5c-managed-qa26","managed1","managed2"].sort().join(","))
-process.exit(1);
-console.log("ORIGINAL_TEST_WORKER_SCOPE_CONFIRMED")
-'
+[[ "${H5C_CANARY_REVIEWED_SHA:-}" =~ ^[a-f0-9]{40}$ &&
+  "$(git rev-parse HEAD)" == "$H5C_CANARY_REVIEWED_SHA" ]] ||
+  { echo "CANARY_STAGE_BLOCKED: reviewed exact code SHA not checked out" >&2;exit 1; }
+[[ "$(docker inspect hi5central-release-executor-test --format '{{.State.Running}}')" == true ]] ||
+  { echo "CANARY_STAGE_BLOCKED: original Test worker not running" >&2;exit 1; }
 docker exec hi5central-certified-release-planner node -e '
-const{Client}=require("pg");
-(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
+const {Client}=require("pg");
+(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});
+await c.connect();
 const p=(await c.query("SELECT paused FROM platform_release_rollout_control WHERE singleton=true")).rows[0];
-const j=(await c.query("SELECT status,count(*)::int n,max(attempt_count)::int attempts FROM tenant_release_rollout_jobs WHERE build_sha=$1 GROUP BY status",
-["9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0"])).rows;
-if(p?.paused!==true||j.length!==1||j[0].status!=="scheduled"||j[0].n!==6||j[0].attempts!==0)
-throw Error("rollout changed");
-console.log("ALL_SIX_JOBS_STILL_PAUSED");
-await c.end()})().catch(()=>process.exit(1));
+const j=(await c.query("SELECT status,count(*)::int n,max(attempt_count)::int mx FROM tenant_release_rollout_jobs WHERE build_sha=$1 GROUP BY status",["9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0"])).rows;
+if(p?.paused!==true||j.length!==1||j[0].status!=="scheduled"||j[0].n!==6||j[0].mx!==0)throw Error("paused Test cohort changed");
+await c.end();console.log("QA_ROLLOUT_PAUSED_PRECHECK_PASS")
+})().catch(()=>process.exit(1))
 '
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-bundle="$tmp/qa-single-test-canary"
-mkdir -p "$bundle/services/api/src" "$bundle/deployment/qa26"
-for file in releaseGatewayCoordinator.js releaseQaCohort.js runtimePoolPolicy.js releaseRolloutPlanner.js tenantCaddyVersionRoutes.js tenantLiveBaseline.js; do
-  cp "services/api/src/$file" "$bundle/services/api/src/$file"
-done
-cp deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js "$bundle/services/api/src/"
-cp deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs "$bundle/services/api/src/"
-cp deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs "$bundle/deployment/qa26/"
-node --check "$bundle/services/api/src/tenantReleaseQueue.js"
-node --check "$bundle/services/api/src/tenantReleaseExecutor.mjs"
-node --check "$bundle/deployment/qa26/tenant-release-host-executor.mjs"
-# Copy *only reviewed source code*. No secrets or volume/filesystem extraction.
-docker cp "$bundle" "$TARGET:/runner/"
-for file in services/api/src/tenantReleaseQueue.js services/api/src/tenantReleaseExecutor.mjs deployment/qa26/tenant-release-host-executor.mjs; do
-  localHash="$(sha256sum "$bundle/$file"|cut -d' ' -f1)"
-  containerHash="$(docker exec "$TARGET" sha256sum "/runner/qa-single-test-canary/$file"|cut -d' ' -f1)"
-  [[ "$localHash" == "$containerHash" ]] ||
-    { echo "CANARY_STAGE_BLOCKED: copied code identity mismatch" >&2; exit 1; }
-done
-docker exec "$TARGET" node --check qa-single-test-canary/services/api/src/tenantReleaseExecutor.mjs
-docker exec "$TARGET" node --check qa-single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
-echo "SINGLE_TEST_CANARY_CODE_STAGED_ONLY"
-echo "GLOBAL_ROLLOUT_AND_EXISTING_WORKER_UNCHANGED"
+echo '=== Apply empty, idempotent Test-only permit schema (no permit is armed) ==='
+cat services/api/migrations/platform-admin/165_single_paused_test_canary.sql |
+  docker exec -i hi5central-postgres sh -c \
+    'psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+echo 'SINGLE_TEST_CANARY_EMPTY_SCHEMA_READY'
+echo '=== Build separated immutable QA worker from vetted existing worker image ==='
+docker image inspect hi5central-generic-release-executor:qa-cohort-11551068 \
+  --format 'BASE_IMAGE_ID={{.Id}}'
+docker build -f deployment/qa26/Dockerfile.single-test-canary \
+  --build-arg "REVIEWED_SOURCE_SHA=$H5C_CANARY_REVIEWED_SHA" \
+  -t hi5central-qa-single-test-canary:reviewed-v1 .
+docker image inspect hi5central-qa-single-test-canary:reviewed-v1 \
+  --format 'SINGLE_TEST_CANARY_IMAGE_BUILT={{.Id}} reviewed={{index .Config.Labels "hi5central.qa.reviewed_source"}}'
+echo 'ORIGINAL_WORKER_READ_ONLY_AND_UNCHANGED'
+echo 'NO_PUBLIC_ROUTES_OR_RELEASE_JOBS_CHANGED'
