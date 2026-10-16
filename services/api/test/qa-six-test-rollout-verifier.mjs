@@ -27,7 +27,9 @@ process.stdout.write(readFileSync(process.env.H5C_TEST_DB_FIXTURE,'utf8'))
 fake('curl',`
 const {readFileSync}=require('node:fs')
 const url=process.argv.at(-1)
-const slug=/https:\/\/([a-z0-9-]+)-test\.hi5central\.com\//.exec(url)?.[1]
+const hostname=new URL(url).hostname
+const suffix='-test.hi5central.com'
+const slug=hostname.endsWith(suffix)?hostname.slice(0,-suffix.length):null
 if(!slug||!url.endsWith('/api/v1/updates/version')&&!url.endsWith('/release-manifest.json'))process.exit(8)
 const versions=JSON.parse(readFileSync(process.env.H5C_TEST_VERSIONS_FIXTURE,'utf8'))
 if(!versions[slug])process.exit(8)
