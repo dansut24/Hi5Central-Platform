@@ -45,7 +45,7 @@ TO hi5_release_qa_canary;
 GRANT SELECT,INSERT,UPDATE,DELETE ON
   platform_release_gateway_owners
 TO hi5_release_qa_canary;
-GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO hi5_release_qa_canary;
+GRANT USAGE ON SEQUENCE public.tenant_release_rollout_events_id_seq TO hi5_release_qa_canary;
 COMMIT;
 SQL
 } | docker exec -i hi5central-postgres sh -c \
