@@ -40,11 +40,14 @@ const canaryPredicate=`EXISTS (
  SELECT 1 FROM platform_release_single_test_canary_permits p
  JOIN tenant_release_rollout_jobs j ON j.id=p.job_id
  JOIN tenants t ON t.id=j.tenant_id
+ JOIN tenant_release_preferences preferences ON preferences.tenant_id=j.tenant_id
  JOIN platform_certified_application_releases r ON r.build_sha=j.build_sha
  WHERE p.job_id='${CANARY_JOB}'::uuid
  AND p.tenant_id=j.tenant_id AND p.build_sha=j.build_sha
  AND p.environment='test' AND j.environment='test'
  AND p.tenant_slug='${slug}' AND t.slug=p.tenant_slug
+ AND t.status='active' AND preferences.test_auto_sync=true
+ AND preferences.update_mode='${scoped.mode}'
  AND j.build_sha='${CANARY_SHA}' AND r.status='approved'
  AND r.approved_by=p.approved_by
  AND p.state='armed' AND p.not_before<=now() AND p.expires_at>now()
