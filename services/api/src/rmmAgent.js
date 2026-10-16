@@ -29,6 +29,7 @@ const TENANT_INSTALLER_REPO = process.env.TENANT_INSTALLER_REPO || 'dansut24/Hi5
 const TENANT_INSTALLER_WORKFLOW = process.env.TENANT_INSTALLER_WORKFLOW || 'tenant-installer.yml'
 const TENANT_INSTALLER_REF = process.env.TENANT_INSTALLER_REF || 'main'
 const TENANT_INSTALLER_API_BASE = process.env.TENANT_INSTALLER_API_BASE || deployment.apiUrl || 'https://api.hi5central.com'
+const TENANT_INSTALLER_AGENT_WS_BASE = TENANT_INSTALLER_API_BASE.replace(/^https:/i, 'wss:').replace(/^http:/i, 'ws:').replace(/\/$/, '') + '/agent/ws'
 const TENANT_INSTALLER_ARTIFACT_DIR = process.env.TENANT_INSTALLER_ARTIFACT_DIR || '/srv/tenant-installers'
 const TENANT_INSTALLER_MAX_ARTIFACT_BYTES = 300 * 1024 * 1024
 const TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH = process.env.TENANT_INSTALLER_WINDOWS_TEMPLATE_PATH || path.join(TENANT_INSTALLER_ARTIFACT_DIR, 'templates', 'Hi5CentralAgentTemplate.exe')
@@ -1541,7 +1542,7 @@ export function registerRmmAgentRoutes(app) {
 
     const installCommand = persistent
       ? tenantInstallerInstallCommand(pkg.installer_format)
-      : `.\\Hi5CentralAgentSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /API_BASE_URL="${TENANT_INSTALLER_API_BASE}" /ENROLLMENT_TOKEN="${token}" /TENANT_ID="${auth.session.tenant_id}" /PACKAGE_ID="${pkg.id}" /INSTALL_SOURCE="rmm-portal"`
+      : `.\\Hi5CentralAgentSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /API_BASE_URL="${TENANT_INSTALLER_API_BASE}" /AGENT_WS_BASE_URL="${TENANT_INSTALLER_AGENT_WS_BASE}" /ENROLLMENT_TOKEN="${token}" /TENANT_ID="${auth.session.tenant_id}" /PACKAGE_ID="${pkg.id}" /INSTALL_SOURCE="rmm-portal"`
 
     return c.json({
       package: pkg,
