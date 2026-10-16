@@ -6,7 +6,7 @@ set +x
 umask 077
 SHA=9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
 JOB=2ab0c800-f01d-40f7-b1db-a624b4543b2a
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 [[ "$(id -u)" == 0 ]] || { echo "CANARY_PERMIT_BLOCKED: root admin required";exit 1; }
 [[ "${H5C_CANARY_REVIEWED_SHA:-}" =~ ^[a-f0-9]{40}$ &&
