@@ -7,12 +7,15 @@
  */
 import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
+import {qaTestBuildSha,byQaTestSlug,requireQaTestJob} from '../../services/api/src/qaSixTestCohort.js'
 import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
-const CANARY_SHA='9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0'
-const CANARY_JOB='2ab0c800-f01d-40f7-b1db-a624b4543b2a'
+const CANARY_SHA=qaTestBuildSha
+const scoped=byQaTestSlug(slug)
+const CANARY_JOB=scoped.id
+requireQaTestJob({jobId:CANARY_JOB,slug,environment,buildSha:sha})
 const SHA=/^[a-f0-9]{40}$/
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{1,43}[a-z0-9])?$/
 const CONFIG={
@@ -26,7 +29,7 @@ const CONFIG={
     api:'hi5central-api',web:'hi5central-prod-itsm',
     source:'https://api.hi5central.com',backup:'hi5central_release_live_backups'},
 }
-if(environment!=='test'||slug!=='h5c-managed-qa26'||sha!==CANARY_SHA
+if(environment!=='test'||sha!==CANARY_SHA
   ||!['--preflight','--stage','--apply','--restore','--confirm'].includes(mode))
   throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--stage|--apply|--restore>')
 if(['--apply','--restore'].includes(mode)&&(process.env.H5C_RELEASE_LEASE_AUTH!=='worker-gateway-fenced'
@@ -41,7 +44,7 @@ const canaryPredicate=`EXISTS (
  WHERE p.job_id='${CANARY_JOB}'::uuid
  AND p.tenant_id=j.tenant_id AND p.build_sha=j.build_sha
  AND p.environment='test' AND j.environment='test'
- AND p.tenant_slug='h5c-managed-qa26' AND t.slug=p.tenant_slug
+ AND p.tenant_slug='${slug}' AND t.slug=p.tenant_slug
  AND j.build_sha='${CANARY_SHA}' AND r.status='approved'
  AND r.approved_by=p.approved_by
  AND p.state='armed' AND p.not_before<=now() AND p.expires_at>now()
@@ -234,7 +237,155 @@ async function restore(original,liveJson){
 // The worker invokes --confirm only after its durable verified job commit.
 if(mode==='--confirm'){
   if(process.env.H5C_RELEASE_JOB_ID!==CANARY_JOB
-    ||!/^release-test-[0-9]{12,16}-h5c-managed-qa26-test-hi5central-com$/.test(String(restoreKey||'')))
+    ||!new RegExp('^release-test-[0-9]{12,16}-'+host.replaceAll('.','-')+'
+    throw Error('Confirm requires pinned job and exact backup identity.')
+  const permitted=await canarySqlQuery(`SELECT CASE WHEN
+    (SELECT paused FROM platform_release_rollout_control WHERE singleton=true)
+    AND EXISTS(
+      SELECT 1 FROM tenant_release_rollout_jobs j
+      JOIN platform_release_single_test_canary_permits p ON p.job_id=j.id
+      WHERE j.id='${CANARY_JOB}'::uuid
+      AND j.environment='test' AND j.build_sha='${CANARY_SHA}'
+      AND j.status='succeeded' AND j.completed_at IS NOT NULL
+      AND p.state='completed' AND p.tenant_id=j.tenant_id
+      AND p.build_sha=j.build_sha
+    ) THEN 'ALLOW' ELSE 'DENY' END`)
+  if(permitted!=='ALLOW')throw Error('Durable QA canary completion missing: watchdog remains armed.')
+  await docker('run','--rm','--network','none','--mount',
+    'type=volume,source='+c.backup+',target=/backup',
+    'busybox:1.36','touch','/backup/'+restoreKey+'.done')
+  const name='h5c-release-watch-test-'+restoreKey.split('-')[2]
+  try{await docker('stop','-t','1',name)}catch{}
+  console.log(JSON.stringify({status:'watchdog_confirmed',backup:restoreKey,jobId:CANARY_JOB}))
+  process.exit(0)
+}
+if(mode==='--restore'){
+  const prefix='release-'+environment+'-'
+  if(!restoreKey||!restoreKey.startsWith(prefix)||
+    !/^release-(test|uat|live)-[0-9]{12,16}-[a-z0-9-]+$/.test(restoreKey)||
+    !restoreKey.endsWith(host.replaceAll('.','-')))
+    throw Error('Restore key is not bound to this exact tenant and environment.')
+  const load=ext=>docker('run','--rm','--network','none',
+    '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
+    'busybox:1.36','cat','/backup/'+restoreKey+'.'+ext)
+  const previous=await load('caddy')
+  const json=environment==='live'?await load('json'):''
+  await restore(previous,json)
+  const served=(await currentTenantRevision()).sha
+  if(served===sha)throw Error('Restored route still serves the failed release.')
+  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
+  process.exit(0)
+}
+let prior='',liveJson='',active=false,watcher='',backupKey=''
+try{
+  if(mode==='--preflight'||mode==='--apply')await assertLiveGatewaySource()
+  const old=await fileHost()
+  const plan=prepareTenantCaddyRoute({config:old,tenantSlug:slug,
+    environment,buildSha:sha})
+  await validate(plan.config)
+  if(mode==='--preflight'){
+    console.log(JSON.stringify({status:'preflight_pass',environment,host,
+      newSha:sha,sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
+    process.exit(0)
+  }
+  if(mode==='--stage')console.log('STAGING_ONLY_NO_CUSTOMER_ROUTE',environment,sha)
+  if(mode==='--apply'){
+    const permit=await canarySqlQuery(`SELECT CASE WHEN
+      (SELECT paused FROM platform_release_rollout_control WHERE singleton=true)
+      AND ${canaryPredicate} THEN 'ALLOW' ELSE 'DENY' END`)
+    if(permit!=='ALLOW')throw Error('Single Test canary permit is missing, expired or globally unpaused.')
+  }
+  if(mode==='--apply'){
+    prior=(await currentTenantRevision()).sha
+    if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
+  }
+  for(const type of ['api','itsm']){
+    const image='ghcr.io/dansut24/hi5central-platform-'+type+':sha-'+sha
+    await cmd('docker',['pull',image],null,210000)
+    const info=JSON.parse(await docker('image','inspect',image))[0]
+    if(info.Config.Labels?.['org.opencontainers.image.revision']!==sha)
+      throw Error('Registry image revision mismatch.')
+    await clone(type==='api'?c.api:c.web,type==='api'?plan.api:plan.web,image,
+      type==='itsm')
+  }
+  await Promise.all([healthy(plan.api),healthy(plan.web)])
+  if(mode==='--stage'){
+    console.log(JSON.stringify({status:'pool_verified',environment,buildSha:sha,
+      api:plan.api,web:plan.web}))
+    process.exit(0)
+  }
+  if(environment==='live')liveJson=await gatewayRuntime()
+  await docker('volume','create',c.backup)
+  backupKey='release-'+environment+'-'+Date.now()+'-'+plan.host.replaceAll('.','-')
+  await save(backupKey+'.caddy',old)
+  if(liveJson)await save(backupKey+'.json',liveJson)
+  // Independent host process recovers the pre-cutover config if the caller dies.
+  // Watchdog never deletes the snapshot, and checks the '.done' marker.
+  const restorePart=environment==='live'?
+    'cat /backup/'+backupKey+'.caddy > /gateway/Caddyfile; '+
+    "docker exec -i "+c.gateway+" sh -c 'cat >/tmp/h5c-rescue.json && caddy reload --config /tmp/h5c-rescue.json' "+
+    '</backup/'+backupKey+'.json >/dev/null 2>&1 || true;':
+    'cat /backup/'+backupKey+'.caddy > /gateway/Caddyfile; '+
+    'docker exec '+c.gateway+
+    ' caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true;'
+  const mounts=[
+    '--mount','type=volume,source='+c.backup+',target=/backup',
+    '--mount',environment==='live'?
+      'type=bind,source='+c.hostFile+',target=/gateway/Caddyfile':
+      'type=volume,source='+c.volume+',target=/gateway',
+    '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
+  ]
+  // The independent watchdog checks the committed job outcome before
+  // restoring a gateway when SSH or the host caller disappears.
+  const committedSql=`SELECT CASE WHEN EXISTS(
+    SELECT 1 FROM tenant_release_rollout_jobs j
+    JOIN platform_release_single_test_canary_permits p ON p.job_id=j.id
+    WHERE j.id='${CANARY_JOB}'::uuid AND j.environment='test'
+    AND j.build_sha='${CANARY_SHA}' AND j.status='succeeded'
+    AND j.completed_at IS NOT NULL AND p.state='completed'
+  ) THEN 'COMMITTED' ELSE 'UNCOMMITTED' END`
+  const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'"
+  const check='docker exec hi5central-postgres sh -c '+quote(postgresSql(committedSql))
+  const watch='sleep 360; if [ ! -e /backup/'+backupKey+
+    '.done ]; then if [ "$('+check+')" != "COMMITTED" ]; then '+
+    restorePart+' fi; fi'
+  watcher='h5c-release-watch-'+environment+'-'+backupKey.split('-')[2]
+  await docker('run','-d','--rm','--name',watcher,'--network','none',
+    ...mounts,'docker:27-cli','sh','-c',watch)
+  active=true
+  // Source CAS before modifying a shared Caddy configuration.
+  const actual=await fileHost()
+  if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
+  await assertCurrentFencedHostLease()
+  await writeGateway(plan.config)
+  let verified=false
+  for(let i=0;i<16;i++){
+    try{
+      const api=await shaPublic('https://'+host+'/api/v1/updates/version')
+      const manifest=JSON.parse(await getText('https://'+host+'/release-manifest.json'))
+      const frontend=await getText('https://'+host+'/runtime-config.js')
+      if(api===sha&&manifest.sha===sha&&
+        frontend.includes('apiUrl: "" || window.location.origin')){verified=true;break}
+    }catch{}
+    await stop(900)
+  }
+  if(!verified)throw Error('New tenant release did not pass public API+frontend version verification.')
+  // Deliberately keep the watchdog armed until the WORKER commits the
+  // verified job to PostgreSQL. A crash after route verification but before
+  // durable acknowledgement is recovered by the independent watchdog.
+  active=false
+  console.log(JSON.stringify({status:'verified',host,environment,
+    buildSha:sha,previousSha:prior,backup:backupKey}))
+}catch(error){
+  console.error('TENANT_RELEASE_DEPLOYMENT_FAILED',error.message)
+  if(active)try{await restore(await fileHost().then(async()=>await docker('run','--rm','--network','none',
+    '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
+    'busybox:1.36','cat','/backup/'+backupKey+'.caddy')),liveJson)
+    console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
+  }catch(e){console.error('RELEASE_WATCHDOG_REMAINS_ARMED',e.message)}
+  process.exitCode=1
+}
+).test(String(restoreKey||'')))
     throw Error('Confirm requires pinned job and exact backup identity.')
   const permitted=await canarySqlQuery(`SELECT CASE WHEN
     (SELECT paused FROM platform_release_rollout_control WHERE singleton=true)
