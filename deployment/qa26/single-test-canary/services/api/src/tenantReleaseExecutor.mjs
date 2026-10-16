@@ -309,7 +309,7 @@ async function step(){
     }
     leaseTimer=setInterval(()=>renew().catch(()=>{leaseFailed=true}),45000)
     const started=Date.now()
-    let activated=null,activatedSlug=null
+    let activated=null,activatedSlug=null,durableSuccess=false
     try{
       const ctx=await guards(job)
       activatedSlug=ctx.slug
@@ -341,6 +341,7 @@ async function step(){
       if(leaseFailed)throw Error('Database lease renewal failed during host cutover.')
       await gate.assertFencedLease()
       await persistVerified(job,ctx,{...result,elapsedMs:Date.now()-started})
+      durableSuccess=true
       // A successful DB commit must not be undone by optional watchdog cleanup.
       try{
         const confirmation=await shell('node',[
@@ -352,10 +353,17 @@ async function step(){
       }catch(error){
         console.error('CANARY_POSTCOMMIT_WATCHDOG_CONFIRM_WARNING',error.message)
       }
-      await heartbeat('idle')
+      await heartbeat('idle').catch(error=>
+        console.error('CANARY_POSTCOMMIT_HEARTBEAT_WARNING',error.message))
       console.log(JSON.stringify({type:'single_test_canary_verified',jobId:job.id,
         host:result.host,sha:job.buildSha,elapsedMs:Date.now()-started}))
     }catch(e){
+      // Once PostgreSQL commits verified success, no later heartbeat/logging
+      // failure is permitted to downgrade the job or undo a live Test route.
+      if(durableSuccess){
+        console.error('POSTCOMMIT_CANARY_WARNING_NOT_ROLLED_BACK',String(e?.message||e).slice(0,250))
+        return true
+      }
       let compensated=false
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
