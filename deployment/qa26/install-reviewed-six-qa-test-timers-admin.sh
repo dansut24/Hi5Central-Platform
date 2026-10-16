@@ -13,6 +13,10 @@ cd "$root"
 sha="${H5C_CANARY_REVIEWED_SHA:-}"
 [[ "$sha" =~ ^[a-f0-9]{40}$ && "$(git rev-parse HEAD)" == "$sha" ]] ||
  { echo "QA_TIMER_INSTALL_BLOCKED: reviewed SHA mismatch";exit 1; }
+# A one-shot window installation must not silently miss its first calendar slot.
+now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+[[ "$now" < "2026-10-16T13:02:00Z" ]] ||
+ { echo "QA_TIMER_INSTALL_BLOCKED: 14:02 BST first window has passed";exit 1; }
 node deployment/qa26/check-six-qa-test-credential-readiness.mjs
 image="hi5central-qa-six-test-worker:reviewed-${sha:0:12}"
 [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "hi5central.qa.reviewed_source"}}')" == "$sha" ]] ||
