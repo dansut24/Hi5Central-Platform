@@ -46,6 +46,9 @@ on:
       - 'deployment/qa26/execute-six-qa-test-job-admin.mjs'
       - 'deployment/qa26/arm-six-qa-test-permit-admin.sh'
       - 'deployment/qa26/stage-reviewed-six-qa-worker-admin.sh'
+      - 'deployment/qa26/check-six-qa-test-credential-readiness.mjs'
+      - 'deployment/qa26/run-six-qa-test-window-admin.sh'
+      - 'deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh'
       - '.github/workflows/tenant-release-orchestration.yml'
   workflow_dispatch:
 permissions:
@@ -81,6 +84,9 @@ jobs:
           node --check ../../deployment/qa26/execute-six-qa-test-job-admin.mjs
           bash -n ../../deployment/qa26/arm-six-qa-test-permit-admin.sh
           bash -n ../../deployment/qa26/stage-reviewed-six-qa-worker-admin.sh
+          node --check ../../deployment/qa26/check-six-qa-test-credential-readiness.mjs
+          bash -n ../../deployment/qa26/run-six-qa-test-window-admin.sh
+          bash -n ../../deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh
           node --test test/qa-single-test-canary-gate.mjs test/qa-six-test-rollout-verifier.mjs
           node --check src/runtimePoolPolicy.js
           node --check src/runtimePoolControl.js
