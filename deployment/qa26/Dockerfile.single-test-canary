@@ -18,6 +18,6 @@ RUN node --check services/api/src/tenantReleaseQueue.js \
  && node --check deployment/qa26/tenant-release-host-executor.mjs \
  && node --check deployment/qa26/single-test-canary-launcher.mjs
 ARG REVIEWED_SOURCE_SHA
-LABEL hi5central.qa.single_test_canary="h5c-managed-qa26:2026.10.15" \
+LABEL hi5central.qa.test_cohort="six-fixed-tenants-2026.10.15" \
       hi5central.qa.reviewed_source="${REVIEWED_SOURCE_SHA}"
 ENTRYPOINT ["node","deployment/qa26/single-test-canary-launcher.mjs"]
