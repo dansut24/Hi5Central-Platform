@@ -317,7 +317,7 @@ async function step(){
         // Pre-stage the immutable Production pair without altering any tenant route.
         // Customer approval must see a verified candidate Live pool.
         const staged=await shell('node',[
-          'qa-single-test-canary/deployment/qa26/tenant-release-host-executor.mjs',
+          'deployment/qa26/tenant-release-host-executor.mjs',
           'live',ctx.slug,job.buildSha,'--stage',
         ])
         const poolProof=JSON.parse(staged.trim().split('\n').at(-1))
@@ -325,7 +325,7 @@ async function step(){
           throw Error('Official immutable Production candidate could not be pre-staged.')
       }
       const output=await shell('node',[
-        'qa-single-test-canary/deployment/qa26/tenant-release-host-executor.mjs',
+        'deployment/qa26/tenant-release-host-executor.mjs',
         gateway,ctx.slug,job.buildSha,'--apply',
       ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
         H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
@@ -341,7 +341,7 @@ async function step(){
       // A successful DB commit must not be undone by optional watchdog cleanup.
       try{
         const confirmation=await shell('node',[
-          'qa-single-test-canary/deployment/qa26/tenant-release-host-executor.mjs',
+          'deployment/qa26/tenant-release-host-executor.mjs',
           gateway,ctx.slug,job.buildSha,'--confirm',result.backup,
         ],{H5C_RELEASE_JOB_ID:job.id},25000)
         if(!confirmation.includes('watchdog_confirmed'))
@@ -357,7 +357,7 @@ async function step(){
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
           const output=await shell('node',[
-            'qa-single-test-canary/deployment/qa26/tenant-release-host-executor.mjs',
+            'deployment/qa26/tenant-release-host-executor.mjs',
             gateway,activatedSlug,job.buildSha,'--restore',activated.backup,
           ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
             H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
