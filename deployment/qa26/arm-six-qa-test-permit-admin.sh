@@ -70,6 +70,7 @@ BEGIN
    AND j.environment='test' AND j.build_sha='$sha'
    AND j.status='scheduled' AND j.attempt_count=0
    AND j.scheduled_at<=now() AND p.update_mode='$mode'
+   AND p.test_auto_sync=true
    AND t.status='active' AND c.status='approved'
    AND c.approved_by IS NOT NULL;
  GET DIAGNOSTICS changed=ROW_COUNT;
