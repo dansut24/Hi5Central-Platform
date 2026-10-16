@@ -5,6 +5,7 @@
  * image deployment, gateway CAS, HTTPS proof and durable completion.
  */
 import pg from 'pg'
+import {requireQaTestJob,qaTestBuildSha} from './qaSixTestCohort.js'
 import {randomUUID} from 'node:crypto'
 import {spawn} from 'node:child_process'
 import {withGatewayLock,recordReleaseWorkerHeartbeat} from './releaseGatewayCoordinator.js'
@@ -24,12 +25,12 @@ if(!/^[a-z0-9-]{4,120}$/.test(ID))throw Error('Invalid release worker identifier
 const one=process.argv.includes('--once'),preflight=process.argv.includes('--preflight')
 if(process.argv.slice(2).some(x=>x!=='--once'))
   throw Error('Single QA Test canary worker only accepts --once.')
-const ONLY_JOB='2ab0c800-f01d-40f7-b1db-a624b4543b2a'
+const ONLY_JOB=process.env.H5C_SINGLE_TEST_CANARY_JOB_ID
 if(!one||preflight||gateway!=='test'||qaTenantSlugs.length!==1
-  ||qaTenantSlugs[0]!=='h5c-managed-qa26'
-  ||process.env.H5C_SINGLE_TEST_CANARY_JOB_ID!==ONLY_JOB
   ||process.env.RELEASE_WORKER_ID!=='single-test-canary-20261016')
-  throw Error('Canary worker is pinned to the one approved QA26 Test job.')
+  throw Error('Worker refuses unscoped or non-Test QA execution.')
+const cohortJob=requireQaTestJob({jobId:ONLY_JOB,slug:qaTenantSlugs[0],
+  environment:gateway,buildSha:qaTestBuildSha})
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,
   max:5,connectionTimeoutMillis:7000,idleTimeoutMillis:25000})
 const sleep=ms=>new Promise(done=>setTimeout(done,ms))
@@ -312,6 +313,8 @@ async function step(){
     try{
       const ctx=await guards(job)
       activatedSlug=ctx.slug
+      requireQaTestJob({jobId:job.id,slug:ctx.slug,
+        environment:ctx.environment,buildSha:ctx.build_sha})
       await gate.assertFencedLease()
       if(gateway==='uat'){
         // Pre-stage the immutable Production pair without altering any tenant route.
