@@ -107,6 +107,44 @@ if(mode==='--check')process.exit(0)
 if(process.getuid?.()!==0)fail('Root operator on authorised VPS is required')
 if(completed){console.log('QA_TEST_ALREADY_VERIFIED_NO_REPEAT');process.exit(0)}
 if(!eligible)fail('Exact authorised Test window, staff permit or baseline unavailable')
+// A privileged host may be able to run Docker, but it must NEVER use a
+// provisioned canary database account with excess privileges. This read-only
+// ACL check prevents an insecure DB provisioning script from being accepted.
+const privilegeAudit=String.raw`
+const{Client}=require('pg')
+;(async()=>{
+const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
+try{
+ await c.query('BEGIN READ ONLY')
+ const q=await c.query([
+ "WITH r AS (SELECT oid,rolcanlogin,rolsuper,rolcreatedb,rolcreaterole,rolinherit",
+ "FROM pg_roles WHERE rolname='hi5_release_qa_canary')",
+ "SELECT EXISTS(SELECT 1 FROM r WHERE rolcanlogin AND NOT rolsuper",
+ "AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolinherit) AS role_safe,",
+ "COALESCE((SELECT count(*)::int FROM pg_class c",
+ "JOIN pg_namespace n ON n.oid=c.relnamespace,r",
+ "WHERE c.relkind='S' AND n.nspname='public'",
+ "AND has_sequence_privilege(r.oid,c.oid,'USAGE')),0) AS allowed_sequences,",
+ "COALESCE((SELECT has_sequence_privilege(r.oid,",
+ "'public.tenant_release_rollout_events_id_seq'::regclass,'USAGE') FROM r),false)",
+ "AS event_sequence_allowed,",
+ "COALESCE((SELECT has_table_privilege(r.oid,",
+ "'platform_release_rollout_control'::regclass,'UPDATE') FROM r),false)",
+ "AS can_unpause"
+ ].join(' '))
+ console.log(JSON.stringify(q.rows[0]))
+ await c.query('ROLLBACK')
+}finally{await c.end()}
+})().catch(()=>process.exit(1))
+`
+let acl
+try{
+ acl=JSON.parse(exec('docker',['exec','hi5central-certified-release-planner',
+  'node','-e',privilegeAudit],25000))
+}catch{fail('Scoped DB privilege review could not be independently verified')}
+if(acl.role_safe!==true||acl.allowed_sequences!==1||
+  acl.event_sequence_allowed!==true||acl.can_unpause!==false)
+ fail('Scoped DB role requires security approval; one rollout event sequence only')
 const targetDate=entry.window==='afternoon'?'2026-10-16':'2026-10-17'
 const targetStart=entry.window==='afternoon'?14:2
 const targetEnd=entry.window==='afternoon'?21:4
