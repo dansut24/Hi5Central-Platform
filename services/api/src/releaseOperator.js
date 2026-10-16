@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
@@ -10,8 +11,18 @@ import {registerTenantRoutePreviewOperator} from './tenantRoutePreviewOperator.j
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised} from './releasePublicationCredential.js'
 
 function configuredToken() {
+  // Use the existing host operator's trusted Docker secret volume when
+  // available. Never log its contents, and fail closed if configured but
+  // missing/unreadable. Environment-variable fallback is for legacy hosts.
+  const file = String(process.env.RELEASE_OPERATOR_TOKEN_FILE || '').trim()
+  if (file) {
+    if (file !== '/config/operator.token') return ''
+    try { return String(readFileSync(file, 'utf8')).trim() }
+    catch { return '' }
+  }
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
 }
 
@@ -35,6 +46,18 @@ function requireOperator(c) {
 }
 
 
+
+/** Editorial publication has its own capability. The full deployment
+ * operator bearer is deliberately not accepted at this endpoint.
+ */
+function requirePublicationOperator(c) {
+  if(publicationTokenDigests().length===0)
+    return c.json({error:'Publication-only operator is not configured.',
+      code:'RELEASE_PUBLICATION_TOKEN_UNAVAILABLE'},503)
+  if(!publicationBearerAuthorised(c.req.header('authorization')))
+    return c.json({error:'Publication-only authentication required.'},401)
+  return null
+}
 
 function localWindowParts(timeZone, date = new Date()) {
   try {
@@ -320,7 +343,7 @@ export function registerReleaseOperatorRoutes(app) {
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
   app.post('/api/platform-operator/v1/releases/publish',async c=>{
-    const denied=requireOperator(c)
+    const denied=requirePublicationOperator(c)
     if(denied)return denied
     if(deployment.runtimeEnvironment!=='live')
       return c.json({error:'Only the central release authority may publish customer updates.'},403)
@@ -328,6 +351,8 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
+    if(!publicationShaAuthorised(notes.buildSha))
+      return c.json({error:'Release is outside this publication-only token scope.'},403)
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])

@@ -1,0 +1,18 @@
+# Dedicated, reversible, QA26 Custom UAT scheduler.
+# Controls Docker socket (host-root equivalent): QA-only allowlists and default
+# globally paused state are required. NOT a general customer production worker.
+FROM docker:27-cli
+RUN apk add --no-cache nodejs curl
+WORKDIR /operator
+COPY deployment/qa26/qa-worker-heartbeat.mjs /operator/deployment/qa26/qa-worker-heartbeat.mjs
+COPY services/api/package.json /operator/services/api/package.json
+COPY services/api/src/runtimePoolPolicy.js /operator/services/api/src/runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js /operator/services/api/src/releaseRolloutPlanner.js
+COPY deployment/qa26/qa-real-custom-uat-worker.mjs /operator/deployment/qa26/qa-real-custom-uat-worker.mjs
+COPY deployment/qa26/qa-real-custom-uat-release.mjs /operator/deployment/qa26/qa-real-custom-uat-release.mjs
+COPY deployment/qa26/qa-real-custom-uat-restore.mjs /operator/deployment/qa26/qa-real-custom-uat-restore.mjs
+RUN node --check deployment/qa26/qa-real-custom-uat-worker.mjs \
+ && node --check deployment/qa26/qa-real-custom-uat-release.mjs \
+ && node --check deployment/qa26/qa-real-custom-uat-restore.mjs
+ENTRYPOINT ["node"]
+CMD ["deployment/qa26/qa-real-custom-uat-worker.mjs","--loop"]

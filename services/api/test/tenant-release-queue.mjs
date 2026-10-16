@@ -8,6 +8,7 @@ import {enqueueReleasePlans,activateNextPendingRollout,claimDueRollouts,finishRo
 const {Pool}=pg
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:4})
 const sha='c'.repeat(40),shaNext='d'.repeat(40)
+let certifiedBy=null
 const start=new Date('2026-10-15T10:00:00Z')
 const due=new Date('2026-10-15T11:30:00Z')
 const policy={timezone:'Europe/London',days:['thu'],start:'12:00',end:'14:00'}
@@ -22,6 +23,16 @@ async function tx(fn){
 async function seed(){
   const tenants=[]
   const suffix=randomUUID().slice(0,8)
+  const auditor=await pool.query(
+    'INSERT INTO users(email,name,password_hash,email_verified_at) VALUES($1,$2,$3,now()) RETURNING id',
+    ['release-auditor-'+suffix+'@example.invalid','CI Release Auditor','ci-only'])
+  certifiedBy=auditor.rows[0].id
+  for(const build of [sha,shaNext])await pool.query([
+    'INSERT INTO platform_certified_application_releases',
+    '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
+    "VALUES($1,'approved',$2,$3::jsonb,$4,now())",
+  ].join(' '),[build,'https://github.com/dansut24/Hi5Central-Platform/actions/runs/1234567890',
+    JSON.stringify({build:true,ci:true,security:true,migrations:true,smoke:true}),certifiedBy])
   for(let i=0;i<4;i++){
     const mode=i%2?'admin_controlled':'hi5_managed'
     const slug='rollout-ci-'+suffix+'-'+i
@@ -154,6 +165,8 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
+    await pool.query('DELETE FROM platform_certified_application_releases WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
+    if(certifiedBy)await pool.query('DELETE FROM users WHERE id=$1',[certifiedBy]).catch(()=>{})
     await pool.end()
   }
 })

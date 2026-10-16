@@ -1,0 +1,134 @@
+name: Real Hi5Central Dev Release Candidate (QA)
+on:
+  push:
+    branches:
+      - develop
+      - feat/qa-tenant-gateway-version-activator-20261015
+    paths:
+      - '.github/workflows/qa-real-dev-release-candidate.yml'
+      - '.github/scripts/generate-release-manifest.mjs'
+      - 'services/api/**'
+      - 'apps/itsm/**'
+      - 'apps/admin/**'
+      - 'deployment/qa26/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+concurrency:
+  group: qa-real-dev-candidate-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  static-gates:
+    name: Dev candidate release compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate rollout and version routing
+        run: |
+          set -euo pipefail
+          node --check services/api/src/releaseRolloutPlanner.js
+          node --check services/api/src/tenantReleaseQueue.js
+          node --check deployment/qa26/qa-real-release-queue-worker.mjs
+          node --check deployment/qa26/qa-tenant-scoped-rollback-rehearsal.mjs
+          sh -n apps/itsm/deployment/runtime-config-entrypoint.sh
+          grep -Fq 'API_URL_RAW" = "same-origin"' apps/itsm/deployment/runtime-config-entrypoint.sh
+          grep -Fq 'apiUrl: "${API_URL_VALUE}" || window.location.origin' apps/itsm/deployment/runtime-config-entrypoint.sh
+          node --check deployment/qa26/qa-real-custom-uat-worker.mjs
+          node --check deployment/qa26/qa-real-custom-uat-release.mjs
+          node --check services/api/src/certifiedReleaseFanout.js
+          node --check services/api/src/officialReleaseCertification.js
+          node --check services/api/src/releaseFanoutDaemon.mjs
+          node --check services/api/src/releasePublicationRelay.mjs
+          node --check services/api/src/releasePublicationRelayDaemon.mjs
+          node --check services/api/src/releaseQaCohort.js
+          node --check services/api/src/tenantLiveBaseline.js
+          node --check deployment/qa26/tenant-release-host-executor.mjs
+          node --check deployment/qa26/qa26-uat-deny-overlay.mjs
+          node --check deployment/qa26/qa-six-tenant-uat-deny-overlay.cjs
+          node --test services/api/test/release-qa-cohort.mjs services/api/test/qa26-uat-deny-overlay.mjs services/api/test/tenant-live-baseline.mjs services/api/test/tenant-caddy-version-routes.mjs services/api/test/release-rollout-planner.mjs services/api/test/tenant-route-cutover.mjs services/api/test/release-gateway-coordinator.mjs
+  security-compatibility:
+    name: Security and migration compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned API dependencies and scan production dependencies
+        run: |
+          set -euo pipefail
+          cd services/api
+          npm ci --omit=dev --ignore-scripts --no-fund
+          npm audit --omit=dev --audit-level=high
+      - name: Verify forward-compatible release schema and orchestration
+        run: |
+          set -euo pipefail
+          node --check services/api/src/certifiedReleaseFanout.js
+          node --check services/api/src/officialReleaseCertification.js
+          node --check services/api/src/releaseFanoutDaemon.mjs
+          node --test services/api/test/certified-release-fanout.mjs services/api/test/release-publication-relay.mjs
+          test -s services/api/migrations/platform-admin/163_certified_release_fanout.sql
+          if grep -Ein '^[[:space:]]*(DROP[[:space:]]+(TABLE|SCHEMA)|TRUNCATE|ALTER[[:space:]]+TABLE.*DROP[[:space:]]+COLUMN)' services/api/migrations/platform-admin/163_certified_release_fanout.sql; then
+            echo 'Destructive migration requires a separately approved expand/contract release.'
+            exit 1
+          fi
+  build-images:
+    name: Publish ${{ matrix.name }} immutable Dev candidate
+    needs: [static-gates, security-compatibility]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: services/api
+            image: ghcr.io/dansut24/hi5central-platform-api
+          - name: itsm
+            context: apps/itsm
+            image: ghcr.io/dansut24/hi5central-platform-itsm
+          - name: admin
+            context: apps/admin
+            image: ghcr.io/dansut24/hi5central-platform-admin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Generate exact tracked Dev release manifest
+        run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build immutable API or ITSM
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: true
+          tags: ${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            com.hi5central.release.stage=dev-candidate
+          cache-from: type=gha,scope=qa-real-${{ matrix.name }}
+          cache-to: type=gha,scope=qa-real-${{ matrix.name }},mode=max
+  verify-and-record:
+    name: Verify exact API+ITSM Dev release pair
+    needs: build-images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Check immutable image tags exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          for type in api itsm admin; do
+            docker buildx imagetools inspect "ghcr.io/dansut24/hi5central-platform-${type}:sha-${{ github.sha }}" >/dev/null
+            echo "VERIFIED Dev candidate ${type} sha-${{ github.sha }}"
+          done
+          echo "No customer assignment or Production promotion has occurred."

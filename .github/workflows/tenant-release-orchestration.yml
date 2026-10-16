@@ -19,6 +19,15 @@ on:
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releasePublicationCredential.js'
+      - 'services/api/test/release-publication-credential.mjs'
+      - 'deployment/qa26/bootstrap-release-publisher-dev-only.sql'
+      - 'deployment/qa26/provision-release-publisher-admin.py'
+      - 'services/api/src/releasePublicationRelay.mjs'
+      - 'services/api/src/releasePublicationRelayDaemon.mjs'
+      - 'services/api/test/release-publication-relay.mjs'
+      - 'deployment/qa26/Dockerfile.release-publication-relay'
+      - 'deployment/qa26/compose.release-publication-relay.yml'
       - 'services/api/src/tenantRuntimeReleaseLifecycle.js'
       - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
       - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
@@ -29,6 +38,19 @@ on:
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
       - 'services/api/test/release-rollout-planner.mjs'
       - 'services/api/test/tenant-release-queue.mjs'
+      - 'services/api/test/qa-single-test-canary-gate.mjs'
+      - 'services/api/test/qa-six-test-rollout-verifier.mjs'
+      - 'deployment/qa26/single-test-canary/**'
+      - 'deployment/qa26/Dockerfile.single-test-canary'
+      - 'deployment/qa26/verify-six-qa-test-rollouts.mjs'
+      - 'deployment/qa26/execute-six-qa-test-job-admin.mjs'
+      - 'deployment/qa26/verify-six-qa-test-caddy-history.mjs'
+      - 'deployment/qa26/arm-six-qa-test-permit-admin.sh'
+      - 'deployment/qa26/stage-reviewed-six-qa-worker-admin.sh'
+      - 'deployment/qa26/check-six-qa-test-credential-readiness.mjs'
+      - 'deployment/qa26/run-six-qa-test-window-admin.sh'
+      - 'deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh'
+      - 'deployment/qa26/repin-reviewed-qa-overnight-timer-admin.sh'
       - '.github/workflows/tenant-release-orchestration.yml'
   workflow_dispatch:
 permissions:
@@ -56,10 +78,28 @@ jobs:
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
+          node --check ../../deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
+          node --check ../../deployment/qa26/single-test-canary/launcher.mjs
+          node --check ../../deployment/qa26/execute-six-qa-test-job-admin.mjs
+          node --check ../../deployment/qa26/verify-six-qa-test-caddy-history.mjs
+          bash -n ../../deployment/qa26/arm-six-qa-test-permit-admin.sh
+          bash -n ../../deployment/qa26/stage-reviewed-six-qa-worker-admin.sh
+          node --check ../../deployment/qa26/check-six-qa-test-credential-readiness.mjs
+          bash -n ../../deployment/qa26/run-six-qa-test-window-admin.sh
+          bash -n ../../deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh
+          bash -n ../../deployment/qa26/repin-reviewed-qa-overnight-timer-admin.sh
+          node --test test/qa-single-test-canary-gate.mjs test/qa-six-test-rollout-verifier.mjs
           node --check src/runtimePoolPolicy.js
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
+          node --check src/releasePublicationCredential.js
+          node --test test/release-publication-credential.mjs
+          node --check src/releasePublicationRelay.mjs
+          node --check src/releasePublicationRelayDaemon.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
       - name: Validate generated tenant routes using QA Caddy version
         run: |
@@ -115,3 +155,4 @@ jobs:
         run: |
           npm run migrate
           node --test test/tenant-release-queue.mjs
+          node --test test/release-publication-relay.mjs
