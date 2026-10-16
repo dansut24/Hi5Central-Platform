@@ -42,7 +42,7 @@ try{
  'SELECT j.id,j.environment,j.build_sha,j.status,j.attempt_count,j.scheduled_at,',
  'j.expected_duration_minutes,t.slug,t.status AS tenant_status,',
  'p.update_mode,p.maintenance_window,p.blackout_periods,',
- 'c.status AS certification,p.canary_only,',
+ 'c.status AS certification,',
  "(SELECT count(*)::int FROM tenant_release_rollout_events e WHERE e.job_id=j.id AND e.event_type='verified' AND e.fence=j.lease_fence) AS verified_events",
  'FROM tenant_release_rollout_jobs j JOIN tenants t ON t.id=j.tenant_id',
  'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
@@ -155,7 +155,7 @@ const args=['run','--rm','--name','h5c-qa-six-test-'+slug,
  image,'--once']
 const launched=spawnSync('docker',args,{stdio:'inherit',timeout:9*60*1000})
 if(launched.error||launched.status!==0)fail('One-shot canary failed; retain watchdog and inspect audit before retry')
-const v=JSON.parse(exec('docker',['exec','hi5central-certified-release-planner','node','-e',
+const resultAudit=JSON.parse(exec('docker',['exec','hi5central-certified-release-planner','node','-e',
  String.raw`
 const{Client}=require('pg')
 ;(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
@@ -167,8 +167,8 @@ const g=(await c.query("SELECT paused FROM platform_release_rollout_control WHER
 console.log(JSON.stringify({job:j,events:e.n,permit:p?.state,paused:g?.paused}));
 await c.end()})().catch(()=>process.exit(1))
 `,entry.id]))
-if(v.job?.status!=='succeeded'||v.events!==1||v.permit!=='completed'||
-  v.paused!==true)fail('Post-execution durable verification failed')
+if(resultAudit.job?.status!=='succeeded'||resultAudit.events!==1||resultAudit.permit!=='completed'||
+  resultAudit.paused!==true)fail('Post-execution durable verification failed')
 const api=JSON.parse(exec('curl',['-fsS','--max-time','12',
  'https://'+slug+'-test.hi5central.com/api/v1/updates/version'])).sha
 const web=JSON.parse(exec('curl',['-fsS','--max-time','12',
