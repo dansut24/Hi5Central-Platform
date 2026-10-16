@@ -15,9 +15,9 @@ cd "$ROOT"
 docker exec hi5central-release-executor-test test -f   /runner/qa-single-test-canary/services/api/src/tenantReleaseExecutor.mjs
 docker inspect hi5pool-test-9f3cb1da7c27-api hi5pool-test-9f3cb1da7c27-web \
   --format '{{.State.Health.Status}}' | grep -c '^healthy$' | grep -qx 2
-# An exact, bounded permit valid ONLY 2026-10-16 14:00–14:45 Europe/London.
-# The maint-window policy, global pause and no-other-running-jobs are verified
-# again by queue and host at the moment of cutover.
+# One 45-minute permit is armed JUST IN TIME during the authorised local
+# 14:00–22:00 window. The queue and host recheck it before any route change.
+# The upper bound for starting a canary is intentionally 21:00 BST.
 cat <<'SQL' | docker exec -i hi5central-postgres sh -c \
   'psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 BEGIN;
@@ -27,6 +27,10 @@ DECLARE
   existing int;
   row_count int;
 BEGIN
+  IF now() < '2026-10-16T13:00:00Z'::timestamptz
+    OR now() >= '2026-10-16T20:00:00Z'::timestamptz THEN
+    RAISE EXCEPTION 'Canary permit may only be armed 16 October 14:00–21:00 BST';
+  END IF;
   IF NOT EXISTS(SELECT 1 FROM platform_release_rollout_control WHERE singleton AND paused) THEN
     RAISE EXCEPTION 'Global customer pause must stay enabled';
   END IF;
@@ -57,8 +61,8 @@ BEGIN
   INSERT INTO platform_release_single_test_canary_permits
     (job_id,tenant_id,build_sha,environment,tenant_slug,not_before,expires_at,approved_by)
   SELECT j.id,j.tenant_id,j.build_sha,'test',t.slug,
-    '2026-10-16T13:00:00Z'::timestamptz,
-    '2026-10-16T13:45:00Z'::timestamptz,
+    now(),
+    now()+interval '45 minutes',
     c.approved_by
   FROM tenant_release_rollout_jobs j
   JOIN tenants t ON t.id=j.tenant_id
@@ -69,6 +73,6 @@ BEGIN
 END $$;
 COMMIT;
 SQL
-echo "SINGLE_TEST_CANARY_PERMIT_ARMED_SHA=$SHA"
+echo "SINGLE_TEST_CANARY_PERMIT_ARMED_45_MIN_SHA=$SHA"
 echo "SINGLE_TEST_CANARY_JOB_ID=$JOB"
 echo "GLOBAL_ROLLOUT_REMAINS_PAUSED"
