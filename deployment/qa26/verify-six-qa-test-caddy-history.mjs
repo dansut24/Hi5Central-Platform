@@ -79,6 +79,20 @@ const adapted=JSON.parse(docker('exec','hi5central-test-gateway',
  'caddy','adapt','--config','/etc/caddy/Caddyfile','--adapter','caddyfile'))
 const active=JSON.parse(docker('exec','hi5central-test-gateway',
  'wget','-qO-','http://127.0.0.1:2019/config/'))
+// Caddy records the path from which a config was loaded in its own
+// logging encoder's hide[0]. After a reviewed route write, the host executor
+// reloads /tmp/h5c-release-executor.Caddyfile while the durable source stays
+// at /etc/caddy/Caddyfile. Only this exact provenance field may differ.
+const sourcePath='/etc/caddy/Caddyfile'
+const runtimePath='/tmp/h5c-release-executor.Caddyfile'
+const sourceHide=adapted?.apps?.http?.servers?.srv0?.routes?.[0]
+  ?.handle?.[0]?.routes?.[0]?.handle?.[2]?.hide
+const runtimeHide=active?.apps?.http?.servers?.srv0?.routes?.[0]
+  ?.handle?.[0]?.routes?.[0]?.handle?.[2]?.hide
+if(Array.isArray(sourceHide)&&Array.isArray(runtimeHide)
+  &&sourceHide.length===1&&runtimeHide.length===1
+  &&sourceHide[0]===sourcePath&&runtimeHide[0]===runtimePath)
+ runtimeHide[0]=sourcePath
 if(JSON.stringify(canonical(adapted))!==JSON.stringify(canonical(active)))
  throw Error('Active Test gateway routes differ from reviewed source')
 for(const j of state.jobs){
