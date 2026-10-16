@@ -1541,7 +1541,7 @@ export function registerRmmAgentRoutes(app) {
 
     const installCommand = persistent
       ? tenantInstallerInstallCommand(pkg.installer_format)
-      : `.\\Hi5CentralAgentSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /ENROLLMENT_TOKEN="${token}" /TENANT_ID="${auth.session.tenant_id}" /PACKAGE_ID="${pkg.id}" /INSTALL_SOURCE="rmm-portal"`
+      : `.\\Hi5CentralAgentSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /API_BASE_URL="${TENANT_INSTALLER_API_BASE}" /ENROLLMENT_TOKEN="${token}" /TENANT_ID="${auth.session.tenant_id}" /PACKAGE_ID="${pkg.id}" /INSTALL_SOURCE="rmm-portal"`
 
     return c.json({
       package: pkg,
