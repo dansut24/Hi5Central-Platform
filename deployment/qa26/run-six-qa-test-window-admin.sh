@@ -40,6 +40,12 @@ dateCheck || { echo "QA_WINDOW_BLOCKED: not inside approved local Test window";e
 exec 9>/run/lock/hi5central-qa-six-test-window.lock
 flock -n 9 || { echo "QA_WINDOW_BLOCKED: another QA window worker is active";exit 1; }
 node deployment/qa26/check-six-qa-test-credential-readiness.mjs
+# Four overnight tenants cannot proceed if the designated QA26 canaries
+# did not already finish successfully with durable fence/public evidence.
+if [[ "$window" == overnight ]];then
+ node deployment/qa26/verify-six-qa-test-rollouts.mjs --expect-canaries >/dev/null ||
+  { echo "QA_WINDOW_BLOCKED: designated Test canaries have not passed";exit 1; }
+fi
 image="hi5central-qa-six-test-worker:reviewed-${sha:0:12}"
 [[ "$(docker image inspect "$image" --format '{{index .Config.Labels "hi5central.qa.reviewed_source"}}')" == "$sha" ]] ||
  { echo "QA_WINDOW_BLOCKED: immutable QA image not staged at reviewed SHA";exit 1; }
