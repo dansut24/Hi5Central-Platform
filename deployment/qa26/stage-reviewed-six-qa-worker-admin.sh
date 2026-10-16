@@ -15,15 +15,11 @@ for target in hi5pool-test-9f3cb1da7c27-api hi5pool-test-9f3cb1da7c27-web;do
  [[ "$(docker inspect "$target" --format '{{.State.Health.Status}}')" == healthy ]] ||
  { echo "SIX_TEST_STAGE_BLOCKED: target pair unhealthy" >&2;exit 1; }
 done
-docker exec hi5central-certified-release-planner node -e '
-const{Client}=require("pg");(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
-const p=await c.query("SELECT paused FROM platform_release_rollout_control WHERE singleton=true");
-const jobs=await c.query("SELECT status,count(*)::int n,max(attempt_count)::int a FROM tenant_release_rollout_jobs WHERE build_sha=$1 AND environment=$2 GROUP BY status",
-["9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0","test"]);
-if(p.rows[0]?.paused!==true||jobs.rows.length!==1||jobs.rows[0].status!=="scheduled"
- ||jobs.rows[0].n!==6||jobs.rows[0].a!==0)throw Error("QA Test cohort changed");
-console.log("QA_SIX_STAGE_QUEUE_GUARD_PASS");await c.end()
-})().catch(()=>process.exit(1))'
+# A successful first Test tenant changes the shared Caddy source and job
+# statuses. Accept ONLY the exact durable verified release history, never a
+# blanket 'six scheduled, zero attempts' rule after the first successful job.
+node deployment/qa26/verify-six-qa-test-caddy-history.mjs
+echo "QA_SIX_STAGE_VERIFIED_ROUTE_HISTORY_PASS"
 node --check deployment/qa26/execute-six-qa-test-job-admin.mjs
 node --check deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js
 node --check deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
