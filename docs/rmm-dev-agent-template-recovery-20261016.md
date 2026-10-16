@@ -20,7 +20,7 @@ The existing *Generate one-time token* flow is independent of the tenant-specifi
 
 1. Open `https://dev-rmm.hi5central.com` → Agent deployment → **Generate one-time token**.
 2. On a **clean, non-Production-enrolled Windows x64 test device**, download the standard Windows installer from the portal's Windows download link (currently `https://downloads.hi5central.com/agent/latest/Hi5CentralAgentSetup.exe`).
-3. Copy the one-time install command from Dev RMM; **add** `/API_BASE_URL="https://dev-api.hi5central.com"` before launching it as Administrator. The API currently constructs the command with `/ENROLLMENT_TOKEN`, `/TENANT_ID`, `/PACKAGE_ID` and `/INSTALL_SOURCE`, but does **not** itself include the API-base argument.
+3. Copy the one-time install command from Dev RMM; **add** `/API_BASE_URL="https://dev-api.hi5central.com"` before launching it as Administrator. The currently deployed Dev API may return a command with `/ENROLLMENT_TOKEN`, `/TENANT_ID`, `/PACKAGE_ID` and `/INSTALL_SOURCE` but **without** an API-base argument. This PR adds the correct `/API_BASE_URL` automatically for subsequent API builds; until that code is deployed, add the argument manually.
 4. Never paste the enrollment token into GitHub, logs or chat. A one-time token normally expires after 60 minutes and can be used once; verify the actual record's expiry/use count.
 5. Verify the device appears in **Dev RMM only**, reports online, and sends device inventory/telemetry. Check the Windows service `Hi5CentralAgent` and local log `C:\ProgramData\Hi5Central\Agent\Logs\agent.log` if necessary.
 
