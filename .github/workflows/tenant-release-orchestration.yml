@@ -44,6 +44,7 @@ on:
       - 'deployment/qa26/Dockerfile.single-test-canary'
       - 'deployment/qa26/verify-six-qa-test-rollouts.mjs'
       - 'deployment/qa26/execute-six-qa-test-job-admin.mjs'
+      - 'deployment/qa26/verify-six-qa-test-caddy-history.mjs'
       - 'deployment/qa26/arm-six-qa-test-permit-admin.sh'
       - 'deployment/qa26/stage-reviewed-six-qa-worker-admin.sh'
       - 'deployment/qa26/check-six-qa-test-credential-readiness.mjs'
@@ -82,6 +83,7 @@ jobs:
           node --check ../../deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
           node --check ../../deployment/qa26/single-test-canary/launcher.mjs
           node --check ../../deployment/qa26/execute-six-qa-test-job-admin.mjs
+          node --check ../../deployment/qa26/verify-six-qa-test-caddy-history.mjs
           bash -n ../../deployment/qa26/arm-six-qa-test-permit-admin.sh
           bash -n ../../deployment/qa26/stage-reviewed-six-qa-worker-admin.sh
           node --check ../../deployment/qa26/check-six-qa-test-credential-readiness.mjs
