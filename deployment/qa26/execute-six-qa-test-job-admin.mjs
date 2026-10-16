@@ -175,10 +175,18 @@ try{
  if(!st.isFile()||st.mode&0o077||st.uid!==0||dir.mode&0o077||
    dir.uid!==0)fail('Restricted host credential is not safe')
 }catch{fail('Restricted host credential is missing or invalid')}
-const original=exec('docker',['exec','hi5central-test-gateway',
-  'sha256sum','/etc/caddy/Caddyfile']).split(/\s+/)[0]
-if(original!=='a9bd98d8eab259ad9be31f269b1ebff212e0673dbef9187a06df7c16fca1ae50')
- fail('Test gateway source fingerprint changed since QA approval')
+// Shared Test gateway must evolve as earlier tenants are SUCCESSFULLY
+// committed. Reconstruct exact expected Caddy source from the pinned first
+// backup plus every fenced verified job; verify runtime and public versions.
+// The old initial-Caddy SHA guard would reject tenant 2 after tenant 1 passed.
+try{
+ const attested=JSON.parse(exec('node',[
+   'deployment/qa26/verify-six-qa-test-caddy-history.mjs'],45000))
+ if(attested.status!=='QA_SIX_TEST_GATEWAY_HISTORY_VERIFIED'
+   ||attested.globalPaused!==true||attested.activeSourceMatch!==true
+   ||attested.publicApiWebMatch!==true)
+   fail('Gateway release history attestation did not pass')
+}catch(e){fail('Test gateway source/runtime differs from durable successful release history')}
 // Final execution is one ephemeral image, one exact permit, one certified job.
 const args=['run','--rm','--name','h5c-qa-six-test-'+slug,
  '--network','hi5central','--read-only','--cap-drop','ALL',
