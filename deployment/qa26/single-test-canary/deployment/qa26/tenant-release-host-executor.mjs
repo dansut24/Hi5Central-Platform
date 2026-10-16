@@ -236,8 +236,13 @@ async function restore(original,liveJson){
 // The same gateway session lock remains held by the caller.
 // The worker invokes --confirm only after its durable verified job commit.
 if(mode==='--confirm'){
+  const expectedSuffix='-'+host.replaceAll('.','-')
   if(process.env.H5C_RELEASE_JOB_ID!==CANARY_JOB
-    ||!new RegExp('^release-test-[0-9]{12,16}-'+host.replaceAll('.','-')+'
+    ||typeof restoreKey!=='string'
+    ||!restoreKey.startsWith('release-test-')
+    ||!restoreKey.endsWith(expectedSuffix)
+    ||!/^release-test-[0-9]{12,16}-[a-z0-9-]+$/.test(restoreKey))
+    throw Error('Confirm requires pinned job and exact backup identity.')
   const permitted=await canarySqlQuery(`SELECT CASE WHEN
     (SELECT paused FROM platform_release_rollout_control WHERE singleton=true)
     AND EXISTS(
