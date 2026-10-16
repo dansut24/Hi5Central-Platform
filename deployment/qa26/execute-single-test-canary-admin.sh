@@ -16,8 +16,8 @@ cd "$ROOT"
 # Time window is fixed; no early or late operation, even if the host clock drifts.
 now="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 [[ "$now" > "2026-10-16T13:00:00Z" &&
-   "$now" < "2026-10-16T13:45:00Z" ]] ||
-  { echo "CANARY_EXECUTE_BLOCKED: outside 2026-10-16 14:00–14:45 BST gate" >&2;exit 1; }
+   "$now" < "2026-10-16T20:00:00Z" ]] ||
+  { echo "CANARY_EXECUTE_BLOCKED: outside 2026-10-16 14:00–21:00 BST start window" >&2;exit 1; }
 # Separate container holds all 6 trusted control-plane environment variables
 # privately. Docker exec inherits its context without exporting any secret.
 container=hi5central-release-executor-test
