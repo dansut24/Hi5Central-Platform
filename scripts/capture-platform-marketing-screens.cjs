@@ -46,8 +46,10 @@ function syntheticReply(url) {
  return {items:[],devices:[],sites:[],records:[],tickets:[],total:0,data:{}}
 }
 async function mockApi(page) {
+ let seen=0
  await page.route('**/api/**', async route=>{
   const response=syntheticReply(route.request().url())
+  if(seen++ < 24) console.log('Mocked API (specific): '+route.request().url().slice(0,170))
   await route.fulfill({status:200,contentType:'application/json',headers:{'Access-Control-Allow-Origin':'*'},body:JSON.stringify(response)})
  })
  // Prevent unexpected third-party requests and data leaking from CI browser.
@@ -57,7 +59,10 @@ async function mockApi(page) {
      url.startsWith('http://showcase-rmm.hi5central.com:4174/')||
      url.startsWith('data:')||url.startsWith('blob:')) return route.continue()
   // API was previously handled by first-registered route above.
-  if(url.includes('/api/'))return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(syntheticReply(url))})
+  if(url.includes('/api/')){
+    if(seen++ < 24) console.log('Mocked API (catch-all): '+url.slice(0,170))
+    return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(syntheticReply(url))})
+  }
   return route.abort('blockedbyclient')
  })
 }
@@ -70,14 +75,16 @@ async function mockApi(page) {
   ]){
     const page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1,colorScheme:'light'})
     page.on('pageerror',e=>console.log('Platform '+entry.name+' JS notice: '+String(e.message).slice(0,180)))
+    page.on('console',m=>{if(m.type()==='error')console.log('Platform '+entry.name+' console error: '+m.text().slice(0,280))})
+    page.on('requestfailed',req=>console.log('Platform '+entry.name+' failed request: '+req.url().slice(0,170)))
     await mockApi(page)
     await page.goto(entry.url,{waitUntil:'domcontentloaded',timeout:40000})
     await page.waitForTimeout(5500)
     const text=await page.locator('body').innerText()
     console.log(entry.name+' sample visible UI: '+text.slice(0,400).replace(/\s+/g,' '))
+    await page.screenshot({path:path.join(out,'platform-'+entry.name+'-sample.png'),fullPage:false,animations:'disabled'})
     assert.match(text,entry.marker,entry.name+' must render real Platform interface, not a blank or login screen')
     assert(!/Could not restore this session|Sign in again|Welcome back to|Tenant unavailable/i.test(text.slice(0,500)),entry.name+' UI is not an authenticated demo surface')
-    await page.screenshot({path:path.join(out,'platform-'+entry.name+'-sample.png'),fullPage:false,animations:'disabled'})
     console.log('PASS: captured genuine '+entry.name+' Platform UI with exclusively synthetic sample data')
     await page.close()
   }
