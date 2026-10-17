@@ -5,8 +5,10 @@
  * Never infer least privilege from a container user, image tag or env var:
  * verify the actual authenticated PostgreSQL identity and effective ACLs.
  */
-export async function assertRestrictedGenericDatabaseIdentity(db,{kind}={}){
- if(!['planner','executor'].includes(kind))
+export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=null}={}){
+ const expectedRole=kind==='planner'?'hi5_release_generic_planner':
+   ['test','uat','live'].includes(stage)?'hi5_release_generic_exec_'+stage:null
+ if(!['planner','executor'].includes(kind)||!expectedRole)
    throw Error('Invalid generic release database identity check.')
  const result=await db.query([
    'SELECT current_user::text AS effective_role,',
@@ -19,7 +21,7 @@ export async function assertRestrictedGenericDatabaseIdentity(db,{kind}={}){
    'FROM pg_roles r WHERE r.rolname=current_user',
  ].join(' '))
  const r=result.rows[0]
- if(!r||r.effective_role!==r.login_role||!r.rolcanlogin||
+ if(!r||r.effective_role!==expectedRole||r.login_role!==expectedRole||!r.rolcanlogin||
    r.rolsuper||r.rolcreatedb||r.rolcreaterole||r.rolbypassrls||
    r.can_unpause)
    throw Error('Generic release database credential is not a dedicated restricted login.')
