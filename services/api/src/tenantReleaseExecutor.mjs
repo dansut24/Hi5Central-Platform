@@ -411,7 +411,8 @@ try{
       "to_regclass('public.tenant_release_rollout_jobs') IS NOT NULL AS queue",
     ].join(' '))
     if(Object.values(r.rows[0]).some(x=>x!==true))throw Error('Executor schema incomplete.')
-    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,'qaTenants='+qaTenantSlugs.length)
+    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,
+      'scope='+workerScope,'qaTenants='+(qaTenantSlugs?.length||0))
   }else{
     do{
       try{await step()}catch(e){
