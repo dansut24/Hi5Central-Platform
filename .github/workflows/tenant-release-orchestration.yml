@@ -181,6 +181,13 @@ jobs:
       - name: Isolated Postgres migration and transaction tests
         run: |
           npm run migrate
+          # Generic worker may only enter even preflight with explicit reviewed
+          # mode. No host route, job claim, lease, pause or gateway write.
+          if RELEASE_WORKER_SCOPE=generic RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight > /dev/null 2>&1; then
+            echo 'Generic worker incorrectly accepted missing execution acknowledgement'
+            exit 1
+          fi
+          RELEASE_WORKER_SCOPE=generic RELEASE_GENERIC_WORKER_ACK=reviewed-stage-approval-only RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
           node --test test/generic-release-failure-recovery.mjs
