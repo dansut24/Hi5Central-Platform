@@ -288,3 +288,72 @@ The change has **not yet been merged or deployed to Live**.
 Gateway runtime drift, exact QA URL access isolation, worker least-privilege
 credentials and independent host rollback proof remain separate blockers.
 The weekend setting does not bypass them or justify lifting the pause.
+
+## 17 October 2026 evening — actual gateway provenance, IPC and shadow rollback
+
+**The existing Caddy runtime is the user-approved baseline.** It was
+independently compared against the last verified operator source
+`/tmp/staff-verified-upgrade-1792092421202.Caddyfile` on the running
+gateway. All **11/11 original HTTPS host matcher routes match exactly**,
+including current Admin and API upstreams, wildcard tenant routing and
+RMM/auth routes. The **one extra active route** is
+`marketing-preview.hi5central.com`, independently verified as an isolated
+PR83 preview with a forced signup redirect, blocked /api, /auth and /admin
+paths, `noindex` metadata and its known isolated upstream. The stricter
+pure-source verifier and five negative regressions now run in CI:
+`services/api/src/releaseGatewayProvenance.js` and
+`services/api/test/release-gateway-provenance.mjs`.
+
+A private VPS-only Docker volume
+`h5c_release79_live_caddy_20261017` retains **four original bytes-exact
+snapshots**: `active-runtime.json`, `verified-source.Caddyfile`,
+`mounted-source.Caddyfile`, `host-source.Caddyfile`; all four saved
+with restricted `0600` modes. The active JSON has a recorded SHA-256
+`a5ec8e60a513c5d5335002f260f4422903512cbf13e9f0a2efa35b85c79331d7`.
+An isolated `deployment-web` image performed a **real** offline
+`caddy validate --config /backup/active-runtime.json` and returned
+`Valid configuration`. The actual shared gateway was NOT reloaded or
+restarted, and host and mounted Caddyfile sources still differ. Recovery
+snapshot success is not source reconciliation.
+
+The protected trusted host Unix adapter lock was corrected: a
+`pool_health` request no longer deletes another running gateway action
+lock. The exact-image adapter was built on the VPS and started inside a
+short-lived networkless container with **no Docker socket**; the non-root
+generic release executor connected over the group `10002`, mode `0660`
+socket and got a positive protocol response with a deliberately
+`healthy=false` host pool result, as expected without Docker authority.
+All smoke-test resources were removed. This validates private IPC and
+fail-closed no-Docker mode; it is NOT a live installed adapter.
+
+A separate real Docker/Caddy **shadow cutover and predecessor restoration**
+was completed on an isolated Docker network on the VPS using two labelled
+QA tenant Host headers:
+`OLD_SHA / OLD_SHA` → `NEW_SHA / OLD_SHA` →
+`OLD_SHA / OLD_SHA`. Thus a single tenant can be upgraded and reverted
+without switching the neighbour's route. All shadow containers, volumes and
+networks were deleted. Its reproducible test script
+`deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs`
+now runs in GitHub CI. This is NOT a production tenant rollback.
+
+The disposable ten-tenant PostgreSQL customer rollback acceptance was
+expanded to simulate a full trusted-host success **inside a rolled-back
+CI transaction**: move the exact held tenant to its reviewed predecessor
+pool and newer route generation, atomically update attestation and event,
+preserve its upgrade hold, confirm all nine other tenant Live assignments
+unchanged, and prove a verified terminal request cannot be downgraded.
+The new tests pass the isolated PostgreSQL migration/transaction workflow.
+Host proof in this database test is deliberately synthetic; this does
+NOT connect the trusted host adapter to the customer rollback state machine.
+
+**Release activation remains NO-GO.** The live release pause stays enabled,
+generic stage-scoped PostgreSQL LOGIN/RLS grants have not been provisioned,
+the running old QA workers still mount Docker sockets, the trusted
+adapter is not installed with Docker authority, and PR #79 is a draft.
+Caddy persisted source and mounted bind inode still differ from live JSON;
+Live tenant same-origin version API and forbidden Managed UAT/non-entitled
+RMM aliases still require their independently reviewed gateway fix.
+Full customer Live cutover with real host proof and crash recovery remains
+unproven; do not activate or claim an overnight ten-tenant customer update.
+Protected reviewed code/host deployment and database least-privilege
+acceptance are required before the emergency pause may be lifted.
