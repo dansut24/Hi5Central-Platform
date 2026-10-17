@@ -4,6 +4,7 @@ on:
     paths:
       - "apps/itsm/src/features/marketing/**"
       - "scripts/verify-marketing-home.mjs"
+      - "scripts/test-marketing-browser.cjs"
       - ".github/workflows/marketing-homepage.yml"
   workflow_dispatch:
 permissions:
