@@ -10,6 +10,7 @@
  */
 import {createHash} from 'node:crypto'
 import {execFileSync} from 'node:child_process'
+import {verifyLiveGatewayRuntimeProvenance} from '../../services/api/src/releaseGatewayProvenance.js'
 const docker=(...a)=>execFileSync('docker',a,{encoding:'utf8',maxBuffer:5000000,timeout:30000})
 const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'
  ?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v
@@ -30,30 +31,15 @@ try{
   '--config',adapterPath,'--adapter','caddyfile'))
  const active=JSON.parse(docker('exec','hi5central-web','wget','-q','-O','-',
   'http://127.0.0.1:2019/config/'))
- const routes=o=>o?.apps?.http?.servers?.srv0?.routes
- const from=routes(provenance),current=routes(active)
- if(!Array.isArray(from)||!Array.isArray(current)||from.length<8)
-  throw Error('Missing or unexpected HTTPS route table.')
- const sourceBy=new Map(from.map(x=>[key(x),x]))
- const activeBy=new Map(current.map(x=>[key(x),x]))
- if(sourceBy.size!==from.length||activeBy.size!==current.length)
-  throw Error('Duplicate or ambiguous Caddy host matchers.')
- const changed=from.filter(x=>!activeBy.has(key(x))||sha(x)!==sha(activeBy.get(key(x))))
- const unknown=current.filter(x=>!sourceBy.has(key(x)))
- const preview=activeBy.get(expectedPreview)
- if(changed.length)report.blockers.push('Last verified gateway route semantics changed.')
- if(unknown.length!==1||key(unknown[0])!==expectedPreview)
-  report.blockers.push('Unknown active routes beyond the reviewed marketing preview.')
- if(!preview||!JSON.stringify(preview).includes('hi5central-marketing-pr83-preview-real:80')
-  ||!JSON.stringify(preview).includes('X-Robots-Tag'))
-  report.blockers.push('Isolated preview upstream or robots protection missing.')
+ const proof=verifyLiveGatewayRuntimeProvenance({lastVerified:provenance,active})
+ if(!proof.verified)report.blockers.push(proof.reason)
  report={...report,verified:report.blockers.length===0,
   sources:{hostSha256:sha(host),mountedSha256:sha(mounted),
     lastVerifiedSourceSha256:sha(source),activeJsonSha256:sha(active)},
-  compared:{preservedExistingHostRules:from.length,
-    exactHostRuleMatches:from.length-changed.length,
-    onlyAdditionalActiveHost:unknown.length===1?key(unknown[0]):null,
-    activeRouteCount:current.length},
+  compared:{preservedExistingHostRules:proof.verifiedExistingRoutes,
+    exactHostRuleMatches:proof.verifiedExistingRoutes,
+    onlyAdditionalActiveHost:proof.previewPreserved?'marketing-preview.hi5central.com':null,
+    activeRouteCount:proof.activeRoutes},
   stillRequires:{sourceReconciliation:sha(host)!==sha(mounted)||sha(mounted)!==sha(source),
     liveApiSameOriginChecks:true,managedUatAndNonEntitledRmmHostBoundaries:true,
     independentlyReviewedHostExecutor:true}}
