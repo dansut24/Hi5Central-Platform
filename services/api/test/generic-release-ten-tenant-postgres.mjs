@@ -137,7 +137,7 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    "SELECT count(*)::int n FROM tenant_release_rollout_events WHERE build_sha=$1 AND event_type='scheduled'",
    [sha])).rows[0].n,previous+10)
   assert.equal((await pool.query([
-   'SELECT count(*)::int n FROM tenant_release_rollout_jobs j'
+   'SELECT count(*)::int n FROM tenant_release_rollout_jobs j',
    'JOIN tenant_settings s ON s.tenant_id=j.tenant_id',
    "WHERE j.build_sha=$1 AND j.environment='test'",
    "AND COALESCE((s.modules->>'rmm')::boolean,false)=true",
