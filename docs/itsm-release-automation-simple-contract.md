@@ -200,3 +200,56 @@ host action with fence/watchdog verification; onboarding and acceptance of
 ten real QA tenants; protected PR review/merge and versioned deployment.
 Only then consider lifting the global rollout pause. Do not bypass a
 security-blocked host change via alternate editing channels.
+
+## QA27 genuine-ten-tenant cohort — 17 October 2026, after verified customer signup
+
+Four **real normally registered** tenants were verified in the live database.
+Three slugs differ from the original proposed slug labels; do not rename,
+recreate or infer a URL:
+
+| Exact live tenant slug | Mode | Live products | Normal onboarding |
+| --- | --- | --- | --- |
+| `h5c-managed-rmm-qa27` | Managed | ITSM + RMM | Complete, verified owner |
+| `qa27-custom-rmm-qa27` | Custom | ITSM + RMM | Complete, verified owner |
+| `qa27-managed-itsm-qa27` | Managed | ITSM | Complete, verified owner |
+| `qa27-custom-itsm-qa27` | Custom | ITSM | Complete, verified owner |
+
+Together with six existing QA26 ITSM tenants, this is **exactly ten
+active, fully-onboarded QA tenants: five Managed, five Custom, two with
+Live RMM entitlement**. The prior 10-tenant read-only audit
+`deployment/qa26/qa27-ten-tenant-readiness.mjs` now has the actual exact
+slugs. It reported `created=10`, `accepted=10`,
+`readyToConsiderPilotAdmission=true`. This is tenant metadata readiness,
+**not** a successful release, rollback or gateway-boundary audit.
+
+The four genuine QA27 signups had empty maintenance day lists even though
+their signup-defined 02:00–05:00 Europe/London time range was present.
+The reviewed, bounded, audit-logging operator
+`deployment/qa26/qa27-verified-tenant-preferences.mjs` passed a dry run,
+then corrected those four preference rows to seven QA maintenance days,
+retaining the exact 02:00–05:00 range, default Test auto-sync and existing
+Managed/Custom mode. It enabled Custom UAT auto-staging and disabled
+Managed UAT auto-staging. No upgrade or gateway writes occurred.
+
+An additional QA27-only sandbox consistency discrepancy was discovered:
+both Live-RMM tenant identities had RMM-enabled metadata copied into their
+Test and UAT **ITSM sandboxes**, contradicting the separate single-Live
+RMM contract. Two bounded, rollback-only sandbox SQL rehearsals passed;
+then one restricted transaction per isolated Test/UAT database corrected
+**exactly the two RMM-enabled QA27 tenant projections** (four sandbox rows):
+RMM module flag false, RMM URL null, remove RMM key from safe onboarding and
+configuration projections. Durable Live platform audit entries were recorded
+after both commits. Verified that both real Live tenants **still have RMM
+true**, while each Test/UAT projection has RMM false with no RMM URL/key.
+No RMM devices, user identities or Live configuration were modified.
+
+**Outstanding and distinct from the passing 10-tenant metadata checks:**
+the shared Caddy wildcard currently serves an RMM HTML frontend at some
+non-entitled tenant RMM aliases, and a Managed UAT HTML frontend despite the
+Managed no-UAT contract. This is an *unacceptable public routing result*
+but not by itself proof of a tenant-data authorisation bypass. All new Live
+ITSM hosts still return HTML rather than a JSON SHA from the same-origin
+API-version probe. Correct actual host routing without dropping the current
+Caddy runtime-only marketing-preview route or existing RMM/Admin/auth
+routes before tenant release acceptance. The global release pause remains
+on; 10/10 metadata readiness never automatically approves execution.
