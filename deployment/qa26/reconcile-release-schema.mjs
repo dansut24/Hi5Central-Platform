@@ -14,7 +14,7 @@
  */
 import {readFileSync} from 'node:fs'
 import {resolve,join} from 'node:path'
-import {spawn} from 'node:child_process'
+import {spawn,execFileSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
 
 const root=resolve(fileURLToPath(new URL('../..',import.meta.url)))
@@ -30,6 +30,23 @@ if(live&&mode==='--apply'){
   throw Error('Live reconciliation requires explicit backup and pause authorisation.')
  if(!/^[a-z0-9][a-z0-9-]{8,90}$/.test(process.env.H5C_RECONCILE_BACKUP_ID||''))
   throw Error('Live reconciliation requires a verified off-database backup identifier.')
+ const backupId=process.env.H5C_RECONCILE_BACKUP_ID
+ const archive=backupId+'.dump'
+ const mount='type=volume,source=h5c_release_79_pre_reconcile_backup,target=/backup,readonly'
+ const expectedHash=process.env.H5C_RECONCILE_BACKUP_SHA256
+ if(!/^[a-f0-9]{64}$/.test(String(expectedHash||'')))
+  throw Error('Live reconciliation requires the independently recorded SHA-256 of the database backup.')
+ const actualHash=execFileSync('docker',[
+  'run','--rm','--network','none','--mount',mount,
+  'busybox:1.36','sha256sum','/backup/'+archive,
+ ],{encoding:'utf8',timeout:25000}).split(/\s+/)[0]
+ if(actualHash!==expectedHash)throw Error('Archived database backup SHA-256 changed.')
+ execFileSync('docker',[
+  'run','--rm','--network','none','--mount',mount,
+  'postgres:17-alpine','sh','-c',
+  'pg_restore --list /backup/'+archive+' >/dev/null',
+ ],{encoding:'utf8',timeout:25000})
+
 }
 if(!live&&mode==='--apply')
  throw Error('Disposable databases are dry-run only; apply is reserved for reviewed Live.')
