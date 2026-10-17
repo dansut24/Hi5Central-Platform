@@ -31,3 +31,28 @@ jobs:
           grep -R -l "Example interface" apps/itsm/dist/assets/*.js >/dev/null
           grep -R -l "h5m-hero" apps/itsm/dist/assets/*.css >/dev/null
           echo 'PASS: premium marketing homepage included in compiled bundle.'
+      - name: Install isolated Chromium browser test tooling
+        run: |
+          npm install --prefix /tmp/hi5-marketing-browser --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          /tmp/hi5-marketing-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Desktop, mobile, capability tabs and unchanged signup browser QA
+        env:
+          NODE_PATH: /tmp/hi5-marketing-browser/node_modules
+        run: |
+          __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=hi5central.com \
+            npm run preview --prefix apps/itsm -- --host 0.0.0.0 --port 4173 > /tmp/hi5-marketing-preview.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -sf -H 'Host: hi5central.com' http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/test-marketing-browser.cjs
+      - name: Save desktop and mobile visual review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hi5central-premium-marketing-screens
+          path: /tmp/hi5-marketing-screens/
+          if-no-files-found: ignore
+
