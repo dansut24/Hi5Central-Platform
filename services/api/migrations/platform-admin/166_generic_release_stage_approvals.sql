@@ -43,3 +43,29 @@ CREATE INDEX IF NOT EXISTS generic_release_approval_audit_recent
 
 -- No APPROVAL rows are seeded by this migration. All generic scheduling and
 -- execution remain denied until separate authorised administrator action.
+
+-- Mandatory DB-side audit: even a direct authorised change to the approval
+-- row must leave an immutable before/after record. No customer routes touched.
+CREATE OR REPLACE FUNCTION audit_generic_release_stage_authorisation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP='DELETE' THEN
+    INSERT INTO platform_release_generic_approval_audit
+      (build_sha,environment,actor_id,action,previous_state,next_state)
+    VALUES (OLD.build_sha,OLD.environment,OLD.approved_by,'revoked',
+      to_jsonb(OLD),'{}'::jsonb);
+    RETURN OLD;
+  END IF;
+  INSERT INTO platform_release_generic_approval_audit
+    (build_sha,environment,actor_id,action,previous_state,next_state)
+  VALUES (NEW.build_sha,NEW.environment,NEW.approved_by,
+    CASE WHEN NEW.planning_enabled OR NEW.execution_enabled
+         THEN 'approved' ELSE 'revoked' END,
+    CASE WHEN TG_OP='INSERT' THEN '{}'::jsonb ELSE to_jsonb(OLD) END,
+    to_jsonb(NEW));
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE TRIGGER generic_release_stage_approval_audit
+AFTER INSERT OR UPDATE OR DELETE ON platform_release_generic_stage_approvals
+FOR EACH ROW EXECUTE FUNCTION audit_generic_release_stage_authorisation();
