@@ -144,7 +144,7 @@ function CapabilityExplorer() {
           onKeyDown={event => {
             if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return
             event.preventDefault()
-            const index = CAPABILITIES.findIndex(capability => capability.id === active)
+            const index = CAPABILITIES.findIndex(capability => capability.id === item.id)
             const next = event.key === 'Home' ? 0 : event.key === 'End' ? CAPABILITIES.length - 1 :
               (index + (event.key === 'ArrowRight' ? 1 : -1) + CAPABILITIES.length) % CAPABILITIES.length
             setActive(CAPABILITIES[next].id)
