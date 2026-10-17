@@ -214,6 +214,54 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    assert.equal(schedule.status,'scheduled')
    assert(new Date(schedule.scheduledAt)>=new Date(liveOffer.maintenance_not_before))
   }
+  // A new tenant arriving AFTER release certification must be discovered on
+  // the next planner scan, but not before its standard onboarding completes.
+  // RMM-only tenants must not receive ITSM release jobs.
+  async function lateTenant(label,modules,completedOnboarding){
+   const slug='ten-ci-'+suffix+'-'+label
+   const row=(await pool.query(
+    "INSERT INTO tenants(slug,company_name,status) VALUES($1,$2,'active') RETURNING id",
+    [slug,'Late CI tenant '+label])).rows[0]
+   await pool.query([
+    'INSERT INTO tenant_settings(tenant_id,modules,onboarding_step,',
+    'onboarding_completed_at,onboarding_data,configuration,tenant_url,portal_url,rmm_url)',
+    'VALUES($1,$2::jsonb,$3,$4,$5::jsonb,$5::jsonb,$6,$7,$8)',
+   ].join(' '),[row.id,JSON.stringify(modules),
+    completedOnboarding?'complete':'company',
+    completedOnboarding?now:null,
+    JSON.stringify({company:{displayName:'Late CI '+label}}),
+    'https://'+slug+'.example.invalid',
+    'https://'+slug+'.example.invalid/portal',
+    modules.rmm?'https://'+slug+'-rmm.example.invalid':null])
+   await pool.query([
+    'UPDATE tenant_release_preferences SET update_mode=$2,',
+    'test_auto_sync=true,uat_auto_stage=true,live_auto_promote=false,',
+    'maintenance_window=$3::jsonb WHERE tenant_id=$1',
+   ].join(' '),[row.id,'admin_controlled',JSON.stringify({
+    timezone:'Europe/London',start:'01:00',end:'05:00',days})])
+   return row
+  }
+  const late=await lateTenant('late-itsm',{itsm:true,rmm:false},false)
+  const rmmOnly=await lateTenant('rmm-only',{itsm:false,rmm:true},true)
+  const incomplete=await transaction(c=>fanoutCertifiedRelease(c,request))
+  assert.equal(incomplete.queued,0,
+   'Incomplete onboarding and RMM-only subscription must not receive ITSM jobs')
+  await pool.query(
+   'UPDATE tenant_settings SET onboarding_step=$2,onboarding_completed_at=now() WHERE tenant_id=$1',
+   [late.id,'complete'])
+  const afterOnboarding=await transaction(c=>fanoutCertifiedRelease(c,request))
+  assert.equal(afterOnboarding.queued,1,
+   'New fully onboarded ITSM tenant must be discovered by existing release')
+  assert.equal(await countJobs('test'),previous+11)
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2",
+   [late.id,sha])).rows[0].n,1)
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2",
+   [rmmOnly.id,sha])).rows[0].n,0)
+  assert.equal((await transaction(c=>fanoutCertifiedRelease(c,request))).queued,0,
+   'Repeat post-onboarding scan must not duplicate tenant jobs')
+
   const approvals=(await pool.query(
    'SELECT environment,planning_enabled,execution_enabled FROM platform_release_generic_stage_approvals WHERE build_sha=$1',
    [sha])).rows
@@ -226,6 +274,6 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    synthetic:true,managed:5,custom:5,rmmEntitled:2,
    testJobs:10,customUatJobs:5,managedLiveJobs:5,unapprovedCustomLiveJobs:0,
    canaryProofs:2,maintenanceTimezones:zones.length,globalPaused:true,
-   executionApprovals:0,noHostActions:true}))
+   executionApprovals:0,lateOnboardedItSMJobs:1,rmmOnlyItSMJobs:0,noHostActions:true}))
  }finally{await pool.end()}
 })
