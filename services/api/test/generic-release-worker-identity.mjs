@@ -43,10 +43,10 @@ test('generic planner/executor fail closed on superuser and accept only separate
   assert.equal(w.canDirectlyUnpause,false)
   await assert.rejects(
    assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'executor',stage:'uat'}),
-   /requires the reviewed, audited pause-only permission/)
+   /dedicated restricted login/)
   await assert.rejects(
    assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'planner'}),
-   /planner must never hold emergency execution permissions/)
+   /dedicated restricted login/)
   await assert.rejects(
    workerDb.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true'),
    /permission denied/i)
