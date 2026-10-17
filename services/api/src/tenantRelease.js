@@ -8,6 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
+import {readCustomerRollback,requestCustomerRollback} from './customerReleaseRollback.js'
 import { itsmEnvironmentsForMode, releaseModeDefaults } from './tenantEnvironmentPolicy.js'
 
 function object(value) {
@@ -131,6 +132,50 @@ export async function tenantReleaseState(tenantId, slug = '') {
 }
 
 export function registerTenantReleaseRoutes(app) {
+  // Tenant-scoped status ONLY; never expose or permit another tenant's route,
+  // rollback build, approval, audit data, or Docker access.
+  app.get('/api/v1/release-management/rollback',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Customer Production rollbacks are only requested from Live.'},403)
+    try{
+      const state=await readCustomerRollback({
+        db:pool,tenantId:auth.session.tenant_id})
+      return c.json({...state,hostExecutionAvailable:false,
+        note:'Rollback requests are held for independently approved trusted-host execution; a request is not a completed rollback.'})
+    }catch(error){
+      return c.json({error:'Customer rollback control plane is not ready; no host changes were made.'},503)
+    }
+  })
+  app.post('/api/v1/release-management/rollback',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Rollbacks must be requested from the customer Production workspace.'},403)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const result=await withTransaction(db=>requestCustomerRollback({
+        db,tenantId:auth.session.tenant_id,userId:auth.session.user_id,
+        expectedCurrentSha:body?.expectedCurrentSha,
+        targetBuildSha:body?.targetBuildSha,
+        confirmed:body?.confirm===true,reason:body?.reason,
+      }))
+      await recordSecurityEvent({
+        tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+        sessionId:auth.session.session_id||null,
+        eventType:'release.customer_rollback_requested',
+        ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+        metadata:{requestId:result.id,sourceSha:result.source_build_sha,
+          targetSha:result.target_build_sha,upgradeHold:true},
+      })
+      return c.json({request:result,
+        message:'Rollback request accepted. Future automatic Production upgrades are held for this tenant. Production has NOT been rolled back yet.'},202)
+    }catch(error){
+      return c.json({error:error.message||'Rollback request was refused; no host action taken.'},
+        Number.isInteger(error.status)?error.status:409)
+    }
+  })
   // Inform customer owners of their installed runtime assignment and
   // pending version offers; this route cannot select or activate a pool.
   app.get('/api/v1/release-management/runtime-updates',async c=>{

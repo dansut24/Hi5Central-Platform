@@ -84,7 +84,7 @@ export async function activateNextPendingRollout(db,{tenantId,environment}){
  * live window, tenant scope, and host proof must be rechecked before a route
  * switch. Default global pause protects environments until full E2E tests pass.
  */
-export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null}={}){
+export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null,genericTenantScope=false}={}){
   const at=goodDate(now)
   if(!at||(environment!==null&&!ENV.has(environment))||!Number.isInteger(limit)||limit<1||limit>50
     ||!Number.isInteger(leaseSeconds)||leaseSeconds<30||leaseSeconds>600)
@@ -97,22 +97,37 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
   // the host cutover; this xact lock only protects fair dequeue decisions.
   await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
   const control=await db.query(
-    'SELECT paused,reason FROM platform_release_rollout_control WHERE singleton=true FOR SHARE')
+    // The global pause flag is read without a row lock: PostgreSQL
+    // SELECT ... FOR SHARE requires UPDATE privilege, which a future narrowly
+    // scoped release worker must NOT receive on the global control table.
+    // Exact execution approval is required by the job-claim join, and the
+    // host independently verifies the pause and fenced lease before routing.
+    'SELECT paused,reason FROM platform_release_rollout_control WHERE singleton=true')
   if(control.rows[0]?.paused!==false)
     return {claimed:[],paused:true,reason:control.rows[0]?.reason||'No explicit rollout enablement.'}
   const queued=await db.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,j.scheduled_at,j.attempt_count,j.max_attempts,',
     'j.expected_duration_minutes,p.maintenance_window,p.blackout_periods,',
-    't.status AS tenant_status,p.update_mode',
+    't.status AS tenant_status,p.update_mode,p.test_auto_sync,',
+    'p.uat_auto_stage,p.live_auto_promote',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
     "JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha AND c.status='approved'",
     'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
+    // No generic worker can claim a pending release merely because somebody
+    // unpaused the fleet. Each SHA+stage must have an unexpired explicit
+    // execution approval, separate from the scheduling grant.
+    "JOIN platform_release_generic_stage_approvals a ON a.build_sha=j.build_sha",
+    'AND a.environment=j.environment AND a.planning_enabled=true',
+    'AND a.execution_enabled=true AND a.approved_by IS NOT NULL',
+    'AND a.approved_at<=now() AND a.expires_at>now()',
+    "AND a.evidence<>'{}'::jsonb",
     "WHERE ((j.status IN ('scheduled','deferred') AND j.scheduled_at<=$1)",
     "OR (j.status='running' AND j.lease_expires_at<=$1))",
     'AND j.attempt_count<j.max_attempts',
     'AND ($3::text IS NULL OR j.environment=$3)',
     'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
+    ...(genericTenantScope?["AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true"]:[]),
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
   ].join(' '),[at,limit,environment,qaTenantSlugs])
@@ -128,9 +143,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
       continue
     // Window and tenant entitlement must be rechecked after dequeuing.
     // No automatic host action occurs in this function.
-    const allowedEnvironment=(row.environment==='uat'&&row.update_mode==='admin_controlled')
-      ||(row.environment==='test')
-      ||(row.environment==='live')
+    const allowedEnvironment=(row.environment==='uat'
+        &&row.update_mode==='admin_controlled'&&row.uat_auto_stage===true)
+      ||(row.environment==='test'&&row.test_auto_sync===true)
+      ||(row.environment==='live'&&(
+        (row.update_mode==='hi5_managed'&&row.live_auto_promote===true)
+        ||row.update_mode==='admin_controlled'))
     const configured=row.maintenance_window && typeof row.maintenance_window==='object'
       && typeof row.maintenance_window.timezone==='string'
       && Array.isArray(row.maintenance_window.days)

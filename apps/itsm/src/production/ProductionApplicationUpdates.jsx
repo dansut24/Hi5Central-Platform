@@ -258,7 +258,7 @@ function DevReleaseReadiness({data}){
     </div>
   </section>
 }
-export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}){
+export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,showUatPromotion=true}){
   const [data,setData]=useState(null)
   const [review,setReview]=useState(null)
   const [reviewScope,setReviewScope]=useState(null)
@@ -274,7 +274,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     try{
       const response=await api('/api/v1/updates')
       setData(response)
-      if(ENV==='uat'){
+      if(ENV==='uat'&&showUatPromotion){
         try{
           const {review:next}=await api('/api/v1/updates/uat-review')
           const restored=decodeEvidence(next?.evidence)

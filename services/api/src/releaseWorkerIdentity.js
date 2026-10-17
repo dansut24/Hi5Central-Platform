@@ -1,0 +1,47 @@
+/**
+ * Strict database boundary for *generic* unattended release processes.
+ * Legacy allowlisted QA workers remain unchanged until separately retired.
+ *
+ * Never infer least privilege from a container user, image tag or env var:
+ * verify the actual authenticated PostgreSQL identity and effective ACLs.
+ */
+export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=null}={}){
+ const expectedRole=kind==='planner'?'hi5_release_generic_planner':
+   ['test','uat','live'].includes(stage)?'hi5_release_generic_exec_'+stage:null
+ if(!['planner','executor'].includes(kind)||!expectedRole)
+   throw Error('Invalid generic release database identity check.')
+ const result=await db.query([
+   'SELECT current_user::text AS effective_role,',
+   'session_user::text AS login_role,',
+   'r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolbypassrls,r.rolcanlogin,',
+   "has_table_privilege(current_user,'public.platform_release_rollout_control','UPDATE') AS can_unpause,",
+   "has_table_privilege(current_user,'public.platform_release_test_qa_gates','INSERT') OR",
+   "has_table_privilege(current_user,'public.platform_release_test_qa_gates','UPDATE') AS can_forge_canary_gate,",
+   "CASE WHEN to_regprocedure('public.hi5_release_record_verified_test_gate(text,integer)') IS NULL",
+   'THEN false ELSE',
+   "has_function_privilege(current_user,'public.hi5_release_record_verified_test_gate(text,integer)','EXECUTE') END AS can_verify_canary_gate,",
+   "CASE WHEN to_regprocedure('public.hi5_release_generic_tenant_permitted(uuid)') IS NULL",
+   'THEN false ELSE',
+   "has_function_privilege(current_user,'public.hi5_release_generic_tenant_permitted(uuid)','EXECUTE') END AS can_check_tenant_scope,",
+   "CASE WHEN to_regprocedure('public.hi5_release_emergency_pause(text,text)') IS NULL",
+   'THEN false ELSE',
+   "has_function_privilege(current_user,'public.hi5_release_emergency_pause(text,text)','EXECUTE') END AS can_emergency_pause",
+   'FROM pg_roles r WHERE r.rolname=current_user',
+ ].join(' '))
+ const r=result.rows[0]
+ if(!r||r.effective_role!==expectedRole||r.login_role!==expectedRole||!r.rolcanlogin||
+   r.rolsuper||r.rolcreatedb||r.rolcreaterole||r.rolbypassrls||
+   r.can_unpause||r.can_forge_canary_gate)
+   throw Error('Generic release database credential is not a dedicated restricted login.')
+ if(!r.can_check_tenant_scope)
+   throw Error('Generic release process requires the reviewed tenant admission verifier.')
+ if(kind==='planner'&&!r.can_verify_canary_gate)
+   throw Error('Generic planner requires database-verified Test quality gate permission.')
+ if(kind==='executor'&&r.can_verify_canary_gate)
+   throw Error('Generic executor must never create Test quality gates.')
+ if(kind==='planner'&&r.can_emergency_pause)
+   throw Error('The generic planner must never hold emergency execution permissions.')
+ if(kind==='executor'&&!r.can_emergency_pause)
+   throw Error('Generic executor requires the reviewed, audited pause-only permission.')
+ return {kind,role:r.effective_role,leastPrivileged:true,canDirectlyUnpause:false}
+}

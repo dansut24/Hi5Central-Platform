@@ -81,6 +81,17 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     assert.equal(paused.paused,true,'global default must block all workers')
     assert.equal(paused.claimed.length,0)
     await pool.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true')
+    // Global unpause alone must no longer make any certified release
+    // executable. Every build/environment needs a separate staff approval.
+    const noApprovalClaim=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
+    assert.equal(noApprovalClaim.claimed.length,0,'no Test job may execute without stage approval')
+    for(const build of [sha,shaNext])await pool.query([
+      'INSERT INTO platform_release_generic_stage_approvals',
+      '(build_sha,environment,planning_enabled,execution_enabled,',
+      'approved_by,approved_at,expires_at,evidence)',
+      "VALUES($1,'test',true,true,$2,$3,$4,$5::jsonb)",
+    ].join(' '),[build,certifiedBy,new Date(Date.now()-3600000),
+      new Date(Date.now()+86400000),JSON.stringify({ciAuthorization:true})])
     const leased=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
     assert.equal(leased.claimed.length,4)
     assert.equal(new Set(leased.claimed.map(v=>v.tenantId)).size,4)
@@ -164,6 +175,9 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     console.log('PASS: four synthetic tenants flowed Dev release -> Test -> (Managed Live / Custom UAT) -> tenant-approved Custom Live without RMM or cross-tenant leakage; blackout deferral preserved')
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
+    await pool.query('DELETE FROM platform_release_generic_stage_approvals WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
+    // Synthetic CI-only cleanup; production approval audit is immutable.
+    await pool.query('DELETE FROM platform_release_generic_approval_audit WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
     await pool.query('DELETE FROM platform_certified_application_releases WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
     if(certifiedBy)await pool.query('DELETE FROM users WHERE id=$1',[certifiedBy]).catch(()=>{})

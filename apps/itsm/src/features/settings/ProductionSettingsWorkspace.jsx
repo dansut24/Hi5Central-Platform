@@ -100,7 +100,7 @@ const sections = {
   'rmm-remote': { path: '/settings/rmm/remote-access', group: 'RMM', label: 'Remote access', icon: MonitorCog, area: 'rmm' },
 
   integrations: { path: '/settings/integrations', group: 'Platform', label: 'Integrations', icon: Link2, area: 'integrations' },
-  'release-management': { path: '/settings/platform/releases', group: 'Platform', label: 'Releases & environments', icon: GitBranch, area: 'releaseControl' },
+  'release-management': { path: '/settings/platform/releases', group: 'Platform', label: 'Update policy & environments', icon: GitBranch, area: 'releaseControl' },
   'platform-updates': { path: '/settings/platform/updates', group: 'Platform', label: 'Hi5Central updates', icon: Cloud, area: 'releaseUpdates' },
   subscription: { path: '/settings/subscription', group: 'Platform', label: 'Subscription', icon: CreditCard, area: 'billing' },
 }
@@ -584,7 +584,7 @@ export function ProductionSettingsWorkspace({ currentPath, session, onSessionCha
 
             {activeId === 'integrations' ? <Integrations config={config.integrations} update={(f, v) => updateArea('integrations', f, v)} /> : null}
             {activeId === 'release-management' ? <ProductionReleaseManagement /> : null}
-             {activeId === 'platform-updates' ? <Hi5CentralUpdatesPanel /> : null}
+            {activeId === 'platform-updates' ? <Hi5CentralUpdatesPanel showUatPromotion={false} /> : null}
             {activeId === 'subscription' ? <Subscription config={config.billing} update={(f, v) => updateArea('billing', f, v)} modules={modules} /> : null}
           </div>
         </div>

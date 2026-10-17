@@ -53,7 +53,18 @@ const renderInner=manifest=>[
   '    }',
   '}','',
 ].join('\n')
+// A second independent Custom tenant can only be switched after replanning
+// against the first verified Managed route. Its rollback must preserve that
+// first committed tenant and never restore the entire stale starting gateway.
+const secondPlan=buildTenantRouteCutover({
+  environment:'test',tenantId:ids[1],slug:slugs[1],mode:modes[1],
+  itsmEntitled:true,job:{...job,id:'55555555-5555-4555-8555-555555555555',
+    tenant_id:ids[1]},candidate:poolRow(1,newPool,SHA_NEW),
+  activeRows:[poolRow(0,newPool,SHA_NEW),poolRow(1,oldPool,SHA_OLD)],now,
+})
+assert.equal(secondPlan.previousManifestSha256,plan.targetManifestSha256)
 writeFileSync(join(temp,'Caddyfile'),renderInner(plan.rollback))
+writeFileSync(join(temp,'second.Caddyfile'),renderInner(secondPlan.stage))
 writeFileSync(join(temp,'new.Caddyfile'),renderInner(plan.stage))
 writeFileSync(join(temp,'edge.Caddyfile'),[
   ':80 {',
@@ -131,10 +142,18 @@ try{
   assert.deepEqual(spoofed,{status:200,body:'old-api'},
     'Spoofed routing header must not reveal the upgraded tenant release')
 
+  // Second sequential Custom deployment and simulated failed-commit restore.
+  docker('exec',inner,'caddy','reload','--config','/etc/caddy/second.Caddyfile')
+  await waitForRoute(port,slugs[0],'new-api','new-web')
+  await waitForRoute(port,slugs[1],'new-api','new-web')
+  docker('exec',inner,'caddy','reload','--config','/etc/caddy/new.Caddyfile')
+  await waitForRoute(port,slugs[0],'new-api','new-web')
+  await waitForRoute(port,slugs[1],'old-api','old-web')
+  // Only after the first upgrade is deliberately reverted can both be old.
   docker('exec',inner,'caddy','reload','--config','/etc/caddy/Caddyfile')
   await waitForRoute(port,slugs[0],'old-api','old-web')
   await waitForRoute(port,slugs[1],'old-api','old-web')
-  console.log('PASS two-hop Caddy HTTP: original Host safely preserved through rewrite, isolated tenant upgrade, peer unchanged, spoof denied, rollback.')
+  console.log('PASS two-hop Caddy HTTP: sequential Managed+Custom tenant upgrades, exact rollback of failed Custom only, peer stays upgraded, spoof denied, final restore.')
 }finally{
   for(const c of containers.reverse()){
     try{docker('rm','-f',c)}catch{}

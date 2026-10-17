@@ -7,13 +7,26 @@
 import pg from 'pg'
 import {randomUUID} from 'node:crypto'
 import {spawn} from 'node:child_process'
+import {existsSync} from 'node:fs'
+import {requestTrustedHostAction} from './releaseHostTransport.js'
 import {withGatewayLock,recordReleaseWorkerHeartbeat} from './releaseGatewayCoordinator.js'
 import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenantReleaseQueue.js'
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
 import {parseQaReleaseTenantSlugs,assertQaReleaseTenantAllowed} from './releaseQaCohort.js'
+import {assertRestrictedGenericDatabaseIdentity} from './releaseWorkerIdentity.js'
 
-const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
+// QA remains allowlisted by default. Generic execution requires an explicit
+// reviewed worker configuration AND fresh exact-release stage approval.
+const workerScope=process.env.RELEASE_WORKER_SCOPE||'qa'
+if(!['qa','generic'].includes(workerScope))throw Error('Unknown rollout worker scope.')
+if(process.env.RELEASE_EXECUTOR_IMAGE_SCOPE==='generic'&&workerScope!=='generic')
+ throw Error('Generic non-root image must not run legacy privileged QA mode.')
+if(workerScope==='generic'
+  &&process.env.RELEASE_GENERIC_WORKER_ACK!=='reviewed-stage-approval-only')
+  throw Error('Generic worker requires explicit reviewed execution scope.')
+const qaTenantSlugs=workerScope==='qa'
+  ?parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS):null
 const gateway=process.env.RELEASE_GATEWAY
 if(!['test','uat','live'].includes(gateway))
   throw Error('Set RELEASE_GATEWAY to test, uat or live.')
@@ -54,6 +67,24 @@ async function shell(program,args,env={},timeout=330000){
       reject(Error('Host version switch failed: '+err.slice(-350)))})
   })
 }
+async function hostAction({mode,environment=gateway,slug,sha,job,backup=null}={}){
+ if(workerScope==='generic')
+  return requestTrustedHostAction({mode,environment,slug,sha,
+   jobId:job?.id,leaseToken:job?.leaseToken,leaseFence:job?.leaseFence,backup})
+ const args=['deployment/qa26/tenant-release-host-executor.mjs',
+  environment,slug,sha,'--'+mode]
+ if(backup)args.push(backup)
+ const env={H5C_RELEASE_JOB_ID:job?.id||''}
+ if(['apply','restore'].includes(mode))Object.assign(env,{
+  H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
+  H5C_RELEASE_LEASE_TOKEN:job?.leaseToken,
+  H5C_RELEASE_LEASE_FENCE:String(job?.leaseFence),
+ })
+ const out=await shell('node',args,env,mode==='confirm'?25000:
+  mode==='restore'?90000:330000)
+ return JSON.parse(out.trim().split('\n').at(-1))
+}
+
 async function heartbeat(state,job=null,error=''){
   await recordReleaseWorkerHeartbeat(pool,{workerId:ID,gateway,state,
     jobId:job?.id||null,sha:job?.buildSha||null,error})
@@ -62,7 +93,8 @@ async function jobContext(job){
   const query=await pool.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,',
     'j.expected_duration_minutes,t.slug,t.status AS tenant_status,',
-    'p.update_mode,p.maintenance_window,p.blackout_periods,p.live_auto_promote,',
+    'p.update_mode,p.test_auto_sync,p.uat_auto_stage,p.maintenance_window,',
+    'p.blackout_periods,p.live_auto_promote,',
     'c.status AS release_state,coalesce(ts.modules->> $2,$3) AS itsm',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
@@ -80,10 +112,32 @@ async function guards(job){
     ||ctx.build_sha!==job.buildSha||ctx.tenant_status!=='active'
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
-  assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
-  if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
+  if(workerScope==='qa')assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
+  if(workerScope==='generic'){
+    const eligible=await pool.query(
+      'SELECT public.hi5_release_generic_tenant_permitted($1) AS allowed',
+      [job.tenantId])
+    if(eligible.rows[0]?.allowed!==true)
+      throw Error('Tenant is outside the independently approved generic rollout scope.')
+  }
+  const approval=await pool.query([
+    'SELECT 1 FROM platform_release_generic_stage_approvals a',
+    'WHERE a.build_sha=$1 AND a.environment=$2',
+    'AND a.planning_enabled=true AND a.execution_enabled=true',
+    'AND a.approved_by IS NOT NULL AND a.approved_at<=now()',
+    'AND a.expires_at>now()',
+    "AND a.evidence<>'{}'::jsonb LIMIT 1",
+  ].join(' '),[job.buildSha,gateway])
+  if(approval.rowCount!==1)
+    throw Error('Exact generic release execution-stage approval missing or expired.')
+  if(gateway==='test'&&ctx.test_auto_sync!==true)
+    throw Error('Customer Test auto-updates are disabled.')
+  if(gateway==='uat'&&
+    (ctx.update_mode!=='admin_controlled'||ctx.uat_auto_stage!==true))
     throw Error('Managed customers have no UAT.')
-  if(gateway==='uat'||gateway==='live'){
+  // The generic customer release contract does not require each tenant
+  // to install the exact SHA in Test first. QA legacy workers still do.
+  if(workerScope==='qa'&&(gateway==='uat'||gateway==='live')){
     const verifiedTest=await pool.query([
       'SELECT 1 FROM tenant_release_rollout_jobs j',
       'WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3',
@@ -127,11 +181,16 @@ async function guards(job){
       if(!approved.rowCount)throw Error('A real tenant-admin UAT approval and Production schedule are mandatory.')
     }else if(ctx.update_mode==='hi5_managed'){
       if(!ctx.live_auto_promote)throw Error('Managed automatic Production is disabled.')
+      // Retain the designated Test/canary gate for legacy QA only.
+      // Generic scheduling is direct Managed Live following official CI,
+      // Dev smoke verification and the customer's maintenance window.
+      if(workerScope==='qa'){
       const gate=await pool.query([
         'SELECT 1 FROM platform_release_test_qa_gates',
         "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
       ].join(' '),[job.buildSha])
       if(!gate.rowCount)throw Error('Platform Test/canary release approval is missing.')
+      }
     }else throw Error('Invalid update model at cutover.')
   }
   return ctx
@@ -234,9 +293,17 @@ async function refreshVerifiedPools(){
   for(const record of candidates.rows){
     try{
       const pair=releasePair(record.build_sha,gateway)
-      const raw=await shell('docker',['inspect',pair.api,pair.web],{},20000)
-      const images=JSON.parse(raw)
-      if(images.length!==2||images.some(x=>x.State?.Health?.Status!=='healthy'))continue
+      if(workerScope==='generic'){
+        const proof=await requestTrustedHostAction({
+          mode:'pool_health',environment:gateway,sha:record.build_sha,
+        },{timeoutMs:20000})
+        if(proof.status!=='pool_health'||proof.healthy!==true
+          ||proof.buildSha!==record.build_sha||proof.environment!==gateway)continue
+      }else{
+        const raw=await shell('docker',['inspect',pair.api,pair.web],{},20000)
+        const images=JSON.parse(raw)
+        if(images.length!==2||images.some(x=>x.State?.Health?.Status!=='healthy'))continue
+      }
       await pool.query([
         'UPDATE platform_runtime_pools SET last_seen_at=now(),updated_at=now()',
         "WHERE id=$1 AND build_sha=$2 AND state='verified'",
@@ -273,7 +340,8 @@ async function step(){
   await heartbeat('idle')
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
-      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs}))
+      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs,
+      genericTenantScope:workerScope==='generic'}))
     const job=claim.claimed?.[0]
     if(!job){await heartbeat(claim.paused?'paused':'idle');return false}
     await gate.registerClaim({jobId:job.id,tenantId:job.tenantId,
@@ -291,7 +359,7 @@ async function step(){
     }
     leaseTimer=setInterval(()=>renew().catch(()=>{leaseFailed=true}),45000)
     const started=Date.now()
-    let activated=null,activatedSlug=null
+    let activated=null,activatedSlug=null,durableSuccess=false
     try{
       const ctx=await guards(job)
       activatedSlug=ctx.slug
@@ -299,59 +367,79 @@ async function step(){
       if(gateway==='uat'){
         // Pre-stage the immutable Production pair without altering any tenant route.
         // Customer approval must see a verified candidate Live pool.
-        const staged=await shell('node',[
-          'deployment/qa26/tenant-release-host-executor.mjs',
-          'live',ctx.slug,job.buildSha,'--stage',
-        ])
-        const poolProof=JSON.parse(staged.trim().split('\n').at(-1))
+        const poolProof=await hostAction({mode:'stage',environment:'live',
+          slug:ctx.slug,sha:job.buildSha,job})
         if(poolProof.status!=='pool_verified'||poolProof.buildSha!==job.buildSha)
           throw Error('Official immutable Production candidate could not be pre-staged.')
       }
-      const output=await shell('node',[
-        'deployment/qa26/tenant-release-host-executor.mjs',
-        gateway,ctx.slug,job.buildSha,'--apply',
-      ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
-        H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
-        H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)})
-      const line=output.trim().split('\n').at(-1)
-      const result=JSON.parse(line)
+      const result=await hostAction({mode:'apply',slug:ctx.slug,
+        sha:job.buildSha,job})
       activated=result
       if(result.status!=='verified'||result.buildSha!==job.buildSha
         ||result.environment!==gateway)throw Error('Host execution proof mismatches the lease.')
       if(leaseFailed)throw Error('Database lease renewal failed during host cutover.')
       await gate.assertFencedLease()
       await persistVerified(job,ctx,{...result,elapsedMs:Date.now()-started})
-      await heartbeat('idle')
+      durableSuccess=true
+      // Confirmation follows the durable event commit. If this call is lost,
+      // the independent watchdog checks the same fenced DB proof before restore.
+      try{
+        const confirmation=await hostAction({mode:'confirm',slug:ctx.slug,
+          sha:job.buildSha,job,backup:result.backup})
+        if(confirmation.status!=='watchdog_confirmed')
+          throw Error('Exact host watchdog confirmation missing.')
+      }catch(error){
+        console.error('POSTCOMMIT_GENERIC_WATCHDOG_CONFIRM_WARNING',error.message)
+      }
+      // A committed, host-verified job may NEVER be downgraded because
+      // worker telemetry became temporarily unavailable.
+      await heartbeat('idle').catch(error=>
+        console.error('POSTCOMMIT_GENERIC_HEARTBEAT_WARNING',error.message))
       console.log(JSON.stringify({type:'deployment_verified',jobId:job.id,
         host:result.host,sha:job.buildSha,elapsedMs:Date.now()-started}))
     }catch(e){
+      if(durableSuccess){
+        // Preserve the successful database commit and working route.
+        console.error('POSTCOMMIT_GENERIC_WARNING_NOT_ROLLED_BACK',
+          String(e?.message||e).slice(0,250))
+      }else{
       let compensated=false
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
-          const output=await shell('node',[
-            'deployment/qa26/tenant-release-host-executor.mjs',
-            gateway,activatedSlug,job.buildSha,'--restore',activated.backup,
-          ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
-            H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
-            H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)},90000)
-          const proof=JSON.parse(output.trim().split('\n').at(-1))
+          const proof=await hostAction({mode:'restore',slug:activatedSlug,
+            sha:job.buildSha,job,backup:activated.backup})
           compensated=proof.status==='rolled_back'&&proof.environment===gateway
         }catch(restoreError){
           console.error('DURABLE_RELEASE_ROLLBACK_FAILED',restoreError.message)
         }
       }
       if(activated&&!compensated){
-        await pool.query([
-          'UPDATE platform_release_rollout_control SET paused=true,',
-          "reason='Host cutover could not be confirmed rolled back; operator review required',updated_at=now()",
-          'WHERE singleton=true',
-        ].join(' ')).catch(()=>{})
+        // This fail-closed emergency stop is the ONLY allowed write to
+        // rollout control from a restricted executor. The reviewed database
+        // function can set paused=true, never unpause, and audits the caller.
+        // Direct UPDATE privileges on rollout control remain forbidden.
+        try{
+          const stopped=await pool.query(
+            'SELECT public.hi5_release_emergency_pause($1,$2) AS paused',
+            [ID,'Host cutover could not be confirmed rolled back; operator review required'])
+          if(stopped.rows[0]?.paused!==true)
+            throw Error('Emergency pause was not confirmed by PostgreSQL.')
+        }catch(pauseError){
+          // Never silently swallow a failed emergency-stop request.
+          // Stop THIS worker immediately after finalising the failed job;
+          // the operator must independently halt remaining worker services.
+          running=false
+          process.exitCode=1
+          console.error('DURABLE_RELEASE_EMERGENCY_PAUSE_FAILED',
+            String(pauseError.message||pauseError).slice(0,300))
+        }
       }
       console.error(JSON.stringify({type:'deployment_failed',jobId:job.id,
         gateway,compensated,error:String(e.message||e).slice(0,400)}))
       try{await failJob(job,e.message,compensated?'rolled_back':'failed')}catch(err){
         console.error('DURABLE_JOB_FINALISATION_FAILED',err.message)}
       await heartbeat('error',null,e.message).catch(()=>{})
+      }
     }finally{clearInterval(leaseTimer)}
     // Allow the next version to be activated only after this job is terminal.
     await clientTx(tx=>activateNextPendingRollout(tx,{
@@ -360,6 +448,13 @@ async function step(){
   })
 }
 try{
+  if(workerScope==='generic'){
+    if(!preflight&&existsSync('/var/run/docker.sock'))
+      throw Error('Unsafe generic worker: unrestricted host Docker socket is mounted.')
+    if(!preflight&&!existsSync(process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'))
+      throw Error('Restricted trusted host adapter socket is not mounted.')
+    await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor',stage:gateway})
+  }
   if(preflight){
     const r=await pool.query([
       "SELECT to_regclass('public.platform_certified_application_releases') IS NOT NULL AS certification,",
@@ -367,7 +462,8 @@ try{
       "to_regclass('public.tenant_release_rollout_jobs') IS NOT NULL AS queue",
     ].join(' '))
     if(Object.values(r.rows[0]).some(x=>x!==true))throw Error('Executor schema incomplete.')
-    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,'qaTenants='+qaTenantSlugs.length)
+    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,
+      'scope='+workerScope,'qaTenants='+(qaTenantSlugs?.length||0))
   }else{
     do{
       try{await step()}catch(e){

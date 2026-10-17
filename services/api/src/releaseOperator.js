@@ -4,6 +4,7 @@ import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
 import { verifiedRuntimePool } from './runtimePoolPolicy.js'
+import {operatorMaintenanceWindowAllowed} from './releaseOperatorMaintenanceWindow.js'
 import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
@@ -57,46 +58,6 @@ function requirePublicationOperator(c) {
   if(!publicationBearerAuthorised(c.req.header('authorization')))
     return c.json({error:'Publication-only authentication required.'},401)
   return null
-}
-
-function localWindowParts(timeZone, date = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(date)
-    return Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  } catch {
-    return localWindowParts('UTC', date)
-  }
-}
-
-function minuteOfDay(value, fallback) {
-  const match = String(value || '').match(/^(\d{2}):(\d{2})$/)
-  if (!match) return fallback
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (hour > 23 || minute > 59) return fallback
-  return hour * 60 + minute
-}
-
-function withinMaintenanceWindow(windowValue, now = new Date()) {
-  const window = windowValue && typeof windowValue === 'object' && !Array.isArray(windowValue) ? windowValue : {}
-  const timeZone = String(window.timezone || 'UTC')
-  const local = localWindowParts(timeZone, now)
-  const weekday = String(local.weekday || '').toLowerCase().slice(0,3)
-  const configuredDays = Array.isArray(window.days)
-    ? window.days.map((day) => String(day).toLowerCase().slice(0,3)).filter(Boolean)
-    : []
-  if (configuredDays.length && !configuredDays.includes(weekday)) return false
-  const current = Number(local.hour || 0) * 60 + Number(local.minute || 0)
-  const start = minuteOfDay(window.start, 0)
-  const end = minuteOfDay(window.end, 24 * 60 - 1)
-  if (start === end) return true
-  return start < end ? current >= start && current < end : current >= start || current < end
 }
 
 async function queueManagedPromotion(db, { fromEnvironment, toEnvironment, releaseRef, changeIds, notBefore = null }) {
@@ -582,7 +543,7 @@ export function registerReleaseOperatorRoutes(app) {
             LIMIT 1`,
         )
         const policy = preference.rows[0]
-        if (policy?.update_mode === 'hi5_managed' && !withinMaintenanceWindow(policy.maintenance_window)) {
+        if (policy?.update_mode === 'hi5_managed' && !operatorMaintenanceWindowAllowed(policy.maintenance_window)) {
           return null
         }
       }
