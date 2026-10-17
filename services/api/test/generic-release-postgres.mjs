@@ -130,6 +130,38 @@ test('real PostgreSQL generic fanout is denied by default then schedules two exa
  const approvals=(await pool.query(
   'SELECT count(*)::int n FROM platform_release_generic_approval_audit WHERE build_sha=$1',[sha])).rows[0].n
  assert.equal(approvals,2,'Every real stage planning approval has a PostgreSQL audit event')
+ // The database, not an unattended planner-supplied JSON object, must
+ // derive a passed QA gate from two distinct designated, fenced Test jobs.
+ const early=(await pool.query(
+  'SELECT public.hi5_release_record_verified_test_gate($1,30) AS passed',[sha])).rows[0]
+ assert.equal(early.passed,false,'No designation or soak means no QA gate')
+ for(const tenant of records){
+  await pool.query(
+   'INSERT INTO platform_release_canary_tenants(tenant_id,enabled,assigned_by) VALUES($1,true,$2)',
+   [tenant.id,actor])
+ }
+ const unsoaked=(await pool.query(
+  'SELECT public.hi5_release_record_verified_test_gate($1,30) AS passed',[sha])).rows[0]
+ assert.equal(unsoaked.passed,false,'Designation alone must not bypass the 30 minute soak')
+ await pool.query(
+  "UPDATE tenant_release_rollout_jobs SET completed_at=now()-interval '61 minutes' WHERE build_sha=$1 AND environment='test'",
+  [sha])
+ const passed=(await pool.query(
+  'SELECT public.hi5_release_record_verified_test_gate($1,30) AS passed',[sha])).rows[0]
+ assert.equal(passed.passed,true,'Two verified Test canaries and real soak must pass')
+ const evidenceRow=(await pool.query(
+  'SELECT state,passed_canary_count,accepted_by,evidence FROM platform_release_test_qa_gates WHERE build_sha=$1',
+  [sha])).rows[0]
+ assert.equal(evidenceRow.state,'passed')
+ assert.equal(evidenceRow.passed_canary_count,2)
+ assert.equal(evidenceRow.accepted_by,null,'Never impersonate a staff approver')
+ assert.equal(evidenceRow.evidence.source,'two-verified-designated-test-canaries')
+ assert.equal(evidenceRow.evidence.verifiedJobIds.length,2)
+ assert.equal((await pool.query(
+  'SELECT public.hi5_release_record_verified_test_gate($1,30) AS passed',[sha])).rows[0].passed,true)
+ assert.equal((await pool.query(
+  'SELECT count(*)::int n FROM platform_release_test_qa_gates WHERE build_sha=$1',
+  [sha])).rows[0].n,1,'Gate creation must be idempotent')
  console.log(JSON.stringify({type:'GENERIC_FANOUT_POSTGRES_CI_PASS',
   discovered:2,testJobs:2,customUatJobs:1,managedLiveJobs:0,
   duplicateEvents:0,approvalAuditEvents:approvals,globalPaused:true}))
