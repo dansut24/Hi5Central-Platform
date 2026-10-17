@@ -33,6 +33,11 @@ on:
       - 'services/api/src/tenantReleaseExecutor.mjs'
       - 'services/api/test/generic-release-discovery.mjs'
       - 'services/api/test/direct-customer-release.mjs'
+      - 'services/api/src/customerReleasePreparation.js'
+      - 'services/api/test/customer-release-preparation.mjs'
+      - 'services/api/src/officialReleaseCertification.js'
+      - 'services/api/migrations/platform-admin/171_customer_release_preparation_drafts.sql'
+      - 'apps/admin/src/features/admin/CertifiedReleaseControls.jsx'
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
       - 'services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql'
       - 'services/api/migrations/platform-admin/168_verified_test_canary_gate_least_privilege.sql'
@@ -114,6 +119,9 @@ jobs:
           node --test test/generic-release-tenant-scope.mjs
           node --check src/platformAdmin.js
           node --test test/generic-release-admin-approval.mjs
+          node --check src/customerReleasePreparation.js
+          node --check src/officialReleaseCertification.js
+          node --test test/customer-release-preparation.mjs
           node --check src/genericReleaseDiscovery.js
           node --check src/genericReleasePreview.mjs
           node --check src/certifiedReleaseFanout.js
