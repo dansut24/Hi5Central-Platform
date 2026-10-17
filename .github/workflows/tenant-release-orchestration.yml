@@ -51,6 +51,8 @@ on:
       - 'deployment/qa26/qa27-verified-tenant-preferences.mjs'
       - 'deployment/qa26/reconcile-release-schema.mjs'
       - 'deployment/qa26/Dockerfile.release-host-adapter'
+      - 'deployment/qa26/Dockerfile.host-rollback-smoke'
+      - 'services/api/test/qa-caddy-tenant-http-smoke-vps.mjs'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'services/api/test/customer-release-preparation.mjs'
       - 'services/api/test/customer-release-preparation-postgres.mjs'
@@ -237,6 +239,8 @@ jobs:
       - name: Live HTTP multi-tenant gateway switch and rollback (CI Docker only)
         run: |
           node test/qa-caddy-tenant-http-smoke.mjs
+          docker build --pull=false -f ../../deployment/qa26/Dockerfile.host-rollback-smoke -t h5c-vps-rollback-smoke:ci ../..
+          docker run --rm --network none --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock,readonly --tmpfs /tmp:rw,size=80m h5c-vps-rollback-smoke:ci
           node test/qa-caddy-outer-handoff-smoke.mjs
           node test/qa-caddy-native-forwarded-host-smoke.mjs
           node ../../deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs
