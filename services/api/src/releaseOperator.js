@@ -301,6 +301,16 @@ export function registerReleaseOperatorRoutes(app) {
     }catch(error){return c.json({error:String(error.message||'Route validation failed.')},409)}
   })
 
+  // Non-mutating capability gate for a trusted, non-root persistent relay.
+  // Requires exactly the dedicated publication credential, not broad operator
+  // or customer credentials. Never reveals a token or reusable auth secret.
+  app.get('/api/platform-operator/v1/releases/publication-capability',c=>{
+    const denied=requirePublicationOperator(c)
+    if(denied)return denied
+    return c.json({automaticDevPublication:automaticDevPublicationEnabled(),
+      centralAuthority:deployment.runtimeEnvironment==='live'})
+  })
+
   // Publication is an editorial action initiated by authorised Hi5Central
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
