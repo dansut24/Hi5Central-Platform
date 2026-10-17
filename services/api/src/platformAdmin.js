@@ -12,6 +12,9 @@ import {readApplicationReleaseExecutor} from './applicationReleaseExecutor.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} from './platformWorkerAudit.js'
 import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
+import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
+import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
+import {approveGenericPlanningOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -741,6 +744,88 @@ export function registerPlatformAdminRoutes(app) {
       pool.query('SELECT build_sha,version_label,title,published_at FROM hi5central_published_release_notes ORDER BY published_at DESC LIMIT 80'),
     ])
     return c.json({certifications:certified.rows,fanout:checkpoints.rows,published:published.rows})
+  })
+
+  // Read-only preview of all eligible tenants for one certified revision.
+  // Never enqueues jobs or exposes DB credentials. Stage approval is shown
+  // separately from tenant eligibility and the global execution pause.
+  app.get('/api/platform/v1/releases/generic-preview/:sha',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const sha=c.req.param('sha')
+    if(!/^[a-f0-9]{40}$/.test(sha))
+      return c.json({error:'Exact immutable SHA required.'},400)
+    try{
+      const result=await previewGenericCertifiedRelease(pool,{sha,maxTenants:10000})
+      const global=(await pool.query(
+        'SELECT paused FROM platform_release_rollout_control WHERE singleton=true'
+      )).rows[0]
+      return c.json({...result,readOnly:true,globallyPaused:global?.paused!==false})
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
+  })
+
+  app.get('/api/platform/v1/releases/generic-stage-approvals/:sha',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    const sha=c.req.param('sha')
+    if(!/^[a-f0-9]{40}$/.test(sha))
+      return c.json({error:'Exact immutable SHA required.'},400)
+    const approvals=await readGenericReleaseApprovals(pool,{sha})
+    const auditTable=(await pool.query(
+      "SELECT to_regclass('public.platform_release_generic_approval_audit') AS relation"
+    )).rows[0]?.relation
+    const history=auditTable?(await pool.query([
+      'SELECT environment,actor_id,action,previous_state,next_state,occurred_at',
+      'FROM platform_release_generic_approval_audit',
+      'WHERE build_sha=$1 ORDER BY occurred_at DESC LIMIT 100',
+    ].join(' '),[sha])).rows:[]
+    return c.json({buildSha:sha,approvals,history,executionGloballyEnabled:false})
+  })
+
+  // Human-approved planning only. It NEVER grants worker execution or unpauses
+  // the fleet. The database trigger also audits direct/indirect changes.
+  app.post('/api/platform/v1/releases/generic-stage-approvals/:sha/planning',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(!member.rowCount)return c.json({error:'Platform owner/admin approval required.'},403)
+    const request={sha:c.req.param('sha'),body:await c.req.json().catch(()=>null),
+      actorId:auth.session.user_id}
+    try{
+      const result=await withTransaction(db=>approveGenericPlanningOnly(db,request))
+      await audit(c,auth.session,'release.generic_planning_approved','release',
+        result.build_sha,{environment:result.environment,expiresAt:result.expires_at,
+          executionEnabled:false})
+      return c.json({approval:result,globallyUnpaused:false},202)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
+  })
+
+  app.post('/api/platform/v1/releases/generic-stage-approvals/:sha/revoke',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(!member.rowCount)return c.json({error:'Platform owner/admin approval required.'},403)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const result=await withTransaction(db=>revokeGenericStageApproval(db,{
+        sha:c.req.param('sha'),stage:body?.environment,actorId:auth.session.user_id,
+      }))
+      await audit(c,auth.session,'release.generic_stage_revoked','release',
+        result.build_sha,{environment:result.environment,executionEnabled:false})
+      return c.json({revoked:true,approval:result})
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
   })
 
   app.post('/api/platform/v1/releases/certifications/approve',async c=>{
