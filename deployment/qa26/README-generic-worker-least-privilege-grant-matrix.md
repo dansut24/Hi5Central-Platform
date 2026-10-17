@@ -76,6 +76,39 @@ acceptance. Confirm using negative tests that its direct data access cannot
 modify Live route assignments or attestations. Avoid creating policies that
 accidentally restrict the existing QA canary/legacy roles or break the API.
 
+## Migration 169 — real tenant admission before the ten-tenant pilot
+
+**Default is zero permitted generic tenants.** PR #79 adds
+`169_generic_release_tenant_scope.sql`: a singleton `pilot`/`all_onboarded` control, individually staff-approved pilot tenant IDs and
+append-only audit triggers. This must be independently reviewed and migrated
+before any generic planning, database claim, worker guard or host cutover.
+A dedicated `SECURITY DEFINER` read-only verifier,
+`public.hi5_release_generic_tenant_permitted(uuid)`, is revoked from PUBLIC.
+
+The real platform owner/admin uses the authenticated Admin Centre tenant
+admission control to review **exactly ten already fully onboarded** active
+ITSM tenants: five Managed, five Custom and two additionally RMM-entitled.
+It cannot create test accounts, replace an existing active pilot silently,
+unpause, grant execution or route traffic. Selecting tenants requires valid
+per-customer maintenance policies. The default-deny pilot excludes the six
+earlier QA customers unless separately and explicitly enrolled.
+
+In the security review, grant **EXECUTE only** on the tenant admission
+verifier to each of the four dedicated generic worker logins. Grant **no
+direct INSERT/UPDATE/DELETE** to scope control, pilot tables or audit.
+Independent host lease checks must also call the verifier. An authenticated
+database owner can still override tables; this is NOT a replacement for
+separate trusted host authority, stage-scoped RLS/guarded procedures, or
+approved Production credentials.
+
+The `all_onboarded` mode is **not enabled by this migration** and
+intentionally has no Admin activation endpoint. Its database CHECK demands
+independent ten-tenant acceptance and security review. Only after real
+Test/UAT/Production/rollback evidence is independently approved should a
+separate versioned administrator workflow be authorised. New legitimately
+onboarded ITSM tenants then qualify automatically, while RMM-only tenants
+remain excluded from ITSM upgrades and keep a single RMM Live portal.
+
 ## Host executor boundary
 
 The Docker-socket host writer separately reads the control-plane database
