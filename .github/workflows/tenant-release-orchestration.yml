@@ -44,6 +44,7 @@ on:
       - 'deployment/qa26/release-host-adapter.mjs'
       - 'deployment/qa26/audit-release-host-readiness.mjs'
       - 'deployment/qa26/verify-active-caddy-provenance.mjs'
+      - 'deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs'
       - 'services/api/src/releaseGatewayProvenance.js'
       - 'services/api/test/release-gateway-provenance.mjs'
       - 'deployment/qa26/qa27-ten-tenant-readiness.mjs'
@@ -238,6 +239,7 @@ jobs:
           node test/qa-caddy-tenant-http-smoke.mjs
           node test/qa-caddy-outer-handoff-smoke.mjs
           node test/qa-caddy-native-forwarded-host-smoke.mjs
+          node ../../deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
