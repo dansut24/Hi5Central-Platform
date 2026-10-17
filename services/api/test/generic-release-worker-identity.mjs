@@ -33,6 +33,8 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await admin.query('GRANT USAGE ON SCHEMA public TO '+planner+', '+worker)
   await admin.query(
    'GRANT EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) TO '+worker)
+  await admin.query(
+   'GRANT EXECUTE ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid) TO '+planner+', '+worker)
   plannerDb=new pg.Client({connectionString:url(planner)})
   workerDb=new pg.Client({connectionString:url(worker)})
   await plannerDb.connect()
@@ -109,6 +111,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await workerDb?.end().catch(()=>{})
   await admin.query('REVOKE EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) FROM '+worker).catch(()=>{})
   await admin.query('REVOKE EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer) FROM '+planner).catch(()=>{})
+  await admin.query('REVOKE EXECUTE ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid) FROM '+planner+', '+worker).catch(()=>{})
   await admin.query('REVOKE USAGE ON SCHEMA public FROM '+planner+', '+worker).catch(()=>{})
   await admin.query('DROP ROLE IF EXISTS '+planner).catch(()=>{})
   await admin.query('DROP ROLE IF EXISTS '+worker).catch(()=>{})
