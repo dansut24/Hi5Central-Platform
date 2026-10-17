@@ -901,10 +901,36 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
   const environmentOrder=['dev','test','uat','live']
   const envMap=Object.fromEntries((viewData.environments||[]).map(item=>[item.environment,item]))
   return <>
-    <PageHeading view="releases" action={<div className="h5a-release-heading-actions"><button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
+    <PageHeading view="releases"/>
     <CertifiedReleaseControls api={api} canApprove={canApproveSharedReleases}/>
     <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
+    <div className="rmm-card" style={{padding:16,marginBottom:18}}>
+      <div className="rmm-card-heading"><div>
+        <span className="rmm-eyebrow">RELEASE ENVIRONMENTS</span>
+        <h2>Deployment status</h2>
+        <p>Review source, Test, UAT and Production release references. Changes to versions are scheduled through the certified-release workflow above.</p>
+      </div></div>
+    </div>
+    <div className="h5a-release-environments">
+      {environmentOrder.map(name=>{
+        const item=envMap[name]||{environment:name,featureMode:name==='dev'||name==='test'?'all_enabled':'controlled',disposable:name==='test'}
+        return <article className="rmm-card" key={name}>
+          <div className="h5a-release-env-head"><div><span className="rmm-eyebrow">{name.toUpperCase()}</span><h2>{name==='live'?'Live':name==='uat'?'User acceptance testing':name==='test'?'Disposable Test':'Development'}</h2></div><StatusPill value={item.featureMode==='all_enabled'?'enabled':'controlled'}/></div>
+          <p>{name==='test'?'All registered features enabled. Test data only and safe to reset.':name==='uat'?'Controlled features and immutable release candidate. Test evidence is required before Live.':name==='live'?'Only explicitly promoted, approved changes belong here.':'Engineering integration environment following develop.'}</p>
+          <small>Release: {item.activeReleaseRef||'Not recorded'} · deployed {fmtDate(item.lastDeployedAt)}</small>
+          {name==='test'?<button className="rmm-secondary compact danger" disabled={Boolean(busy)} onClick={resetTest}><RotateCcw size={13}/>{busy==='reset-test'?'Reset queued…':'Reset Test to default'}</button>:null}
+        </article>
+      })}
+    </div>
+
     <UatProductionPromotion apiBase={API} canApprove={canApproveSharedReleases}/>
+    <details className="rmm-card" style={{padding:16,marginTop:16}}>
+      <summary style={{cursor:'pointer',fontWeight:600}}>Advanced platform configuration and legacy change tools</summary>
+      <p style={{margin:'10px 0 14px',fontSize:13}}>For existing deployment policies, feature flags and individually tracked changes. The certified tenant release planner above is the primary workflow for application versions.</p>
+      <div className="h5a-release-heading-actions">
+        <button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/> Feature flag</button>
+        <button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/> New change</button>
+      </div>
     <div className="rmm-card h5a-release-deployment-policy">
       <div className="rmm-card-heading">
         <div><span className="rmm-eyebrow">PLATFORM UPDATE OWNERSHIP</span><h2>Who manages this installation?</h2><p>This controls the platform artifact/schema flow for the whole deployment. Tenant activation remains separate below.</p></div>
@@ -942,17 +968,6 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
           <StatusPill value={tenant.updateMode==='hi5_managed'?'hi5 managed':'admin controlled'}/>
         </button>)}
       </div>:null}
-    </div>
-    <div className="h5a-release-environments">
-      {environmentOrder.map(name=>{
-        const item=envMap[name]||{environment:name,featureMode:name==='dev'||name==='test'?'all_enabled':'controlled',disposable:name==='test'}
-        return <article className="rmm-card" key={name}>
-          <div className="h5a-release-env-head"><div><span className="rmm-eyebrow">{name.toUpperCase()}</span><h2>{name==='live'?'Live':name==='uat'?'User acceptance testing':name==='test'?'Disposable Test':'Development'}</h2></div><StatusPill value={item.featureMode==='all_enabled'?'enabled':'controlled'}/></div>
-          <p>{name==='test'?'All registered features enabled. Test data only and safe to reset.':name==='uat'?'Controlled features and immutable release candidate. Test evidence is required before Live.':name==='live'?'Only explicitly promoted, approved changes belong here.':'Engineering integration environment following develop.'}</p>
-          <small>Release: {item.activeReleaseRef||'Not recorded'} · deployed {fmtDate(item.lastDeployedAt)}</small>
-          {name==='test'?<button className="rmm-secondary compact danger" disabled={Boolean(busy)} onClick={resetTest}><RotateCcw size={13}/>{busy==='reset-test'?'Reset queued…':'Reset Test to default'}</button>:null}
-        </article>
-      })}
     </div>
     <div className="h5a-release-rules rmm-card">
       <ShieldCheck size={20}/><div><strong>Promotion guard</strong><p>Test must pass before UAT. UAT must pass before a change can be selected for Live. Live promotion accepts only explicitly selected changes.</p></div>
@@ -1010,6 +1025,7 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
       <div className="rmm-card-heading"><div><span className="rmm-eyebrow">DEPLOYMENT OPERATOR</span><h2>Queued environment actions</h2><p>The application requests actions; the isolated deployment operator performs them and reports the result.</p></div></div>
       <DataTable rows={(releaseData.actions||[]).map(x=>({requested_at:fmtDate(x.requestedAt),environment:x.environment,action:x.action,status:x.status,error:x.errorMessage||''}))} columns={['requested_at','environment','action','status','error']}/>
     </div>
+    </details>
   </>
 }
 function licenseLimit(value) {
