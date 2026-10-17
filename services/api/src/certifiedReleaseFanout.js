@@ -160,15 +160,25 @@ export async function fanoutCertifiedRelease(db,{
   ].join(' '),[sha,now,testSoakMinutes,allowlist])
   const designated=[...new Map(canaries.rows.map(j=>[j.tenant_id,j])).values()]
   if(designated.length>=2){
-    const evidence={automatic:true,source:'two-verified-designated-test-canaries',
-      certifiedReleaseSha:sha,testSoakMinutes,verifiedJobIds:designated.map(j=>j.id),
-      verifiedTenantIds:designated.map(j=>j.tenant_id)}
-    await db.query([
-      'INSERT INTO platform_release_test_qa_gates',
-      '(build_sha,state,passed_canary_count,passed_at,accepted_by,evidence)',
-      "VALUES($1,'passed',$2,$3,NULL,$4::jsonb)",
-      'ON CONFLICT(build_sha) DO NOTHING',
-    ].join(' '),[sha,designated.length,now,JSON.stringify(evidence)])
+    if(scope==='generic'){
+      // Generic unattended planner has EXECUTE on one verified DB procedure,
+      // NEVER direct INSERT/UPDATE on the cross-tenant QA gate. The function
+      // independently checks immutable fenced canary evidence and real soak.
+      await db.query(
+        'SELECT public.hi5_release_record_verified_test_gate($1,$2) AS recorded',
+        [sha,testSoakMinutes])
+    }else{
+      // Legacy explicitly allowlisted QA path retained until separate retirement.
+      const evidence={automatic:true,source:'two-verified-designated-test-canaries',
+        certifiedReleaseSha:sha,testSoakMinutes,verifiedJobIds:designated.map(j=>j.id),
+        verifiedTenantIds:designated.map(j=>j.tenant_id)}
+      await db.query([
+        'INSERT INTO platform_release_test_qa_gates',
+        '(build_sha,state,passed_canary_count,passed_at,accepted_by,evidence)',
+        "VALUES($1,'passed',$2,$3,NULL,$4::jsonb)",
+        'ON CONFLICT(build_sha) DO NOTHING',
+      ].join(' '),[sha,designated.length,now,JSON.stringify(evidence)])
+    }
   }
   const qa=await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])
   const gate=qa.rows[0]||null
