@@ -9,11 +9,11 @@ const tenants=[
  ['managed2','hi5_managed',false],
  ['h5c-managed-rmm-qa27','hi5_managed',true],
  ['qa27-managed-itsm-qa27','hi5_managed',false],
- ['h5c-custom-qa26','hi5_custom',false],
- ['custom1','hi5_custom',false],
- ['custom2','hi5_custom',false],
- ['qa27-custom-rmm-qa27','hi5_custom',true],
- ['qa27-custom-itsm-qa27','hi5_custom',false],
+ ['h5c-custom-qa26','admin_controlled',false],
+ ['custom1','admin_controlled',false],
+ ['custom2','admin_controlled',false],
+ ['qa27-custom-rmm-qa27','admin_controlled',true],
+ ['qa27-custom-itsm-qa27','admin_controlled',false],
 ].map(([slug,mode,rmm])=>({slug,mode,rmm}))
 
 const source='# reviewed source\n'+'#'.repeat(2050)+'\n'
