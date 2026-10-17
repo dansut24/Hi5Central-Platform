@@ -8,8 +8,17 @@ import pg from 'pg'
 import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
 import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
 
-// Prevent a QA-certified build from ever planning work outside the approved cohort.
-const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
+// Default is immutable QA allowlist. Generic planning requires deliberate
+// environment opt-in AND independently approved per-release/per-stage DB rows.
+// This daemon only registers scheduled jobs; workers remain globally paused.
+const plannerScope=process.env.RELEASE_PLANNER_SCOPE||'qa'
+if(!['qa','generic'].includes(plannerScope))
+ throw Error('Unknown release planner scope.')
+if(plannerScope==='generic'
+  &&process.env.RELEASE_GENERIC_PLANNING_ACK!=='reviewed-stage-approvals-only')
+ throw Error('Generic release planner requires an explicit reviewed approval acknowledgement.')
+const qaTenantSlugs=plannerScope==='qa'
+ ?parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS):null
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
 if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
@@ -33,6 +42,9 @@ async function assertSchema(){
  "to_regclass('public.platform_release_test_qa_gates') IS NOT NULL AS test_gate,",
  "to_regclass('public.platform_release_gateway_owners') IS NOT NULL AS gateway_lock,",
  "to_regclass('public.platform_release_canary_tenants') IS NOT NULL AS canary_cohort",
+ ...(plannerScope==='generic'
+   ?["to_regclass('public.platform_release_generic_stage_approvals') IS NOT NULL AS generic_approvals"]
+   :[]),
  ].join(' '))
  const state=rows.rows[0]
  if(Object.values(state).some(v=>v!==true))
@@ -57,7 +69,7 @@ async function cycle(){
     sha:approval.build_sha,
     limit:Number(process.env.RELEASE_PLANNER_TENANT_BATCH||200),
     testSoakMinutes:Number(process.env.RELEASE_PLANNER_TEST_SOAK_MINUTES||30),
-    qaTenantSlugs,
+    qaTenantSlugs,scope:plannerScope,
    })
    await client.query('COMMIT')
    if(result.queued||result.alreadyQueued)
@@ -74,7 +86,8 @@ async function cycle(){
 }
 try{
  await assertSchema()
- if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length)
+ if(verify)console.log(JSON.stringify({type:'RELEASE_PLANNER_PREFLIGHT_PASS',
+  scope:plannerScope,qaTenants:qaTenantSlugs?.length||0,routeChanges:false}))
  else{
   do{
    try{await cycle()}
