@@ -27,8 +27,9 @@ test('only verified Managed UAT and non-RMM QA aliases receive deny handling',()
  const declared=aliases(tenants)
  assert.equal(declared.managedUat.length,10)
  assert.equal(declared.nonRmm.length,8)
+ assert.equal(declared.sandboxRmm.length,20)
  assert.equal(declared.rmmAllowed.length,2)
- for(const host of [...declared.managedUat,...declared.nonRmm]){
+ for(const host of [...declared.managedUat,...declared.nonRmm,...declared.sandboxRmm]){
   const regex=new RegExp(host.replaceAll('.','[.]'),'g')
   assert.equal([...candidate.matchAll(regex)].length,1,'Exact restricted host: '+host)
  }
@@ -45,7 +46,8 @@ test('only verified Managed UAT and non-RMM QA aliases receive deny handling',()
  assert(candidate.includes('reverse_proxy hi5central-prod-rmm:80'))
  assert(candidate.includes('reverse_proxy uat-gateway:80'))
  assert.equal(candidate.split('@qaManagedUatDenied host').length,2)
- assert.equal(candidate.split('@qaNonRmmDenied host').length,2)
+ assert.equal(candidate.split('@qaRmmDenied host').length,2)
+ assert.match(candidate,/RMM is available only on entitled Live tenants/)
 })
 test('never changes or overwrites a partially reconciled Caddy source',()=>{
  const rendered=render(source,tenants)
