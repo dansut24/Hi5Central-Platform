@@ -28,7 +28,9 @@ jobs:
       - name: Verify marketing assets are bundled
         run: |
           test -f apps/itsm/dist/index.html
-          grep -R -l "Example interface" apps/itsm/dist/assets/*.js >/dev/null
+          grep -R -l "Actual UI" apps/itsm/dist/assets/*.js >/dev/null
+          test -s apps/itsm/dist/marketing/platform-itsm-sample.png
+          test -s apps/itsm/dist/marketing/platform-rmm-sample.png
           grep -R -l "h5m-hero" apps/itsm/dist/assets/*.css >/dev/null
           echo 'PASS: premium marketing homepage included in compiled bundle.'
       - name: Install isolated Chromium browser test tooling
