@@ -101,7 +101,7 @@ const changedText=JSON.stringify(changed[0].after)
 if(!changedText.includes('hi5central-prod-rmm:80')
  ||!changedText.includes('hi5central-uat-gateway:80')
  ||!changedText.includes('UAT is not enabled for this tenant')
- ||!changedText.includes('RMM is not enabled for this tenant'))
+ ||!changedText.includes('RMM is available only on entitled Live tenants'))
  throw Error('QA overlay unexpectedly replaced a customer upstream or deny clause.')
 const saved=spawnSync('docker',['run','--rm','-i','--network','none',
  '--mount','type=volume,source='+volume+',target=/backup',
@@ -114,6 +114,7 @@ console.log(JSON.stringify({
  allTenantsFromReadOnlyDb:tenants.length,
  verifiedManagedUatAliasesDenied:rules.managedUat.length,
  verifiedNonRmmAliasesDenied:rules.nonRmm.length,
+ verifiedSandboxRmmAliasesDenied:rules.sandboxRmm.length,
  entitledRmmAliasesStillAllowed:rules.rmmAllowed.length,
  hostRulesUnchanged:parent.length-changed.length,
  intendedModifiedRouteOnly:changed[0].key,
