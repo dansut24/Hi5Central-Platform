@@ -10,6 +10,8 @@ on:
       - 'services/api/src/customerReleaseRollback.js'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/test/customer-release-rollback.mjs'
+      - 'services/api/src/customerReleaseRollbackExecution.js'
+      - 'services/api/test/customer-release-rollback-execution.mjs'
       - 'services/api/test/customer-release-rollback-postgres.mjs'
       - 'services/api/migrations/platform-admin/170_customer_scoped_itsm_rollback.sql'
       - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
@@ -141,6 +143,8 @@ jobs:
           node --check src/releaseWorkerIdentity.js
           node --check src/tenantReleaseExecutor.mjs
           node --check src/customerReleaseRollback.js
+          node --check src/customerReleaseRollbackExecution.js
+          node --test test/customer-release-rollback-execution.mjs
           node --test test/customer-release-rollback.mjs
           node --check src/tenantRelease.js
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
