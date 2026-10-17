@@ -90,8 +90,8 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
       '(build_sha,environment,planning_enabled,execution_enabled,',
       'approved_by,approved_at,expires_at,evidence)',
       "VALUES($1,'test',true,true,$2,$3,$4,$5::jsonb)",
-    ].join(' '),[build,certifiedBy,new Date(start.getTime()-3600000),
-      new Date(start.getTime()+86400000),JSON.stringify({ciAuthorization:true})])
+    ].join(' '),[build,certifiedBy,new Date(Date.now()-3600000),
+      new Date(Date.now()+86400000),JSON.stringify({ciAuthorization:true})])
     const leased=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
     assert.equal(leased.claimed.length,4)
     assert.equal(new Set(leased.claimed.map(v=>v.tenantId)).size,4)
@@ -176,6 +176,8 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
     await pool.query('DELETE FROM platform_release_generic_stage_approvals WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
+    // Synthetic CI-only cleanup; production approval audit is immutable.
+    await pool.query('DELETE FROM platform_release_generic_approval_audit WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
     await pool.query('DELETE FROM platform_certified_application_releases WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
     if(certifiedBy)await pool.query('DELETE FROM users WHERE id=$1',[certifiedBy]).catch(()=>{})
