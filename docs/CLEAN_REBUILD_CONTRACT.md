@@ -10,7 +10,7 @@ release unpause, account deletion, or removal of live release code.
 | --- | --- | --- |
 | `hi5central.com` | Marketing, signup, verification, login and onboarding | Public |
 | `customer.hi5central.com` | ITSM Production staff | ITSM entitlement |
-| `customer.hi5central.com/portal` | Requester self-service ITSM web portal | ITSM entitlement |
+| `customer-portal.hi5central.com` | Requester self-service ITSM web portal | ITSM entitlement |
 | `customer-rmm.hi5central.com` | RMM/Control Production | RMM entitlement |
 | `customer-admin.hi5central.com` | Tenant billing, invoices, subscription and upgrade/version policy | Every tenant |
 | `customer-uat.hi5central.com` | ITSM UAT; customer approval for promotion | ITSM Custom only |
