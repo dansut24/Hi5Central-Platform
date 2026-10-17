@@ -9,6 +9,7 @@ RUN apk add --no-cache nodejs curl
 WORKDIR /runner
 COPY services/api/src/releaseHostTransport.js /runner/services/api/src/releaseHostTransport.js
 COPY services/api/src/releaseGatewaySourceAgreement.js /runner/services/api/src/releaseGatewaySourceAgreement.js
+COPY services/api/src/releaseGatewaySemanticAgreement.js /runner/services/api/src/releaseGatewaySemanticAgreement.js
 COPY services/api/src/tenantCaddyVersionRoutes.js /runner/services/api/src/tenantCaddyVersionRoutes.js
 COPY services/api/src/tenantLiveBaseline.js /runner/services/api/src/tenantLiveBaseline.js
 COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolPolicy.js
@@ -18,5 +19,6 @@ COPY services/api/package.json /runner/services/api/package.json
 RUN node --check deployment/qa26/tenant-release-host-executor.mjs \
  && node --check deployment/qa26/release-host-adapter.mjs \
  && node --check services/api/src/releaseHostTransport.js \
- && node --check services/api/src/releaseGatewaySourceAgreement.js
+ && node --check services/api/src/releaseGatewaySourceAgreement.js \
+ && node --check services/api/src/releaseGatewaySemanticAgreement.js
 ENTRYPOINT ["node","deployment/qa26/release-host-adapter.mjs"]
