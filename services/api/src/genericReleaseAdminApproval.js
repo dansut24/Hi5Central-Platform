@@ -74,3 +74,76 @@ export async function revokeGenericStageApproval(db,{sha,stage,actorId}={}){
  return result.rows[0]||{build_sha:sha,environment:stage,
   planning_enabled:false,execution_enabled:false,alreadyRevoked:true}
 }
+
+
+/**
+ * Separate, short-lived, real platform-owner execution approval. This is NOT
+ * a worker start, global fleet unpause, gateway change or emergency override.
+ * The current planning grant must be valid and remain unchanged. Revocation
+ * invalidates both scopes. Live additionally demands published QA sign-off;
+ * every tenant's maintenance, delay and UAT acceptance is still enforced by
+ * the worker and host executor.
+ */
+export function validatedGenericExecutionRequest({sha,body,actorId}={}){
+ if(!SHA.test(String(sha||''))||!UUID.test(String(actorId||'')))
+   throw refuse('Exact immutable SHA and authenticated owner/admin required.')
+ if(!body||typeof body!=='object'||Array.isArray(body)
+   ||!GENERIC_STAGES.includes(body.environment)
+   ||body.confirmation!=='AUTHORISE_STAGE_EXECUTION')
+   throw refuse('Explicit environment and execution-only confirmation required.')
+ if(['unpause','deployNow','bypassUat','ignoreMaintenanceWindow','force',
+      'allTenants','bypassGatewayDrift'].some(key=>Object.hasOwn(body,key)))
+   throw refuse('Fleet, tenant, and gateway controls cannot be overridden by stage approval.')
+ const hours=Number(body.expiresInHours)
+ const reason=String(body.reason||'').trim()
+ const reviewedChange=String(body.reviewedChange||'').trim()
+ if(!Number.isInteger(hours)||hours<1||hours>12
+   ||reason.length<20||reason.length>500
+   ||reviewedChange.length<8||reviewedChange.length>200)
+   throw refuse('Execution requires reviewed evidence, meaningful reason and 1–12h expiry.')
+ return {sha,environment:body.environment,actorId,hours,reason,reviewedChange}
+}
+
+export async function approveGenericExecutionOnly(db,request){
+ const value=validatedGenericExecutionRequest(request)
+ const approval=await db.query([
+  'SELECT a.build_sha,a.environment,a.planning_enabled,a.execution_enabled,',
+  'a.approved_by,a.approved_at,a.expires_at,a.evidence',
+  'FROM platform_release_generic_stage_approvals a',
+  'JOIN platform_certified_application_releases r ON r.build_sha=a.build_sha',
+  "WHERE a.build_sha=$1 AND a.environment=$2 AND r.status='approved'",
+  'AND r.approved_by IS NOT NULL',
+  'AND r.evidence @> $3::jsonb',
+  'FOR UPDATE OF a',
+ ].join(' '),[value.sha,value.environment,JSON.stringify({
+  build:true,ci:true,security:true,migrations:true,smoke:true,
+ })])
+ const row=approval.rows[0]
+ if(!row||row.planning_enabled!==true||!row.approved_by
+   ||!row.expires_at||new Date(row.expires_at).getTime()<=Date.now())
+   throw refuse('First approve a current, reviewed, unexpired stage planning grant.')
+ if(value.environment==='live'){
+   const gate=await db.query([
+     'SELECT state,passed_canary_count,passed_at',
+     'FROM platform_release_test_qa_gates',
+     "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
+   ].join(' '),[value.sha])
+   if(gate.rowCount!==1)
+     throw refuse('Production execution requires verified two-customer Test certification.')
+ }
+ const saved=await db.query([
+  'UPDATE platform_release_generic_stage_approvals',
+  'SET execution_enabled=true,updated_at=now(),',
+  "expires_at=LEAST(expires_at,now()+make_interval(hours=>$4::int)),",
+  'evidence=evidence||$5::jsonb,reason=$6',
+  'WHERE build_sha=$1 AND environment=$2',
+  'AND planning_enabled=true AND approved_by IS NOT NULL',
+  'AND approved_at<=now() AND expires_at>now()',
+  'RETURNING build_sha,environment,planning_enabled,execution_enabled,expires_at',
+ ].join(' '),[value.sha,value.environment,value.actorId,value.hours,
+  JSON.stringify({executionReview:{reviewedChange:value.reviewedChange,
+    actorId:value.actorId,reason:value.reason,
+    reviewedAt:new Date().toISOString()}}),value.reason])
+ if(saved.rowCount!==1)throw refuse('Planning authority expired before execution approval.')
+ return saved.rows[0]
+}
