@@ -15,9 +15,9 @@ const prior={
 }
 const additions={
  'h5c-managed-rmm-qa27':{mode:'hi5_managed',rmm:true},
- 'h5c-custom-rmm-qa27':{mode:'admin_controlled',rmm:true},
- 'h5c-managed-itsm-qa27':{mode:'hi5_managed',rmm:false},
- 'h5c-custom-itsm-qa27':{mode:'admin_controlled',rmm:false},
+ 'qa27-custom-rmm-qa27':{mode:'admin_controlled',rmm:true},
+ 'qa27-managed-itsm-qa27':{mode:'hi5_managed',rmm:false},
+ 'qa27-custom-itsm-qa27':{mode:'admin_controlled',rmm:false},
 }
 const expected={...prior,...additions}
 if(process.argv.slice(1).some(arg=>!String(arg).endsWith('qa27-ten-tenant-readiness.mjs'))
