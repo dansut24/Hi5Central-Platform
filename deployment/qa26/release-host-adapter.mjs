@@ -164,7 +164,8 @@ const server=net.createServer(socket=>{
   try{request=validateHostRequest(JSON.parse(buffer.slice(0,nl)))}
   catch(error){return respond({ok:false,error:error.message})}
   const lockKey=request.environment
-  if(request.mode!=='pool_health'){
+  const acquired=request.mode!=='pool_health'
+  if(acquired){
    if(queue.has(lockKey))return respond({ok:false,error:'Host gateway is busy; retry within tenant window.'})
    queue.add(lockKey)
   }
@@ -173,7 +174,11 @@ const server=net.createServer(socket=>{
    respond({ok:true,proof})
   }catch(error){
    respond({ok:false,error:String(error.message||error).slice(0,400)})
-  }finally{queue.delete(lockKey)}
+  }finally{
+   // A pool_health request does not acquire the gateway lock and cannot
+   // release one held by an in-progress tenant cutover.
+   if(acquired)queue.delete(lockKey)
+  }
  })
  socket.on('error',()=>{})
 })
