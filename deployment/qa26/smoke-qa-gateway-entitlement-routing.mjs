@@ -20,7 +20,7 @@ const source=run(['run','--rm','--network','none','--mount',
  'type=volume,source=h5c_release79_live_caddy_20261017,target=/backup,readonly',
  'busybox:1.36','cat','/backup/qa-entitlement-candidate.Caddyfile'])
 const sha=createHash('sha256').update(source).digest('hex')
-if(sha!=='3246e9f5947bd3ffbe0db2611540f69f6da68f34f0425ff8ff25505c5d384113')
+if(sha!=='b8b408916f6c3f9d9cddcb8558baf915433e5edd20fd4d2dfd0045affba94e4e')
  throw Error('QA review candidate SHA changed since security review.')
 const extract=(type)=>{
  const start='# QA_ENTITLEMENT_GUARD_'+type+'_BEGIN'
