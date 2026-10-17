@@ -1,7 +1,7 @@
 import {validateReleaseNotes} from './releaseNotesValidation.js'
 
 const SHA=/^[a-f0-9]{40}$/
-const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[89ab][a-f0-9]{12}$/i
+const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const rejected=message=>Object.assign(new Error(message),{code:'RELEASE_PREPARATION_REJECTED'})
 const trim=(value,max)=>String(value??'').trim().slice(0,max)
 const serialize=value=>JSON.stringify(value)
