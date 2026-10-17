@@ -123,6 +123,25 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    /No explicit staff-approved generic release planning stage/)
   assert.equal(await countJobs('test'),0,'Default-deny must schedule zero jobs')
   await approve(actor,'test')
+  const emptyPilot=await transaction(c=>fanoutCertifiedRelease(c,request))
+  assert.equal(emptyPilot.scanned,0,'Pilot admission defaults to no tenants')
+  assert.equal(emptyPilot.queued,0,'Stage approval alone cannot widen tenant scope')
+  // Only actual pilot cohort IDs may be admitted. The previously created
+  // eligible CI tenants are also included to verify this is generic, not
+  // a hardcoded ten-slug scheduler.
+  const eligible=(await pool.query([
+   'SELECT t.id FROM tenants t JOIN tenant_settings s ON s.tenant_id=t.id',
+   "WHERE t.status='active' AND s.onboarding_completed_at IS NOT NULL",
+   "AND COALESCE((s.modules->>'itsm')::boolean,false)=true",
+  ].join(' '))).rows
+  assert.equal(eligible.length,previous+10)
+  for(const t of eligible){
+   await pool.query([
+    'INSERT INTO platform_release_generic_pilot_tenants',
+    '(tenant_id,enabled,approved_by,approved_at,reason)',
+    "VALUES($1,true,$2,now(),'Explicitly approved disposable CI pilot cohort')",
+   ].join(' '),[t.id,actor])
+  }
   const first=await transaction(c=>fanoutCertifiedRelease(c,request))
   assert.equal(first.scanned,previous+10,
    'All ten cohort tenants AND pre-existing eligible customers discovered')
@@ -243,6 +262,13 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   }
   const late=await lateTenant('late-itsm',{itsm:true,rmm:false},false)
   const rmmOnly=await lateTenant('rmm-only',{itsm:false,rmm:true},true)
+  for(const row of [late,rmmOnly]){
+   await pool.query([
+    'INSERT INTO platform_release_generic_pilot_tenants',
+    '(tenant_id,enabled,approved_by,approved_at,reason)',
+    "VALUES($1,true,$2,now(),'Reviewed disposable late-onboarding pilot entry')",
+   ].join(' '),[row.id,actor])
+  }
   const incomplete=await transaction(c=>fanoutCertifiedRelease(c,request))
   assert.equal(incomplete.queued,0,
    'Incomplete onboarding and RMM-only subscription must not receive ITSM jobs')
@@ -262,6 +288,39 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   assert.equal((await transaction(c=>fanoutCertifiedRelease(c,request))).queued,0,
    'Repeat post-onboarding scan must not duplicate tenant jobs')
 
+  const outsidePilot=await lateTenant('future-itsm',{itsm:true,rmm:false},true)
+  assert.equal((await transaction(c=>fanoutCertifiedRelease(c,request))).queued,0,
+   'A completed but unapproved tenant cannot bypass pilot admission')
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2",
+   [outsidePilot.id,sha])).rows[0].n,0)
+  await assert.rejects(pool.query([
+   "UPDATE platform_release_generic_scope_control SET mode='all_onboarded',",
+   'approved_by=$1,approved_at=now(),updated_at=now(),',
+   "evidence='{}'::jsonb,reason=$2 WHERE singleton=true",
+  ].join(' '),[actor,'Not independently approved for all tenants']),
+  /violates check constraint/i,
+  'All-onboarded scope must require recorded ten-tenant and independent security evidence')
+  await pool.query([
+   "UPDATE platform_release_generic_scope_control SET mode='all_onboarded',",
+   'approved_by=$1,approved_at=now(),updated_at=now(),',
+   'evidence=$2::jsonb,reason=$3 WHERE singleton=true',
+  ].join(' '),[actor,JSON.stringify({
+   tenTenantAcceptance:true,independentSecurityReview:true,ciOnly:true
+  }),'Both independent acceptance proofs are synthetic CI fixtures'])
+  const general=await transaction(c=>fanoutCertifiedRelease(c,request))
+  assert.equal(general.queued,1,'New legitimate tenant auto-discovers certified release after approved general enablement')
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2",
+   [outsidePilot.id,sha])).rows[0].n,1)
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE tenant_id=$1 AND build_sha=$2",
+   [rmmOnly.id,sha])).rows[0].n,0,
+   'RMM-only subscriptions never get ITSM jobs even after general enablement')
+  assert((await pool.query(
+   "SELECT count(*)::int n FROM platform_release_generic_scope_audit WHERE target='scope'",
+  )).rows[0].n>=1,'General scope transition must be audited')
+
   const approvals=(await pool.query(
    'SELECT environment,planning_enabled,execution_enabled FROM platform_release_generic_stage_approvals WHERE build_sha=$1',
    [sha])).rows
@@ -274,6 +333,7 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    synthetic:true,managed:5,custom:5,rmmEntitled:2,
    testJobs:10,customUatJobs:5,managedLiveJobs:5,unapprovedCustomLiveJobs:0,
    canaryProofs:2,maintenanceTimezones:zones.length,globalPaused:true,
-   executionApprovals:0,lateOnboardedItSMJobs:1,rmmOnlyItSMJobs:0,noHostActions:true}))
+   executionApprovals:0,lateOnboardedItSMJobs:1,rmmOnlyItSMJobs:0,
+   approvedGeneralNewTenantJobs:1,noHostActions:true}))
  }finally{await pool.end()}
 })
