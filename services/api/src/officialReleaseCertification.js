@@ -69,3 +69,31 @@ export async function verifyDevReleaseSmoke({sha,fetcher=fetch}={}){
     throw failed('Real Dev API, frontend and sign-in do not match the official revision.')
   return {verifiedAt:new Date().toISOString(),smoke:true}
 }
+
+/**
+ * Read-only picker for the staff release screen. Discovery never certifies
+ * anything; the chosen SHA/run is fully reverified on Release to customers.
+ */
+export async function listOfficialReleaseCandidates({token,fetcher=fetch}={}){
+ const headers={'Accept':'application/vnd.github+json',
+  'X-GitHub-Api-Version':'2022-11-28',
+  'User-Agent':'Hi5Central-Release-Auditor'}
+ if(token){
+  if(String(token).length<10)throw failed('Invalid configured GitHub release credential.')
+  headers.Authorization='Bearer '+token
+ }
+ const endpoint='https://api.github.com/repos/dansut24/Hi5Central-Platform/actions/runs?per_page=100'
+ const response=await request(fetcher,endpoint,headers)
+ if(!Array.isArray(response.workflow_runs))throw failed('GitHub release runs are unavailable.')
+ return response.workflow_runs.filter(run=>
+  run.name===RELEASE_WORKFLOW&&run.status==='completed'
+  &&run.conclusion==='success'&&SHA.test(String(run.head_sha||''))
+  &&Number.isSafeInteger(run.id)&&run.id>=1000
+ ).slice(0,40).map(run=>({
+  buildSha:run.head_sha,
+  ciRunUrl:'https://github.com/dansut24/Hi5Central-Platform/actions/runs/'+run.id,
+  runId:run.id,createdAt:run.created_at||null,
+  branch:String(run.head_branch||'').slice(0,100),
+ }))
+}
+
