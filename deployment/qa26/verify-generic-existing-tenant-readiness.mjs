@@ -15,40 +15,27 @@ if(args.length!==4||!['test','uat','live'].includes(stage)||!SHA.test(String(sha
 const docker=(...a)=>execFileSync('docker',a,{encoding:'utf8',timeout:30000,
  maxBuffer:4000000,stdio:['ignore','pipe','pipe']}).trim()
 const hash=s=>createHash('sha256').update(s).digest('hex')
-const sql=[
- 'SELECT json_build_object(',
- "'paused',(SELECT paused FROM platform_release_rollout_control WHERE singleton=true),",
- "'approvalSchema',to_regclass('public.platform_release_generic_stage_approvals') IS NOT NULL,",
- "'approval',(SELECT row_to_json(a) FROM (",
- 'SELECT build_sha,environment,planning_enabled,execution_enabled,',
- 'approved_at,expires_at FROM platform_release_generic_stage_approvals',
- "WHERE build_sha='"+sha+"' AND environment='"+stage+"' LIMIT 1) a),",
- "'jobs',(SELECT COALESCE(json_agg(row_to_json(j)),'[]'::json) FROM (",
- 'SELECT t.slug,x.id,x.status,x.scheduled_at,x.attempt_count',
- 'FROM tenant_release_rollout_jobs x',
- 'JOIN tenants t ON t.id=x.tenant_id',
- "WHERE x.build_sha='"+sha+"' AND x.environment='"+stage+"'",
- 'ORDER BY t.slug) j),',
- "'running',(SELECT count(*) FROM tenant_release_rollout_jobs WHERE status='running')",
- ')'
-].join(' ')
 const script=`
 const{Client}=require('pg');
 (async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();
 try{await c.query('BEGIN READ ONLY');await c.query("SET LOCAL statement_timeout='15000ms'");
-const present=(await c.query("SELECT to_regclass('public.platform_release_generic_stage_approvals') AS table_name")).rows[0].table_name;
-const q=present?SQL_WITH_APPROVAL:SQL_WITHOUT_APPROVAL;
-const result=await c.query(q);
-console.log(JSON.stringify(result.rows[0].json_build_object));
+const sha=process.env.H5C_READ_ONLY_SHA,stage=process.env.H5C_READ_ONLY_STAGE;
+const paused=(await c.query('SELECT paused FROM platform_release_rollout_control WHERE singleton=true')).rows[0]?.paused;
+const relation=(await c.query("SELECT to_regclass('public.platform_release_generic_stage_approvals') AS table_name")).rows[0]?.table_name;
+const approval=relation?(await c.query(
+ 'SELECT planning_enabled,execution_enabled,expires_at FROM platform_release_generic_stage_approvals WHERE build_sha=$1 AND environment=$2',
+ [sha,stage])).rows[0]:null;
+const jobs=(await c.query(
+ 'SELECT t.slug,j.status,j.scheduled_at,j.attempt_count FROM tenant_release_rollout_jobs j JOIN tenants t ON t.id=j.tenant_id WHERE j.build_sha=$1 AND j.environment=$2 ORDER BY t.slug',
+ [sha,stage])).rows;
+const running=(await c.query("SELECT count(*)::int n FROM tenant_release_rollout_jobs WHERE status='running'")).rows[0].n;
+console.log(JSON.stringify({paused,approvalSchema:!!relation,approval,jobs,running}));
 await c.query('ROLLBACK');
 }finally{await c.end()}})().catch(e=>{console.error(e.message);process.exitCode=1});
 `
-const noApproval=sql.replace(
- "'approval',(SELECT row_to_json(a) FROM ( SELECT build_sha,environment,planning_enabled,execution_enabled, approved_at,expires_at FROM platform_release_generic_stage_approvals WHERE build_sha='"+sha+"' AND environment='"+stage+"' LIMIT 1) a),",
- "'approval',NULL,")
-const queryText=script.replace('SQL_WITH_APPROVAL',JSON.stringify(sql))
- .replace('SQL_WITHOUT_APPROVAL',JSON.stringify(noApproval))
-const data=JSON.parse(docker('exec','hi5central-certified-release-planner','node','-e',queryText))
+const data=JSON.parse(docker('exec','-e','H5C_READ_ONLY_SHA='+sha,
+ '-e','H5C_READ_ONLY_STAGE='+stage,'hi5central-certified-release-planner',
+ 'node','-e',script))
 const worker='hi5central-release-executor-'+stage
 const imageInfo=JSON.parse(docker('inspect',worker))[0]
 const activeImage=imageInfo.Config.Image
@@ -72,8 +59,6 @@ add('genericWorkerActive',activeScope==='generic'&&activeAck,
 const preflights=[]
 for(const job of allJobs.filter(x=>['scheduled','deferred'].includes(x.status))){
  try{
-  const raw=docker('run','--rm','--network','none','--entrypoint','node',
-   'hi5central-generic-release-executor:reviewed-e29451c63d6a','-e','console.log("staged")')
   // The actual source host preflight is executed from the reviewed checkout,
   // rather than the worker container, and never provides any lease/secret.
   const p=JSON.parse(execFileSync('node',[
