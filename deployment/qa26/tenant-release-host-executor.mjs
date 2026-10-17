@@ -284,6 +284,13 @@ try{
     environment,buildSha:sha})
   await validate(plan.config)
   if(mode==='--preflight'){
+    // Production preflight must verify a tenant-specific existing API build,
+    // not silently accept an HTML response at the API version endpoint.
+    if(environment==='live'){
+      const current=await currentTenantRevision()
+      if(!SHA.test(String(current?.sha||'')))
+        throw Error('Live tenant release baseline cannot be independently verified.')
+    }
     console.log(JSON.stringify({status:'preflight_pass',environment,host,
       newSha:sha,sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
     process.exit(0)
