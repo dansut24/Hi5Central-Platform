@@ -35,17 +35,21 @@ function semanticRoute(route){
 }
 function leafRoutes(root){
  const list=[]
- const visit=(route)=>{
+ const visit=(route,inheritedPath=null)=>{
   if(!route||typeof route!=='object')return false
+  const ownPath=route?.match?.[0]?.path||null
+  if(ownPath&&inheritedPath&&!samePaths(ownPath,inheritedPath))
+   return false
+  const effectivePath=ownPath||inheritedPath
   const handlers=route.handle
   if(!Array.isArray(handlers)||!handlers.length)return false
   if(handlers.length===1&&handlers[0]?.handler==='subroute'){
    const nested=handlers[0].routes
    if(!Array.isArray(nested)||!nested.length)return false
-   return nested.every(visit)
+   return nested.every(r=>visit(r,effectivePath))
   }
   if(handlers.some(h=>h?.handler==='subroute'))return false
-  list.push({path:route?.match?.[0]?.path||null,handlers})
+  list.push({path:effectivePath,handlers})
   return true
  }
  return visit(root)?list:null
