@@ -13,6 +13,7 @@ import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} from './platformWorkerAudit.js'
 import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
 import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
+import {authoriseDirectCustomerReleaseStages,fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
 import {readGenericTenantScope,enrolTenTenantPilot} from './genericReleaseTenantScope.js'
 import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
@@ -902,6 +903,7 @@ export function registerPlatformAdminRoutes(app) {
     const body=await c.req.json().catch(()=>null)
     const sha=String(body?.buildSha||'').toLowerCase()
     const runUrl=String(body?.ciRunUrl||'')
+    const releaseToCustomers=body?.releaseToCustomers===true
     if(!/^[a-f0-9]{40}$/.test(sha))
       return c.json({error:'Exact release SHA40 required.'},400)
     let certification,smoke
@@ -924,30 +926,58 @@ export function registerPlatformAdminRoutes(app) {
           'SELECT build_sha,status,ci_run_url FROM platform_certified_application_releases',
           'WHERE build_sha=$1 FOR UPDATE',
         ].join(' '),[sha])
-        if(existing.rowCount){
-          if(existing.rows[0].status==='approved'&&existing.rows[0].ci_run_url===runUrl)
-            return {approved:true,alreadyApproved:true,buildSha:sha}
-          throw new Error('This build has a different certification or has been revoked.')
+        const alreadyApproved=existing.rowCount===1
+          &&existing.rows[0].status==='approved'
+          &&existing.rows[0].ci_run_url===runUrl
+        if(existing.rowCount&&!alreadyApproved)
+          throw new Error('This SHA has a different certification or was revoked.')
+        if(!alreadyApproved){
+          const evidence={...certification.evidence,smoke:smoke.smoke,
+            jobs:certification.jobs,githubVerifiedAt:certification.verifiedAt,
+            devVerifiedAt:smoke.verifiedAt}
+          await db.query([
+            'INSERT INTO platform_certified_application_releases',
+            '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
+            "VALUES($1,'approved',$2,$3::jsonb,$4,now())",
+          ].join(' '),[sha,runUrl,JSON.stringify(evidence),auth.session.user_id])
+          await db.query([
+            'INSERT INTO platform_release_fanout_events',
+            '(build_sha,event_type,actor_id,details)',
+            "VALUES($1,'approved',$2,$3::jsonb)",
+          ].join(' '),[sha,auth.session.user_id,JSON.stringify({
+            ciRunUrl:runUrl,origin:'staff-approved-GitHub-ci-verified',
+          })])
         }
-        const evidence={...certification.evidence,smoke:smoke.smoke,
-          jobs:certification.jobs,githubVerifiedAt:certification.verifiedAt,
-          devVerifiedAt:smoke.verifiedAt}
-        await db.query([
-          'INSERT INTO platform_certified_application_releases',
-          '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
-          "VALUES($1,'approved',$2,$3::jsonb,$4,now())",
-        ].join(' '),[sha,runUrl,JSON.stringify(evidence),auth.session.user_id])
-        await db.query([
-          'INSERT INTO platform_release_fanout_events',
-          '(build_sha,event_type,actor_id,details)',
-          "VALUES($1,'approved',$2,$3::jsonb)",
-        ].join(' '),[sha,auth.session.user_id,JSON.stringify({
-          ciRunUrl:runUrl,origin:'staff-approved-GitHub-ci-verified',
-        })])
-        return {approved:true,buildSha:sha,queuedForPlanner:true}
+        if(releaseToCustomers){
+          // One staff decision authorises both customer tracks. These guards
+          // never unpause workers, skip tenant UAT consent or bypass host gates.
+          await authoriseDirectCustomerReleaseStages(db,{
+            sha,actorId:auth.session.user_id,ciRunUrl:runUrl})
+          const plan=await fanoutCertifiedRelease(db,{
+            sha,scope:'generic',deliveryMode:'direct_customer_release',
+            limit:200,
+          })
+          await db.query([
+            'INSERT INTO platform_release_fanout_events',
+            '(build_sha,event_type,actor_id,details)',
+            "VALUES($1,'release_to_customers',$2,$3::jsonb)",
+          ].join(' '),[sha,auth.session.user_id,JSON.stringify({
+            deliveryMode:'direct_customer_release',
+            scanned:plan.scanned,queued:plan.queued,alreadyQueued:plan.alreadyQueued,
+          })])
+          return {approved:true,alreadyApproved,buildSha:sha,
+            releaseToCustomers:true,queued:plan.queued,
+            alreadyQueued:plan.alreadyQueued,scanned:plan.scanned,
+            blocked:plan.blocked,deliveryMode:plan.deliveryMode}
+        }
+        return {approved:true,alreadyApproved,buildSha:sha,
+          queuedForPlanner:true}
+
       })
-      await audit(c,auth.session,'release.certified','release',sha,
-        {ciRunUrl:runUrl,automaticFanout:true})
+      await audit(c,auth.session,
+        releaseToCustomers?'release.published_to_customers':'release.certified',
+        'release',sha,{ciRunUrl:runUrl,automaticFanout:true,
+          releaseToCustomers,queued:saved.queued??null})
       return c.json(saved,saved.alreadyApproved?200:202)
     }catch(error){return c.json({error:String(error.message||error)},409)}
   })
