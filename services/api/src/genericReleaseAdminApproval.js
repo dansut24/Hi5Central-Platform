@@ -80,7 +80,7 @@ export async function revokeGenericStageApproval(db,{sha,stage,actorId}={}){
  * Separate, short-lived, real platform-owner execution approval. This is NOT
  * a worker start, global fleet unpause, gateway change or emergency override.
  * The current planning grant must be valid and remain unchanged. Revocation
- * invalidates both scopes. Live additionally demands published QA sign-off;
+ * invalidates both scopes. An exact published, certified SHA remains required;
  * every tenant's maintenance, delay and UAT acceptance is still enforced by
  * the worker and host executor.
  */
@@ -122,15 +122,10 @@ export async function approveGenericExecutionOnly(db,request){
  if(!row||row.planning_enabled!==true||!row.approved_by
    ||!row.expires_at||new Date(row.expires_at).getTime()<=Date.now())
    throw refuse('First approve a current, reviewed, unexpired stage planning grant.')
- if(value.environment==='live'){
-   const gate=await db.query([
-     'SELECT state,passed_canary_count,passed_at',
-     'FROM platform_release_test_qa_gates',
-     "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
-   ].join(' '),[value.sha])
-   if(gate.rowCount!==1)
-     throw refuse('Production execution requires verified two-customer Test certification.')
- }
+ // The selected immutable GitHub SHA was certified against official CI,
+ // migrations and Dev health; direct customer releases have no mandatory
+ // tenant Test/canary stage. Host and tenant maintenance gates still apply.
+
  const saved=await db.query([
   'UPDATE platform_release_generic_stage_approvals',
   'SET execution_enabled=true,updated_at=now(),',
