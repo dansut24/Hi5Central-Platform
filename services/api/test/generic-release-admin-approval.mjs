@@ -102,15 +102,23 @@ test('execution updates an existing planning row, never unpauses or launches',as
  assert.match(statements.at(-1),/UPDATE platform_release_generic_stage_approvals/)
  assert.ok(statements.every(q=>!q.includes('platform_release_rollout_control')))
 })
-test('Production execution requires a verified platform two-canary gate',async()=>{
+test('direct Managed execution no longer requires tenant Test canary',async()=>{
+ const statements=[]
  const db={query:async(q)=>{
-  if(String(q).includes('SELECT a.build_sha'))return {rows:[{
-    planning_enabled:true,approved_by:user,
-    expires_at:new Date(Date.now()+3600000).toISOString(),
+  statements.push(String(q))
+  if(String(q).includes('SELECT a.build_sha'))return {rowCount:1,rows:[{
+   planning_enabled:true,approved_by:user,
+   expires_at:new Date(Date.now()+3600000).toISOString(),
   }]}
-  return {rowCount:0,rows:[]}
+  if(String(q).startsWith('UPDATE'))return {rowCount:1,rows:[{
+   build_sha:sha,environment:'live',planning_enabled:true,execution_enabled:true,
+  }]}
+  throw Error('Unexpected SQL: '+q)
  }}
- await assert.rejects(approveGenericExecutionOnly(db,{
+ const result=await approveGenericExecutionOnly(db,{
   ...execValid,body:{...execValid.body,environment:'live'},
- }),/two-customer Test certification/)
+ })
+ assert.equal(result.environment,'live')
+ assert.equal(result.execution_enabled,true)
+ assert(!statements.some(s=>s.includes('platform_release_test_qa_gates')))
 })
