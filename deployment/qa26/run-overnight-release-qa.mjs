@@ -65,12 +65,16 @@ const output={
  audit:'H5C_OVERNIGHT_TEN_TENANT_UPGRADE_ACCEPTANCE_V1',
  timestamp:new Date().toISOString(),qaMode:'safe-preflight',
  productionReleaseTriggered:false,
+ actualCustomerUpgradePerformed:false,
  actualCustomerRollbackPerformed:false,
- overnightReleaseOperational:
-  stages[0].passed&&stages[1].passed&&stages[2].passed,
+ preflightPassed:stages.every(stage=>stage.passed),
+ overnightReleaseOperational:false,
+ noGoReason:'Only a real customer deployment and trusted host rollback can prove operational release readiness.',
  stages,
 }
 console.log(JSON.stringify(output,null,2))
 // Return nonzero until the real release is enabled and passing; CI/operations
 // must not treat isolated rollback success as a green Production update.
-if(!output.overnightReleaseOperational)process.exitCode=2
+// The script deliberately never performs a real customer deployment;
+ // therefore it must never report an operational Production rollout.
+ process.exitCode=2
