@@ -206,6 +206,9 @@ function LiveProductionReleaseManagement() {
 
   async function savePolicy(nextMode = policy.updateMode) {
     const next={...policy,updateMode:nextMode}
+    if(!(next.maintenanceWindow?.days||[]).length){
+      setError('Choose at least one maintenance day before saving.');return
+    }
     setPolicy(next)
     await action('policy',async()=>{
       const payload={
@@ -329,10 +332,10 @@ function LiveProductionReleaseManagement() {
       <header><div><h2>Who manages platform updates?</h2><p>Choose whether your administrators approve each release or Hi5Central handles the release flow automatically using your policy.</p></div></header>
       <div className="production-settings-panel-body">
         <div className="hi5-release-policy-grid">
-          <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('admin_controlled')} type="button">
+          <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>setPolicy(current=>({...current,updateMode:'admin_controlled'}))} type="button">
             <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>Hi5Central publishes the update to Test, but your admin chooses what enters UAT and exactly what is promoted to Production.</small></span>
           </button>
-          <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('hi5_managed')} type="button">
+          <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>setPolicy(current=>({...current,updateMode:'hi5_managed'}))} type="button">
             <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>Test releases are checked automatically. Production follows Hi5Central's verified Test gate, your delay and maintenance window; no UAT is required.</small></span>
           </button>
         </div>
