@@ -58,7 +58,12 @@ BEGIN
   END IF;
   INSERT INTO platform_release_generic_approval_audit
     (build_sha,environment,actor_id,action,previous_state,next_state)
-  VALUES (NEW.build_sha,NEW.environment,NEW.approved_by,
+  VALUES (NEW.build_sha,NEW.environment,
+    CASE WHEN NEW.execution_enabled
+      AND (TG_OP='INSERT' OR OLD.execution_enabled IS DISTINCT FROM true)
+      AND NEW.evidence ? 'executionReview'
+    THEN (NEW.evidence #>> '{executionReview,actorId}')::uuid
+    ELSE NEW.approved_by END,
     CASE WHEN NEW.planning_enabled OR NEW.execution_enabled
          THEN 'approved' ELSE 'revoked' END,
     CASE WHEN TG_OP='INSERT' THEN '{}'::jsonb ELSE to_jsonb(OLD) END,
