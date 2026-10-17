@@ -31,6 +31,12 @@ test('ten genuine SQL tenant boundaries: customer rollback holds only its own Li
     'VALUES($1,$2,$3,now()) RETURNING id',
   ].join(' '),['rollback-ci-'+suffix+'@example.invalid','QA rollback actor '+suffix,'synthetic-only'])).rows[0].id
   const poolName='h5rollbackci-'+suffix
+  const predecessorPool=poolName+'-previous'
+  await pool.query([
+    'INSERT INTO platform_runtime_pools',
+    '(id,environment,build_sha,api_target,web_target,state,verified_at,last_seen_at)',
+    "VALUES($1,'live',$2,$3,$4,'verified',now(),now())",
+  ].join(' '),[predecessorPool,B,'ci-predecessor-api.invalid','ci-predecessor-web.invalid'])
   await pool.query([
     'INSERT INTO platform_runtime_pools',
     '(id,environment,build_sha,api_target,web_target,state,verified_at,last_seen_at)',
@@ -222,13 +228,60 @@ test('ten genuine SQL tenant boundaries: customer rollback holds only its own Li
      checkedAt:new Date().toISOString(),apiHealthy:true,
      frontendHealthy:true,gatewaySourceAgreed:false,tenantScopedRouteOnly:true},
    }),/gateway isolation/)
-   const failed=await failCustomerRollback(db,{
-    requestId:selected.id,reason:'Synthetic CI host evidence deliberately refused'})
-   assert.equal(failed.upgradeHoldPreserved,true)
+   // Exercise the full metadata success transition with an isolated,
+   // synthetic trusted-host proof. No production routing authority is used.
+   const verified=await completeCustomerRollback(db,{
+    requestId:selected.id,now:new Date(),
+    proof:{status:'rollback_verified',
+     requestId:selected.id,tenantId:selected.tenant_id,environment:'live',
+     sourceBuildSha:A,observedBuildSha:B,routeGeneration:999,
+     checkedAt:new Date().toISOString(),apiHealthy:true,
+     frontendHealthy:true,gatewaySourceAgreed:true,tenantScopedRouteOnly:true},
+   })
+   assert.equal(verified.state,'verified')
+   assert.equal(verified.upgradeHoldPreserved,true)
+   const updatedAssignment=(await db.query([
+    'SELECT build_sha,generation,pool_id FROM tenant_runtime_assignments',
+    "WHERE tenant_id=$1 AND environment='live'",
+   ].join(' '),[selected.tenant_id])).rows[0]
+   assert.equal(updatedAssignment.build_sha,B)
+   assert.equal(Number(updatedAssignment.generation),999)
+   assert.equal(updatedAssignment.pool_id,predecessorPool)
+   const updatedRoute=(await db.query([
+    'SELECT build_sha,pool_id,state FROM tenant_runtime_route_attestations',
+    "WHERE tenant_id=$1 AND environment='live'",
+   ].join(' '),[selected.tenant_id])).rows[0]
+   assert.equal(updatedRoute.build_sha,B)
+   assert.equal(updatedRoute.pool_id,predecessorPool)
+   assert.equal(updatedRoute.state,'active')
+   const history=await db.query([
+    'SELECT event_type FROM tenant_release_customer_rollback_events',
+    'WHERE request_id=$1 ORDER BY occurred_at,id',
+   ].join(' '),[selected.id])
+   assert.deepEqual(history.rows.map(x=>x.event_type),
+    ['requested','started','verified'])
+   const othersAfter=await db.query([
+    'SELECT count(*)::int n FROM tenant_runtime_assignments',
+    "WHERE tenant_id<>$1 AND build_sha=$2 AND environment='live'",
+    'AND tenant_id=ANY($3::uuid[])',
+   ].join(' '),[selected.tenant_id,A,tenants.map(t=>t.id)])
+   assert.equal(othersAfter.rows[0].n,9)
    const held=await db.query(
     'SELECT active FROM tenant_release_upgrade_holds WHERE tenant_id=$1',
     [selected.tenant_id])
    assert.equal(held.rows[0].active,true)
+   assert.equal((await failCustomerRollback(db,{
+    requestId:selected.id,reason:'Attempt to change a verified terminal request',
+   })).changed,false,'Terminal success cannot be overwritten as failed.')
+   // A second independent tenant remains eligible for its own failing
+   // rollback request: customer-scoped isolation holds across outcomes.
+   const second=await claimNextCustomerRollback(db,{now:new Date()})
+   assert(second&&second.id!==selected.id)
+   const failure=await failCustomerRollback(db,{
+    requestId:second.id,reason:'Disposable CI host evidence intentionally rejected'})
+   assert.equal(failure.upgradeHoldPreserved,true)
+   assert.equal((await db.query('SELECT active FROM tenant_release_upgrade_holds WHERE tenant_id=$1',
+    [second.tenant_id])).rows[0].active,true)
   }finally{
    await db.query('ROLLBACK').catch(()=>{})
    db.release()
