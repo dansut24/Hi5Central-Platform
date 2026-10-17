@@ -56,6 +56,19 @@ add('executionStageApproved',data.approval?.execution_enabled===true&&
  new Date(data.approval.expires_at)>new Date(),'Exact release/stage execution grant')
 add('genericWorkerActive',activeScope==='generic'&&activeAck,
  'Worker scope: '+activeScope+' / source image: '+activeImage)
+// Inspect role identity only; never display, parse or transfer DATABASE_URL.
+const roleProbe="const{Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=await c.query('SELECT current_user AS role,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser');console.log(JSON.stringify(r.rows[0]))}finally{await c.end()}})().catch(e=>{console.error(e.message);process.exitCode=1})"
+for(const [kind,name] of [['planner','hi5central-certified-release-planner'],
+                           ['worker',worker]]){
+ try{
+  const identity=JSON.parse(docker('exec',name,'node','-e',roleProbe))
+  add(kind+'DatabaseLeastPrivilege',identity.superuser===false,
+   kind+' database role '+identity.role+'; superuser='+String(identity.superuser))
+ }catch(error){
+  add(kind+'DatabaseLeastPrivilege',false,
+   'Could not independently verify the '+kind+' PostgreSQL identity.')
+ }
+}
 const preflights=[]
 for(const job of allJobs.filter(x=>['scheduled','deferred'].includes(x.status))){
  try{
