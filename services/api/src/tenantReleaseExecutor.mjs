@@ -420,7 +420,7 @@ async function step(){
 }
 try{
   if(workerScope==='generic')
-    await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor'})
+    await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor',stage:gateway})
   if(preflight){
     const r=await pool.query([
       "SELECT to_regclass('public.platform_certified_application_releases') IS NOT NULL AS certification,",
