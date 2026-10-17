@@ -38,8 +38,8 @@ uses UAT capitalisation. Subdomain assignment must be collision-safe;
   Test continues tracking Dev. No implicit Live approval.
 - **New tenant lifecycle:** completing standard verified onboarding makes a
   tenant eligible for its permitted Test and future certified release scans,
-  after separately verified **real ten-tenant** pilot acceptance and
-  independently approved all-onboarded gate.
+  once the separately approved release scheduler and security gates are
+  enabled. No minimum tenant count is needed to install the platform.
 - **Windows/macOS/Linux agents:** latest central agent channel managed by
   Hi5Central, not tenant-selected; global guarded distribution, signing,
   compatibility check, reversible rollout and enrolled device trust required.
@@ -69,15 +69,17 @@ Windows qualification orchestration+software catalogue+vendor sources,
 cross-platform vulnerability intelligence, refresh sync jobs and RMM
 patching. The standalone Windows qualifier endpoint is an **external RMM
 agent**, not an extra VPS container: install can prepare its server tables,
-but full readiness MUST remain blocked until a real connected Windows
-qualification device is registered and validated for install/uninstall/
-upgrade/rollback/cleanup.
+and be marked NOT CONFIGURED after a clean VPS rebuild until a Windows
+qualification device is re-enrolled and verified. Its absence does **not**
+block core installation, and qualification dispatch stays disabled.
 
-External prerequisites provided by the operator: managed DNS/registrar,
-SMTP credentials, image registry access, Stripe/payment settings,
-signing credentials, domain/TLS control, safe backup destination, TURN
-public IP/relay ports and authorised administrator bootstrap. Never
-embed or log these secrets in public repos or the installer output.
+Optional external credentials can be connected **after** installation or
+skipped: SMTP, Stripe payments, public DNS/TLS, remote TURN relay, agent/viewer
+signing credentials and the Windows qualification device. All server-side
+software and integration settings are still installed, with accurate status
+NOT CONFIGURED/SKIPPED where appropriate. A safe administrator bootstrap,
+pinned image registry artifacts and backup destination remain required for
+core installation. Never log credentials or pretend skipped services work.
 
 ## Database reset and retained catalogue
 
@@ -97,11 +99,15 @@ historical queue rows and Windows runner device registration are NOT
 imported. Rebuild NVD/OSV/MSRC/CISA, OUI and other public threat intelligence
 from approved sources, independently verifying seed and refresh jobs.
 
-Full old-VPS backup + encrypted off-host catalogue seed + **tested fresh DB
-import** + installers/TURN/SMTP/agent/viewer/qualification/rollback tests
-are required before the VPS reset is independently approved. Optional
-Postgres browser administration is loopback-only pgAdmin using a separately
-audited read-only database role.
+Full old-VPS backup, encrypted off-host catalogue seed, **tested fresh DB
+import**, core service health, restart/idempotency, and private pgAdmin
+**full-edit** DB checks are required before the VPS reset. Tests needing
+missing SMTP, public TURN, signing, qualification endpoint or payment
+credentials can be skipped and separately validated later. Private pgAdmin
+is mandatory on the managed VPS: bind to loopback, access through SSH/VPN,
+use its own web login and a distinct application DB admin role with complete
+record-edit rights and controlled schema maintenance. Do not expose it
+or database port 5432 publicly, or use a cluster superuser from the UI.
 
 ## Source repository inventory and cleanup boundaries
 
@@ -120,17 +126,27 @@ agent working directory. No deletion of other agent/viewer files, patch
 scripts, git history, release workflows, migration SQL or QA evidence
 until protected PRs and build checks prove replacement coverage.
 
-## Clean rebuild acceptance
+## Clean rebuild acceptance — zero tenants
 
-The managed installer must be repeatable/idempotent; support `--dry-run`,
-`--verify` and `--restore-catalogue`; pin image digests and agent/viewer
-SHA manifests; validate config/SMTP, signup/MFA, new tenant provisioning,
-Caddy routes, TURN ICE relaying, viewer OS actions, RMM agent lifecycle,
-qualification on a Windows runner, Avalonia portal registration, catalogue
-multi-OS data and vulnerability sync.
+The managed installer must be repeatable/idempotent and provide `--dry-run`,
+`--verify-core`, and `--restore-catalogue`. It must pin image/agent/viewer
+digests, apply migrations to NEW PostgreSQL volume, restore the checked
+global software catalogue and sources, bootstrap Admin, Caddy, Control,
+ITSM/Portal, RMM, Redis, release scheduler, backups and private pgAdmin.
+It must start with **zero tenants** and no old ITSM/RMM operational data.
 
-Acceptance: ten NEW genuine trial tenants (five Managed, five Custom,
-two additionally RMM), Test coverage, canary gates, Managed scheduled
-Production, Custom UAT/customer-approved Production, release audit and
-fenced rollback. Then separately authorise default future onboarding.
-Never treat synthetic CI approvals as real customer approvals.
+The browser-based database tool must enable **SELECT, INSERT, UPDATE and
+DELETE** of application records (plus separately controlled schema-owner
+operations), not only read-only queries. Verify access against a disposable
+table with audit/backup discipline. No superuser credentials in pgAdmin.
+
+SMTP, Stripe/payments, public TURN connectivity, code signing/publishing,
+Windows qualification endpoint and other external integrations can be
+configured later or skipped. Mark each READY/NOT CONFIGURED/SKIPPED/FAILED
+independently. Their absence cannot block clean core setup, but affected
+dependent functions stay unavailable until tested.
+
+**No ten-tenant test or minimum number of new tenants is required before
+the fresh VPS install/reset.** Additional signup, agent enrollment, software
+qualification and ITSM release automation testing can follow when the blank
+platform is installed and the operator chooses to configure them.
