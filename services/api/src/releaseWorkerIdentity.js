@@ -15,6 +15,11 @@ export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=nul
    'session_user::text AS login_role,',
    'r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolbypassrls,r.rolcanlogin,',
    "has_table_privilege(current_user,'public.platform_release_rollout_control','UPDATE') AS can_unpause,",
+   "has_table_privilege(current_user,'public.platform_release_test_qa_gates','INSERT') OR",
+   "has_table_privilege(current_user,'public.platform_release_test_qa_gates','UPDATE') AS can_forge_canary_gate,",
+   "CASE WHEN to_regprocedure('public.hi5_release_record_verified_test_gate(text,integer)') IS NULL",
+   'THEN false ELSE',
+   "has_function_privilege(current_user,'public.hi5_release_record_verified_test_gate(text,integer)','EXECUTE') END AS can_verify_canary_gate,",
    "CASE WHEN to_regprocedure('public.hi5_release_emergency_pause(text,text)') IS NULL",
    'THEN false ELSE',
    "has_function_privilege(current_user,'public.hi5_release_emergency_pause(text,text)','EXECUTE') END AS can_emergency_pause",
@@ -23,8 +28,12 @@ export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=nul
  const r=result.rows[0]
  if(!r||r.effective_role!==expectedRole||r.login_role!==expectedRole||!r.rolcanlogin||
    r.rolsuper||r.rolcreatedb||r.rolcreaterole||r.rolbypassrls||
-   r.can_unpause)
+   r.can_unpause||r.can_forge_canary_gate)
    throw Error('Generic release database credential is not a dedicated restricted login.')
+ if(kind==='planner'&&!r.can_verify_canary_gate)
+   throw Error('Generic planner requires database-verified Test quality gate permission.')
+ if(kind==='executor'&&r.can_verify_canary_gate)
+   throw Error('Generic executor must never create Test quality gates.')
  if(kind==='planner'&&r.can_emergency_pause)
    throw Error('The generic planner must never hold emergency execution permissions.')
  if(kind==='executor'&&!r.can_emergency_pause)
