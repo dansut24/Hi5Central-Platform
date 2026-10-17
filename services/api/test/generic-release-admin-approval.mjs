@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {validatedGenericPlanningRequest,approveGenericPlanningOnly,
+ validatedGenericExecutionRequest,approveGenericExecutionOnly,
  revokeGenericStageApproval} from '../src/genericReleaseAdminApproval.js'
 
 const sha='d'.repeat(40)
@@ -56,4 +57,60 @@ test('revoke resets BOTH planning and execution approval',async()=>{
  const result=await revokeGenericStageApproval(db,{sha,stage:'uat',actorId:user})
  assert.match(sql,/planning_enabled=false,execution_enabled=false/)
  assert.equal(result.execution_enabled,false)
+})
+
+const execValid={
+ sha,actorId:user,body:{environment:'uat',confirmation:'AUTHORISE_STAGE_EXECUTION',
+  expiresInHours:2,
+  reason:'UAT host preflight passed for the reviewed Custom customer cohort.',
+  reviewedChange:'https://github.com/dansut24/Hi5Central-Platform/pull/79'},
+}
+test('execution requires separate explicit approval and never accepts scope bypass',()=>{
+ const p=validatedGenericExecutionRequest(execValid)
+ assert.equal(p.hours,2)
+ for(const invalid of [
+  {...execValid,body:{...execValid.body,confirmation:'AUTHORISE_PLANNING_ONLY'}},
+  {...execValid,body:{...execValid.body,expiresInHours:24}},
+  {...execValid,body:{...execValid.body,deployNow:false}},
+  {...execValid,body:{...execValid.body,bypassUat:false}},
+  {...execValid,body:{...execValid.body,unpause:true}},
+  {...execValid,body:{...execValid.body,reviewedChange:'not'}},
+  {...execValid,body:{...execValid.body,reason:'go'}},
+ ]) assert.throws(()=>validatedGenericExecutionRequest(invalid))
+})
+test('execution cannot be approved unless a current exact planning grant exists',async()=>{
+ const db={query:async()=>({rows:[],rowCount:0})}
+ await assert.rejects(approveGenericExecutionOnly(db,execValid),
+  /First approve a current/)
+})
+test('execution updates an existing planning row, never unpauses or launches',async()=>{
+ const statements=[]
+ const db={query:async(q,values)=>{
+  statements.push(String(q))
+  if(String(q).startsWith('SELECT'))return {rowCount:1,rows:[{
+   planning_enabled:true,approved_by:user,
+   expires_at:new Date(Date.now()+3600000).toISOString(),
+  }]}
+  if(String(q).startsWith('UPDATE'))return {rowCount:1,rows:[{
+   build_sha:sha,environment:'uat',planning_enabled:true,
+   execution_enabled:true,expires_at:new Date(Date.now()+3600000),
+  }]}
+  throw Error('Unexpected SQL')
+ }}
+ const result=await approveGenericExecutionOnly(db,execValid)
+ assert.equal(result.execution_enabled,true)
+ assert.match(statements.at(-1),/UPDATE platform_release_generic_stage_approvals/)
+ assert.ok(statements.every(q=>!q.includes('platform_release_rollout_control')))
+})
+test('Production execution requires a verified platform two-canary gate',async()=>{
+ const db={query:async(q)=>{
+  if(String(q).includes('SELECT a.build_sha'))return {rows:[{
+    planning_enabled:true,approved_by:user,
+    expires_at:new Date(Date.now()+3600000).toISOString(),
+  }]}
+  return {rowCount:0,rows:[]}
+ }}
+ await assert.rejects(approveGenericExecutionOnly(db,{
+  ...execValid,body:{...execValid.body,environment:'live'},
+ }),/two-customer Test certification/)
 })
