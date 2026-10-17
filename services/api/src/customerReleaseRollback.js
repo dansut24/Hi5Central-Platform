@@ -58,7 +58,7 @@ export function assessCustomerRollback({
     compatibilityReviewedAt:compatibility.reviewed_at}
 }
 
-async function snapshot(db,tenantId,{lockTenant=false}={}){
+async function snapshot(db,tenantId,{lockTenant=false,now=new Date()}={}){
   if(!UUID.test(format(tenantId)||''))throw deny('Invalid tenant identity.',400)
   // When requesting, serialize with the per-tenant database trigger that
   // protects scheduled/claimed Live jobs under a customer upgrade hold.
@@ -105,7 +105,7 @@ async function snapshot(db,tenantId,{lockTenant=false}={}){
   }
   const availability=assessCustomerRollback({
     tenant,assignment:current,route:route.rows[0],lastJob,compatibility,
-    activeRollout:active.rowCount>0,activeRequest:request.rowCount>0,
+    activeRollout:active.rowCount>0,activeRequest:request.rowCount>0,now,
   })
   const recent=await db.query([
     'SELECT id,source_build_sha,target_build_sha,state,reason,',
@@ -127,12 +127,14 @@ export async function requestCustomerRollback({db,tenantId,userId,
   if(confirmed!==true||!SHA.test(format(expectedCurrentSha)||'')
     ||!SHA.test(format(targetBuildSha)||''))
     throw deny('Confirm the exact current and previous release versions.',400)
+  if(expectedCurrentSha===targetBuildSha)
+    throw deny('The rollback target must differ from the current Production release.',400)
   const note=String(reason||'').trim()
   if(note.length<20||note.length>1000)
     throw deny('Provide 20–1000 characters explaining the rollback.',400)
   // This function REQUIRES a caller-managed DB transaction. It acquires the
   // tenant lock ahead of the upgrade-hold trigger's tenant lock.
-  const state=await snapshot(db,tenantId,{lockTenant:true})
+  const state=await snapshot(db,tenantId,{lockTenant:true,now})
   const selected=state.availability
   if(!selected.available)throw deny(selected.reason)
   if(selected.currentBuildSha!==expectedCurrentSha
