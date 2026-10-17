@@ -344,6 +344,18 @@ async function step(){
       await gate.assertFencedLease()
       await persistVerified(job,ctx,{...result,elapsedMs:Date.now()-started})
       durableSuccess=true
+      // Confirmation follows the durable event commit. If this call is lost,
+      // the independent watchdog checks the same fenced DB proof before restore.
+      try{
+        const confirmation=await shell('node',[
+          'deployment/qa26/tenant-release-host-executor.mjs',
+          gateway,ctx.slug,job.buildSha,'--confirm',result.backup,
+        ],{H5C_RELEASE_JOB_ID:job.id},25000)
+        if(!confirmation.includes('watchdog_confirmed'))
+          throw Error('Exact host watchdog confirmation missing.')
+      }catch(error){
+        console.error('POSTCOMMIT_GENERIC_WATCHDOG_CONFIRM_WARNING',error.message)
+      }
       // A committed, host-verified job may NEVER be downgraded because
       // worker telemetry became temporarily unavailable.
       await heartbeat('idle').catch(error=>
