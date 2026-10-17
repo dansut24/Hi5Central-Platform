@@ -55,8 +55,8 @@ export async function claimNextCustomerRollback(db,{now=new Date()}={}){
   "AND coalesce((ts.modules->>'itsm')::boolean,false)=true",
   "AND c.state='approved' AND c.schema_backward_compatible=true",
   'AND c.immutable_images_verified=true AND c.recovery_snapshot_verified=true',
-  'AND c.reviewed_by IS NOT NULL
-  AND date_trunc('milliseconds',c.reviewed_at)=r.compatibility_reviewed_at',
+  'AND c.reviewed_by IS NOT NULL',
+  "AND date_trunc('milliseconds',c.reviewed_at)=r.compatibility_reviewed_at",
   'AND c.expires_at>now() AND a.generation=r.source_route_generation',
   "AND v.state='active'",
   'AND NOT EXISTS (SELECT 1 FROM tenant_release_rollout_jobs j',
