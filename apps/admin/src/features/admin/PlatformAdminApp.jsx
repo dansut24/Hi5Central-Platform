@@ -903,7 +903,11 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
   return <>
     <PageHeading view="releases"/>
     <CertifiedReleaseControls api={api} canApprove={canApproveSharedReleases}/>
-    <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
+    <details className="rmm-card" style={{padding:12,marginBottom:18}}>
+      <summary style={{cursor:'pointer',fontWeight:600}}>Advanced release diagnostics and rollout scope</summary>
+      <p style={{fontSize:12,margin:'10px 0'}}>For QA operations and emergency intervention. These are not normal release steps.</p>
+      <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
+    </details>
     <div className="rmm-card" style={{padding:16,marginBottom:18}}>
       <div className="rmm-card-heading"><div>
         <span className="rmm-eyebrow">RELEASE ENVIRONMENTS</span>
