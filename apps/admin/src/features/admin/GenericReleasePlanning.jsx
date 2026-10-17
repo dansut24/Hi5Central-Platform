@@ -10,8 +10,16 @@ const statusLabel=v=>v==='eligible'?'Ready to schedule':v==='approval_required'?
  * Platform-Admin generic release preview: human review and planning only.
  * Backend does not expose an execution grant, global unpause or route writer.
  */
-export function GenericReleasePlanning({api,certifications=[],canApprove=false}){
+export function GenericReleasePlanning({api,canApprove=false}){
+ const [certifications,setCertifications]=useState([])
  const eligible=useMemo(()=>certifications.filter(x=>x.status==='approved'),[certifications])
+ useEffect(()=>{
+  let active=true
+  api('/releases/certifications').then(r=>{
+    if(active)setCertifications(r.certifications||[])
+  }).catch(()=>{})
+  return()=>{active=false}
+ },[api])
  const [selected,setSelected]=useState('')
  const [preview,setPreview]=useState(null)
  const [details,setDetails]=useState(null)
