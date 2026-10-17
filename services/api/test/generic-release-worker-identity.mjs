@@ -26,7 +26,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
    assertRestrictedGenericDatabaseIdentity(admin,{kind:'planner'}),
    /dedicated restricted login/)
   await assert.rejects(
-   assertRestrictedGenericDatabaseIdentity(admin,{kind:'executor'}),
+   assertRestrictedGenericDatabaseIdentity(admin,{kind:'executor',stage:'uat'}),
    /dedicated restricted login/)
   await admin.query("CREATE ROLE "+planner+" LOGIN PASSWORD '"+password+"'")
   await admin.query("CREATE ROLE "+worker+" LOGIN PASSWORD '"+password+"'")
