@@ -1,0 +1,33 @@
+name: Marketing homepage — build and preservation checks
+on:
+  pull_request:
+    paths:
+      - "apps/itsm/src/features/marketing/**"
+      - "scripts/verify-marketing-home.mjs"
+      - ".github/workflows/marketing-homepage.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  marketing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - name: Confirm existing marketing/signup routing
+        run: node scripts/verify-marketing-home.mjs
+      - name: Install locked ITSM build dependencies
+        run: npm ci --prefix apps/itsm --ignore-scripts --no-audit --no-fund
+      - name: Build the full ITSM web bundle
+        run: npm run build --prefix apps/itsm
+      - name: Verify marketing assets are bundled
+        run: |
+          test -f apps/itsm/dist/index.html
+          grep -R -l "Example interface" apps/itsm/dist/assets/*.js >/dev/null
+          grep -R -l "h5m-hero" apps/itsm/dist/assets/*.css >/dev/null
+          echo 'PASS: premium marketing homepage included in compiled bundle.'
