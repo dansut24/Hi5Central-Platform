@@ -14,6 +14,7 @@ COPY services/api/src/tenantReleaseQueue.js ./tenantReleaseQueue.js
 COPY services/api/src/releaseQaCohort.js ./releaseQaCohort.js
 COPY services/api/src/genericReleaseAuthorization.js ./genericReleaseAuthorization.js
 COPY services/api/src/certifiedReleaseFanout.js ./certifiedReleaseFanout.js
+COPY services/api/src/releaseWorkerIdentity.js ./releaseWorkerIdentity.js
 COPY services/api/src/releaseFanoutDaemon.mjs ./releaseFanoutDaemon.mjs
 RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js \
  && node --check releaseQaCohort.js && node --check genericReleaseAuthorization.js \
