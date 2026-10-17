@@ -8,6 +8,7 @@ on:
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/test/generic-release-postgres.mjs'
+      - 'services/api/test/generic-release-emergency-pause.mjs'
       - 'services/api/test/generic-release-failure-recovery.mjs'
       - 'apps/admin/src/features/admin/GenericReleasePlanning.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
@@ -18,6 +19,7 @@ on:
       - 'services/api/src/tenantReleaseExecutor.mjs'
       - 'services/api/test/generic-release-discovery.mjs'
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
+      - 'services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql'
       - 'deployment/qa26/tenant-release-host-executor.mjs'
       - 'deployment/qa26/Dockerfile.certified-release-fanout'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
@@ -205,5 +207,6 @@ jobs:
           RELEASE_WORKER_SCOPE=generic RELEASE_GENERIC_WORKER_ACK=reviewed-stage-approval-only RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
+          node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
