@@ -26,6 +26,7 @@ on:
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
       - 'services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql'
       - 'services/api/migrations/platform-admin/168_verified_test_canary_gate_least_privilege.sql'
+      - 'services/api/migrations/platform-admin/169_generic_release_tenant_scope.sql'
       - 'deployment/qa26/tenant-release-host-executor.mjs'
       - 'deployment/qa26/Dockerfile.certified-release-fanout'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
@@ -220,6 +221,7 @@ jobs:
           node --test test/generic-release-worker-identity.mjs
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
+          node --check test/generic-release-ten-tenant-postgres.mjs
           node --test test/generic-release-ten-tenant-postgres.mjs
           node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
