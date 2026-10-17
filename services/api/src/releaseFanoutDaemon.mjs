@@ -7,6 +7,7 @@
 import pg from 'pg'
 import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
 import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
+import {assertRestrictedGenericDatabaseIdentity} from './releaseWorkerIdentity.js'
 
 // Default is immutable QA allowlist. Generic planning requires deliberate
 // environment opt-in AND independently approved per-release/per-stage DB rows.
@@ -86,6 +87,8 @@ async function cycle(){
 }
 try{
  await assertSchema()
+ if(plannerScope==='generic')
+  await assertRestrictedGenericDatabaseIdentity(pool,{kind:'planner'})
  if(verify)console.log(JSON.stringify({type:'RELEASE_PLANNER_PREFLIGHT_PASS',
   scope:plannerScope,qaTenants:qaTenantSlugs?.length||0,routeChanges:false}))
  else{
