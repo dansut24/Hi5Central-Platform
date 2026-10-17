@@ -34,13 +34,13 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   const scan=new Map((data.fanout||[]).map(c=>[c.build_sha,c]))
   async function approve(){
     if(!selected||!runUrl){setError('Choose a published release and its exact official GitHub Actions run.');return}
-    if(!window.confirm('Certify the verified Dev release '+short(selected)+'? This queues eligible customers during their own maintenance windows, NOT immediate deployment.'))return
+    if(!window.confirm('Certify the verified Dev release '+short(selected)+'? This certifies the release only. Scheduling still requires separate reviewed stage planning approval.'))return
     setBusy('approve');setError('');setMessage('')
     try{
       await api('/releases/certifications/approve',{
         method:'POST',body:JSON.stringify({buildSha:selected,ciRunUrl:runUrl.trim()}),
       })
-      setMessage('Certification recorded. Eligible tenant jobs will be planned; deployment windows still apply.')
+      setMessage('Release certified. Review the customer rollout planner and obtain stage-specific scheduling approval before any jobs are queued.')
       await refresh()
     }catch(e){setError(e.message||'Release certification failed.')}
     finally{setBusy('')}
@@ -60,7 +60,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       <div>
         <span className="rmm-eyebrow">DEV → RELEASE → TENANT SCHEDULE</span>
         <h2>Certified application releases</h2>
-        <p>Only a human-approved Dev build with verified GitHub tests, security, migrations and frontend/API smoke checks can enter the automatic customer queue.</p>
+        <p>Only certified Dev builds with verified GitHub tests, migrations, security and API/frontend smoke checks can be considered for customer scheduling.</p>
       </div>
       <button className="rmm-secondary compact" type="button" onClick={refresh} title="Refresh release fanout"><RefreshCw size={15}/> Refresh</button>
     </div>
@@ -106,7 +106,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       </table>
     </div>
     <p style={{marginTop:10,fontSize:12,opacity:.75}}>
-      Approval creates scheduled queue entries only. The global pause, customer windows, Custom UAT acceptance, gateway locks and automatic rollback remain separate requirements.
+      Certification alone neither schedules nor deploys a customer release. Stage-specific planning and execution authorisations, customer windows, Custom UAT acceptance and recovery controls remain independent requirements.
     </p>
   </section>
 }
