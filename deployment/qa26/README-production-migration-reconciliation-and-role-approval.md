@@ -72,3 +72,50 @@ stage planning AND separate execution approval, independent preflight and contro
 observed activation in each tenant maintenance window.
 Managed Production requires separate QA evidence and independently reconciled Live gateway sources.
 No migration, role, approval, tenant route or worker was changed by this review.
+
+
+## Executable read-only certification added after initial review
+
+- services/api/src/releaseMigrationReadiness.mjs audits migrations 155-167 and
+  the historical migration ledger under BEGIN READ ONLY. Actual Production
+  output on 2026-10-17: 6/12 migration surface groups present, zero of these
+  twelve files in the ledger; incomplete 155,156,157,160,166,167.
+- services/api/src/releaseCatalogFingerprint.mjs emits canonical
+  schema-structure SHA256 digests from GitHub CI's migrated PostgreSQL 17
+  (relation columns, defaults, constraints, indexes and triggers).
+  A Production structural digest comparison remains a review requirement.
+  Do not consider a matching digest evidence of ACL, ownership or data safety.
+- Dedicated generic startup boundaries (enforced in code AND CI):
+  planner must authenticate as hi5_release_generic_planner;
+  Test executor as hi5_release_generic_exec_test;
+  UAT executor as hi5_release_generic_exec_uat;
+  Live executor as hi5_release_generic_exec_live.
+  A session that changes effective PostgreSQL identity via SET ROLE is refused.
+  All must be actual non-superuser LOGIN identities without CREATEDB,
+  CREATEROLE or BYPASSRLS. An executor needs its explicit pause-only
+  function grant; the planner must not receive it.
+- Approved DBA must additionally scope **table and row-level** grants
+  to the exact required statements and allowed stage; the startup role
+  check is an important guard but is not a substitute for ACL/RLS review.
+  The UAT worker currently stages a Live candidate image/pool without
+  switching any Live customer route, so this limited cross-stage metadata
+  workflow must be explicitly evaluated before issuing grants.
+- GitHub CI disposable role tests (no Production role creation) check
+  authentic separate login connections, denied superuser startup, denied
+  direct unpause, absent executor pause grant and excessive planner grant.
+- Existing workers run old QA-scoped images with unless-stopped restart
+  policy. Before any activation, the reviewed operator must prevent them
+  from restarting and competing for claimed jobs. Do not disable them
+  prematurely while migration, image replacement and rollback remain pending.
+- The generic planner's optional approval-schema preflight previously
+  generated malformed SQL (a missing comma); PR #79 now fixes this and
+  runs actual generic planner preflight through CI with a restricted account.
+
+**GO criteria for any real Custom UAT job:** protected PR review/merge,
+approved database backup and restoration proof, full catalog/ledger repair,
+exact role and ACL acceptance, reviewed labelled images, retired legacy
+claimants, an independent time-limited UAT planning approval AND a separate
+execution approval in the Admin Centre, the global switch's controlled
+observed UAT-only change, current gateway preflight and a valid per-tenant
+maintenance window. A missing criterion means NO-GO. Live has all these
+plus independent Caddy reconciliation, and is still NO-GO.
