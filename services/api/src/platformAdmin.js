@@ -14,6 +14,7 @@ import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} f
 import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
 import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
+import {readGenericTenantScope,enrolTenTenantPilot} from './genericReleaseTenantScope.js'
 import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
 import {
   cancelSoftwareQualificationQueue,
@@ -744,6 +745,41 @@ export function registerPlatformAdminRoutes(app) {
       pool.query('SELECT build_sha,version_label,title,published_at FROM hi5central_published_release_notes ORDER BY published_at DESC LIMIT 80'),
     ])
     return c.json({certifications:certified.rows,fanout:checkpoints.rows,published:published.rows})
+  })
+
+  // Explicitly scoped generic rollout admission. The initial mode is PILOT
+  // with zero eligible tenants; no general-mode endpoint exists until real
+  // ten-customer upgrade + rollback acceptance and host security approval.
+  app.get('/api/platform/v1/releases/generic-tenant-scope',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    try{return c.json(await readGenericTenantScope(pool))}
+    catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
+  })
+
+  app.post('/api/platform/v1/releases/generic-tenant-scope/pilot',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(!member.rowCount)
+      return c.json({error:'Active platform owner/admin authorisation required.'},403)
+    try{
+      const result=await withTransaction(db=>enrolTenTenantPilot(db,{
+        body:await c.req.json().catch(()=>null),actorId:auth.session.user_id,
+      }))
+      await audit(c,auth.session,'release.generic_ten_tenant_pilot_enrolled','release',
+        'generic_pilot',{managed:result.managed,custom:result.custom,
+          rmmEntitled:result.rmmEntitled,reviewedScope:'pilot',
+          rolloutUnpaused:false})
+      return c.json({pilot:result,workerStarted:false,globallyUnpaused:false},202)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
   })
 
   // Read-only preview of all eligible tenants for one certified revision.
