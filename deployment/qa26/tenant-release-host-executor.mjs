@@ -190,6 +190,7 @@ async function assertCurrentFencedHostLease(){
     "AND j.lease_expires_at>now() AND j.environment='"+environment+"'",
     "AND j.build_sha='"+sha+"' AND t.slug='"+slug+"'",
     "AND t.status='active' AND c.status='approved'",
+    'AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true',
     "AND ((j.environment='test' AND p.test_auto_sync=true)",
     "OR (j.environment='uat' AND p.update_mode='admin_controlled' AND p.uat_auto_stage=true)",
     "OR (j.environment='live' AND",
