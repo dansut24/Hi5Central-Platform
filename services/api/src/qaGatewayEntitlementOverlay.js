@@ -53,8 +53,13 @@ export function renderQaGatewayEntitlementOverlay(source,verifiedTenants){
  const managedUat=hosts(cohort.filter(x=>x.mode==='hi5_managed')
   .flatMap(x=>[x.slug+'-uat.hi5central.com',
    x.slug+'-uat-portal.hi5central.com']))
- const missingRmm=hosts(cohort.filter(x=>!x.rmm)
-  .map(x=>x.slug+'-rmm.hi5central.com'))
+ const missingRmm=hosts([
+  ...cohort.filter(x=>!x.rmm).map(x=>x.slug+'-rmm.hi5central.com'),
+  // Live-only RMM means *all* UAT/Test RMM host aliases are forbidden,
+  // even for the two customers entitled to their one Live RMM instance.
+  ...cohort.flatMap(x=>[x.slug+'-test-rmm.hi5central.com',
+   x.slug+'-uat-rmm.hi5central.com']),
+ ])
  const uat=[
   '    '+markers[0],
   '    @qaManagedUatDenied host '+managedUat,
@@ -66,9 +71,9 @@ export function renderQaGatewayEntitlementOverlay(source,verifiedTenants){
  ].join('\n')
  const rmm=[
   '    '+markers[2],
-  '    @qaNonRmmDenied host '+missingRmm,
-  '    handle @qaNonRmmDenied {',
-  '        respond "RMM is not enabled for this tenant" 404',
+  '    @qaRmmDenied host '+missingRmm,
+  '    handle @qaRmmDenied {',
+  '        respond "RMM is available only on entitled Live tenants" 404',
   '    }',
   '    '+markers[3],
   '',
@@ -82,6 +87,8 @@ export function expectedQaDeniedAliases(verifiedTenants){
   managedUat:cohort.filter(x=>x.mode==='hi5_managed')
    .flatMap(x=>[x.slug+'-uat.hi5central.com',x.slug+'-uat-portal.hi5central.com']),
   nonRmm:cohort.filter(x=>!x.rmm).map(x=>x.slug+'-rmm.hi5central.com'),
+  sandboxRmm:cohort.flatMap(x=>[x.slug+'-test-rmm.hi5central.com',
+    x.slug+'-uat-rmm.hi5central.com']),
   rmmAllowed:cohort.filter(x=>x.rmm).map(x=>x.slug+'-rmm.hi5central.com'),
  }
 }
