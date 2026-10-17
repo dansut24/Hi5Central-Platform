@@ -68,9 +68,20 @@ try{
  const ledger=await p.query('SELECT version FROM schema_migrations WHERE version=ANY($1::text[])',[expected]);
  const applied=new Set(ledger.rows.map(x=>x.version));
  const missingMigrations=expected.filter(id=>!applied.has(id));
+ const expectedRoles=['hi5_release_generic_planner',
+  'hi5_release_generic_exec_test','hi5_release_generic_exec_uat',
+  'hi5_release_generic_exec_live'];
+ const roles=await p.query('SELECT rolname,rolcanlogin,rolsuper,rolbypassrls',
+  'FROM pg_roles WHERE rolname=ANY($1::text[])',[expectedRoles]);
+ const currentAssignments=await p.query([
+  'SELECT t.slug,a.build_sha,a.generation',
+  'FROM tenant_runtime_assignments a JOIN tenants t ON t.id=a.tenant_id',
+  "WHERE a.environment='live' AND t.slug=ANY($1::text[])",
+ ].join(' '),[tenants.rows.map(t=>t.slug)]);
  await p.query('ROLLBACK');
  console.log(JSON.stringify({paused,active,tenants:tenants.rows,
-  migrations:result.rows,missingMigrations}));
+  migrations:result.rows,missingMigrations,expectedRoles,
+  roles:roles.rows,currentAssignments:currentAssignments.rows}));
 }finally{await p.end()}
 `
 const gate={
@@ -82,7 +93,8 @@ try{
  const control=JSON.parse(data.trim())
  gate.controls={globallyPaused:control.paused,activeDeploymentJobs:control.active,
    migrations:control.migrations,missingMigrationLedger:control.missingMigrations,
-   qaTenants:control.tenants.length}
+   qaTenants:control.tenants.length,restrictedDatabaseRoles:control.roles,
+   liveAssignments:control.currentAssignments.length}
  if(control.paused!==true)gate.reasons.push('Fleet is not paused; maintenance safety review needed.')
  if(control.active!==0)gate.reasons.push('A release cutover is currently running.')
  if(control.migrations.some(row=>!row.installed))
@@ -90,6 +102,15 @@ try{
  if(control.missingMigrations?.length)
   gate.reasons.push(control.missingMigrations.length+
    ' historical/new release migration ledger entries require reviewed reconciliation.')
+ const healthyRoles=new Set((control.roles||[]).filter(
+  r=>r.rolcanlogin&&!r.rolsuper&&!r.rolbypassrls).map(r=>r.rolname))
+ const missingRoles=control.expectedRoles.filter(role=>!healthyRoles.has(role))
+ if(missingRoles.length)
+  gate.reasons.push('Dedicated LOGIN and non-bypass release roles not active: '+
+   missingRoles.join(', ')+'.')
+ if(control.currentAssignments.length!==control.tenants.length)
+  gate.reasons.push('Live tenant baseline assignments missing for '+
+   (control.tenants.length-control.currentAssignments.length)+' customer(s).')
  const mounted=await docker('exec','hi5central-web','cat','/etc/caddy/Caddyfile')
  const host=await docker('run','--rm','--network','none','--mount',
   'type=bind,source='+hostFile+',target=/gateway/Caddyfile,readonly',
@@ -138,7 +159,8 @@ try{
    let parsed=null
    if(contentType.includes('json')){try{parsed=JSON.parse(body)}catch{}}
    result.apiVersionHttp=version.status
-   result.apiJsonShaVerified=version.status===200&&SHA.test(String(parsed?.sha||''))
+   result.apiSha=SHA.test(String(parsed?.sha||''))?parsed.sha:null
+   result.apiJsonShaVerified=version.status===200&&result.apiSha!==null
    if(environment==='live'){
     const [manifest,frontend]=await Promise.all([
      fetch(url+'/release-manifest.json',{signal:AbortSignal.timeout(6500),redirect:'manual'}),
@@ -146,9 +168,10 @@ try{
     ])
     let release=null
     if(manifest.ok){try{release=await manifest.json()}catch{}}
+    result.frontendSha=SHA.test(String(release?.sha||''))?release.sha:null
     result.frontendManifestVerified=manifest.status===200
-      &&SHA.test(String(release?.sha||''))
-      &&frontend.status===200
+      &&result.frontendSha!==null&&frontend.status===200
+    result.exactApiFrontendMatch=result.apiSha!==null&&result.apiSha===result.frontendSha
    }
   }catch(e){result.error=String(e?.name||'unreachable')}
   return result
@@ -160,6 +183,45 @@ try{
  const broken=gate.customers.filter(x=>!x.apiJsonShaVerified)
  if(broken.length)gate.reasons.push(broken.length+' of '+targets.length+
    ' customer endpoints have no verified same-origin API build.')
+ const liveMismatch=gate.customers.filter(x=>x.environment==='live'
+   &&x.exactApiFrontendMatch!==true)
+ if(liveMismatch.length)
+  gate.reasons.push(liveMismatch.length+
+   ' Live customer(s) lack a matched immutable API and frontend build.')
+ const unknownBaseline=control.currentAssignments.filter(
+  x=>!SHA.test(String(x.build_sha||''))||!Number.isSafeInteger(Number(x.generation))
+    ||Number(x.generation)<1)
+ if(unknownBaseline.length)
+  gate.reasons.push('At least one Live route assignment has an invalid baseline.')
+ const boundary=await Promise.all(control.tenants.flatMap(t=>[
+  ...(t.update_mode==='hi5_managed'?[{
+    slug:t.slug,host:t.slug+'-uat.hi5central.com',kind:'managed_uat'}]:[]),
+  {slug:t.slug,host:t.slug+'-rmm.hi5central.com',kind:'rmm_host'},
+ ]).map(async x=>{
+  try{
+   const r=await fetch('https://'+x.host+'/',{
+    signal:AbortSignal.timeout(5500),redirect:'manual'})
+   return {...x,status:r.status}
+  }catch(e){return {...x,status:0,error:String(e?.name||'unreachable')}}
+ }))
+ gate.controls.forbiddenHostResults=boundary
+ const managedUat=boundary.filter(x=>x.kind==='managed_uat'&&x.status===200)
+ if(managedUat.length)
+  gate.reasons.push(managedUat.length+
+   ' Managed UAT aliases publicly serve a frontend despite no UAT entitlement.')
+ // This is deliberately only an exposure detector, not a tenant data
+ // access check. Product entitlement queries remain authoritative.
+ const rmmRows=await docker('exec','hi5central-certified-release-planner',
+  'node','--input-type=module','-e',
+  `import pg from 'pg';const p=new pg.Pool({connectionString:process.env.DATABASE_URL});
+  try{const r=await p.query("SELECT t.slug,coalesce((s.modules->>'rmm')::boolean,false) AS entitled FROM tenants t JOIN tenant_settings s ON s.tenant_id=t.id WHERE t.slug=ANY($1::text[])",[${JSON.stringify(control.tenants.map(t=>t.slug))}]);console.log(JSON.stringify(r.rows))}
+  finally{await p.end()}`)
+ const rmm=new Map(JSON.parse(rmmRows.trim()).map(x=>[x.slug,x.entitled]))
+ const unexpectedRmm=boundary.filter(x=>x.kind==='rmm_host'&&rmm.get(x.slug)===false
+  &&x.status===200)
+ if(unexpectedRmm.length)
+  gate.reasons.push(unexpectedRmm.length+
+   ' non-RMM tenants publicly serve an RMM alias frontend.')
  gate.status=gate.reasons.length?'blocked':'review_ready'
 }catch(e){gate.reasons.push('Operator read-only inspection failed: '+String(e.message||e).slice(0,180))}
 console.log(JSON.stringify(gate,null,2))
