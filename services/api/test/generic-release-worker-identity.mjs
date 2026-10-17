@@ -42,7 +42,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
   assert.equal(p.canDirectlyUnpause,false)
   assert.equal(w.canDirectlyUnpause,false)
   await assert.rejects(
-   assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'executor'}),
+   assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'executor',stage:'uat'}),
    /requires the reviewed, audited pause-only permission/)
   await assert.rejects(
    assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'planner'}),
