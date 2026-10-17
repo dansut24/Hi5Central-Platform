@@ -59,6 +59,15 @@ test('real PostgreSQL generic fanout is denied by default then schedules two exa
    JSON.stringify(policy)])
   records.push({id:t.id,mode,slug})
  }
+ // New migration 169 defaults to a zero-tenant generic pilot. Explicitly
+ // approve only these disposable synthetic CI tenant IDs; never production.
+ for(const t of records){
+  await pool.query([
+   'INSERT INTO platform_release_generic_pilot_tenants',
+   '(tenant_id,enabled,approved_by,approved_at,reason)',
+   "VALUES($1,true,$2,now(),'Explicit disposable CI cohort admission')",
+  ].join(' '),[t.id,actor])
+ }
  const request={sha,scope:'generic',limit:1,now}
  await assert.rejects(tx(db=>fanoutCertifiedRelease(db,request)),
   /No explicit staff-approved generic release planning stage/)
