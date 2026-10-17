@@ -73,7 +73,8 @@ async function mockApi(page) {
     {name:'itsm',url:'http://showcase.hi5central.com:4173/incidents',marker:/Incidents|All Records|Service Desk|VPN connection/i},
     {name:'rmm',url:'http://showcase-rmm.hi5central.com:4174/',marker:/LAPTOP-024|Devices|RMM|Endpoint/i},
   ]){
-    const page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1,colorScheme:'light'})
+    const context=await browser.newContext({viewport:{width:1440,height:900},deviceScaleFactor:1,colorScheme:'light',serviceWorkers:'block'})
+    const page=await context.newPage()
     page.on('pageerror',e=>console.log('Platform '+entry.name+' JS notice: '+String(e.message).slice(0,180)))
     page.on('console',m=>{if(m.type()==='error')console.log('Platform '+entry.name+' console error: '+m.text().slice(0,280))})
     page.on('requestfailed',req=>console.log('Platform '+entry.name+' failed request: '+req.url().slice(0,170)))
@@ -88,7 +89,7 @@ async function mockApi(page) {
     assert.match(text,entry.marker,entry.name+' must render real Platform interface, not a blank or login screen')
     assert(!/Could not restore this session|Sign in again|Welcome back to|Tenant unavailable/i.test(text.slice(0,500)),entry.name+' UI is not an authenticated demo surface')
     console.log('PASS: captured genuine '+entry.name+' Platform UI with exclusively synthetic sample data')
-    await page.close()
+    await context.close()
   }
  }finally{await browser.close()}
 })().catch(e=>{console.error('BLOCKED: '+e.message);process.exit(1)})
