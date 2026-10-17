@@ -40,7 +40,9 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       const result=await api('/releases/certifications/approve',{
         method:'POST',body:JSON.stringify({buildSha:selected,ciRunUrl:runUrl.trim(),releaseToCustomers:true}),
       })
-      setMessage(result.queued>0
+      setMessage(result.globallyPaused
+        ?'Release accepted and '+result.queued+' new jobs queued. Deployment remains paused by the platform safety hold.'
+        :result.queued>0
         ?'Release authorised: '+result.queued+' tenant upgrades queued. Managed Production and Custom UAT follow customer maintenance windows.'
         :'Release authorised, but no new jobs were scheduled. Check eligible tenants, rollout scope and already queued releases.')
       await refresh()
