@@ -84,3 +84,52 @@ This is **two deployment workers plus a lightweight configuration watcher**; the
 - The existing running QA executor containers remain privileged, Docker-socket mounted and globally paused. The new generic image/host adapter is code + CI evidence **only**, not deployed services.
 
 **Required to reach real live acceptance:** independently reconcile mounted/host Caddy sources and route ownership, apply approved additive migrations with restricted DB identities, install the trusted adapter and socket-only generic worker (without opening a public API), implement and verify customer-requested trusted-host rollback (not just rollback-request metadata or failed-cutover compensation), provision four additional intentionally isolated QA tenants through normal onboarding, prove actual 5 Managed / 5 Custom + rollback and Custom selective UAT configuration promotion, repeat with a second SHA, then enable general tenant admission after signoff. Do not substitute synthetic 10-tenant CI for host proof.
+
+## 17 October 2026 follow-up — actual VPS readiness and immutable schema comparison
+
+The host has been inspected read-only with the one-command auditor at
+`deployment/qa26/audit-release-host-readiness.mjs`; the auditor is now
+CI syntax-checked. **No VPS deployment, schema, route, queue or pause writes occurred.**
+
+- Six active ITSM QA tenants: 3 Managed and 3 Custom. The 15 environment
+  API-version probes return valid same-origin immutable JSON for 9 Test/UAT
+  environments but HTML for all 6 Live tenants. All 6 Live frontend manifests
+  and runtime configs are reachable; this does not count as passing Live API.
+- Global release pause remains **true**, running jobs **zero**.
+- Active-mounted Live Caddy SHA-256:
+  `21657cd198a1e1da167083faad432ac7f66ecd964190b5d75c18acb7fda4e050`.
+  Host bind-source SHA-256:
+  `8a04056fc756cff98c71030a1404cede32ef85252ff1ea012f7e86c1515df1b3`.
+  Host has an older QA canary block that the active mount does not; active
+  Caddy has other route changes absent from the host. Do not reload either.
+- **Dry-run proof:** the reviewed tenant-scoped Caddy builder successfully
+  planned six independent Live tenant routes against EACH source, and each
+  resulting candidate passed Caddy syntax adaptation in a disposable,
+  networkless container. No actual route or container was modified. These
+  are two different valid candidates, NOT authorisation to choose one.
+- Restricted generic executor images passed CI, but the three *currently
+  running* legacy QA executors still mount `/var/run/docker.sock`.
+- Production migration ledger has **zero** of 16 expected release migration
+  entries (155–171 excluding 162, which has its own history). Do not stamp
+  those entries manually: some schema objects already exist and some drift.
+  Surface audit passes only 6/16 expected historical/new migration groups.
+- Exact CI-to-VPS structural fingerprint comparison shows:
+  **MATCH** groups 159, 163, 164, 165;
+  **DRIFT** 156, 158, 160, 161;
+  **MISSING** 155, 157, 166, 167.
+  The remaining 168–171 objects are independently missing by direct
+  readiness queries, and 170/171 are now included in the release-readiness
+  manifest. Missing objects include the configuration-promotion table,
+  the customer rollback tables and the editable release draft table.
+  Structural fingerprints are not ACL/ownership/row-policy equivalence.
+- **Safe activation order:** reconcile historical schema against canonical
+  definitions with a reviewed additive-only plan; apply only audited missing
+  changes and verify roles; independently reconcile Caddy source and active
+  runtime while preserving all unrelated routes; verify all Live API version
+  routes; then stage restricted host adapter and non-root executors. Only
+  when no active jobs exist and rollback is fully tested should the fleet
+  pause be released for an approved pilot of ten real QA tenants.
+
+A green GitHub PR is **code/CI evidence**, not a Production host upgrade or
+customer rollback acceptance. PR #79 remains draft, and the installed release
+scheduler remains globally paused.
