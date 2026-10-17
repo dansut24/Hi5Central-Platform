@@ -91,6 +91,13 @@ async function guards(job){
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
   if(workerScope==='qa')assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
+  if(workerScope==='generic'){
+    const eligible=await pool.query(
+      'SELECT public.hi5_release_generic_tenant_permitted($1) AS allowed',
+      [job.tenantId])
+    if(eligible.rows[0]?.allowed!==true)
+      throw Error('Tenant is outside the independently approved generic rollout scope.')
+  }
   const approval=await pool.query([
     'SELECT 1 FROM platform_release_generic_stage_approvals a',
     'WHERE a.build_sha=$1 AND a.environment=$2',
@@ -296,7 +303,8 @@ async function step(){
   await heartbeat('idle')
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
-      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs}))
+      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs,
+      genericTenantScope:workerScope==='generic'}))
     const job=claim.claimed?.[0]
     if(!job){await heartbeat(claim.paused?'paused':'idle');return false}
     await gate.registerClaim({jobId:job.id,tenantId:job.tenantId,
