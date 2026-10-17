@@ -12,6 +12,8 @@ on:
       - 'services/api/test/release-publication-credential.mjs'
       - 'services/api/test/release-publication-relay.mjs'
       - 'services/api/test/automatic-dev-publication.mjs'
+      - 'deployment/qa26/compose.central-verified-dev-publication-only.overlay.yml'
+      - 'deployment/qa26/audit-customer-publication-handoff.mjs'
       - '.github/workflows/central-release-publisher.yml'
   workflow_dispatch:
 
@@ -36,6 +38,7 @@ jobs:
           node --check services/api/src/releasePublicationRelay.mjs
           node --check services/api/src/releasePublicationRelayDaemon.mjs
           node --check services/api/src/automaticDevPublication.js
+          node --check deployment/qa26/audit-customer-publication-handoff.mjs
       - name: Prove publication-only token, real Dev proof and retry constraints
         run: |
           node --test services/api/test/release-publication-credential.mjs \
