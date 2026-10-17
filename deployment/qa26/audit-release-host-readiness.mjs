@@ -53,7 +53,7 @@ try{
   'platform_release_generic_scope_control',
   'tenant_release_customer_rollback_requests',
   'platform_release_preparation_drafts'];
- const result=await p.query('SELECT name,to_regclass(\'public.\'||name) IS NOT NULL AS installed FROM unnest($1::text[]) AS items(name)',[names]);
+ const result=await p.query("SELECT name,to_regclass('public.'||name) IS NOT NULL AS installed FROM unnest($1::text[]) AS items(name)",[names]);
  await p.query('ROLLBACK');
  console.log(JSON.stringify({paused,active,tenants:tenants.rows,
   migrations:result.rows}));
