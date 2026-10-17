@@ -8,6 +8,9 @@ on:
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/test/generic-release-postgres.mjs'
+      - 'services/api/test/generic-release-failure-recovery.mjs'
+      - 'apps/admin/src/features/admin/GenericReleasePlanning.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
       - 'services/api/src/genericReleaseDiscovery.js'
       - 'services/api/src/genericReleasePreview.mjs'
       - 'services/api/src/certifiedReleaseFanout.js'
@@ -180,4 +183,5 @@ jobs:
           npm run migrate
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
+          node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
