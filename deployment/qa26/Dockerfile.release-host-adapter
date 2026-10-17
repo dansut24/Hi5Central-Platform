@@ -1,0 +1,20 @@
+# Trusted Docker authority: one Unix-domain adapter, no TCP listener.
+# ONLY this component mounts /var/run/docker.sock. Generic queue executors
+# are non-root and get only the private IPC volume, not the Docker socket.
+FROM docker:27-cli
+ARG REVIEWED_SOURCE_SHA=unreviewed
+LABEL hi5central.release.reviewed_source="${REVIEWED_SOURCE_SHA}" \
+      hi5central.release.scope="trusted-host-adapter"
+RUN apk add --no-cache nodejs curl
+WORKDIR /runner
+COPY services/api/src/releaseHostTransport.js /runner/services/api/src/releaseHostTransport.js
+COPY services/api/src/tenantCaddyVersionRoutes.js /runner/services/api/src/tenantCaddyVersionRoutes.js
+COPY services/api/src/tenantLiveBaseline.js /runner/services/api/src/tenantLiveBaseline.js
+COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolPolicy.js
+COPY deployment/qa26/tenant-release-host-executor.mjs /runner/deployment/qa26/tenant-release-host-executor.mjs
+COPY deployment/qa26/release-host-adapter.mjs /runner/deployment/qa26/release-host-adapter.mjs
+COPY services/api/package.json /runner/services/api/package.json
+RUN node --check deployment/qa26/tenant-release-host-executor.mjs \
+ && node --check deployment/qa26/release-host-adapter.mjs \
+ && node --check services/api/src/releaseHostTransport.js
+ENTRYPOINT ["node","deployment/qa26/release-host-adapter.mjs"]
