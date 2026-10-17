@@ -113,7 +113,9 @@ async function guards(job){
   if(gateway==='uat'&&
     (ctx.update_mode!=='admin_controlled'||ctx.uat_auto_stage!==true))
     throw Error('Managed customers have no UAT.')
-  if(gateway==='uat'||gateway==='live'){
+  // The generic customer release contract does not require each tenant
+  // to install the exact SHA in Test first. QA legacy workers still do.
+  if(workerScope==='qa'&&(gateway==='uat'||gateway==='live')){
     const verifiedTest=await pool.query([
       'SELECT 1 FROM tenant_release_rollout_jobs j',
       'WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3',
@@ -157,11 +159,16 @@ async function guards(job){
       if(!approved.rowCount)throw Error('A real tenant-admin UAT approval and Production schedule are mandatory.')
     }else if(ctx.update_mode==='hi5_managed'){
       if(!ctx.live_auto_promote)throw Error('Managed automatic Production is disabled.')
+      // Retain the designated Test/canary gate for legacy QA only.
+      // Generic scheduling is direct Managed Live following official CI,
+      // Dev smoke verification and the customer's maintenance window.
+      if(workerScope==='qa'){
       const gate=await pool.query([
         'SELECT 1 FROM platform_release_test_qa_gates',
         "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
       ].join(' '),[job.buildSha])
       if(!gate.rowCount)throw Error('Platform Test/canary release approval is missing.')
+      }
     }else throw Error('Invalid update model at cutover.')
   }
   return ctx
