@@ -48,6 +48,28 @@ function DevReleaseEditor({installed,onPublished}){
     }).catch(e=>{if(active&&e.status!==403)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
   },[installed])
+  // Release publication is asynchronous but normally completed by the
+  // persistent trusted relay within one 15-second poll. Refresh server state
+  // automatically; never imply success until Dev records central readback.
+  useEffect(()=>{
+    if(notes?.status!=='publication_requested')return
+    let active=true
+    const timer=setInterval(async()=>{
+      if(!active)return
+      try{
+        const latest=await api('/api/v1/updates/dev-notes')
+        if(!active||latest?.notes?.buildSha!==notes.buildSha)return
+        if(latest.notes.status==='published'){
+          setNotes(current=>({...current,status:'published',
+            versionSyncState:latest.notes.versionSyncState,
+            publishedAt:latest.notes.publishedAt}))
+          setSuccess('Published centrally. Customer upgrades remain subject to maintenance and approval policies.')
+          onPublished?.()
+        }
+      }catch{/* Visible pending state is retained when network is unavailable. */}
+    },7500)
+    return()=>{active=false;clearInterval(timer)}
+  },[notes?.status,notes?.buildSha])
   const editable=notes?.status==='draft'
   const versionEditable=editable||(notes?.status==='published'&&notes?.versionSyncState!=='pending')
   const pendingVersion=notes?.versionSyncState==='pending'
@@ -134,7 +156,7 @@ function DevReleaseEditor({installed,onPublished}){
           :<button type="button" disabled={busy||!versionChanged||!notes.versionLabel?.trim()}
             onClick={updatePublishedVersion}><Save size={15}/> Update published version number</button>}
       </div>
-      :<small>Publication is in progress. Release notes cannot be changed after submission.</small>}
+      :<small>Publication is pending central verification. The page refreshes automatically. If it remains pending, the release needs an official successful CI build and a healthy trusted publisher; it is not yet queued for customer deployment.</small>}
   </section>
 }
 function DevPublishedVersionManager(){
