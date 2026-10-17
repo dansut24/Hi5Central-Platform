@@ -26,6 +26,19 @@ The existing *Generate one-time token* flow is independent of the tenant-specifi
 
 **Important:** Do not use a device already enrolled in Production: reinstalling or rerouting an existing service can affect its existing identity and connectivity.
 
+## Existing Dev device shows WebSocket connected but offline
+
+Diagnostic from 17 October (local UK time) shows:
+- `07:29:17`: Agent uses `wss://dev-api.hi5central.com/agent/ws`, WebSocket connects and hello is sent; device identity is loaded.
+- `07:31:46`: `inventory_snapshot sent collected_at=2026-10-17T06:31:32Z`. The `07:31:32` local timestamp is an inventory **collection** time, not proof that the API received a successful telemetry heartbeat.
+- Every HTTP job poll and telemetry request continues returning 401 `Agent authentication failed` through `07:32:41`.
+
+The Dev RMM device list computes `agent_online` in `services/api/src/rmmScope.js` as **WebSocket Connected/TelemetryOnly AND last_telemetry_at within 90 seconds**. WebSocket authentication and HTTP authentication in `services/api/src/rmmAgent.js` both compare against the same stored device secret. A working Dev WS connection alongside HTTP 401 means investigate the HTTP destination and installed binary, rather than falsely marking the device online.
+
+PR #9 (merged 5 October) replaced hardcoded Production REST URLs in the Windows Agent with `ident.apiBaseUrl`. The public `downloads.hi5central.com/agent/latest/Hi5CentralAgentSetup.exe` may still contain an older build; this is **not yet verified** for the installed PC.
+
+This PR also uploads an extra **Hi5Central-Windows-AgentSetup-Dev-QA** artifact (GitHub Actions only). After the Windows job is green, download that exact successful run's artifact zip, extract `Hi5CentralAgentSetup.exe` on a clean isolated Windows QA machine, and validate its signing/hash and installer provenance before running. If upgrading the already enrolled QA device, back up its encrypted `state.dat` securely and retain its agent identity. Run the setup with `/API_BASE_URL="https://dev-api.hi5central.com" /AGENT_WS_BASE_URL="wss://dev-api.hi5central.com/agent/ws"` and **no** one-time token. Verify the same device ID and ensure both HTTP telemetry (no 401) and the Dev WebSocket succeed. Do not put this QA artifact into the Production downloads path or alter any tenant/ITSM/VPS services.
+
 ## Build and publish the persistent Windows EXE template
 
 - Once this isolated workflow change is approved/merged into `develop`, a push touching `native/agent/**` or the workflow file triggers the Agent deployment installers pipeline.
