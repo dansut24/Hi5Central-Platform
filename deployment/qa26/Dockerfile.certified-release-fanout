@@ -9,8 +9,11 @@ COPY services/api/src/runtimePoolPolicy.js ./runtimePoolPolicy.js
 COPY services/api/src/releaseRolloutPlanner.js ./releaseRolloutPlanner.js
 COPY services/api/src/tenantReleaseQueue.js ./tenantReleaseQueue.js
 COPY services/api/src/releaseQaCohort.js ./releaseQaCohort.js
+COPY services/api/src/genericReleaseAuthorization.js ./genericReleaseAuthorization.js
 COPY services/api/src/certifiedReleaseFanout.js ./certifiedReleaseFanout.js
 COPY services/api/src/releaseFanoutDaemon.mjs ./releaseFanoutDaemon.mjs
-RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js && node --check releaseQaCohort.js
+RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js \\
+ && node --check releaseQaCohort.js && node --check genericReleaseAuthorization.js \\
+ && node --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
 USER scheduler
 ENTRYPOINT ["node","releaseFanoutDaemon.mjs"]
