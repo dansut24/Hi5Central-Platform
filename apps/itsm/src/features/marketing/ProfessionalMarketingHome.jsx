@@ -6,6 +6,7 @@ import {
   Wrench, X, Zap,
 } from 'lucide-react'
 import './ProfessionalMarketingHome.css'
+import { RealPlatformShowcase } from './RealPlatformShowcase.jsx'
 
 // A standalone MARKETING homepage. The existing SignupPage, auth, payments,
 // tenancy and API endpoints are deliberately not changed.
@@ -73,54 +74,6 @@ function Header() {
         onClick={() => setOpen(v => !v)}>{open ? <X size={22} /> : <Menu size={22} />}</button>
     </div>
   </header>
-}
-function HeroPreview() {
-  return <div className="h5m-preview" aria-label="Illustrative Hi5Central service workspace example">
-    <div className="h5m-preview-chrome">
-      <div className="h5m-preview-dots" aria-hidden="true"><i /><i /><i /></div>
-      <span>Hi5Central / Service workspace</span>
-      <span className="h5m-preview-example">Example interface</span>
-    </div>
-    <div className="h5m-preview-layout">
-      <div className="h5m-preview-rail" aria-hidden="true">
-        <span className="h5m-preview-rail-brand">H5</span>
-        <span className="is-selected"><Layers3 size={17} /></span>
-        <span><TicketCheck size={17} /></span>
-        <span><MonitorCog size={17} /></span>
-        <span><Activity size={17} /></span>
-      </div>
-      <div className="h5m-preview-main">
-        <div className="h5m-preview-heading">
-          <div><span>Workspace / Overview</span><strong>Good morning, Alex</strong></div>
-          <span className="h5m-preview-avatar">AL</span>
-        </div>
-        <div className="h5m-preview-stats">
-          <div><span>My open requests</span><strong>08</strong><small>Across your queues</small></div>
-          <div><span>Awaiting approval</span><strong>03</strong><small>Needs a decision</small></div>
-          <div><span>Managed devices</span><strong>42</strong><small>Example inventory</small></div>
-        </div>
-        <div className="h5m-preview-workflow">
-          <div className="h5m-preview-workflow-header"><strong>Recent activity</strong><span>Illustrative data</span></div>
-          <div className="h5m-preview-ticket">
-            <span className="h5m-preview-ticket-icon"><TicketCheck size={18}/></span>
-            <div><strong>New starter equipment request</strong><small>Service request · SR-1024</small></div>
-            <em>In progress</em>
-          </div>
-          <div className="h5m-preview-ticket">
-            <span className="h5m-preview-ticket-icon is-blue"><MonitorCog size={18}/></span>
-            <div><strong>Workstation health alert</strong><small>RMM device · DEV-018</small></div>
-            <em className="is-blue">Review</em>
-          </div>
-          <div className="h5m-preview-ticket">
-            <span className="h5m-preview-ticket-icon is-green"><CheckCircle2 size={18}/></span>
-            <div><strong>Software access approved</strong><small>Approval · APR-006</small></div>
-            <em className="is-green">Complete</em>
-          </div>
-        </div>
-      </div>
-    </div>
-    <span className="h5m-floating-bubble"><CheckCircle2 size={17}/> From request to resolution</span>
-  </div>
 }
 function ProductCard({ number, icon: Icon, tone, label, title, description, benefits }) {
   return <article className={'h5m-product-card h5m-tone-' + tone}>
@@ -209,7 +162,7 @@ export function ProfessionalMarketingHome() {
             </div>
             <div className="h5m-hero-promises"><span><CheckCircle2 size={17}/> ITSM + Portal</span><span><CheckCircle2 size={17}/> RMM + Remote support</span><span><CheckCircle2 size={17}/> Choose either or both</span></div>
           </div>
-          <HeroPreview/>
+          <RealPlatformShowcase/>
         </div>
       </section>
       <section className="h5m-value-strip" aria-label="Platform capabilities">
