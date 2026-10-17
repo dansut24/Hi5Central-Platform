@@ -36,6 +36,7 @@ on:
       - 'services/api/src/customerReleasePreparation.js'
       - 'services/api/src/releaseNotesValidation.js'
       - 'services/api/src/releaseHostTransport.js'
+      - 'services/api/test/release-host-transport.mjs'
       - 'deployment/qa26/release-host-adapter.mjs'
       - 'deployment/qa26/Dockerfile.release-host-adapter'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
@@ -127,6 +128,7 @@ jobs:
           node --check src/customerReleasePreparation.js
           node --check src/releaseNotesValidation.js
           node --check src/releaseHostTransport.js
+          node --test test/release-host-transport.mjs
           node --check ../../deployment/qa26/release-host-adapter.mjs
           node --check src/officialReleaseCertification.js
           node --test test/customer-release-preparation.mjs
