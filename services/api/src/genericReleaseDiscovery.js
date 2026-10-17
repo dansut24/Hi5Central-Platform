@@ -28,21 +28,6 @@ export const genericReleaseTenantQuery=[
  'ORDER BY t.id LIMIT $1',
 ].join(' ')
 
-export async function readGenericReleaseApprovals(db,{sha}={}){
- if(!SHA.test(String(sha||'')))throw issue('Exact release SHA is required.')
- // Preview works safely even before the additive approval migration:
- // absent table is an explicit default DENY, never implied approval.
- const exists=await db.query(
-  "SELECT to_regclass('public.platform_release_generic_stage_approvals') AS approvals")
- if(!exists.rows[0]?.approvals)return {}
- const res=await db.query([
-  'SELECT build_sha,environment,planning_enabled,execution_enabled,',
-  'approved_by,approved_at,expires_at,evidence',
-  'FROM platform_release_generic_stage_approvals WHERE build_sha=$1',
- ].join(' '),[sha])
- return Object.fromEntries(res.rows.map(r=>[r.environment,r]))
-}
-
 export async function previewGenericCertifiedRelease(db,{
  sha,now=new Date(),limit=200,testSoakMinutes=30,maxTenants=10000,
 }={}){
