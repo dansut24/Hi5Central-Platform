@@ -68,7 +68,7 @@ test('real PostgreSQL generic fanout is denied by default then schedules two exa
    "VALUES($1,true,$2,now(),'Explicit disposable CI cohort admission')",
   ].join(' '),[t.id,actor])
  }
- const request={sha,scope:'generic',limit:1,now}
+ const request={sha,scope:'generic',limit:1,now,deliveryMode:'qa_sequential'}
  await assert.rejects(tx(db=>fanoutCertifiedRelease(db,request)),
   /No explicit staff-approved generic release planning stage/)
  assert.equal((await pool.query(
