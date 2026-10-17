@@ -12,7 +12,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
   'Refusing to run role-creation tests against a non-CI database')
  const admin=new pg.Client({connectionString:dsn})
  await admin.connect()
- const planner='h5c_ci_generic_planner'
+ const planner='hi5_release_generic_planner'
  const worker='h5c_ci_generic_executor'
  const password='synthetic_ci_only_credential'
  const url=role=>{const u=new URL(dsn);u.username=role;u.password=password;return u.toString()}
