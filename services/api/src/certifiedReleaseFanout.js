@@ -141,6 +141,7 @@ export async function fanoutCertifiedRelease(db,{
     "WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL",
     "AND COALESCE((ts.modules->>'itsm')::boolean,false)=true",
     'AND ($3::text[] IS NULL OR t.slug=ANY($3::text[]))',
+    ...(scope==='generic'?["AND public.hi5_release_generic_tenant_permitted(t.id)=true"]:[]),
     "AND t.id > COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)",
     'ORDER BY t.id LIMIT $1',
   ].join(' ')
