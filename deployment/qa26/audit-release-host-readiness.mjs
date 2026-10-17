@@ -54,9 +54,22 @@ try{
   'tenant_release_customer_rollback_requests',
   'platform_release_preparation_drafts'];
  const result=await p.query("SELECT name,to_regclass('public.'||name) IS NOT NULL AS installed FROM unnest($1::text[]) AS items(name)",[names]);
+ const expected=['155_app_release_executor_heartbeat.sql',
+  '156_itsm_configuration_audit_value_summaries.sql',
+  '157_itsm_configuration_promotions.sql','158_tenant_release_rollout_jobs.sql',
+  '159_platform_release_test_qa_gates.sql','160_tenant_test_runtime_assignments.sql',
+  '161_release_rollout_blackouts.sql','163_certified_release_fanout.sql',
+  '164_automatic_verified_test_canaries.sql','165_single_paused_test_canary.sql',
+  '166_generic_release_stage_approvals.sql','167_release_emergency_pause_least_privilege.sql',
+  '168_verified_test_canary_gate_least_privilege.sql',
+  '169_generic_release_tenant_scope.sql','170_customer_scoped_itsm_rollback.sql',
+  '171_customer_release_preparation_drafts.sql'];
+ const ledger=await p.query('SELECT version FROM schema_migrations WHERE version=ANY($1::text[])',[expected]);
+ const applied=new Set(ledger.rows.map(x=>x.version));
+ const missingMigrations=expected.filter(id=>!applied.has(id));
  await p.query('ROLLBACK');
  console.log(JSON.stringify({paused,active,tenants:tenants.rows,
-  migrations:result.rows}));
+  migrations:result.rows,missingMigrations}));
 }finally{await p.end()}
 `
 const gate={
@@ -67,11 +80,15 @@ try{
  const data=await docker('exec','hi5central-certified-release-planner','node','--input-type=module','-e',controlQuery)
  const control=JSON.parse(data.trim())
  gate.controls={globallyPaused:control.paused,activeDeploymentJobs:control.active,
-   migrations:control.migrations,qaTenants:control.tenants.length}
+   migrations:control.migrations,missingMigrationLedger:control.missingMigrations,
+   qaTenants:control.tenants.length}
  if(control.paused!==true)gate.reasons.push('Fleet is not paused; maintenance safety review needed.')
  if(control.active!==0)gate.reasons.push('A release cutover is currently running.')
  if(control.migrations.some(row=>!row.installed))
   gate.reasons.push('Required customer-release tables are not all installed.')
+ if(control.missingMigrations?.length)
+  gate.reasons.push(control.missingMigrations.length+
+   ' historical/new release migration ledger entries require reviewed reconciliation.')
  const mounted=await docker('exec','hi5central-web','cat','/etc/caddy/Caddyfile')
  const host=await docker('run','--rm','--network','none','--mount',
   'type=bind,source='+hostFile+',target=/gateway/Caddyfile,readonly',
