@@ -6,6 +6,8 @@ import { verifiedRuntimePool } from './runtimePoolPolicy.js'
 import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised,automaticDevPublicationEnabled} from './releasePublicationCredential.js'
+import {verifyAutomaticDevPublication} from './automaticDevPublication.js'
 
 function configuredToken() {
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
@@ -31,6 +33,16 @@ function requireOperator(c) {
 }
 
 
+
+/** Dedicated publication-only bearer never grants deploy/rollback authority. */
+function requirePublicationOperator(c) {
+  if(publicationTokenDigests().length===0)
+    return c.json({error:'Publication-only operator is not configured.',
+      code:'RELEASE_PUBLICATION_TOKEN_UNAVAILABLE'},503)
+  if(!publicationBearerAuthorised(c.req.header('authorization')))
+    return c.json({error:'Publication-only authentication required.'},401)
+  return null
+}
 
 function localWindowParts(timeZone, date = new Date()) {
   try {
@@ -288,11 +300,20 @@ export function registerReleaseOperatorRoutes(app) {
     }catch(error){return c.json({error:String(error.message||'Route validation failed.')},409)}
   })
 
+  // Authenticated read-only handshake: restricted relay refuses to start
+  // unless Live has explicitly enabled the verified-Dev publisher.
+  app.get('/api/platform-operator/v1/releases/publication-capability',c=>{
+    const denied=requirePublicationOperator(c)
+    if(denied)return denied
+    return c.json({automaticDevPublication:automaticDevPublicationEnabled(),
+      centralAuthority:deployment.runtimeEnvironment==='live'})
+  })
+
   // Publication is an editorial action initiated by authorised Hi5Central
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
   app.post('/api/platform-operator/v1/releases/publish',async c=>{
-    const denied=requireOperator(c)
+    const denied=requirePublicationOperator(c)
     if(denied)return denied
     if(deployment.runtimeEnvironment!=='live')
       return c.json({error:'Only the central release authority may publish customer updates.'},403)
@@ -300,6 +321,16 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
+    if(!publicationShaAuthorised(notes.buildSha)){
+      if(!automaticDevPublicationEnabled())
+        return c.json({error:'Release is outside this publication-only token scope.'},403)
+      try{
+        await verifyAutomaticDevPublication({sha:notes.buildSha})
+      }catch(error){
+        return c.json({error:'Verified Dev publication prerequisites failed: '+
+          String(error.message||error).slice(0,220)},409)
+      }
+    }
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])
