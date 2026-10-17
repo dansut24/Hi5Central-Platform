@@ -357,3 +357,74 @@ Full customer Live cutover with real host proof and crash recovery remains
 unproven; do not activate or claim an overnight ten-tenant customer update.
 Protected reviewed code/host deployment and database least-privilege
 acceptance are required before the emergency pause may be lifted.
+
+## 17 October 2026 — isolated VPS Caddy rollback proof and trusted adapter gate
+
+Implementation has progressed in draft PR #79 but no public Caddy reload or
+customer Production release was authorised:
+
+- A fully disposable **real Docker/Caddy HTTP integration** was executed on
+  `hi5central-prod-01`, with dynamically named private network and Docker
+  fixture volume, **zero published ports**. Source:
+  `services/api/test/qa-caddy-tenant-http-smoke-vps.mjs`;
+  runner: `deployment/qa26/Dockerfile.host-rollback-smoke`.
+  Result:
+  `PASS two-hop Caddy HTTP: sequential Managed+Custom tenant upgrades, exact
+  rollback of failed Custom only, peer stays upgraded, spoof denied, final
+  restore.` CI now runs this exact portable test as well.
+  This is a genuine Docker/Caddy **mechanics proof**, NOT evidence that a real
+  Production customer's rollback request has been executed or verified.
+- Disposable SQL Test positive path now confirms a claimed customer's
+  request can change only its own Live assignment and route attestation to
+  the reviewed predecessor SHA, increments generation and keeps the hold,
+  while nine peers retain their versions. Its host evidence is synthetic
+  inside a SAVEPOINT and rolled back in disposable CI. Separately the
+  actual invalid host proof test remains fail-closed.
+- `release-host-adapter.mjs` now independently compares the host
+  Caddyfile, container-mounted source, and **loaded Caddy Admin JSON** before
+  Live `apply`; an unrelated marketing/Admin/RMM route changed outside
+  the worker therefore refuses the cutover. The reviewed adapter image
+  includes the exact three-way verifier. This does **not** rewrite or
+  silently reconcile the legacy host executor.
+- A network-isolated, no-Docker-socket trusted-adapter IPC test on the VPS
+  confirmed a non-root generic worker can connect through the group-restricted
+  Unix socket; host pool verification correctly failed closed without
+  privileged Docker access. The real privileged adapter and new generic
+  executors remain NOT activated or credentialled.
+- Read-only VPS readiness after tests:
+  `platform_release_rollout_control.paused=true`, 0 running jobs, 16/16
+  migration surfaces present. **15/25** Test/UAT/Live same-origin
+  version checks passed; **10 Live** checks remain HTML or otherwise
+  fail exact immutable API SHA. In particular, the legacy default Live
+  API reports `sha=""` and `version="local-unversioned"`.
+  The Live frontend manifests carry independently pinned SHA values.
+  An exact locally cached 2199e58a API image exists, but merely proxying
+  the version endpoint to it would not prove the entire serving application
+  matches that version; such a misleading shortcut was NOT taken.
+- Persisted host source, mounted source and active Caddy JSON still differ.
+  The last verified 11 routes are structurally identical to the active
+  runtime, with **exactly one separately reviewed PR83 marketing preview**
+  appended. A read-only provenance audit and immutable private VPS snapshot
+  exist; this is not a three-way source reconciliation yet.
+- The three old QA rollout executors still mount unrestricted Docker sockets.
+  The four dedicated login identities
+  `hi5_release_generic_planner` and
+  `hi5_release_generic_exec_{test,uat,live}` do not yet exist.
+  No broad SQL grants or fake stage-boundary privileges were installed;
+  the generic worker must not be started using a shared Production
+  superuser connection.
+- No real Production customer has any runtime assignment or customer
+  rollback request in the control-plane tables, so there is **no valid
+  predecessor route** for an authentic customer rollback acceptance.
+  A fake request or a SQL-only test must not be reported as that proof.
+
+**Explicit remaining GO gates:** preserved Caddy runtime/persisted-file
+reconciliation without losing Admin/auth/RMM/marketing routes; exact Live
+API/frontend SHA proof and Managed-no-UAT/RMM entitlement boundaries;
+stage-specific restricted DB role and ACL/RLS review plus credentials;
+independent fenced and durable customer-requested host rollback operation;
+protected PR review/merge; then actual ten-tenant update and rollback
+execution in each customer's permitted maintenance window.
+
+Do NOT unpause or claim overnight Production rollout readiness until
+every gate has independently verifiable host evidence.
