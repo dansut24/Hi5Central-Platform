@@ -41,6 +41,7 @@ on:
       - 'services/api/test/release-host-transport.mjs'
       - 'deployment/qa26/release-host-adapter.mjs'
       - 'deployment/qa26/audit-release-host-readiness.mjs'
+      - 'deployment/qa26/reconcile-release-schema.mjs'
       - 'deployment/qa26/Dockerfile.release-host-adapter'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'services/api/test/customer-release-preparation.mjs'
@@ -135,6 +136,7 @@ jobs:
           node --test test/release-host-transport.mjs
           node --check ../../deployment/qa26/release-host-adapter.mjs
           node --check ../../deployment/qa26/audit-release-host-readiness.mjs
+          node --check ../../deployment/qa26/reconcile-release-schema.mjs
           node --check src/officialReleaseCertification.js
           node --test test/customer-release-preparation.mjs
           node --check src/genericReleaseDiscovery.js
