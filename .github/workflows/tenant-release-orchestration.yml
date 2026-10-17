@@ -38,6 +38,8 @@ on:
       - 'services/api/src/customerReleasePreparation.js'
       - 'services/api/src/releaseNotesValidation.js'
       - 'services/api/src/releaseHostTransport.js'
+      - 'services/api/src/releaseGatewaySourceAgreement.js'
+      - 'services/api/test/release-gateway-source-agreement.mjs'
       - 'services/api/test/release-host-transport.mjs'
       - 'deployment/qa26/release-host-adapter.mjs'
       - 'deployment/qa26/audit-release-host-readiness.mjs'
@@ -133,6 +135,8 @@ jobs:
           node --check src/customerReleasePreparation.js
           node --check src/releaseNotesValidation.js
           node --check src/releaseHostTransport.js
+          node --check src/releaseGatewaySourceAgreement.js
+          node --test test/release-gateway-source-agreement.mjs
           node --test test/release-host-transport.mjs
           node --check ../../deployment/qa26/release-host-adapter.mjs
           node --check ../../deployment/qa26/audit-release-host-readiness.mjs
