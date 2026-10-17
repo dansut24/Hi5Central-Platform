@@ -45,6 +45,7 @@ on:
       - 'deployment/qa26/audit-release-host-readiness.mjs'
       - 'deployment/qa26/verify-active-caddy-provenance.mjs'
       - 'deployment/qa26/prepare-live-caddy-reconciliation.mjs'
+      - 'deployment/qa26/run-overnight-release-qa.mjs'
       - 'deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs'
       - 'services/api/src/releaseGatewayProvenance.js'
       - 'services/api/test/release-gateway-provenance.mjs'
@@ -153,6 +154,7 @@ jobs:
           node --check ../../deployment/qa26/audit-release-host-readiness.mjs
           node --check ../../deployment/qa26/verify-active-caddy-provenance.mjs
           node --check ../../deployment/qa26/prepare-live-caddy-reconciliation.mjs
+          node --check ../../deployment/qa26/run-overnight-release-qa.mjs
           node --test test/release-gateway-provenance.mjs
           node --check ../../deployment/qa26/qa27-ten-tenant-readiness.mjs
           node --check ../../deployment/qa26/qa27-verified-tenant-preferences.mjs
