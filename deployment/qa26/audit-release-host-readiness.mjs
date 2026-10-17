@@ -9,6 +9,7 @@
  */
 import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
+import {verifyReleaseGatewaySourceAgreement} from '../../services/api/src/releaseGatewaySourceAgreement.js'
 
 if(process.argv.length!==2)throw Error('Audit accepts no mutation options.')
 const limited=async(program,args,timeoutMs=18000)=>{
@@ -93,14 +94,27 @@ try{
  const host=await docker('run','--rm','--network','none','--mount',
   'type=bind,source='+hostFile+',target=/gateway/Caddyfile,readonly',
   'busybox:1.36','cat','/gateway/Caddyfile')
+ const adapted=await docker('exec','hi5central-web','caddy','adapt',
+  '--config','/etc/caddy/Caddyfile','--adapter','caddyfile')
+ const loaded=await docker('exec','hi5central-web','wget','-q','-O','-',
+  'http://127.0.0.1:2019/config/')
+ const mountedActive=verifyReleaseGatewaySourceAgreement({
+  hostSource:mounted,mountedSource:mounted,
+  adaptedRuntime:adapted,loadedRuntime:loaded,
+ })
  gate.gateways={
   activeMountedSha256:hash(mounted),hostBindSourceSha256:hash(host),
   filesAgree:hash(mounted)===hash(host),
+  loadedRoutesMatchMounted:mountedActive.loadedMatchesMounted,
+  adaptedRuntimeSha256:mountedActive.sourceRuntimeSha256||null,
+  loadedRuntimeSha256:mountedActive.activeRuntimeSha256||null,
   activeReleaseRouteBlocks:(mounted.match(/H5C_RELEASE_ROUTE_BEGIN/g)||[]).length,
   hostLegacyQaCanaryBlocks:(host.match(/# QA26 LIVE CANARY BEGIN/g)||[]).length,
  }
  if(!gate.gateways.filesAgree)
   gate.reasons.push('Host and active-mounted Caddyfile differ: never reload either automatically.')
+ if(gate.gateways.loadedRoutesMatchMounted!==true)
+  gate.reasons.push('Active Caddy admin runtime routes differ from mounted Caddyfile; preserve runtime-only routes.')
  const containers=['hi5central-release-executor-live','hi5central-release-executor-uat',
   'hi5central-release-executor-test']
  const mounts=await Promise.all(containers.map(async name=>{
