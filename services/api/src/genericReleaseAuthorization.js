@@ -30,3 +30,12 @@ export async function readGenericReleaseApprovals(db,{sha}={}){
  ].join(' '),[sha])
  return Object.fromEntries(res.rows.map(r=>[r.environment,r]))
 }
+
+/** Independent execution authorisation; planning approval alone is NEVER enough. */
+export function authorisedGenericExecutionStage({approval,sha,stage,now=new Date()}={}){
+ const planning=authorisedGenericReleaseStage({approval,sha,stage,now})
+ if(!planning.allowed)return planning
+ if(approval.execution_enabled!==true)
+  return {allowed:false,reason:'Generic execution has not been separately authorised.'}
+ return {allowed:true,reason:'Exact stage execution approved; tenant and host guards still apply.'}
+}
