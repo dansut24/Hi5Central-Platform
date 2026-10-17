@@ -71,8 +71,10 @@ try{
  const expectedRoles=['hi5_release_generic_planner',
   'hi5_release_generic_exec_test','hi5_release_generic_exec_uat',
   'hi5_release_generic_exec_live'];
- const roles=await p.query('SELECT rolname,rolcanlogin,rolsuper,rolbypassrls',
-  'FROM pg_roles WHERE rolname=ANY($1::text[])',[expectedRoles]);
+ const roles=await p.query([
+  'SELECT rolname,rolcanlogin,rolsuper,rolbypassrls',
+  'FROM pg_roles WHERE rolname=ANY($1::text[])',
+ ].join(' '),[expectedRoles]);
  const currentAssignments=await p.query([
   'SELECT t.slug,a.build_sha,a.generation',
   'FROM tenant_runtime_assignments a JOIN tenants t ON t.id=a.tenant_id',
