@@ -167,7 +167,9 @@ function LiveProductionReleaseManagement() {
         } catch {
           setPlatformApplicationDeployments(null)
         }
-        setPolicy(platformResult.value?.deploymentPolicy || tenantState.preference)
+        // Customer Settings must never inherit the platform installation
+        // policy; only their own per-tenant release preferences are editable.
+        if(tenantState.preference)setPolicy(tenantState.preference)
       } else {
         setPlatformAvailable(false)
         setPlatformApplicationDeployments(null)
@@ -204,6 +206,9 @@ function LiveProductionReleaseManagement() {
 
   async function savePolicy(nextMode = policy.updateMode) {
     const next={...policy,updateMode:nextMode}
+    if(!(next.maintenanceWindow?.days||[]).length){
+      setError('Choose at least one maintenance day before saving.');return
+    }
     setPolicy(next)
     await action('policy',async()=>{
       const payload={
@@ -215,11 +220,9 @@ function LiveProductionReleaseManagement() {
       }
       const tenantResult=await tenantReleaseApi('/preferences',{method:'PATCH',body:JSON.stringify(payload)})
       if(tenantResult?.preference)setPolicy(tenantResult.preference)
-      if(platformAvailable) {
-        const deploymentResult=await releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)})
-        if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
-      }
-    },nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.')
+      // Never mutate shared platform defaults from a customer Settings page.
+      // Platform-wide deployment ownership is exclusive to Platform Admin.
+    },'Your update preference was saved. Future approved releases still follow the maintenance window and release gates.')
   }
 
   async function openEnvironment(environment) {
@@ -329,17 +332,17 @@ function LiveProductionReleaseManagement() {
       <header><div><h2>Who manages platform updates?</h2><p>Choose whether your administrators approve each release or Hi5Central handles the release flow automatically using your policy.</p></div></header>
       <div className="production-settings-panel-body">
         <div className="hi5-release-policy-grid">
-          <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('admin_controlled')} type="button">
+          <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>setPolicy(current=>({...current,updateMode:'admin_controlled'}))} type="button">
             <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>Hi5Central publishes the update to Test, but your admin chooses what enters UAT and exactly what is promoted to Production.</small></span>
           </button>
-          <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('hi5_managed')} type="button">
-            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>The local release operator follows Hi5Central's signed release feed, stages UAT automatically and promotes approved releases inside your update window.</small></span>
+          <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>setPolicy(current=>({...current,updateMode:'hi5_managed'}))} type="button">
+            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>Test releases are checked automatically. Production follows Hi5Central's verified Test gate, your delay and maintenance window; no UAT is required.</small></span>
           </button>
         </div>
         <div className="hi5-release-policy-fields">
-          <label>Production delay after UAT
+          {policy.updateMode==='hi5_managed'?<label>Production delay after verified Test
             <div><input type="number" min="0" max="720" value={policy.liveDelayHours??24} onChange={e=>setPolicy({...policy,liveDelayHours:e.target.value})}/><span>hours</span></div>
-          </label>
+          </label>:null}
           <label>Maintenance window start
             <input type="time" value={policy.maintenanceWindow?.start||'02:00'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),start:e.target.value}})}/>
           </label>
@@ -349,13 +352,62 @@ function LiveProductionReleaseManagement() {
           <label>Time zone
             <input value={policy.maintenanceWindow?.timezone||'Europe/London'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),timezone:e.target.value}})}/>
           </label>
-          <label className="hi5-release-policy-check"><input type="checkbox" checked={policy.allowEmergencySecurityUpdates!==false} onChange={e=>setPolicy({...policy,allowEmergencySecurityUpdates:e.target.checked})}/><span><strong>Allow emergency security updates</strong><small>Critical security fixes can bypass the normal delay, but still use signed release artifacts and audit logging.</small></span></label>
-          <button className="hi5-release-policy-save" disabled={Boolean(busy)} onClick={()=>savePolicy()} type="button">Save update policy</button>
+          <fieldset className="hi5-release-maintenance-days" style={{gridColumn:'1 / -1',border:0,padding:0}}>
+            <legend style={{fontWeight:600,fontSize:13,marginBottom:8}}>Allowed maintenance days</legend>
+            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+              {['mon','tue','wed','thu','fri','sat','sun'].map((day,index)=><label key={day} style={{display:'flex',alignItems:'center',gap:5}}>
+                <input type="checkbox" checked={(policy.maintenanceWindow?.days||[]).includes(day)}
+                  onChange={event=>setPolicy(current=>{
+                    const days=current.maintenanceWindow?.days||[]
+                    return {...current,maintenanceWindow:{...current.maintenanceWindow,
+                      days:event.target.checked?[...days,day]:days.filter(v=>v!==day)}}
+                  })}/>
+                {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][index]}
+              </label>)}
+            </div>
+            <small>Application updates will run only inside the chosen window. Empty days are not a valid automatic schedule.</small>
+          </fieldset>
+          <button className="hi5-release-policy-save" disabled={Boolean(busy)||!(policy.maintenanceWindow?.days||[]).length} onClick={()=>savePolicy()} type="button">Save update policy</button>
         </div>
       </div>
     </section>
 
     <TenantRuntimeUpdates updateMode={policy.updateMode}/>
+    <section className="production-settings-panel" data-hi5-tenant-workspaces>
+      <header><div><h2>Your release environments</h2><p>Every customer has an isolated Test and Production workspace. Custom update policies also use UAT before Production approval.</p></div>
+        <button type="button" className="hi5-release-refresh" onClick={load} disabled={Boolean(busy)}><RefreshCw size={15}/> Refresh</button>
+      </header>
+      <div className="production-settings-panel-body">
+        <div className="hi5-release-env-grid">
+          {['test',...(policy.updateMode==='admin_controlled'?['uat']:[]),'live'].map(name=>{
+            const env=tenantEnvironments.find(item=>item.environment===name)
+            return <article key={name} className="hi5-release-env-card">
+              <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance testing':name==='test'?'Automatic Test':'Production'}</strong></div>
+                <ResultPill value={env?.status||'pending'}/></header>
+              <p>{name==='uat'?'Review and accept the exact tested version before scheduling Live.':
+                name==='test'?'Hi5Central stages certified versions for safe validation.':
+                'Only verified and approved updates enter your Live workspace during the selected window.'}</p>
+              {name==='live'?<small>This is your Production workspace.</small>:
+                env?.status==='ready'&&env?.url
+                ?<button type="button" disabled={Boolean(busy)} onClick={()=>openEnvironment(name)}>Open {name.toUpperCase()} ↗</button>
+                :<small>{env?.status==='error'?'Environment requires provisioning review.':
+                  'The workspace will be available when provisioned.'}</small>}
+            </article>
+          })}
+        </div>
+        {tenantEnvironments.some(e=>e.status==='error')?
+          <button className="hi5-release-refresh" type="button" disabled={Boolean(busy)} onClick={provisionEnvironments}>
+            <RefreshCw size={15}/> Retry environment provisioning
+          </button>:null}
+      </div>
+    </section>
+    {error?<p role="alert" className="hi5-release-message is-error"><CircleAlert size={15}/>{error}</p>:null}
+    {message?<p role="status" className="hi5-release-message is-success"><CheckCircle2 size={15}/>{message}</p>:null}
+    <details className="production-settings-panel" data-hi5-advanced-release-tools>
+      <summary style={{cursor:'pointer',padding:16,fontWeight:600}}>Advanced feature and configuration release tools</summary>
+      <div className="production-settings-panel-body">
+        <p>Existing feature flags, selective configuration promotion, shared application operator reports and manual release actions remain here for compatibility. Application-version approvals are handled above.</p>
+
     {policy.updateMode==='admin_controlled'?<UatSelectiveConfigurationPromotion/>:null}
     <ItsmConfigurationHistory/>
 
@@ -596,5 +648,7 @@ function LiveProductionReleaseManagement() {
       </div>
     </section>
     ) : null}
+      </div>
+    </details>
   </div>
 }

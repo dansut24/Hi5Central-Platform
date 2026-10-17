@@ -1,8 +1,10 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { pool, withTransaction } from './db.js'
 import { deployment } from './deploymentConfig.js'
 import { validateReleaseNotes, validateCustomerVersion } from './applicationUpdates.js'
 import { verifiedRuntimePool } from './runtimePoolPolicy.js'
+import {operatorMaintenanceWindowAllowed} from './releaseOperatorMaintenanceWindow.js'
 import { buildHostRoutingManifest } from './runtimePoolControl.js'
 import {registerTenantUatHostAttestation} from './runtimePoolHostAttestation.js'
 import {registerRuntimeScheduleOperator} from './runtimePoolManagedScheduler.js'
@@ -10,8 +12,19 @@ import {registerTenantRoutePreviewOperator} from './tenantRoutePreviewOperator.j
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised,automaticDevPublicationEnabled} from './releasePublicationCredential.js'
+import {verifyAutomaticDevPublication} from './automaticDevPublication.js'
 
 function configuredToken() {
+  // Use the existing host operator's trusted Docker secret volume when
+  // available. Never log its contents, and fail closed if configured but
+  // missing/unreadable. Environment-variable fallback is for legacy hosts.
+  const file = String(process.env.RELEASE_OPERATOR_TOKEN_FILE || '').trim()
+  if (file) {
+    if (file !== '/config/operator.token') return ''
+    try { return String(readFileSync(file, 'utf8')).trim() }
+    catch { return '' }
+  }
   return String(process.env.RELEASE_OPERATOR_TOKEN || '').trim()
 }
 
@@ -36,44 +49,16 @@ function requireOperator(c) {
 
 
 
-function localWindowParts(timeZone, date = new Date()) {
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hourCycle: 'h23',
-    }).formatToParts(date)
-    return Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  } catch {
-    return localWindowParts('UTC', date)
-  }
-}
-
-function minuteOfDay(value, fallback) {
-  const match = String(value || '').match(/^(\d{2}):(\d{2})$/)
-  if (!match) return fallback
-  const hour = Number(match[1])
-  const minute = Number(match[2])
-  if (hour > 23 || minute > 59) return fallback
-  return hour * 60 + minute
-}
-
-function withinMaintenanceWindow(windowValue, now = new Date()) {
-  const window = windowValue && typeof windowValue === 'object' && !Array.isArray(windowValue) ? windowValue : {}
-  const timeZone = String(window.timezone || 'UTC')
-  const local = localWindowParts(timeZone, now)
-  const weekday = String(local.weekday || '').toLowerCase().slice(0,3)
-  const configuredDays = Array.isArray(window.days)
-    ? window.days.map((day) => String(day).toLowerCase().slice(0,3)).filter(Boolean)
-    : []
-  if (configuredDays.length && !configuredDays.includes(weekday)) return false
-  const current = Number(local.hour || 0) * 60 + Number(local.minute || 0)
-  const start = minuteOfDay(window.start, 0)
-  const end = minuteOfDay(window.end, 24 * 60 - 1)
-  if (start === end) return true
-  return start < end ? current >= start && current < end : current >= start || current < end
+/** Editorial publication has its own capability. The full deployment
+ * operator bearer is deliberately not accepted at this endpoint.
+ */
+function requirePublicationOperator(c) {
+  if(publicationTokenDigests().length===0)
+    return c.json({error:'Publication-only operator is not configured.',
+      code:'RELEASE_PUBLICATION_TOKEN_UNAVAILABLE'},503)
+  if(!publicationBearerAuthorised(c.req.header('authorization')))
+    return c.json({error:'Publication-only authentication required.'},401)
+  return null
 }
 
 async function queueManagedPromotion(db, { fromEnvironment, toEnvironment, releaseRef, changeIds, notBefore = null }) {
@@ -316,11 +301,21 @@ export function registerReleaseOperatorRoutes(app) {
     }catch(error){return c.json({error:String(error.message||'Route validation failed.')},409)}
   })
 
+  // Non-mutating capability gate for a trusted, non-root persistent relay.
+  // Requires exactly the dedicated publication credential, not broad operator
+  // or customer credentials. Never reveals a token or reusable auth secret.
+  app.get('/api/platform-operator/v1/releases/publication-capability',c=>{
+    const denied=requirePublicationOperator(c)
+    if(denied)return denied
+    return c.json({automaticDevPublication:automaticDevPublicationEnabled(),
+      centralAuthority:deployment.runtimeEnvironment==='live'})
+  })
+
   // Publication is an editorial action initiated by authorised Hi5Central
   // developers in Dev and relayed by the trusted host. A build deployment,
   // Git push or SQL migration can NEVER publish customer release notes.
   app.post('/api/platform-operator/v1/releases/publish',async c=>{
-    const denied=requireOperator(c)
+    const denied=requirePublicationOperator(c)
     if(denied)return denied
     if(deployment.runtimeEnvironment!=='live')
       return c.json({error:'Only the central release authority may publish customer updates.'},403)
@@ -328,6 +323,18 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
+    if(!publicationShaAuthorised(notes.buildSha)){
+      if(!automaticDevPublicationEnabled())
+        return c.json({error:'Release is outside this publication-only token scope.'},403)
+      // A separate testable Live-side verifier independently validates the
+      // real official GitHub run and same-origin Dev API/frontend SHA.
+      try{
+        await verifyAutomaticDevPublication({sha:notes.buildSha})
+      }catch(error){
+        return c.json({error:'Verified Dev publication prerequisites failed: '+
+          String(error.message||error).slice(0,220)},409)
+      }
+    }
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])
@@ -557,7 +564,7 @@ export function registerReleaseOperatorRoutes(app) {
             LIMIT 1`,
         )
         const policy = preference.rows[0]
-        if (policy?.update_mode === 'hi5_managed' && !withinMaintenanceWindow(policy.maintenance_window)) {
+        if (policy?.update_mode === 'hi5_managed' && !operatorMaintenanceWindowAllowed(policy.maintenance_window)) {
           return null
         }
       }

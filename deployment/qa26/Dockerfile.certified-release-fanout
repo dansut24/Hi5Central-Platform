@@ -1,0 +1,23 @@
+# Dedicated control-plane scheduler: PostgreSQL only; no Docker socket,
+# SSH key, GitHub publishing token, customer data volume or Caddy mount.
+FROM node:22-alpine
+ARG REVIEWED_SOURCE_SHA=unreviewed
+LABEL hi5central.release.reviewed_source="${REVIEWED_SOURCE_SHA}" \
+      hi5central.release.scope="generic-stage-gated"
+WORKDIR /runner
+RUN printf '%s\n' '{"name":"hi5central-release-planner","private":true,"type":"module","dependencies":{"pg":"8.23.0"}}' > package.json \
+ && npm install --omit=dev --ignore-scripts --no-fund --no-audit \
+ && addgroup -S scheduler && adduser -S scheduler -G scheduler
+COPY services/api/src/runtimePoolPolicy.js ./runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js ./releaseRolloutPlanner.js
+COPY services/api/src/tenantReleaseQueue.js ./tenantReleaseQueue.js
+COPY services/api/src/releaseQaCohort.js ./releaseQaCohort.js
+COPY services/api/src/genericReleaseAuthorization.js ./genericReleaseAuthorization.js
+COPY services/api/src/certifiedReleaseFanout.js ./certifiedReleaseFanout.js
+COPY services/api/src/releaseWorkerIdentity.js ./releaseWorkerIdentity.js
+COPY services/api/src/releaseFanoutDaemon.mjs ./releaseFanoutDaemon.mjs
+RUN node --check releaseFanoutDaemon.mjs && node --check certifiedReleaseFanout.js \
+ && node --check releaseQaCohort.js && node --check genericReleaseAuthorization.js \
+ && node --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
+USER scheduler
+ENTRYPOINT ["node","releaseFanoutDaemon.mjs"]

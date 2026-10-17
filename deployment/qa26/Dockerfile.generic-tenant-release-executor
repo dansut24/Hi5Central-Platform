@@ -1,0 +1,34 @@
+# Unprivileged generic tenant queue worker. NO Docker CLI or Docker socket.
+# All real host actions use the private, independently verified Unix adapter.
+FROM node:24-alpine
+ARG REVIEWED_SOURCE_SHA=unreviewed
+LABEL hi5central.release.reviewed_source="${REVIEWED_SOURCE_SHA}" \
+      hi5central.release.scope="generic-stage-gated"
+RUN apk add --no-cache curl \
+ && addgroup -g 10002 h5c-host-ipc \
+ && adduser -D -u 10001 -G h5c-host-ipc h5c-upgrade \
+ && printf '%s\n' '{"name":"hi5central-release-executor","type":"module","private":true,"dependencies":{"pg":"8.23.0"}}' >/tmp/package.json \
+ && mkdir -p /runner && cp /tmp/package.json /runner/package.json \
+ && cd /runner && npm install --omit=dev --ignore-scripts --no-audit --no-fund
+WORKDIR /runner
+COPY services/api/src/releaseGatewayCoordinator.js /runner/services/api/src/releaseGatewayCoordinator.js
+COPY services/api/src/tenantReleaseQueue.js /runner/services/api/src/tenantReleaseQueue.js
+COPY services/api/src/releaseQaCohort.js /runner/services/api/src/releaseQaCohort.js
+COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolPolicy.js
+COPY services/api/src/releaseRolloutPlanner.js /runner/services/api/src/releaseRolloutPlanner.js
+COPY services/api/src/tenantCaddyVersionRoutes.js /runner/services/api/src/tenantCaddyVersionRoutes.js
+COPY services/api/src/tenantLiveBaseline.js /runner/services/api/src/tenantLiveBaseline.js
+COPY services/api/src/releaseWorkerIdentity.js /runner/services/api/src/releaseWorkerIdentity.js
+COPY services/api/src/tenantReleaseExecutor.mjs /runner/services/api/src/tenantReleaseExecutor.mjs
+COPY services/api/src/releaseHostTransport.js /runner/services/api/src/releaseHostTransport.js
+COPY services/api/package.json /runner/services/api/package.json
+RUN chown -R 10001:10002 /runner \
+ && node --check services/api/src/releaseHostTransport.js \
+ && node --check services/api/src/tenantReleaseExecutor.mjs \
+ && node --check services/api/src/tenantLiveBaseline.js \
+ && node --input-type=module -e "import('./services/api/src/tenantLiveBaseline.js').then(m=>{if(typeof m.resolveTenantCurrentRevision!=='function')process.exit(1)})" \
+ && node --check services/api/src/releaseQaCohort.js \
+ && node --check services/api/src/tenantReleaseQueue.js
+ENV RELEASE_EXECUTOR_IMAGE_SCOPE=generic
+USER 10001:10002
+ENTRYPOINT ["node","services/api/src/tenantReleaseExecutor.mjs"]

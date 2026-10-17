@@ -14,7 +14,14 @@ ROOT_DOMAIN_RAW="${ROOT_DOMAIN:-hi5central.com}"
 APP_URL_RAW="${APP_URL:-}"
 API_URL_RAW="${API_URL:-}"
 
-if [ -z "$API_URL_RAW" ]; then
+# Versioned multi-tenant pools serve several customer hostnames from one
+# immutable image. The API must follow the *viewer's tenant hostname*, not
+# the shared environment API which may be on an older release.
+# The special value is deliberately opt-in; existing dedicated hosts keep
+# their explicitly configured API_URL unchanged.
+if [ "$API_URL_RAW" = "same-origin" ]; then
+  API_URL_RAW=""
+elif [ -z "$API_URL_RAW" ]; then
   if [ "$TENANCY_MODE_RAW" = "single" ]; then
     API_URL_RAW="${APP_URL_RAW:-https://${ROOT_DOMAIN_RAW}}"
   else
@@ -48,7 +55,7 @@ window.__HI5_CONFIG__ = Object.freeze({
   rootDomain: "${ROOT_DOMAIN_VALUE}",
   primaryTenantSlug: "${PRIMARY_TENANT_VALUE}",
   appUrl: "${APP_URL_VALUE}",
-  apiUrl: "${API_URL_VALUE}",
+  apiUrl: "${API_URL_VALUE}" || window.location.origin,
   portalUrl: "${PORTAL_URL_VALUE}",
   rmmUrl: "${RMM_URL_VALUE}",
   adminUrl: "${ADMIN_URL_VALUE}",

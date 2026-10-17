@@ -8,6 +8,7 @@ import {enqueueReleasePlans,activateNextPendingRollout,claimDueRollouts,finishRo
 const {Pool}=pg
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:4})
 const sha='c'.repeat(40),shaNext='d'.repeat(40)
+let certifiedBy=null
 const start=new Date('2026-10-15T10:00:00Z')
 const due=new Date('2026-10-15T11:30:00Z')
 const policy={timezone:'Europe/London',days:['thu'],start:'12:00',end:'14:00'}
@@ -22,6 +23,16 @@ async function tx(fn){
 async function seed(){
   const tenants=[]
   const suffix=randomUUID().slice(0,8)
+  const auditor=await pool.query(
+    'INSERT INTO users(email,name,password_hash,email_verified_at) VALUES($1,$2,$3,now()) RETURNING id',
+    ['release-auditor-'+suffix+'@example.invalid','CI Release Auditor','ci-only'])
+  certifiedBy=auditor.rows[0].id
+  for(const build of [sha,shaNext])await pool.query([
+    'INSERT INTO platform_certified_application_releases',
+    '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
+    "VALUES($1,'approved',$2,$3::jsonb,$4,now())",
+  ].join(' '),[build,'https://github.com/dansut24/Hi5Central-Platform/actions/runs/1234567890',
+    JSON.stringify({build:true,ci:true,security:true,migrations:true,smoke:true}),certifiedBy])
   for(let i=0;i<4;i++){
     const mode=i%2?'admin_controlled':'hi5_managed'
     const slug='rollout-ci-'+suffix+'-'+i
@@ -70,6 +81,17 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     assert.equal(paused.paused,true,'global default must block all workers')
     assert.equal(paused.claimed.length,0)
     await pool.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true')
+    // Global unpause alone must no longer make any certified release
+    // executable. Every build/environment needs a separate staff approval.
+    const noApprovalClaim=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
+    assert.equal(noApprovalClaim.claimed.length,0,'no Test job may execute without stage approval')
+    for(const build of [sha,shaNext])await pool.query([
+      'INSERT INTO platform_release_generic_stage_approvals',
+      '(build_sha,environment,planning_enabled,execution_enabled,',
+      'approved_by,approved_at,expires_at,evidence)',
+      "VALUES($1,'test',true,true,$2,$3,$4,$5::jsonb)",
+    ].join(' '),[build,certifiedBy,new Date(Date.now()-3600000),
+      new Date(Date.now()+86400000),JSON.stringify({ciAuthorization:true})])
     const leased=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
     assert.equal(leased.claimed.length,4)
     assert.equal(new Set(leased.claimed.map(v=>v.tenantId)).size,4)
@@ -153,7 +175,12 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     console.log('PASS: four synthetic tenants flowed Dev release -> Test -> (Managed Live / Custom UAT) -> tenant-approved Custom Live without RMM or cross-tenant leakage; blackout deferral preserved')
   }finally{
     await pool.query('UPDATE platform_release_rollout_control SET paused=true WHERE singleton=true').catch(()=>{})
+    await pool.query('DELETE FROM platform_release_generic_stage_approvals WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
+    // Synthetic CI-only cleanup; production approval audit is immutable.
+    await pool.query('DELETE FROM platform_release_generic_approval_audit WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
     for(const tenant of tenants)await pool.query('DELETE FROM tenants WHERE id=$1',[tenant.id]).catch(()=>{})
+    await pool.query('DELETE FROM platform_certified_application_releases WHERE build_sha=ANY($1::text[])',[[sha,shaNext]]).catch(()=>{})
+    if(certifiedBy)await pool.query('DELETE FROM users WHERE id=$1',[certifiedBy]).catch(()=>{})
     await pool.end()
   }
 })

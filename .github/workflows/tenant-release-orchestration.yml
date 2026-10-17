@@ -3,6 +3,80 @@ on:
   pull_request:
     paths:
       - 'services/api/src/releaseRolloutPlanner.js'
+      - 'services/api/src/genericReleaseAuthorization.js'
+      - 'services/api/src/genericReleaseAdminApproval.js'
+      - 'services/api/src/genericReleaseTenantScope.js'
+      - 'services/api/test/generic-release-tenant-scope.mjs'
+      - 'services/api/src/customerReleaseRollback.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/test/customer-release-rollback.mjs'
+      - 'services/api/src/customerReleaseRollbackExecution.js'
+      - 'services/api/test/customer-release-rollback-execution.mjs'
+      - 'services/api/test/customer-release-rollback-postgres.mjs'
+      - 'services/api/migrations/platform-admin/170_customer_scoped_itsm_rollback.sql'
+      - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
+      - 'apps/admin/src/features/admin/GenericReleasePilotScope.jsx'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/generic-release-admin-approval.mjs'
+      - 'services/api/test/generic-release-postgres.mjs'
+      - 'services/api/test/generic-release-ten-tenant-postgres.mjs'
+      - 'services/api/test/generic-release-emergency-pause.mjs'
+      - 'services/api/test/generic-release-worker-identity.mjs'
+      - 'services/api/src/releaseWorkerIdentity.js'
+      - 'services/api/test/generic-release-failure-recovery.mjs'
+      - 'apps/admin/src/features/admin/GenericReleasePlanning.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - 'services/api/src/genericReleaseDiscovery.js'
+      - 'services/api/src/genericReleasePreview.mjs'
+      - 'services/api/src/certifiedReleaseFanout.js'
+      - 'services/api/src/releaseFanoutDaemon.mjs'
+      - 'services/api/src/releaseMigrationReadiness.mjs'
+      - 'services/api/src/releaseCatalogFingerprint.mjs'
+      - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/test/generic-release-discovery.mjs'
+      - 'services/api/test/direct-customer-release.mjs'
+      - 'services/api/src/customerReleasePreparation.js'
+      - 'services/api/src/releaseNotesValidation.js'
+      - 'services/api/src/releaseHostTransport.js'
+      - 'services/api/src/releaseGatewaySourceAgreement.js'
+      - 'services/api/test/release-gateway-source-agreement.mjs'
+      - 'services/api/test/release-host-transport.mjs'
+      - 'deployment/qa26/release-host-adapter.mjs'
+      - 'deployment/qa26/audit-release-host-readiness.mjs'
+      - 'deployment/qa26/verify-active-caddy-provenance.mjs'
+      - 'deployment/qa26/prepare-live-caddy-reconciliation.mjs'
+      - 'deployment/qa26/prepare-qa-gateway-entitlement-overlay.mjs'
+      - 'deployment/qa26/smoke-qa-gateway-entitlement-routing.mjs'
+      - 'services/api/src/qaGatewayEntitlementOverlay.js'
+      - 'services/api/test/qa-gateway-entitlement-overlay.mjs'
+      - 'deployment/qa26/audit-customer-publication-handoff.mjs'
+      - 'deployment/qa26/run-overnight-release-qa.mjs'
+      - 'deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs'
+      - 'services/api/src/releaseGatewayProvenance.js'
+      - 'services/api/src/releaseGatewaySemanticAgreement.js'
+      - 'services/api/test/release-gateway-semantic-agreement.mjs'
+      - 'services/api/test/release-gateway-provenance.mjs'
+      - 'deployment/qa26/qa27-ten-tenant-readiness.mjs'
+      - 'deployment/qa26/qa27-verified-tenant-preferences.mjs'
+      - 'deployment/qa26/reconcile-release-schema.mjs'
+      - 'deployment/qa26/Dockerfile.release-host-adapter'
+      - 'deployment/qa26/Dockerfile.host-rollback-smoke'
+      - 'services/api/test/qa-caddy-tenant-http-smoke-vps.mjs'
+      - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
+      - 'services/api/test/customer-release-preparation.mjs'
+      - 'services/api/test/customer-release-preparation-postgres.mjs'
+      - 'services/api/src/officialReleaseCertification.js'
+      - 'services/api/migrations/platform-admin/171_customer_release_preparation_drafts.sql'
+      - 'apps/admin/src/features/admin/CertifiedReleaseControls.jsx'
+      - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
+      - 'services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql'
+      - 'services/api/migrations/platform-admin/168_verified_test_canary_gate_least_privilege.sql'
+      - 'services/api/migrations/platform-admin/169_generic_release_tenant_scope.sql'
+      - 'deployment/qa26/tenant-release-host-executor.mjs'
+      - 'deployment/qa26/Dockerfile.certified-release-fanout'
+      - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
+      - 'deployment/qa26/stage-reviewed-generic-release-images.sh'
+      - 'deployment/qa26/verify-generic-existing-tenant-readiness.mjs'
       - 'services/api/src/tenantReleaseQueue.js'
       - 'services/api/src/runtimePoolPolicy.js'
       - 'services/api/src/runtimePoolManagedScheduler.js'
@@ -19,6 +93,17 @@ on:
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releaseOperatorMaintenanceWindow.js'
+      - 'services/api/test/release-operator-maintenance-weekends.mjs'
+      - 'services/api/src/releasePublicationCredential.js'
+      - 'services/api/test/release-publication-credential.mjs'
+      - 'deployment/qa26/bootstrap-release-publisher-dev-only.sql'
+      - 'deployment/qa26/provision-release-publisher-admin.py'
+      - 'services/api/src/releasePublicationRelay.mjs'
+      - 'services/api/src/releasePublicationRelayDaemon.mjs'
+      - 'services/api/test/release-publication-relay.mjs'
+      - 'deployment/qa26/Dockerfile.release-publication-relay'
+      - 'deployment/qa26/compose.release-publication-relay.yml'
       - 'services/api/src/tenantRuntimeReleaseLifecycle.js'
       - 'services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql'
       - 'services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql'
@@ -29,6 +114,19 @@ on:
       - 'services/api/test/tenant-runtime-release-lifecycle.mjs'
       - 'services/api/test/release-rollout-planner.mjs'
       - 'services/api/test/tenant-release-queue.mjs'
+      - 'services/api/test/qa-single-test-canary-gate.mjs'
+      - 'services/api/test/qa-six-test-rollout-verifier.mjs'
+      - 'deployment/qa26/single-test-canary/**'
+      - 'deployment/qa26/Dockerfile.single-test-canary'
+      - 'deployment/qa26/verify-six-qa-test-rollouts.mjs'
+      - 'deployment/qa26/execute-six-qa-test-job-admin.mjs'
+      - 'deployment/qa26/verify-six-qa-test-caddy-history.mjs'
+      - 'deployment/qa26/arm-six-qa-test-permit-admin.sh'
+      - 'deployment/qa26/stage-reviewed-six-qa-worker-admin.sh'
+      - 'deployment/qa26/check-six-qa-test-credential-readiness.mjs'
+      - 'deployment/qa26/run-six-qa-test-window-admin.sh'
+      - 'deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh'
+      - 'deployment/qa26/repin-reviewed-qa-overnight-timer-admin.sh'
       - '.github/workflows/tenant-release-orchestration.yml'
   workflow_dispatch:
 permissions:
@@ -47,6 +145,52 @@ jobs:
       - name: Syntax and automated multi-tenant release planning
         run: |
           node --check src/releaseRolloutPlanner.js
+          node --check src/genericReleaseAuthorization.js
+          node --check src/genericReleaseAdminApproval.js
+          node --check src/genericReleaseTenantScope.js
+          node --test test/generic-release-tenant-scope.mjs
+          node --check src/platformAdmin.js
+          node --test test/generic-release-admin-approval.mjs
+          node --check src/customerReleasePreparation.js
+          node --check src/releaseNotesValidation.js
+          node --check src/releaseHostTransport.js
+          node --check src/releaseGatewaySourceAgreement.js
+          node --test test/release-gateway-source-agreement.mjs
+          node --test test/release-host-transport.mjs
+          node --check ../../deployment/qa26/release-host-adapter.mjs
+          node --check ../../deployment/qa26/audit-release-host-readiness.mjs
+          node --check ../../deployment/qa26/verify-active-caddy-provenance.mjs
+          node --check ../../deployment/qa26/prepare-live-caddy-reconciliation.mjs
+          node --check ../../deployment/qa26/prepare-qa-gateway-entitlement-overlay.mjs
+          node --check ../../deployment/qa26/smoke-qa-gateway-entitlement-routing.mjs
+          node --test test/qa-gateway-entitlement-overlay.mjs
+          node --check ../../deployment/qa26/audit-customer-publication-handoff.mjs
+          node --check ../../deployment/qa26/run-overnight-release-qa.mjs
+          node --test test/release-gateway-provenance.mjs
+          node --check src/releaseGatewaySemanticAgreement.js
+          node --test test/release-gateway-semantic-agreement.mjs
+          node --check ../../deployment/qa26/qa27-ten-tenant-readiness.mjs
+          node --check ../../deployment/qa26/qa27-verified-tenant-preferences.mjs
+          node --check ../../deployment/qa26/reconcile-release-schema.mjs
+          node --check src/officialReleaseCertification.js
+          node --test test/customer-release-preparation.mjs
+          node --check src/genericReleaseDiscovery.js
+          node --check src/genericReleasePreview.mjs
+          node --check src/certifiedReleaseFanout.js
+          node --check src/releaseFanoutDaemon.mjs
+          node --check src/releaseMigrationReadiness.mjs
+          node --check src/releaseCatalogFingerprint.mjs
+          node --check src/releaseWorkerIdentity.js
+          node --check src/tenantReleaseExecutor.mjs
+          node --check src/customerReleaseRollback.js
+          node --check src/customerReleaseRollbackExecution.js
+          node --test test/customer-release-rollback-execution.mjs
+          node --test test/customer-release-rollback.mjs
+          node --check src/tenantRelease.js
+          node --check ../../deployment/qa26/tenant-release-host-executor.mjs
+          bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
+          node --check ../../deployment/qa26/verify-generic-existing-tenant-readiness.mjs
+          node --test test/generic-release-discovery.mjs test/certified-release-fanout.mjs test/direct-customer-release.mjs
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
           node --check src/tenantRouteActivationGate.js
@@ -56,11 +200,44 @@ jobs:
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
+          node --check src/releaseOperatorMaintenanceWindow.js
+          node --test test/release-operator-maintenance-weekends.mjs
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js
+          node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
+          node --check ../../deployment/qa26/single-test-canary/deployment/qa26/tenant-release-host-executor.mjs
+          node --check ../../deployment/qa26/single-test-canary/launcher.mjs
+          node --check ../../deployment/qa26/execute-six-qa-test-job-admin.mjs
+          node --check ../../deployment/qa26/verify-six-qa-test-caddy-history.mjs
+          bash -n ../../deployment/qa26/arm-six-qa-test-permit-admin.sh
+          bash -n ../../deployment/qa26/stage-reviewed-six-qa-worker-admin.sh
+          node --check ../../deployment/qa26/check-six-qa-test-credential-readiness.mjs
+          bash -n ../../deployment/qa26/run-six-qa-test-window-admin.sh
+          bash -n ../../deployment/qa26/install-reviewed-six-qa-test-timers-admin.sh
+          bash -n ../../deployment/qa26/repin-reviewed-qa-overnight-timer-admin.sh
+          node --test test/qa-single-test-canary-gate.mjs test/qa-six-test-rollout-verifier.mjs
           node --check src/runtimePoolPolicy.js
           node --check src/runtimePoolControl.js
           node --check src/runtimePoolManagedScheduler.js
           node --check src/tenantRuntimeReleaseLifecycle.js
+          node --check src/releasePublicationCredential.js
+          node --test test/release-publication-credential.mjs
+          node --check src/releasePublicationRelay.mjs
+          node --check src/releasePublicationRelayDaemon.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
+      - name: Certify isolated generic scheduler and worker images
+        run: |
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.certified-release-fanout -t h5c-ci-generic-planner:reviewed ../..
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.generic-tenant-release-executor -t h5c-ci-generic-executor:reviewed ../..
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.release-host-adapter -t h5c-ci-trusted-host-adapter:reviewed ../..
+          test "$(docker image inspect h5c-ci-generic-executor:reviewed --format '{{.Config.User}}')" = "10001:10002"
+          docker run --rm --network none --entrypoint sh h5c-ci-generic-executor:reviewed -c 'test ! -S /var/run/docker.sock && ! command -v docker'
+          test "$(docker image inspect h5c-ci-trusted-host-adapter:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
+          test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{.Config.User}}')" = "scheduler"
+          test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
+          test "$(docker image inspect h5c-ci-generic-executor:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
+          docker run --rm --network none --entrypoint node h5c-ci-generic-planner:reviewed --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
+          echo "GENERIC_RELEASE_IMAGE_IMPORTS_AND_NONROOT_PLANNER_PASS"
       - name: Validate generated tenant routes using QA Caddy version
         run: |
           node test/generate-qa-caddy-fixture.mjs > /tmp/h5c-qa-route-preview.Caddyfile
@@ -79,8 +256,11 @@ jobs:
       - name: Live HTTP multi-tenant gateway switch and rollback (CI Docker only)
         run: |
           node test/qa-caddy-tenant-http-smoke.mjs
+          docker build --pull=false -f ../../deployment/qa26/Dockerfile.host-rollback-smoke -t h5c-vps-rollback-smoke:ci ../..
+          docker run --rm --network none --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock,readonly --tmpfs /tmp:rw,size=80m h5c-vps-rollback-smoke:ci
           node test/qa-caddy-outer-handoff-smoke.mjs
           node test/qa-caddy-native-forwarded-host-smoke.mjs
+          node ../../deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs
 
   rollout-queue:
     runs-on: ubuntu-latest
@@ -114,4 +294,24 @@ jobs:
       - name: Isolated Postgres migration and transaction tests
         run: |
           npm run migrate
+          node src/releaseMigrationReadiness.mjs --require-complete
+          node src/releaseCatalogFingerprint.mjs
+          # Generic worker may only enter even preflight with explicit reviewed
+          # mode. No host route, job claim, lease, pause or gateway write.
+          if RELEASE_WORKER_SCOPE=generic RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight > /dev/null 2>&1; then
+            echo 'Generic worker incorrectly accepted missing execution acknowledgement'
+            exit 1
+          fi
+          # Both generic entrypoints MUST reject CI's PostgreSQL superuser.
+          # Actual restricted-role preflights are tested using disposable roles.
+          node --test test/generic-release-worker-identity.mjs
           node --test test/tenant-release-queue.mjs
+          node --test test/generic-release-postgres.mjs
+          node --check test/generic-release-ten-tenant-postgres.mjs
+          node --test test/generic-release-ten-tenant-postgres.mjs
+          node --test test/customer-release-rollback.mjs
+          node --test test/customer-release-rollback-postgres.mjs
+          node --test test/customer-release-preparation-postgres.mjs
+          node --test test/generic-release-emergency-pause.mjs
+          node --test test/generic-release-failure-recovery.mjs
+          node --test test/release-publication-relay.mjs
