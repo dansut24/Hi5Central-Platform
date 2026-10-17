@@ -78,6 +78,8 @@ on:
       - 'services/api/src/tenantRoutePreviewOperator.js'
       - 'services/api/test/tenant-route-cutover.mjs'
       - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releaseOperatorMaintenanceWindow.js'
+      - 'services/api/test/release-operator-maintenance-weekends.mjs'
       - 'services/api/src/releasePublicationCredential.js'
       - 'services/api/test/release-publication-credential.mjs'
       - 'deployment/qa26/bootstrap-release-publisher-dev-only.sql'
@@ -173,6 +175,8 @@ jobs:
           node --check src/tenantRoutePreviewOperator.js
           node --test test/tenant-route-cutover.mjs
           node --test test/release-rollout-planner.mjs
+          node --check src/releaseOperatorMaintenanceWindow.js
+          node --test test/release-operator-maintenance-weekends.mjs
           node --check ../../deployment/qa26/single-test-canary/services/api/src/qaSixTestCohort.js
           node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseQueue.js
           node --check ../../deployment/qa26/single-test-canary/services/api/src/tenantReleaseExecutor.mjs
