@@ -90,14 +90,14 @@ export async function completeCustomerRollback(db,{requestId,proof,now=new Date(
  const hold=await db.query([
   'SELECT active FROM tenant_release_upgrade_holds',
   'WHERE tenant_id=$1 FOR UPDATE',
- ],[row.tenant_id])
+ ].join(' '),[row.tenant_id])
  if(hold.rows[0]?.active!==true)
   throw refuse('The customer rollback hold must remain active.')
  // A newer release must not have moved this tenant during the host step.
  const current=await db.query([
   'SELECT generation,build_sha FROM tenant_runtime_assignments',
   "WHERE tenant_id=$1 AND environment='live' FOR UPDATE",
- ],[row.tenant_id])
+ ].join(' '),[row.tenant_id])
  if(current.rows[0]?.build_sha!==row.source_build_sha
   ||Number(current.rows[0]?.generation)!==Number(row.source_route_generation))
   throw refuse('Production changed since rollback was claimed.')
@@ -105,25 +105,25 @@ export async function completeCustomerRollback(db,{requestId,proof,now=new Date(
   'SELECT id FROM platform_runtime_pools',
   "WHERE environment='live' AND build_sha=$1 AND state='verified'",
   'AND last_seen_at>now()-interval \'15 minutes\' LIMIT 1',
- ],[row.target_build_sha])
+ ].join(' '),[row.target_build_sha])
  if(pool.rowCount!==1)throw refuse('Previous exact immutable pool is not verified and healthy.')
  const target=pool.rows[0].id
  await db.query([
   'UPDATE tenant_runtime_assignments SET pool_id=$2,build_sha=$3,',
   'generation=$4,activated_at=$5',
   "WHERE tenant_id=$1 AND environment='live'",
- ],[row.tenant_id,target,row.target_build_sha,proof.routeGeneration,valid.checkedAt])
+ ].join(' '),[row.tenant_id,target,row.target_build_sha,proof.routeGeneration,valid.checkedAt])
  await db.query([
   'UPDATE tenant_runtime_route_attestations',
   "SET pool_id=$2,build_sha=$3,state='active',checked_at=$4",
   "WHERE tenant_id=$1 AND environment='live'",
- ],[row.tenant_id,target,row.target_build_sha,valid.checkedAt])
+ ].join(' '),[row.tenant_id,target,row.target_build_sha,valid.checkedAt])
  const updated=await db.query([
   'UPDATE tenant_release_customer_rollback_requests',
   "SET state='verified',host_verified_at=$2,completed_at=$2,",
   'host_proof=$3::jsonb,last_error=\'\' WHERE id=$1',
   "AND state='running' RETURNING id,tenant_id,state,target_build_sha",
- ],[requestId,valid.checkedAt,JSON.stringify({
+ ].join(' '),[requestId,valid.checkedAt,JSON.stringify({
   routeGeneration:proof.routeGeneration,observedBuildSha:proof.observedBuildSha,
   sourceBuildSha:proof.sourceBuildSha,checkedAt:proof.checkedAt,
   tenantScopedRouteOnly:true,apiHealthy:true,frontendHealthy:true,
@@ -134,7 +134,7 @@ export async function completeCustomerRollback(db,{requestId,proof,now=new Date(
   'INSERT INTO tenant_release_customer_rollback_events',
   '(request_id,tenant_id,event_type,source_build_sha,target_build_sha,details)',
   "VALUES($1,$2,'verified',$3,$4,$5::jsonb)",
- ],[requestId,row.tenant_id,row.source_build_sha,row.target_build_sha,
+ ].join(' '),[requestId,row.tenant_id,row.source_build_sha,row.target_build_sha,
   JSON.stringify({routeGeneration:proof.routeGeneration,verifiedAt:valid.checkedAt,
    upgradeHoldPreserved:true})])
  // Intentionally retain the upgrade hold. Re-enabling the same bad version
@@ -149,14 +149,14 @@ export async function failCustomerRollback(db,{requestId,reason}={}){
   "SET state='failed',completed_at=now(),last_error=$2",
   "WHERE id=$1 AND state='running'",
   'RETURNING id,tenant_id,source_build_sha,target_build_sha',
- ],[requestId,text])
+ ].join(' '),[requestId,text])
  if(!changed.rowCount)return {changed:false}
  const r=changed.rows[0]
  await db.query([
   'INSERT INTO tenant_release_customer_rollback_events',
   '(request_id,tenant_id,event_type,source_build_sha,target_build_sha,details)',
   "VALUES($1,$2,'failed',$3,$4,$5::jsonb)",
- ],[r.id,r.tenant_id,r.source_build_sha,r.target_build_sha,
+ ].join(' '),[r.id,r.tenant_id,r.source_build_sha,r.target_build_sha,
   JSON.stringify({reason:text,upgradeHoldPreserved:true})])
  return {changed:true,upgradeHoldPreserved:true}
 }
