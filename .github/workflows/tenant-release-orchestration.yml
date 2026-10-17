@@ -17,6 +17,7 @@ on:
       - 'services/api/src/certifiedReleaseFanout.js'
       - 'services/api/src/releaseFanoutDaemon.mjs'
       - 'services/api/src/releaseMigrationReadiness.mjs'
+      - 'services/api/src/releaseCatalogFingerprint.mjs'
       - 'services/api/src/tenantReleaseExecutor.mjs'
       - 'services/api/test/generic-release-discovery.mjs'
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
@@ -101,6 +102,7 @@ jobs:
           node --check src/certifiedReleaseFanout.js
           node --check src/releaseFanoutDaemon.mjs
           node --check src/releaseMigrationReadiness.mjs
+          node --check src/releaseCatalogFingerprint.mjs
           node --check src/tenantReleaseExecutor.mjs
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
           bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
@@ -201,6 +203,7 @@ jobs:
         run: |
           npm run migrate
           node src/releaseMigrationReadiness.mjs --require-complete
+          node src/releaseCatalogFingerprint.mjs
           # Generic worker may only enter even preflight with explicit reviewed
           # mode. No host route, job claim, lease, pause or gateway write.
           if RELEASE_WORKER_SCOPE=generic RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight > /dev/null 2>&1; then
