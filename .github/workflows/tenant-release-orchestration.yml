@@ -10,6 +10,7 @@ on:
       - 'services/api/src/customerReleaseRollback.js'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/test/customer-release-rollback.mjs'
+      - 'services/api/test/customer-release-rollback-postgres.mjs'
       - 'services/api/migrations/platform-admin/170_customer_scoped_itsm_rollback.sql'
       - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
       - 'apps/admin/src/features/admin/GenericReleasePilotScope.jsx'
@@ -237,6 +238,7 @@ jobs:
           node --check test/generic-release-ten-tenant-postgres.mjs
           node --test test/generic-release-ten-tenant-postgres.mjs
           node --test test/customer-release-rollback.mjs
+          node --test test/customer-release-rollback-postgres.mjs
           node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
