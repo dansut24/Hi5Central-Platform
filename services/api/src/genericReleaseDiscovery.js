@@ -3,8 +3,8 @@
  * independent of the six immutable QA canary tenants.
  *
  * Scans real tenant entitlements and per-tenant maintenance preferences,
- * assesses Test -> Custom UAT -> explicit Custom Production / Managed
- * Production with platform canary gate, and previews schedules. Approval
+ * previews direct Managed Production or Custom UAT, with Custom Production
+ * restricted to the customer's exact approved UAT release. Approval
  * rows are default-DENY. NO SQL mutations, route writes or Docker operations.
  */
 import {nextCustomerReleaseStage,scheduledCustomerRelease} from './certifiedReleaseFanout.js'
@@ -31,12 +31,15 @@ export const genericReleaseTenantQuery=[
 
 export async function previewGenericCertifiedRelease(db,{
  sha,now=new Date(),limit=200,testSoakMinutes=30,maxTenants=10000,
+ deliveryMode='direct_customer_release',
 }={}){
  if(!SHA.test(String(sha||''))||!valid(now)
   ||!Number.isInteger(limit)||limit<1||limit>2000
   ||!Number.isInteger(maxTenants)||maxTenants<1||maxTenants>100000
   ||!Number.isInteger(testSoakMinutes)||testSoakMinutes<2||testSoakMinutes>10080)
   throw issue('Release, clock or bounded tenant scan options invalid.')
+ if(!['qa_sequential','direct_customer_release'].includes(deliveryMode))
+  throw issue('Unknown release delivery policy.')
  const releaseRows=await db.query([
   'SELECT c.build_sha,c.status,c.approved_by,c.approved_at,c.evidence,',
   'n.published_at,n.version_label',
@@ -51,9 +54,10 @@ export async function previewGenericCertifiedRelease(db,{
   throw issue('Exact human-approved, CI/security-qualified and published release required.')
  const release=releaseRows.rows[0]
  const approvals=await readGenericReleaseApprovals(db,{sha})
- const gateResult=await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])
+ const gateResult=deliveryMode==='qa_sequential'
+  ?await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha]):{rows:[]}
  const gate=gateResult.rows[0]||null
- const report={sha,versionLabel:release.version_label,
+ const report={sha,versionLabel:release.version_label,deliveryMode,
   scanned:0,eligible:0,approvalBlocked:0,policyBlocked:0,
   gateState:gate?.state||'absent',stageApprovals:{},tenants:[]}
  for(const stage of GENERIC_STAGES)
@@ -81,6 +85,7 @@ export async function previewGenericCertifiedRelease(db,{
     tenant,sha,publishedAt:release.published_at,approvedAt:release.approved_at,
     jobs,gate,liveOffer:offers.find(o=>o.environment==='live'),
     uatOffer:offers.find(o=>o.environment==='uat'),testSoakMinutes,now,
+    deliveryMode,
    })
    const schedule=scheduledCustomerRelease({decision,tenant,sha,now})
    const approval=decision.stage?report.stageApprovals[decision.stage]:null
