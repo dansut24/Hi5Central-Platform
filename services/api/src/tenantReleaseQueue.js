@@ -84,7 +84,7 @@ export async function activateNextPendingRollout(db,{tenantId,environment}){
  * live window, tenant scope, and host proof must be rechecked before a route
  * switch. Default global pause protects environments until full E2E tests pass.
  */
-export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null}={}){
+export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null,genericTenantScope=false}={}){
   const at=goodDate(now)
   if(!at||(environment!==null&&!ENV.has(environment))||!Number.isInteger(limit)||limit<1||limit>50
     ||!Number.isInteger(leaseSeconds)||leaseSeconds<30||leaseSeconds>600)
@@ -127,6 +127,7 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     'AND j.attempt_count<j.max_attempts',
     'AND ($3::text IS NULL OR j.environment=$3)',
     'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
+    ...(genericTenantScope?["AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true"]:[]),
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
   ].join(' '),[at,limit,environment,qaTenantSlugs])
