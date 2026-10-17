@@ -122,7 +122,7 @@ const body=['BEGIN;',"SET LOCAL lock_timeout='800ms';",
  ].join('\n')
 const result=await new Promise((resolve,reject)=>{
  const process=spawn('docker',['exec','-i',target,'sh','-c',
-  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -X -v ON_ERROR_STOP=1 -q'],
+  'psql -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-hi5_reconcile_ci}" -X -v ON_ERROR_STOP=1 -q'],
  {stdio:['pipe','pipe','pipe']})
  let stdout='',stderr='',settled=false
  const timer=setTimeout(()=>{process.kill('SIGKILL');if(!settled){settled=true;reject(Error('Reconciliation exceeded bounded time limit.'))}},180000)
