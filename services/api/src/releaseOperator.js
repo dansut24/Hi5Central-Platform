@@ -12,7 +12,8 @@ import {registerTenantRoutePreviewOperator} from './tenantRoutePreviewOperator.j
 import { canonicalUatReviewSlug } from './uatProductionPromotion.js'
 import { APPLICATION_RELEASE_EXECUTOR_ID,APPLICATION_RELEASE_EXECUTOR_CAPABILITY } from './applicationReleaseExecutor.js'
 import {MAX_RELEASE_HISTORY_COMMITS} from './releaseReviewRange.js'
-import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised} from './releasePublicationCredential.js'
+import {publicationTokenDigests,publicationBearerAuthorised,publicationShaAuthorised,automaticDevPublicationEnabled} from './releasePublicationCredential.js'
+import {listOfficialReleaseCandidates,verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
 
 function configuredToken() {
   // Use the existing host operator's trusted Docker secret volume when
@@ -312,8 +313,27 @@ export function registerReleaseOperatorRoutes(app) {
     let notes
     try{notes=validateReleaseNotes(body)}
     catch(e){return c.json({error:e.message},400)}
-    if(!publicationShaAuthorised(notes.buildSha))
-      return c.json({error:'Release is outside this publication-only token scope.'},403)
+    if(!publicationShaAuthorised(notes.buildSha)){
+      if(!automaticDevPublicationEnabled())
+        return c.json({error:'Release is outside this publication-only token scope.'},403)
+      // Live independently resolves the exact successful official candidate,
+      // fetches its five jobs and verifies the *currently running* Dev API
+      // and ITSM frontend. A relay, browser or stolen publication-only token
+      // cannot assert GitHub success or substitute an unreviewed commit.
+      try{
+        const candidates=await listOfficialReleaseCandidates({
+          token:process.env.GITHUB_RELEASE_READ_TOKEN,
+        })
+        const candidate=candidates.find(item=>item.buildSha===notes.buildSha)
+        if(!candidate)throw Error('No completed official Dev release workflow for this SHA.')
+        await verifyOfficialReleaseRun({sha:notes.buildSha,
+          runUrl:candidate.ciRunUrl,token:process.env.GITHUB_RELEASE_READ_TOKEN})
+        await verifyDevReleaseSmoke({sha:notes.buildSha})
+      }catch(error){
+        return c.json({error:'Verified Dev publication prerequisites failed: '+
+          String(error.message||error).slice(0,220)},409)
+      }
+    }
     const existing=await pool.query(
       'SELECT build_sha,version_label,title,summary,entries FROM hi5central_published_release_notes WHERE build_sha=$1',
       [notes.buildSha])
