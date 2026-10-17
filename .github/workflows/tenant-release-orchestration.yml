@@ -9,6 +9,8 @@ on:
       - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/test/generic-release-postgres.mjs'
       - 'services/api/test/generic-release-emergency-pause.mjs'
+      - 'services/api/test/generic-release-worker-identity.mjs'
+      - 'services/api/src/releaseWorkerIdentity.js'
       - 'services/api/test/generic-release-failure-recovery.mjs'
       - 'apps/admin/src/features/admin/GenericReleasePlanning.jsx'
       - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
@@ -103,6 +105,7 @@ jobs:
           node --check src/releaseFanoutDaemon.mjs
           node --check src/releaseMigrationReadiness.mjs
           node --check src/releaseCatalogFingerprint.mjs
+          node --check src/releaseWorkerIdentity.js
           node --check src/tenantReleaseExecutor.mjs
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
           bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
@@ -210,7 +213,9 @@ jobs:
             echo 'Generic worker incorrectly accepted missing execution acknowledgement'
             exit 1
           fi
-          RELEASE_WORKER_SCOPE=generic RELEASE_GENERIC_WORKER_ACK=reviewed-stage-approval-only RELEASE_GATEWAY=test node src/tenantReleaseExecutor.mjs --preflight
+          # Both generic entrypoints MUST reject CI's PostgreSQL superuser.
+          # Actual restricted-role preflights are tested using disposable roles.
+          node --test test/generic-release-worker-identity.mjs
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
           node --test test/generic-release-emergency-pause.mjs
