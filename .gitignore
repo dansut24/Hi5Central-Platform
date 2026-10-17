@@ -3,3 +3,15 @@
 *.local.env
 .DS_Store
 Thumbs.db
+
+# Native installer outputs and local tooling artifacts (never source code)
+/native/agent/**/build/
+/native/agent/**/dist/
+/native/viewer/**/build/
+/native/viewer/**/dist/
+**/build-sign-log.txt
+**/CMakeFiles/
+**/CMakeCache.txt
+**/*.log
+**/*.tmp
+**/*.bak
