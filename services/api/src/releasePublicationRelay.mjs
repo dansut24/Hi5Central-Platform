@@ -39,7 +39,9 @@ export function pinnedDevDatabaseUrl(raw){
 export async function relayOneRequestedRelease({
   db,fetcher,authority,token,allowedSha,reconcileOnly=false,
 }={}){
-  if(!SHA.test(String(allowedSha||'')))throw fail('A single pinned QA release SHA is required.')
+  const automatic=allowedSha==='verified-dev'
+  if(!automatic&&!SHA.test(String(allowedSha||'')))
+    throw fail('A pinned SHA or the independently verified Dev-only mode is required.')
   if(authority!=='http://hi5central-api:3001')
     throw fail('Only the trusted internal central API endpoint is allowed.')
   if(typeof token!=='string'||!/^[A-Za-z0-9_-]{48,256}$/.test(token.trim()))
@@ -47,6 +49,19 @@ export async function relayOneRequestedRelease({
   if(typeof fetcher!=='function'||typeof db?.query!=='function')
     throw fail('Trusted database and HTTP capabilities are required.')
 
+  // The dynamic selector does not trust a pending row's supplied SHA.
+  // It first pins the request to the actual HTTPS Dev API build.
+  let pinnedSha=allowedSha
+  if(automatic){
+    const dev=await fetcher('https://dev-api.hi5central.com/api/v1/updates/version',{
+      headers:{Accept:'application/json'},redirect:'error',
+      signal:AbortSignal.timeout(8000),cache:'no-store'})
+    if(!dev.ok)throw fail('Actual Dev build identity is unavailable.')
+    const detail=await dev.json().catch(()=>null)
+    if(!SHA.test(String(detail?.sha||''))||detail.environment!=='dev')
+      throw fail('Actual Dev API does not serve a verified versioned build.')
+    pinnedSha=detail.sha
+  }
   const selected=await db.query([
     'SELECT build_sha,version_label,title,summary,entries,status,requested_at,',
     'requested_at::text AS requested_at_exact,edited_by',
@@ -54,11 +69,11 @@ export async function relayOneRequestedRelease({
     "WHERE status='publication_requested' AND build_sha=$1",
     'AND requested_at IS NOT NULL AND edited_by IS NOT NULL',
     'FOR UPDATE SKIP LOCKED',
-  ].join(' '),[allowedSha])
-  if(selected.rowCount===0)return {status:'no_pending',buildSha:allowedSha}
+  ].join(' '),[pinnedSha])
+  if(selected.rowCount===0)return {status:'no_pending',buildSha:pinnedSha}
   if(selected.rowCount!==1)throw fail('Unexpected duplicate Dev release request.')
   const row=selected.rows[0]
-  if(row.build_sha!==allowedSha||row.status!=='publication_requested'
+  if(row.build_sha!==pinnedSha||row.status!=='publication_requested'
     ||!row.requested_at||typeof row.requested_at_exact!=='string'
     ||!row.requested_at_exact||!row.edited_by||!Array.isArray(row.entries)
     ||row.entries.length<1||row.entries.length>35)
@@ -80,7 +95,7 @@ export async function relayOneRequestedRelease({
     })
     ack=await response.json().catch(()=>({}))
     if(response.status===409)alreadyPublished=true
-    else if(!response.ok||ack.published!==true||ack.buildSha!==allowedSha)
+    else if(!response.ok||ack.published!==true||ack.buildSha!==pinnedSha)
       throw fail('Central authority refused Dev publication (HTTP '+response.status+').')
     alreadyPublished ||= ack.alreadyPublished===true
   }else{
@@ -92,7 +107,7 @@ export async function relayOneRequestedRelease({
   })
   if(!readback.ok)throw fail('Central publication readback unavailable.')
   const body=await readback.json().catch(()=>({}))
-  const persisted=body.releases?.find(x=>x.buildSha===allowedSha)
+  const persisted=body.releases?.find(x=>x.buildSha===pinnedSha)
   if(!persisted||!equal({
     buildSha:persisted.buildSha,versionLabel:persisted.versionLabel,
     title:persisted.title,summary:persisted.summary,entries:persisted.entries,
@@ -107,11 +122,11 @@ export async function relayOneRequestedRelease({
     'AND entries=$6::jsonb AND requested_at=$7::timestamptz AND edited_by=$8',
     'RETURNING build_sha,status,published_at',
   ].join(' '),[
-    allowedSha,persisted.publishedAt,row.version_label,row.title,row.summary,
+    pinnedSha,persisted.publishedAt,row.version_label,row.title,row.summary,
     JSON.stringify(row.entries),row.requested_at_exact,row.edited_by,
   ])
   if(updated.rowCount!==1)throw fail('Dev request changed before central acknowledgement.')
-  return {status:'published',buildSha:allowedSha,publishedAt:persisted.publishedAt,
+  return {status:'published',buildSha:pinnedSha,publishedAt:persisted.publishedAt,
     alreadyPublished}
 }
 
@@ -149,7 +164,8 @@ export async function startReleasePublicationRelay({
   databaseUrlFile,publicationTokenFile,allowedSha,authority,
   once=false,preflight=false,reconcileOnly=false,fetcher=fetch,
 }={}){
-  if(!SHA.test(String(allowedSha||'')))throw fail('Pin a legitimate single Dev SHA.')
+  if(allowedSha!=='verified-dev'&&!SHA.test(String(allowedSha||'')))
+    throw fail('Pin a legitimate Dev SHA or verified-dev publication mode.')
   if(reconcileOnly&&(!once||preflight))throw fail('Reconciliation must be one-shot and separate from preflight.')
   if(authority!=='http://hi5central-api:3001')throw fail('Untrusted central authority.')
   if(!databaseUrlFile||!publicationTokenFile)throw fail('Mounted secret files are required.')
@@ -169,6 +185,17 @@ export async function startReleasePublicationRelay({
     if(schema.rows[0]?.ready!==true)throw fail('Dev release-note migrations missing.')
     if(preflight){
       await verifyCentralPublicationCredential({fetcher,authority,token})
+      if(allowedSha==='verified-dev'){
+        const proof=await fetcher(authority+
+          '/api/platform-operator/v1/releases/publication-capability',{
+            headers:{Authorization:'Bearer '+token},
+            signal:AbortSignal.timeout(7500),
+          })
+        const detail=await proof.json().catch(()=>({}))
+        if(!proof.ok||detail.automaticDevPublication!==true
+          ||detail.centralAuthority!==true)
+          throw fail('Central release authority is not enabled for verified Dev auto-publication.')
+      }
       return {status:'preflight_pass',allowedSha}
     }
     do{

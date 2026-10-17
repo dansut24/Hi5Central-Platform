@@ -4,6 +4,7 @@ on:
     branches:
       - develop
       - feat/qa-tenant-gateway-version-activator-20261015
+      - feat/certified-copy-version-publish-20261017
     paths:
       - '.github/workflows/qa-real-dev-release-candidate.yml'
       - '.github/scripts/generate-release-manifest.mjs'
@@ -43,6 +44,7 @@ jobs:
           node --check services/api/src/officialReleaseCertification.js
           node --check services/api/src/releaseFanoutDaemon.mjs
           node --check services/api/src/releasePublicationRelay.mjs
+          node --check services/api/src/automaticDevPublication.js
           node --check services/api/src/releasePublicationRelayDaemon.mjs
           node --check services/api/src/releaseQaCohort.js
           node --check services/api/src/tenantLiveBaseline.js
@@ -70,7 +72,7 @@ jobs:
           node --check services/api/src/certifiedReleaseFanout.js
           node --check services/api/src/officialReleaseCertification.js
           node --check services/api/src/releaseFanoutDaemon.mjs
-          node --test services/api/test/certified-release-fanout.mjs services/api/test/release-publication-relay.mjs
+          node --test services/api/test/certified-release-fanout.mjs services/api/test/release-publication-relay.mjs services/api/test/release-publication-credential.mjs services/api/test/automatic-dev-publication.mjs apps/itsm/test/installed-version-copy.test.mjs
           test -s services/api/migrations/platform-admin/163_certified_release_fanout.sql
           if grep -Ein '^[[:space:]]*(DROP[[:space:]]+(TABLE|SCHEMA)|TRUNCATE|ALTER[[:space:]]+TABLE.*DROP[[:space:]]+COLUMN)' services/api/migrations/platform-admin/163_certified_release_fanout.sql; then
             echo 'Destructive migration requires a separately approved expand/contract release.'

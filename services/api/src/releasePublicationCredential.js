@@ -40,3 +40,18 @@ export function publicationShaAuthorised(buildSha,settings=process.env){
   return /^[a-f0-9]{40}$/.test(expected)
     &&typeof buildSha==='string'&&buildSha===expected
 }
+
+/**
+ * Automatic Dev editorial bridge is independently gated by:
+ *  - a dedicated publication-only bearer;
+ *  - an authenticated developer's immutable publication_requested row;
+ *  - the exact currently served Dev API SHA;
+ *  - central verification of the official GitHub release candidate workflow;
+ *  - matching live Dev API and frontend SHA.
+ *
+ * No caller-provided wildcard and no authority to execute tenant cutovers.
+ */
+export function automaticDevPublicationEnabled(settings=process.env){
+  return settings.RELEASE_PUBLICATION_ALLOWED_SHA==='verified-dev'
+    &&settings.RELEASE_PUBLICATION_AUTOMATIC==='true'
+}

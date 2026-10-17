@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, CircleAlert, ClipboardCheck, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
+import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import './ProductionApplicationUpdates.css'
+import {formatInstalledVersionDetails} from './installedVersionCopy.js'
 
 const API_BASE=window.__HI5_API_BASE__||''
 const ENV=deploymentConfig().runtimeEnvironment
@@ -47,6 +48,28 @@ function DevReleaseEditor({installed,onPublished}){
     }).catch(e=>{if(active&&e.status!==403)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
   },[installed])
+  // Release publication is asynchronous but normally completed by the
+  // persistent trusted relay within one 15-second poll. Refresh server state
+  // automatically; never imply success until Dev records central readback.
+  useEffect(()=>{
+    if(notes?.status!=='publication_requested')return
+    let active=true
+    const timer=setInterval(async()=>{
+      if(!active)return
+      try{
+        const latest=await api('/api/v1/updates/dev-notes')
+        if(!active||latest?.notes?.buildSha!==notes.buildSha)return
+        if(latest.notes.status==='published'){
+          setNotes(current=>({...current,status:'published',
+            versionSyncState:latest.notes.versionSyncState,
+            publishedAt:latest.notes.publishedAt}))
+          setSuccess('Published centrally. Customer upgrades remain subject to maintenance and approval policies.')
+          onPublished?.()
+        }
+      }catch{/* Visible pending state is retained when network is unavailable. */}
+    },7500)
+    return()=>{active=false;clearInterval(timer)}
+  },[notes?.status,notes?.buildSha])
   const editable=notes?.status==='draft'
   const versionEditable=editable||(notes?.status==='published'&&notes?.versionSyncState!=='pending')
   const pendingVersion=notes?.versionSyncState==='pending'
@@ -133,7 +156,7 @@ function DevReleaseEditor({installed,onPublished}){
           :<button type="button" disabled={busy||!versionChanged||!notes.versionLabel?.trim()}
             onClick={updatePublishedVersion}><Save size={15}/> Update published version number</button>}
       </div>
-      :<small>Publication is in progress. Release notes cannot be changed after submission.</small>}
+      :<small>Publication is pending central verification. The page refreshes automatically. If it remains pending, the release needs an official successful CI build and a healthy trusted publisher; it is not yet queued for customer deployment.</small>}
   </section>
 }
 function DevPublishedVersionManager(){
@@ -269,6 +292,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
   const [uatChecks,setUatChecks]=useState([])
   const [busy,setBusy]=useState(false)
   const [expanded,setExpanded]=useState(null)
+  const [copyStatus,setCopyStatus]=useState('')
   async function refresh(){
     setError('')
     try{
@@ -288,6 +312,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
     finally{setLoading(false)}
   }
   useEffect(()=>{refresh()},[])
+  useEffect(()=>{setCopyStatus('')},[data?.sha])
   async function requestLive(){
     if(uatChecks.length!==UAT_CHECKS.length||evidence.trim().length<12){setError('Complete all UAT checks and enter test evidence before requesting promotion.');return}
     if(!reviewScope?.knownBaseline||!reviewScope.reviewChangeCount){setError(reviewScope?.reason||'Full Live-to-UAT history has not been verified.');return}
@@ -307,6 +332,17 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
   const candidate=releases.find(release=>release.buildSha===data?.sha)
   const preview=ENV!=='live'&&!installed
   const available=Boolean(ENV==='live'&&installed&&latest&&latest.buildSha!==data?.sha)
+  const installedVersionDetails=formatInstalledVersionDetails({
+    versionLabel:displayVersion(installed?.versionLabel),buildSha:data?.sha,environment:ENV,
+  })
+  async function copyVersionDetails(){
+    if(!installedVersionDetails)return
+    try{
+      if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(installedVersionDetails)
+      setCopyStatus('Version details copied')
+    }catch{setCopyStatus('Could not copy. Check your browser clipboard permissions.')}
+  }
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
       <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
@@ -322,7 +358,14 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Installed version</span>
           <strong>{displayVersion(installed?.versionLabel)||(preview?'Preview build':'Not yet published')}</strong>
-          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
+          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small>
+          <button type="button" className="hi5-updates-copy-version"
+            disabled={!installedVersionDetails} onClick={copyVersionDetails}
+            title={installedVersionDetails?'Copy full installed build details':'Installed build identifier is unavailable'}>
+            <Copy size={14}/> Copy version details
+          </button>
+          {copyStatus?<span className="hi5-updates-copy-status" role="status" aria-live="polite">{copyStatus}</span>:null}
+        </article>
         <article><span className="hi5-updates-kicker">Latest published</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>

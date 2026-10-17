@@ -187,3 +187,61 @@ test('Dev row missing full-precision timestamp fails closed with no acknowledgem
     authority,token,allowedSha:sha,reconcileOnly:true}),/incomplete/)
   assert.deepEqual(s.counters(),{posted:0,updated:0})
 })
+
+test('Automatic relay selects only the immutable SHA served by real Dev',async()=>{
+  const newSha='c286e389865311851f91338aad94256f1131b994'
+  const selected={...data,build_sha:newSha}
+  const seen=[]
+  let updates=0
+  const db={query:async(sql,args)=>{
+    if(sql.startsWith('SELECT build_sha')){
+      assert.equal(args[0],newSha,'Dev HTTP identity pins the SQL selector')
+      return {rowCount:1,rows:[selected]}
+    }
+    if(sql.startsWith('UPDATE hi5central_release_note_drafts')){
+      updates++
+      assert.equal(args[0],newSha)
+      return {rowCount:1,rows:[]}
+    }
+    throw Error('Unexpected SQL '+sql)
+  }}
+  const fetcher=async(url,opts={})=>{
+    seen.push(url)
+    if(url==='https://dev-api.hi5central.com/api/v1/updates/version')
+      return {ok:true,json:async()=>({sha:newSha,environment:'dev'})}
+    if(url.endsWith('/releases/publish')){
+      assert.equal(JSON.parse(opts.body).buildSha,newSha)
+      return {ok:true,status:201,json:async()=>({published:true,buildSha:newSha})}
+    }
+    if(url.endsWith('/api/v1/updates/published'))
+      return {ok:true,json:async()=>({releases:[{
+        buildSha:newSha,versionLabel:selected.version_label,title:selected.title,
+        summary:selected.summary,entries:selected.entries,
+        publishedAt:'2026-10-18T01:00:00.000Z'}]})}
+    throw Error('Unexpected URL '+url)
+  }
+  const a=await relayOneRequestedRelease({db,fetcher,authority,
+    token,allowedSha:'verified-dev'})
+  assert.equal(a.status,'published')
+  assert.equal(a.buildSha,newSha)
+  assert.equal(updates,1)
+  assert.deepEqual(seen,[
+    'https://dev-api.hi5central.com/api/v1/updates/version',
+    authority+'/api/platform-operator/v1/releases/publish',
+    authority+'/api/v1/updates/published',
+  ])
+})
+test('Automatic relay never selects unpublished or unverifiable Dev build',async()=>{
+  for(const detail of [
+    {sha:'latest',environment:'dev'},
+    {sha:'c'.repeat(40),environment:'live'},
+  ]){
+    let dbCalls=0
+    const db={query:async()=>{dbCalls++;throw Error('Dev must validate before SQL')}}
+    await assert.rejects(()=>relayOneRequestedRelease({
+      db,token,authority,allowedSha:'verified-dev',
+      fetcher:async()=>({ok:true,json:async()=>detail}),
+    }),/verified versioned build/)
+    assert.equal(dbCalls,0)
+  }
+})
