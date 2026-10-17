@@ -334,6 +334,59 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   assert.equal(approvals.length,3)
   assert(approvals.every(x=>x.planning_enabled&&!x.execution_enabled),
    'CI planning grants never authorise host execution')
+
+  // Prove a second Dev SHA takes the SIMPLE release path without tenant Test.
+  const directSha=randomBytes(20).toString('hex')
+  await pool.query([
+   'INSERT INTO platform_certified_application_releases',
+   '(build_sha,status,ci_run_url,evidence,approved_by,approved_at)',
+   "VALUES($1,'approved',$2,$3::jsonb,$4,$5)",
+  ].join(' '),[directSha,'https://github.com/dansut24/Hi5Central-Platform/actions/runs/1234567891',
+   JSON.stringify(evidence),actor,published])
+  await pool.query([
+   'INSERT INTO hi5central_published_release_notes',
+   '(build_sha,version_label,title,entries,published_at)',
+   'VALUES($1,$2,$3,$4::jsonb,$5)',
+  ].join(' '),[directSha,'0.0-ci-direct','Second direct customer release','[]',published])
+  for(const stage of ['live','uat']){
+   await pool.query([
+    'INSERT INTO platform_release_generic_stage_approvals',
+    '(build_sha,environment,planning_enabled,execution_enabled,approved_by,',
+    'approved_at,expires_at,evidence,reason)',
+    "VALUES($1,$2,true,false,$3,now()-interval '1 hour',",
+    "now()+interval '1 day',$4::jsonb,'Disposable direct customer planning only')",
+   ].join(' '),[directSha,stage,actor,JSON.stringify({ciOnly:true})])
+  }
+  const directRequest={sha:directSha,scope:'generic',limit:3,now}
+  const direct=await transaction(db=>fanoutCertifiedRelease(db,directRequest))
+  assert.equal(direct.deliveryMode,'direct_customer_release')
+  const directJobs=(await pool.query([
+   'SELECT tenant_id,environment,status FROM tenant_release_rollout_jobs',
+   'WHERE build_sha=$1 AND tenant_id=ANY($2::uuid[])',
+  ].join(' '),[directSha,tenants.map(t=>t.id)])).rows
+  assert.equal(directJobs.length,10,'One new release queues one job per tenant')
+  for(const tenant of tenants){
+   const jobs=directJobs.filter(job=>job.tenant_id===tenant.id)
+   assert.equal(jobs.length,1,'Idempotent release job for '+tenant.slug)
+   assert.equal(jobs[0].environment,tenant.managed?'live':'uat')
+   assert.equal(jobs[0].status,'scheduled')
+  }
+  assert.equal((await transaction(db=>fanoutCertifiedRelease(db,directRequest))).queued,0,
+   'Restarting the release scheduler never duplicates jobs')
+  assert.equal((await pool.query([
+   'SELECT count(*)::int n FROM tenant_release_rollout_jobs',
+   "WHERE build_sha=$1 AND environment='test'",
+  ].join(' '),[directSha])).rows[0].n,0,
+   'Direct customer releases have no mandatory tenant Test stage')
+  assert.equal(directJobs.filter(job=>job.environment==='live'
+   &&tenants.some(t=>t.id===job.tenant_id&&!t.managed)).length,0,
+   'Custom Live is prohibited without tenant UAT approval')
+  assert.equal((await pool.query([
+   'SELECT count(*)::int n FROM tenant_release_rollout_jobs',
+   'WHERE build_sha=$1 AND tenant_id=$2',
+  ].join(' '),[directSha,rmmOnly.id])).rows[0].n,0,
+   'RMM-only tenants never receive an ITSM release')
+
   assert.equal((await pool.query(
    'SELECT paused FROM platform_release_rollout_control WHERE singleton=true')).rows[0].paused,true)
   console.log(JSON.stringify({type:'GENERIC_TEN_TENANT_POSTGRES_CI_PASS',
