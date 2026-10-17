@@ -83,8 +83,8 @@ test('isolated four-tenant release queue: idempotency, kill switch, leases, rout
     await pool.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true')
     // Global unpause alone must no longer make any certified release
     // executable. Every build/environment needs a separate staff approval.
-    const unapproved=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
-    assert.equal(unapproved.claimed.length,0,'no Test job may execute without stage approval')
+    const noApprovalClaim=await tx(db=>claimDueRollouts(db,{now:due,limit:10}))
+    assert.equal(noApprovalClaim.claimed.length,0,'no Test job may execute without stage approval')
     for(const build of [sha,shaNext])await pool.query([
       'INSERT INTO platform_release_generic_stage_approvals',
       '(build_sha,environment,planning_enabled,execution_enabled,',
