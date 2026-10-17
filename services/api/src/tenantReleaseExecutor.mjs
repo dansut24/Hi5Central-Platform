@@ -313,7 +313,7 @@ async function step(){
     }
     leaseTimer=setInterval(()=>renew().catch(()=>{leaseFailed=true}),45000)
     const started=Date.now()
-    let activated=null,activatedSlug=null
+    let activated=null,activatedSlug=null,durableSuccess=false
     try{
       const ctx=await guards(job)
       activatedSlug=ctx.slug
@@ -343,10 +343,19 @@ async function step(){
       if(leaseFailed)throw Error('Database lease renewal failed during host cutover.')
       await gate.assertFencedLease()
       await persistVerified(job,ctx,{...result,elapsedMs:Date.now()-started})
-      await heartbeat('idle')
+      durableSuccess=true
+      // A committed, host-verified job may NEVER be downgraded because
+      // worker telemetry became temporarily unavailable.
+      await heartbeat('idle').catch(error=>
+        console.error('POSTCOMMIT_GENERIC_HEARTBEAT_WARNING',error.message))
       console.log(JSON.stringify({type:'deployment_verified',jobId:job.id,
         host:result.host,sha:job.buildSha,elapsedMs:Date.now()-started}))
     }catch(e){
+      if(durableSuccess){
+        // Preserve the successful database commit and working route.
+        console.error('POSTCOMMIT_GENERIC_WARNING_NOT_ROLLED_BACK',
+          String(e?.message||e).slice(0,250))
+      }else{
       let compensated=false
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
@@ -374,6 +383,7 @@ async function step(){
       try{await failJob(job,e.message,compensated?'rolled_back':'failed')}catch(err){
         console.error('DURABLE_JOB_FINALISATION_FAILED',err.message)}
       await heartbeat('error',null,e.message).catch(()=>{})
+      }
     }finally{clearInterval(leaseTimer)}
     // Allow the next version to be activated only after this job is terminal.
     await clientTx(tx=>activateNextPendingRollout(tx,{
