@@ -24,6 +24,7 @@ export const genericReleaseTenantQuery=[
  'JOIN tenant_settings ts ON ts.tenant_id=t.id',
  "WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL",
  "AND COALESCE((ts.modules->>'itsm')::boolean,false)=true",
+ 'AND public.hi5_release_generic_tenant_permitted(t.id)=true',
  "AND t.id>COALESCE($2::uuid,'00000000-0000-0000-0000-000000000000'::uuid)",
  'ORDER BY t.id LIMIT $1',
 ].join(' ')
