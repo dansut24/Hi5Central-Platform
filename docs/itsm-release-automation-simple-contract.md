@@ -486,3 +486,62 @@ reconciliation/remount, stage-restricted credentials, Live API baselines,
 public forbidden-host boundaries and trusted rollback execute safely,
 perform a single Managed+Custom real QA pilot, then ten tenants,
 within 02:00–05:00 Europe/London including weekends.
+
+## 17–18 October 2026 — verified offline upgrade rehearsal and scheduled overnight checks
+
+A safe, reproducible overnight QA runner is committed at
+`deployment/qa26/run-overnight-release-qa.mjs`. It executes the actual
+read-only Live readiness audit, independent actual-Caddy runtime provenance,
+and a disposable two-tenant Docker/Caddy cutover–rollback HTTP smoke. Its
+first VPS run produced `LIVE_RELEASE_READINESS=BLOCKED`,
+`ACTIVE_CADDY_PROVENANCE=PASS`, and
+`DISPOSABLE_CADDY_TWO_TENANT_UPGRADE_AND_ROLLBACK=PASS`. The runner
+explicitly sets `actualCustomerUpgradePerformed=false`,
+`actualCustomerRollbackPerformed=false` and
+`overnightReleaseOperational=false` unless separately verified by a
+different genuine customer-cutover workflow. Smoke success is not a
+customer deployment.
+
+Two user-authorised overnight executions have been scheduled for
+**Sunday 18 October 2026 at 02:10 and 04:10 Europe/London** using the
+connected authorised VPS, with a fail-closed policy that forbids global
+release unpause, bypassing protected review or deploying unverified tenants.
+They are monitoring and isolated acceptance checks, NOT scheduled
+Production customer upgrades.
+
+Caddy-specific progress: the read-only reviewed twelve-route source
+candidate SHA `30d4905f0f32463fc9de5237a893ce5942a35e94c8aabd976c1bbe17ad4f0d17`
+was compiled and compared against the actual actively loaded gateway.
+A narrowly scoped semantic agreement permits exactly the preserved eleven
+protected host routes plus the already-reviewed PR83 marketing preview
+despite harmless generated route groups, temporary source-file names and
+Caddyfile subroute nesting. Changes to protected Admin/auth/RMM/wildcard
+upstreams, host ordering, preview signup redirect, denied API paths,
+noindex headers or preview upstream **fail closed**. The existing generic
+exact-byte gate still defaults to deny; the final privileged writer, host
+adapter and read-only readiness audit opt into this verified pattern only.
+On the real VPS, an *in-memory hypothetical* post-remount source agreement
+returned `agreed=true` while the actual divergent host/mounted source
+returned `agreed=false`. No live remount or route write occurred.
+Eight direct source/semantic gate tests passed, and updated scheduler,
+non-root executor and privileged adapter images built/staged from the
+reviewed SHA without starting any Production claimants.
+
+A risk discovered during pool staging: the legacy Live API base container
+contains writable installer/package mounts and read-only production
+credential/secret mounts and accesses shared PostgreSQL. The VPS has
+limited available memory and almost fully utilised swap. The operator
+**did not clone that privileged runtime** into candidate API pools because
+it would risk duplicating side-effecting application processes and secrets.
+Provision a reviewed low-privilege, background-worker-disabled immutable
+pool profile before real API staging.
+
+As of this checkpoint, the global rollout remains paused, zero cutovers
+are active, actual Live API SHA matching is 0/10, real Live baseline
+assignments remain 0/10, four restricted PostgreSQL logins remain absent,
+the gateway bind-mounted and persisted Caddy sources diverge, and the
+customer-requested trusted-host rollback executor is not operational.
+PR #79 remains draft with no independent approval. Accordingly **no
+customer upgrade will be initiated automatically during this overnight
+window unless those prerequisites are independently remediated, reviewed,
+and separately authorised**.
