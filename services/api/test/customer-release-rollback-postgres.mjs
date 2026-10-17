@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import {randomBytes,randomUUID} from 'node:crypto'
 import pg from 'pg'
 import {requestCustomerRollback,readCustomerRollback} from '../src/customerReleaseRollback.js'
+import {claimNextCustomerRollback,completeCustomerRollback,failCustomerRollback} from '../src/customerReleaseRollbackExecution.js'
 
 const u=new URL(process.env.DATABASE_URL||'postgres://invalid/invalid')
 if(u.pathname!=='/hi5_rollout_ci'||!['127.0.0.1','localhost'].includes(u.hostname))
@@ -156,6 +157,43 @@ test('ten genuine SQL tenant boundaries: customer rollback holds only its own Li
   assert.equal((await pool.query(
    'SELECT paused FROM platform_release_rollout_control WHERE singleton=true'
   )).rows[0].paused,true,'CI must never unpause the global rollout')
+  // Exercise the real PostgreSQL claim under an isolated ROLLBACK-only
+  // transaction. No customer, host, or durable global pause change.
+  const db=await pool.connect()
+  try{
+   await db.query('BEGIN')
+   await db.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true')
+   const selected=await claimNextCustomerRollback(db,{now:new Date()})
+   assert(selected,'A reviewed, held rollback request must be claimable')
+   assert.equal(selected.state,'running')
+   assert.equal(selected.source_build_sha,A)
+   assert.equal(selected.target_build_sha,B)
+   const others=await db.query([
+    'SELECT count(*)::int n FROM tenant_release_customer_rollback_requests',
+    "WHERE id=ANY($1::uuid[]) AND id<>$2 AND state='requested'",
+   ].join(' '),[cohortResults.map(r=>r.id),selected.id])
+   assert.equal(others.rows[0].n,9,'Other customer requests are untouched')
+   await assert.rejects(completeCustomerRollback(db,{
+    requestId:selected.id,now:new Date(),proof:{status:'rollback_verified',
+     requestId:selected.id,tenantId:selected.tenant_id,environment:'live',
+     sourceBuildSha:A,observedBuildSha:B,routeGeneration:999,
+     checkedAt:new Date().toISOString(),apiHealthy:true,
+     frontendHealthy:true,gatewaySourceAgreed:false,tenantScopedRouteOnly:true},
+   }),/gateway isolation/)
+   const failed=await failCustomerRollback(db,{
+    requestId:selected.id,reason:'Synthetic CI host evidence deliberately refused'})
+   assert.equal(failed.upgradeHoldPreserved,true)
+   const held=await db.query(
+    'SELECT active FROM tenant_release_upgrade_holds WHERE tenant_id=$1',
+    [selected.tenant_id])
+   assert.equal(held.rows[0].active,true)
+  }finally{
+   await db.query('ROLLBACK').catch(()=>{})
+   db.release()
+  }
+  assert.equal((await pool.query(
+   'SELECT paused FROM platform_release_rollout_control WHERE singleton=true'
+  )).rows[0].paused,true)
   console.log(JSON.stringify({type:'CUSTOMER_TENANT_ROLLBACK_POSTGRES_CI_PASS',
    isolated:true,tenants:10,managed:5,custom:5,rmmEntitled:2,
    rollbackRequests:10,perTenantHolds:10,cancelledLiveJobs:10,
