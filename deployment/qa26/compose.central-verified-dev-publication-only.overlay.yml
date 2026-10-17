@@ -1,0 +1,11 @@
+# Approved Live central API publication capability only.
+# Append this as the LAST overlay to the existing four Compose files.
+# Does not enable tenant workers, modify gateway, or change RMM/ITSM/Admin.
+# An approved, exact-sha central API image must be supplied by the operator;
+# this file deliberately cannot default to an unversioned or moving tag.
+services:
+  api:
+    image: ${H5C_REVIEWED_CENTRAL_API_IMAGE:?Provide an approved sha-pinned central API image}
+    environment:
+      RELEASE_PUBLICATION_ALLOWED_SHA: verified-dev
+      RELEASE_PUBLICATION_AUTOMATIC: "true"
