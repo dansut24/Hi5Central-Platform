@@ -1,6 +1,9 @@
 # Generic approved-release executor. Requires Docker socket only on the
 # trusted VPS, not in the API, admin frontend or PostgreSQL-only planner.
 FROM docker:27-cli
+ARG REVIEWED_SOURCE_SHA=unreviewed
+LABEL hi5central.release.reviewed_source="${REVIEWED_SOURCE_SHA}" \
+      hi5central.release.scope="generic-stage-gated"
 RUN apk add --no-cache nodejs npm curl \
  && printf '%s\n' '{"name":"hi5central-release-executor","type":"module","private":true,"dependencies":{"pg":"8.23.0"}}' >/tmp/package.json \
  && mkdir -p /runner && cp /tmp/package.json /runner/package.json \
