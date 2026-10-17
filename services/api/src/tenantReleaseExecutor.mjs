@@ -7,6 +7,8 @@
 import pg from 'pg'
 import {randomUUID} from 'node:crypto'
 import {spawn} from 'node:child_process'
+import {existsSync} from 'node:fs'
+import {requestTrustedHostAction} from './releaseHostTransport.js'
 import {withGatewayLock,recordReleaseWorkerHeartbeat} from './releaseGatewayCoordinator.js'
 import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenantReleaseQueue.js'
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
@@ -63,6 +65,24 @@ async function shell(program,args,env={},timeout=330000){
       reject(Error('Host version switch failed: '+err.slice(-350)))})
   })
 }
+async function hostAction({mode,environment=gateway,slug,sha,job,backup=null}={}){
+ if(workerScope==='generic')
+  return requestTrustedHostAction({mode,environment,slug,sha,
+   jobId:job?.id,leaseToken:job?.leaseToken,leaseFence:job?.leaseFence,backup})
+ const args=['deployment/qa26/tenant-release-host-executor.mjs',
+  environment,slug,sha,'--'+mode]
+ if(backup)args.push(backup)
+ const env={H5C_RELEASE_JOB_ID:job?.id||''}
+ if(['apply','restore'].includes(mode))Object.assign(env,{
+  H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
+  H5C_RELEASE_LEASE_TOKEN:job?.leaseToken,
+  H5C_RELEASE_LEASE_FENCE:String(job?.leaseFence),
+ })
+ const out=await shell('node',args,env,mode==='confirm'?25000:
+  mode==='restore'?90000:330000)
+ return JSON.parse(out.trim().split('\n').at(-1))
+}
+
 async function heartbeat(state,job=null,error=''){
   await recordReleaseWorkerHeartbeat(pool,{workerId:ID,gateway,state,
     jobId:job?.id||null,sha:job?.buildSha||null,error})
@@ -271,9 +291,17 @@ async function refreshVerifiedPools(){
   for(const record of candidates.rows){
     try{
       const pair=releasePair(record.build_sha,gateway)
-      const raw=await shell('docker',['inspect',pair.api,pair.web],{},20000)
-      const images=JSON.parse(raw)
-      if(images.length!==2||images.some(x=>x.State?.Health?.Status!=='healthy'))continue
+      if(workerScope==='generic'){
+        const proof=await requestTrustedHostAction({
+          mode:'pool_health',environment:gateway,sha:record.build_sha,
+        },{timeoutMs:20000})
+        if(proof.status!=='pool_health'||proof.healthy!==true
+          ||proof.buildSha!==record.build_sha||proof.environment!==gateway)continue
+      }else{
+        const raw=await shell('docker',['inspect',pair.api,pair.web],{},20000)
+        const images=JSON.parse(raw)
+        if(images.length!==2||images.some(x=>x.State?.Health?.Status!=='healthy'))continue
+      }
       await pool.query([
         'UPDATE platform_runtime_pools SET last_seen_at=now(),updated_at=now()',
         "WHERE id=$1 AND build_sha=$2 AND state='verified'",
@@ -337,22 +365,13 @@ async function step(){
       if(gateway==='uat'){
         // Pre-stage the immutable Production pair without altering any tenant route.
         // Customer approval must see a verified candidate Live pool.
-        const staged=await shell('node',[
-          'deployment/qa26/tenant-release-host-executor.mjs',
-          'live',ctx.slug,job.buildSha,'--stage',
-        ])
-        const poolProof=JSON.parse(staged.trim().split('\n').at(-1))
+        const poolProof=await hostAction({mode:'stage',environment:'live',
+          slug:ctx.slug,sha:job.buildSha,job})
         if(poolProof.status!=='pool_verified'||poolProof.buildSha!==job.buildSha)
           throw Error('Official immutable Production candidate could not be pre-staged.')
       }
-      const output=await shell('node',[
-        'deployment/qa26/tenant-release-host-executor.mjs',
-        gateway,ctx.slug,job.buildSha,'--apply',
-      ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
-        H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
-        H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)})
-      const line=output.trim().split('\n').at(-1)
-      const result=JSON.parse(line)
+      const result=await hostAction({mode:'apply',slug:ctx.slug,
+        sha:job.buildSha,job})
       activated=result
       if(result.status!=='verified'||result.buildSha!==job.buildSha
         ||result.environment!==gateway)throw Error('Host execution proof mismatches the lease.')
@@ -363,11 +382,9 @@ async function step(){
       // Confirmation follows the durable event commit. If this call is lost,
       // the independent watchdog checks the same fenced DB proof before restore.
       try{
-        const confirmation=await shell('node',[
-          'deployment/qa26/tenant-release-host-executor.mjs',
-          gateway,ctx.slug,job.buildSha,'--confirm',result.backup,
-        ],{H5C_RELEASE_JOB_ID:job.id},25000)
-        if(!confirmation.includes('watchdog_confirmed'))
+        const confirmation=await hostAction({mode:'confirm',slug:ctx.slug,
+          sha:job.buildSha,job,backup:result.backup})
+        if(confirmation.status!=='watchdog_confirmed')
           throw Error('Exact host watchdog confirmation missing.')
       }catch(error){
         console.error('POSTCOMMIT_GENERIC_WATCHDOG_CONFIRM_WARNING',error.message)
@@ -387,13 +404,8 @@ async function step(){
       let compensated=false
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
-          const output=await shell('node',[
-            'deployment/qa26/tenant-release-host-executor.mjs',
-            gateway,activatedSlug,job.buildSha,'--restore',activated.backup,
-          ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
-            H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
-            H5C_RELEASE_LEASE_FENCE:String(job.leaseFence)},90000)
-          const proof=JSON.parse(output.trim().split('\n').at(-1))
+          const proof=await hostAction({mode:'restore',slug:activatedSlug,
+            sha:job.buildSha,job,backup:activated.backup})
           compensated=proof.status==='rolled_back'&&proof.environment===gateway
         }catch(restoreError){
           console.error('DURABLE_RELEASE_ROLLBACK_FAILED',restoreError.message)
@@ -434,8 +446,13 @@ async function step(){
   })
 }
 try{
-  if(workerScope==='generic')
+  if(workerScope==='generic'){
+    if(existsSync('/var/run/docker.sock'))
+      throw Error('Unsafe generic worker: unrestricted host Docker socket is mounted.')
+    if(!existsSync(process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'))
+      throw Error('Restricted trusted host adapter socket is not mounted.')
     await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor',stage:gateway})
+  }
   if(preflight){
     const r=await pool.query([
       "SELECT to_regclass('public.platform_certified_application_releases') IS NOT NULL AS certification,",
