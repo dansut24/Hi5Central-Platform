@@ -369,7 +369,8 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
    const jobs=directJobs.filter(job=>job.tenant_id===tenant.id)
    assert.equal(jobs.length,1,'Idempotent release job for '+tenant.slug)
    assert.equal(jobs[0].environment,tenant.managed?'live':'uat')
-   assert.equal(jobs[0].status,'scheduled')
+   assert(['pending','scheduled'].includes(jobs[0].status),
+    'An existing older upgrade may keep the newly released SHA pending')
   }
   assert.equal((await transaction(db=>fanoutCertifiedRelease(db,directRequest))).queued,0,
    'Restarting the release scheduler never duplicates jobs')
