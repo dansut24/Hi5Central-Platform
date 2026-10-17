@@ -21,15 +21,14 @@ COPY services/api/src/tenantLiveBaseline.js /runner/services/api/src/tenantLiveB
 COPY services/api/src/releaseWorkerIdentity.js /runner/services/api/src/releaseWorkerIdentity.js
 COPY services/api/src/tenantReleaseExecutor.mjs /runner/services/api/src/tenantReleaseExecutor.mjs
 COPY services/api/src/releaseHostTransport.js /runner/services/api/src/releaseHostTransport.js
-COPY deployment/qa26/tenant-release-host-executor.mjs /runner/deployment/qa26/tenant-release-host-executor.mjs
 COPY services/api/package.json /runner/services/api/package.json
 RUN chown -R 10001:10002 /runner \
  && node --check services/api/src/releaseHostTransport.js \
  && node --check services/api/src/tenantReleaseExecutor.mjs \
- && node --check deployment/qa26/tenant-release-host-executor.mjs \
  && node --check services/api/src/tenantLiveBaseline.js \
  && node --input-type=module -e "import('./services/api/src/tenantLiveBaseline.js').then(m=>{if(typeof m.resolveTenantCurrentRevision!=='function')process.exit(1)})" \
  && node --check services/api/src/releaseQaCohort.js \
  && node --check services/api/src/tenantReleaseQueue.js
+ENV RELEASE_EXECUTOR_IMAGE_SCOPE=generic
 USER 10001:10002
 ENTRYPOINT ["node","services/api/src/tenantReleaseExecutor.mjs"]
