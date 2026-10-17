@@ -253,3 +253,38 @@ API-version probe. Correct actual host routing without dropping the current
 Caddy runtime-only marketing-preview route or existing RMM/Admin/auth
 routes before tenant release acceptance. The global release pause remains
 on; 10/10 metadata readiness never automatically approves execution.
+
+## Saturday/Sunday maintenance scheduling — confirmed on VPS, 17 October 2026
+
+The owner asked that customer maintenance windows include **Saturday and
+Sunday** so the overnight ten-tenant QA update can run on weekends. The
+Live read-only audit confirmed that all ten QA tenants already had both
+`sat` and `sun` selected, but the original two QA26 tenants retained
+14:00–22:00 Europe/London windows instead of 02:00–05:00.
+
+The QA26-only changes to `h5c-managed-qa26` and `h5c-custom-qa26`
+were dry-run inside a rollback-only PostgreSQL transaction then committed,
+with one durable audit record per tenant. Both preserve all seven permitted
+days and Europe/London timezone. All ten active QA customers now have
+02:00–05:00 Europe/London, every day including Sat and Sun.
+
+Independent read-only planner check performed at 20:18 UTC on Saturday
+17 October 2026, with bounded 15-minute job duration, confirmed 10/10
+valid windows and identical next eligible start:
+**Sunday 18 October 2026, 02:00 BST** (2026-10-18T01:00:00Z).
+The fleet remains paused and has zero running cutovers; scheduling
+eligibility is NOT release execution approval.
+
+The older release operator's local time-window helper had a separate bug:
+for Saturday-only 22:00–03:00 it disallowed early Sunday although that
+interval belongs to Saturday's selected window; it also treated no selected
+days as unconstrained. PR #79 replaces that helper with the shared IANA
+timezone-aware `maintenanceWindowStatus` implementation and a strict
+explicit-day requirement. Five new targeted tests check Sat, Sun,
+Saturday/Sunday cross-midnight, missing days and autumn DST. All 5 passed
+on the VPS and the corresponding GitHub rollout orchestration CI is green.
+The change has **not yet been merged or deployed to Live**.
+
+Gateway runtime drift, exact QA URL access isolation, worker least-privilege
+credentials and independent host rollback proof remain separate blockers.
+The weekend setting does not bypass them or justify lifting the pause.
