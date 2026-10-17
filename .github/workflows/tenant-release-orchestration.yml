@@ -19,6 +19,8 @@ on:
       - 'services/api/test/generic-release-discovery.mjs'
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
       - 'deployment/qa26/tenant-release-host-executor.mjs'
+      - 'deployment/qa26/Dockerfile.certified-release-fanout'
+      - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'services/api/src/tenantReleaseQueue.js'
       - 'services/api/src/runtimePoolPolicy.js'
       - 'services/api/src/runtimePoolManagedScheduler.js'
@@ -128,6 +130,13 @@ jobs:
           node --check src/releasePublicationRelay.mjs
           node --check src/releasePublicationRelayDaemon.mjs
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
+      - name: Certify isolated generic scheduler and worker images
+        run: |
+          docker build --pull=false -f ../../deployment/qa26/Dockerfile.certified-release-fanout -t h5c-ci-generic-planner:reviewed ../..
+          docker build --pull=false -f ../../deployment/qa26/Dockerfile.generic-tenant-release-executor -t h5c-ci-generic-executor:reviewed ../..
+          test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{.Config.User}}')" = "scheduler"
+          docker run --rm --network none --entrypoint node h5c-ci-generic-planner:reviewed --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
+          echo "GENERIC_RELEASE_IMAGE_IMPORTS_AND_NONROOT_PLANNER_PASS"
       - name: Validate generated tenant routes using QA Caddy version
         run: |
           node test/generate-qa-caddy-fixture.mjs > /tmp/h5c-qa-route-preview.Caddyfile
