@@ -13,7 +13,15 @@ import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
 import {parseQaReleaseTenantSlugs,assertQaReleaseTenantAllowed} from './releaseQaCohort.js'
 
-const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
+// QA remains allowlisted by default. Generic execution requires an explicit
+// reviewed worker configuration AND fresh exact-release stage approval.
+const workerScope=process.env.RELEASE_WORKER_SCOPE||'qa'
+if(!['qa','generic'].includes(workerScope))throw Error('Unknown rollout worker scope.')
+if(workerScope==='generic'
+  &&process.env.RELEASE_GENERIC_WORKER_ACK!=='reviewed-stage-approval-only')
+  throw Error('Generic worker requires explicit reviewed execution scope.')
+const qaTenantSlugs=workerScope==='qa'
+  ?parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS):null
 const gateway=process.env.RELEASE_GATEWAY
 if(!['test','uat','live'].includes(gateway))
   throw Error('Set RELEASE_GATEWAY to test, uat or live.')
@@ -62,7 +70,8 @@ async function jobContext(job){
   const query=await pool.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,',
     'j.expected_duration_minutes,t.slug,t.status AS tenant_status,',
-    'p.update_mode,p.maintenance_window,p.blackout_periods,p.live_auto_promote,',
+    'p.update_mode,p.test_auto_sync,p.uat_auto_stage,p.maintenance_window,',
+    'p.blackout_periods,p.live_auto_promote,',
     'c.status AS release_state,coalesce(ts.modules->> $2,$3) AS itsm',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
@@ -80,8 +89,21 @@ async function guards(job){
     ||ctx.build_sha!==job.buildSha||ctx.tenant_status!=='active'
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
-  assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
-  if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
+  if(workerScope==='qa')assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
+  const approval=await pool.query([
+    'SELECT 1 FROM platform_release_generic_stage_approvals a',
+    'WHERE a.build_sha=$1 AND a.environment=$2',
+    'AND a.planning_enabled=true AND a.execution_enabled=true',
+    'AND a.approved_by IS NOT NULL AND a.approved_at<=now()',
+    'AND a.expires_at>now()',
+    "AND a.evidence<>'{}'::jsonb LIMIT 1",
+  ].join(' '),[job.buildSha,gateway])
+  if(approval.rowCount!==1)
+    throw Error('Exact generic release execution-stage approval missing or expired.')
+  if(gateway==='test'&&ctx.test_auto_sync!==true)
+    throw Error('Customer Test auto-updates are disabled.')
+  if(gateway==='uat'&&
+    (ctx.update_mode!=='admin_controlled'||ctx.uat_auto_stage!==true))
     throw Error('Managed customers have no UAT.')
   if(gateway==='uat'||gateway==='live'){
     const verifiedTest=await pool.query([
