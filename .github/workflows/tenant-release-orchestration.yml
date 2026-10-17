@@ -22,6 +22,7 @@ on:
       - 'deployment/qa26/Dockerfile.certified-release-fanout'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'deployment/qa26/stage-reviewed-generic-release-images.sh'
+      - 'deployment/qa26/verify-generic-existing-tenant-readiness.mjs'
       - 'services/api/src/tenantReleaseQueue.js'
       - 'services/api/src/runtimePoolPolicy.js'
       - 'services/api/src/runtimePoolManagedScheduler.js'
@@ -99,6 +100,7 @@ jobs:
           node --check src/tenantReleaseExecutor.mjs
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
           bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
+          node --check ../../deployment/qa26/verify-generic-existing-tenant-readiness.mjs
           node --test test/generic-release-discovery.mjs test/certified-release-fanout.mjs
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
