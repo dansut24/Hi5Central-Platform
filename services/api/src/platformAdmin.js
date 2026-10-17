@@ -14,7 +14,7 @@ import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} f
 import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
 import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
-import {approveGenericPlanningOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
+import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -804,6 +804,30 @@ export function registerPlatformAdminRoutes(app) {
         result.build_sha,{environment:result.environment,expiresAt:result.expires_at,
           executionEnabled:false})
       return c.json({approval:result,globallyUnpaused:false},202)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
+  })
+
+  // Distinct, audit-logged permission: authorise ONLY this certified
+  // SHA/stage to execute during a short window. Global pause stays untouched;
+  // host gateway and tenant/maintenance gates remain mandatory.
+  app.post('/api/platform/v1/releases/generic-stage-approvals/:sha/execution',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(!member.rowCount)return c.json({error:'Platform owner/admin execution approval required.'},403)
+    const request={sha:c.req.param('sha'),body:await c.req.json().catch(()=>null),
+      actorId:auth.session.user_id}
+    try{
+      const result=await withTransaction(db=>approveGenericExecutionOnly(db,request))
+      await audit(c,auth.session,'release.generic_execution_approved','release',
+        result.build_sha,{environment:result.environment,expiresAt:result.expires_at,
+          globalRolloutPaused:true})
+      return c.json({approval:result,workerStarted:false,globallyUnpaused:false},202)
     }catch(error){return c.json({error:String(error.message||error).slice(0,350)},409)}
   })
 
