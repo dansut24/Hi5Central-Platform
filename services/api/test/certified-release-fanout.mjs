@@ -114,7 +114,7 @@ test('Simple Managed customer release goes directly to Live without mandatory Te
   const direct=nextCustomerReleaseStage({...args,deliveryMode:'direct_customer_release',
     gate:null,jobs:[]})
   assert.equal(direct.stage,'live')
-  assert.equal(direct.notBefore.toISOString(),before)
+  assert.equal(direct.notBefore.getTime(),new Date(before).getTime())
   const scheduled=scheduledCustomerRelease({decision:direct,tenant,sha,now})
   assert.equal(scheduled.status,'scheduled')
   assert.equal(scheduled.stage,'live')
@@ -128,7 +128,7 @@ test('Simple Custom customer release goes to UAT; Production requires approval o
   const base={...args,tenant:custom,deliveryMode:'direct_customer_release'}
   const first=nextCustomerReleaseStage(base)
   assert.equal(first.stage,'uat')
-  assert.equal(first.notBefore.toISOString(),before)
+  assert.equal(first.notBefore.getTime(),new Date(before).getTime())
   assert.equal(scheduledCustomerRelease({decision:first,tenant:custom,sha,now}).stage,'uat')
   assert.equal(nextCustomerReleaseStage({...base,jobs:[{...completedUat,status:'running'}]}).stage,null)
   const after={...base,jobs:[completedUat]}
