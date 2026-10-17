@@ -45,6 +45,10 @@ on:
       - 'deployment/qa26/audit-release-host-readiness.mjs'
       - 'deployment/qa26/verify-active-caddy-provenance.mjs'
       - 'deployment/qa26/prepare-live-caddy-reconciliation.mjs'
+      - 'deployment/qa26/prepare-qa-gateway-entitlement-overlay.mjs'
+      - 'deployment/qa26/smoke-qa-gateway-entitlement-routing.mjs'
+      - 'services/api/src/qaGatewayEntitlementOverlay.js'
+      - 'services/api/test/qa-gateway-entitlement-overlay.mjs'
       - 'deployment/qa26/audit-customer-publication-handoff.mjs'
       - 'deployment/qa26/run-overnight-release-qa.mjs'
       - 'deployment/qa26/smoke-shadow-tenant-upgrade-rollback.mjs'
@@ -157,6 +161,9 @@ jobs:
           node --check ../../deployment/qa26/audit-release-host-readiness.mjs
           node --check ../../deployment/qa26/verify-active-caddy-provenance.mjs
           node --check ../../deployment/qa26/prepare-live-caddy-reconciliation.mjs
+          node --check ../../deployment/qa26/prepare-qa-gateway-entitlement-overlay.mjs
+          node --check ../../deployment/qa26/smoke-qa-gateway-entitlement-routing.mjs
+          node --test test/qa-gateway-entitlement-overlay.mjs
           node --check ../../deployment/qa26/audit-customer-publication-handoff.mjs
           node --check ../../deployment/qa26/run-overnight-release-qa.mjs
           node --test test/release-gateway-provenance.mjs
