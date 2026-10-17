@@ -105,6 +105,17 @@ jobs:
           }
           Write-Host "Tenant-stampable Windows MSI template size: $size bytes"
 
+      # Dev QA-only, immutable per-workflow artifact; never deployed to Production.
+      # This standard Agent setup retains the existing machine identity (state.dat)
+      # when installed without a new enrollment token.
+      - name: Upload current Windows Agent setup for Dev RMM QA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Windows-AgentSetup-Dev-QA
+          path: native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe
+          retention-days: 7
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         with:
           name: Hi5Central-Windows-Tenant-Template
