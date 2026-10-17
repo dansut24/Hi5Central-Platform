@@ -32,6 +32,16 @@ jobs:
           npm ci --prefix apps/rmm --ignore-scripts --no-audit --no-fund
           npm run build --prefix apps/itsm
           npm run build --prefix apps/rmm
+      - name: Inject local-only capture runtime without real API credentials
+        run: |
+          cat >apps/itsm/dist/runtime-config.js <<'JS'
+          window.__HI5_CONFIG__={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:'test',rootDomain:'hi5central.com',apiUrl:'http://showcase.hi5central.com:4173',marketingUrl:'http://hi5central.com:4173'};
+          window.__HI5_API_BASE__=window.__HI5_CONFIG__.apiUrl;
+          JS
+          cat >apps/rmm/dist/runtime-config.js <<'JS'
+          window.__HI5_CONFIG__={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:'test',rootDomain:'hi5central.com',apiUrl:'http://showcase-rmm.hi5central.com:4174',appUrl:'http://showcase.hi5central.com:4173',rmmUrl:'http://showcase-rmm.hi5central.com:4174'};
+          window.__HI5_API_BASE__=window.__HI5_CONFIG__.apiUrl;
+          JS
       - name: Install isolated Chromium capture dependency
         run: |
           npm install --prefix /tmp/hi5-platform-capture --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
