@@ -43,6 +43,9 @@ on:
       - 'services/api/test/release-host-transport.mjs'
       - 'deployment/qa26/release-host-adapter.mjs'
       - 'deployment/qa26/audit-release-host-readiness.mjs'
+      - 'deployment/qa26/verify-active-caddy-provenance.mjs'
+      - 'services/api/src/releaseGatewayProvenance.js'
+      - 'services/api/test/release-gateway-provenance.mjs'
       - 'deployment/qa26/qa27-ten-tenant-readiness.mjs'
       - 'deployment/qa26/qa27-verified-tenant-preferences.mjs'
       - 'deployment/qa26/reconcile-release-schema.mjs'
@@ -144,6 +147,8 @@ jobs:
           node --test test/release-host-transport.mjs
           node --check ../../deployment/qa26/release-host-adapter.mjs
           node --check ../../deployment/qa26/audit-release-host-readiness.mjs
+          node --check ../../deployment/qa26/verify-active-caddy-provenance.mjs
+          node --test test/release-gateway-provenance.mjs
           node --check ../../deployment/qa26/qa27-ten-tenant-readiness.mjs
           node --check ../../deployment/qa26/qa27-verified-tenant-preferences.mjs
           node --check ../../deployment/qa26/reconcile-release-schema.mjs
