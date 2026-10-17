@@ -20,7 +20,7 @@ const additions={
  'h5c-custom-itsm-qa27':{mode:'admin_controlled',rmm:false},
 }
 const expected={...prior,...additions}
-if(process.argv.length!==2||!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
+if(process.argv.slice(1).some(arg=>!String(arg).endsWith('qa27-ten-tenant-readiness.mjs'))\n ||!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
  throw Error('QA27 readiness: DATABASE_URL required, no options allowed.')
 const db=new pg.Client({connectionString:process.env.DATABASE_URL,connectionTimeoutMillis:6000})
 try{
