@@ -222,7 +222,7 @@ export function GenericReleasePlanning({api,canApprove=false}){
       <ShieldCheck size={15}/> Authorise planning only
      </button></div>
     </div>}
-   </div>
+   </div>}
    {details?.approvals?.[stage]?.planning_enabled&&canApprove?
     <div style={{marginTop:14,padding:14,border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:12}}>
      <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between'}}>
