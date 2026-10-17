@@ -54,7 +54,7 @@ const custom=['h5c-custom-qa26','custom1','custom2',
  'qa27-custom-rmm-qa27','qa27-custom-itsm-qa27']
 const nonRmm=[...managed,...custom].filter(s=>![
  'h5c-managed-rmm-qa27','qa27-custom-rmm-qa27'].includes(s))
-const counts={managedUatDenied:0,nonRmmDenied:0,
+const counts={managedUatDenied:0,nonRmmDenied:0,sandboxRmmDenied:0,
  entitledRmmAllowed:0,customUatAllowed:0}
 let passed=false
 try{
@@ -90,6 +90,12 @@ try{
  }
  for(const slug of nonRmm){
   check(slug+'-rmm.hi5central.com',404);counts.nonRmmDenied++
+ }
+ for(const slug of [...managed,...custom]){
+  for(const sandbox of ['test','uat']){
+   check(slug+'-'+sandbox+'-rmm.hi5central.com',404)
+   counts.sandboxRmmDenied++
+  }
  }
  for(const slug of ['h5c-managed-rmm-qa27','qa27-custom-rmm-qa27']){
   check(slug+'-rmm.hi5central.com',200);counts.entitledRmmAllowed++
