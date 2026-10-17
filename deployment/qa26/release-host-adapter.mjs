@@ -125,7 +125,7 @@ async function requireLiveGatewaySourceAgreement(){
    'http://127.0.0.1:2019/config/'],12000,100000),
  ])
  const proof=verifyReleaseGatewaySourceAgreement({hostSource,mountedSource,
-  adaptedRuntime,loadedRuntime})
+  adaptedRuntime,loadedRuntime,allowReviewedPreviewSemanticEquivalence:true})
  if(proof.agreed!==true)
   throw Error('Live gateway host cutover denied: '+proof.reason)
  return proof
