@@ -97,7 +97,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
   // the host cutover; this xact lock only protects fair dequeue decisions.
   await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
   const control=await db.query(
-    'SELECT paused,reason FROM platform_release_rollout_control WHERE singleton=true FOR SHARE')
+    // The global pause flag is read without a row lock: PostgreSQL
+    // SELECT ... FOR SHARE requires UPDATE privilege, which a future narrowly
+    // scoped release worker must NOT receive on the global control table.
+    // Exact execution approval is required by the job-claim join, and the
+    // host independently verifies the pause and fenced lease before routing.
+    'SELECT paused,reason FROM platform_release_rollout_control WHERE singleton=true')
   if(control.rows[0]?.paused!==false)
     return {claimed:[],paused:true,reason:control.rows[0]?.reason||'No explicit rollout enablement.'}
   const queued=await db.query([
