@@ -545,3 +545,55 @@ PR #79 remains draft with no independent approval. Accordingly **no
 customer upgrade will be initiated automatically during this overnight
 window unless those prerequisites are independently remediated, reviewed,
 and separately authorised**.
+
+## 17 October 2026 — QA gateway entitlement candidate, real HTTP verification
+
+**Not applied to Production.** A newly verified Caddy candidate was
+prepared from the existing 12-host route reconciliation candidate after
+reconfirming current Live runtime provenance and querying the ten *real*
+QA tenants' release preferences and Live RMM entitlements read-only.
+
+The candidate changes only the `*.hi5central.com` route; 11 of 12
+host routes, including Admin, shared auth, marketing preview and named
+RMM routes, remain structurally unchanged. It inserts two deliberately
+narrow, exact-host matchers **before** the generic tenant UAT and RMM
+reverse proxies:
+
+- The five Managed QA tenants have **ten** forbidden UAT/UAT-portal aliases.
+- The eight QA tenants lacking RMM have **eight** denied Live RMM aliases.
+- **Every one of the ten QA tenants** has Test and UAT RMM aliases denied
+  (**20 sandbox RMM aliases**), including the two Live-RMM subscribers.
+- The two entitled Live RMM aliases are still permitted, and Custom UAT
+  remains permitted. This does not infer a tenant-data authorization
+  bypass solely from an HTML frontend; it removes a misleading and
+  unacceptable public alias.
+  
+Three pure fail-closed contract tests passed on the VPS. The actual
+candidate passed Caddy syntax validation, with only the reviewed wildcard
+route changed. An independent, dynamically named disposable Caddy
+container with **no published ports** then verified HTTP:
+`managedUatDenied=10`, `nonRmmDenied=8`,
+`sandboxRmmDenied=20`, `entitledRmmAllowed=2`,
+`customUatAllowed=5`, `unrelatedHostUntouched=true`.
+All disposable resources were removed.
+
+Reproducible sources:
+`services/api/src/qaGatewayEntitlementOverlay.js`,
+`services/api/test/qa-gateway-entitlement-overlay.mjs`,
+`deployment/qa26/prepare-qa-gateway-entitlement-overlay.mjs`,
+`deployment/qa26/smoke-qa-gateway-entitlement-routing.mjs`.
+The preparation reads exactly ten real, verified QA entitlement rows, with
+strict 5 Managed/5 Custom/2 RMM preconditions; it fails if the protected
+Caddy baseline, candidate checksum or route table has changed. It
+never deploys/reloads Caddy or edits tenant data. QA-only exact aliases
+must not be confused with a fleet-wide entitlement service for new
+customers.
+
+The retained private backup volume
+`h5c_release79_live_caddy_20261017` now contains
+`qa-entitlement-candidate.Caddyfile`, SHA256
+`b8b408916f6c3f9d9cddcb8558baf915433e5edd20fd4d2dfd0045affba94e4e`.
+The current shared gateway remains healthy, untouched, with global release
+pause enabled. A controlled, independently reviewed gateway bind remount
+is still required to make these denies public; the Live same-origin API
+build/provenance gap is separate and not solved by this overlay.
