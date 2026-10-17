@@ -74,6 +74,24 @@ const expected = [
    triggers:[['platform_release_generic_scope_control','audit_generic_scope_control'],
      ['platform_release_generic_pilot_tenants','audit_generic_pilot_tenants']],
    procedures:['hi5_release_generic_tenant_permitted','hi5_audit_generic_tenant_scope']},
+  {id:'170_customer_scoped_itsm_rollback.sql',
+   tables:['platform_release_rollback_compatibility','tenant_release_upgrade_holds',
+     'tenant_release_customer_rollback_requests','tenant_release_customer_rollback_events'],
+   columns:[['tenant_release_customer_rollback_requests','source_route_generation'],
+     ['tenant_release_customer_rollback_requests','host_proof'],
+     ['tenant_release_customer_rollback_requests','host_verified_at'],
+     ['tenant_release_customer_rollback_events','event_type']],
+   indexes:['one_active_customer_rollback_per_tenant',
+     'tenant_customer_rollback_history','tenant_customer_rollback_events_recent'],
+   triggers:[['tenant_release_rollout_jobs','prevent_held_tenant_live_rollout']],
+   procedures:['hi5_reject_held_tenant_live_rollout']},
+  {id:'171_customer_release_preparation_drafts.sql',
+   tables:['platform_release_preparation_drafts'],
+   columns:[['platform_release_preparation_drafts','build_sha'],
+     ['platform_release_preparation_drafts','notes'],
+     ['platform_release_preparation_drafts','edited_by'],
+     ['platform_release_preparation_drafts','edited_at']],
+   indexes:['platform_release_preparation_drafts_recent']},
 ]
 const args=process.argv.slice(2)
 if(args.some(x=>x!=='--require-complete') || args.length>1)
@@ -107,7 +125,7 @@ try {
    "SELECT cl.relname||'.'||t.tgname AS name FROM pg_trigger t JOIN pg_class cl ON cl.oid=t.tgrelid JOIN pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal"
  )).map(r=>r.name))
  const procedures=new Map((await fetch(
-   "SELECT p.proname, p.prosecdef, p.proconfig, EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_can_execute FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('hi5_release_emergency_pause','hi5_release_record_verified_test_gate','hi5_release_generic_tenant_permitted','hi5_audit_generic_tenant_scope')"
+   "SELECT p.proname, p.prosecdef, p.proconfig, EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_can_execute FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('hi5_release_emergency_pause','hi5_release_record_verified_test_gate','hi5_release_generic_tenant_permitted','hi5_audit_generic_tenant_scope','hi5_reject_held_tenant_live_rollout')"
  )).map(r=>[r.proname,r]))
  const checks=[]
  for(const manifest of expected){
@@ -142,9 +160,15 @@ try {
   }
   for(const name of manifest.procedures||[]){
     const p=procedures.get(name)
-    if(!p||!p.prosecdef||p.public_can_execute
-       ||!p.proconfig?.some(x=>x.startsWith('search_path=')))
+    if(!p)missing.push('missing_function:'+name)
+    else if(name!=='hi5_reject_held_tenant_live_rollout'
+       &&(!p.prosecdef||p.public_can_execute
+          ||!p.proconfig?.some(x=>x.startsWith('search_path='))))
       missing.push('default_denied_secure_function:'+name)
+    else if(name==='hi5_reject_held_tenant_live_rollout'
+      &&(!p.prosecdef||p.public_can_execute
+         ||!p.proconfig?.some(x=>x.startsWith('search_path='))))
+      missing.push('protected_rollback_hold_trigger:'+name)
   }
   checks.push({migration:manifest.id,ledgerRecorded:ledger.has(manifest.id),
     surfaceChecksPassed:missing.length===0,missing})
