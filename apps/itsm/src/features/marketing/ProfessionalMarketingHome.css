@@ -21,8 +21,8 @@
 .h5m-page :is(a,button,summary):focus-visible { outline: 3px solid #77a5ff; outline-offset: 4px; }
 .h5m-page [id] { scroll-margin-top: 100px; }
 .h5m-container { width: min(1220px, calc(100% - 72px)); margin-inline: auto; }
-.h5m-skip-link { position: fixed; z-index: 200; top: -70px; left: 16px; padding: 12px 18px; background: #fff; color: #173b84; border-radius: 12px; }
-.h5m-skip-link:focus { top: 14px; }
+.h5m-skip-link { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.h5m-skip-link:focus { position: fixed; z-index: 200; width: auto; height: auto; top: 14px; left: 16px; margin: 0; padding: 12px 18px; overflow: visible; clip-path: none; background: #fff; color: #173b84; border-radius: 12px; box-shadow: 0 12px 30px rgba(23, 52, 95, .2); }
 .h5m-header { position: sticky; top: 0; z-index: 90; background: rgba(255,255,255,.96); border-bottom: 1px solid #e8edf5; backdrop-filter: blur(18px); }
 .h5m-header-inner { height: 82px; display: flex; align-items: center; gap: 30px; }
 .h5m-logo { display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0; color: #142b50 !important; font-size: 22px; letter-spacing: -.055em; font-weight: 830; white-space: nowrap; }
