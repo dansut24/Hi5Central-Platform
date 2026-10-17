@@ -70,7 +70,7 @@ BEGIN
  RETURN NEW;
 END;
 $h5audit$;
-REVOKE ALL ON FUNCTION public.hi5_audit_generic_tenant_scope() FROM PUBLIC.
+REVOKE ALL ON FUNCTION public.hi5_audit_generic_tenant_scope() FROM PUBLIC;
 
 CREATE TRIGGER audit_generic_scope_control
 AFTER INSERT OR UPDATE OR DELETE ON platform_release_generic_scope_control
