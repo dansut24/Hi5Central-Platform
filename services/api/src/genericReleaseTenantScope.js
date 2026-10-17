@@ -22,7 +22,8 @@ export function validateTenTenantPilotRequest({body,actorId}={}){
  const reason=String(body.reason||'').trim()
  const reviewedChange=String(body.reviewedChange||'').trim()
  if(reason.length<25||reason.length>500
-   ||reviewedChange.length<8||reviewedChange.length>200)
+   ||reviewedChange.length<8||reviewedChange.length>200
+   ||reason.length+reviewedChange.length+12>500)
   throw reject('Record a meaningful pilot reason and an independently reviewed change reference.')
  return {actorId,tenantIds:ids,reason,reviewedChange}
 }
