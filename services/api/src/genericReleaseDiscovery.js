@@ -8,25 +8,11 @@
  * rows are default-DENY. NO SQL mutations, route writes or Docker operations.
  */
 import {nextCustomerReleaseStage,scheduledCustomerRelease} from './certifiedReleaseFanout.js'
+import {GENERIC_STAGES,authorisedGenericReleaseStage,readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
 
 const SHA=/^[a-f0-9]{40}$/
 const valid=value=>value!=null&&Number.isFinite(new Date(value).getTime())
 const issue=message=>Object.assign(new Error(message),{code:'GENERIC_RELEASE_DISCOVERY_BLOCKED'})
-export const GENERIC_STAGES=Object.freeze(['test','uat','live'])
-
-export function authorisedGenericReleaseStage({approval,sha,stage,now=new Date()}={}){
-  if(!SHA.test(String(sha||''))||!GENERIC_STAGES.includes(stage))
-    return {allowed:false,reason:'Invalid immutable release SHA or environment.'}
-  if(approval?.build_sha!==sha||approval?.environment!==stage
-    ||approval.planning_enabled!==true||!approval.approved_by
-    ||!valid(approval.approved_at)||!valid(approval.expires_at)
-    ||!(new Date(approval.approved_at)<=new Date(now)
-      &&new Date(now)<new Date(approval.expires_at))
-    ||!approval.evidence||typeof approval.evidence!=='object'
-    ||Array.isArray(approval.evidence)||Object.keys(approval.evidence).length===0)
-    return {allowed:false,reason:'No current staff-approved stage-specific generic planning authorisation.'}
-  return {allowed:true,reason:'Approved generic planning scope; worker execution is independently gated.'}
-}
 
 export const genericReleaseTenantQuery=[
  'SELECT t.id,t.slug,t.status,p.update_mode AS mode,',
