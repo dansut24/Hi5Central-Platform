@@ -370,6 +370,41 @@ function LiveProductionReleaseManagement() {
     </section>
 
     <TenantRuntimeUpdates updateMode={policy.updateMode}/>
+    <section className="production-settings-panel" data-hi5-tenant-workspaces>
+      <header><div><h2>Your release environments</h2><p>Every customer has an isolated Test and Production workspace. Custom update policies also use UAT before Production approval.</p></div>
+        <button type="button" className="hi5-release-refresh" onClick={load} disabled={Boolean(busy)}><RefreshCw size={15}/> Refresh</button>
+      </header>
+      <div className="production-settings-panel-body">
+        <div className="hi5-release-env-grid">
+          {['test',...(policy.updateMode==='admin_controlled'?['uat']:[]),'live'].map(name=>{
+            const env=tenantEnvironments.find(item=>item.environment===name)
+            return <article key={name} className="hi5-release-env-card">
+              <header><div><span>{name.toUpperCase()}</span><strong>{name==='uat'?'Acceptance testing':name==='test'?'Automatic Test':'Production'}</strong></div>
+                <ResultPill value={env?.status||'pending'}/></header>
+              <p>{name==='uat'?'Review and accept the exact tested version before scheduling Live.':
+                name==='test'?'Hi5Central stages certified versions for safe validation.':
+                'Only verified and approved updates enter your Live workspace during the selected window.'}</p>
+              {name==='live'?<small>This is your Production workspace.</small>:
+                env?.status==='ready'&&env?.url
+                ?<button type="button" disabled={Boolean(busy)} onClick={()=>openEnvironment(name)}>Open {name.toUpperCase()} ↗</button>
+                :<small>{env?.status==='error'?'Environment requires provisioning review.':
+                  'The workspace will be available when provisioned.'}</small>}
+            </article>
+          })}
+        </div>
+        {tenantEnvironments.some(e=>e.status==='error')?
+          <button className="hi5-release-refresh" type="button" disabled={Boolean(busy)} onClick={provisionEnvironments}>
+            <RefreshCw size={15}/> Retry environment provisioning
+          </button>:null}
+      </div>
+    </section>
+    {error?<p role="alert" className="hi5-release-message is-error"><CircleAlert size={15}/>{error}</p>:null}
+    {message?<p role="status" className="hi5-release-message is-success"><CheckCircle2 size={15}/>{message}</p>:null}
+    <details className="production-settings-panel" data-hi5-advanced-release-tools>
+      <summary style={{cursor:'pointer',padding:16,fontWeight:600}}>Advanced feature and configuration release tools</summary>
+      <div className="production-settings-panel-body">
+        <p>Existing feature flags, selective configuration promotion, shared application operator reports and manual release actions remain here for compatibility. Application-version approvals are handled above.</p>
+
     {policy.updateMode==='admin_controlled'?<UatSelectiveConfigurationPromotion/>:null}
     <ItsmConfigurationHistory/>
 
@@ -610,5 +645,7 @@ function LiveProductionReleaseManagement() {
       </div>
     </section>
     ) : null}
+      </div>
+    </details>
   </div>
 }
