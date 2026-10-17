@@ -94,7 +94,7 @@ async function authorise(request){
   throw Error('Release job is not independently authorised for this exact tenant, SHA and host stage.')
 }
 async function checkPool({environment,sha}){
- const prefix='h5pool-'+environment+'-'+sha.slice(0,12)
+ const prefix='hi5pool-'+environment+'-'+sha.slice(0,12)
  const names=[prefix+'-api',prefix+'-web']
  try{
   const objects=JSON.parse(await execute('docker',['inspect',...names],10000))
