@@ -20,6 +20,9 @@ export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=nul
    "CASE WHEN to_regprocedure('public.hi5_release_record_verified_test_gate(text,integer)') IS NULL",
    'THEN false ELSE',
    "has_function_privilege(current_user,'public.hi5_release_record_verified_test_gate(text,integer)','EXECUTE') END AS can_verify_canary_gate,",
+   "CASE WHEN to_regprocedure('public.hi5_release_generic_tenant_permitted(uuid)') IS NULL",
+   'THEN false ELSE',
+   "has_function_privilege(current_user,'public.hi5_release_generic_tenant_permitted(uuid)','EXECUTE') END AS can_check_tenant_scope,",
    "CASE WHEN to_regprocedure('public.hi5_release_emergency_pause(text,text)') IS NULL",
    'THEN false ELSE',
    "has_function_privilege(current_user,'public.hi5_release_emergency_pause(text,text)','EXECUTE') END AS can_emergency_pause",
@@ -30,6 +33,8 @@ export async function assertRestrictedGenericDatabaseIdentity(db,{kind,stage=nul
    r.rolsuper||r.rolcreatedb||r.rolcreaterole||r.rolbypassrls||
    r.can_unpause||r.can_forge_canary_gate)
    throw Error('Generic release database credential is not a dedicated restricted login.')
+ if(!r.can_check_tenant_scope)
+   throw Error('Generic release process requires the reviewed tenant admission verifier.')
  if(kind==='planner'&&!r.can_verify_canary_gate)
    throw Error('Generic planner requires database-verified Test quality gate permission.')
  if(kind==='executor'&&r.can_verify_canary_gate)
