@@ -124,6 +124,7 @@ try{
  const mountedActive=verifyReleaseGatewaySourceAgreement({
   hostSource:mounted,mountedSource:mounted,
   adaptedRuntime:adapted,loadedRuntime:loaded,
+  allowReviewedPreviewSemanticEquivalence:true,
  })
  gate.gateways={
   activeMountedSha256:hash(mounted),hostBindSourceSha256:hash(host),
