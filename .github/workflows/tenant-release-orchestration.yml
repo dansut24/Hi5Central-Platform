@@ -8,6 +8,7 @@ on:
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/test/generic-release-postgres.mjs'
+      - 'services/api/test/generic-release-ten-tenant-postgres.mjs'
       - 'services/api/test/generic-release-emergency-pause.mjs'
       - 'services/api/test/generic-release-worker-identity.mjs'
       - 'services/api/src/releaseWorkerIdentity.js'
@@ -219,6 +220,7 @@ jobs:
           node --test test/generic-release-worker-identity.mjs
           node --test test/tenant-release-queue.mjs
           node --test test/generic-release-postgres.mjs
+          node --test test/generic-release-ten-tenant-postgres.mjs
           node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
