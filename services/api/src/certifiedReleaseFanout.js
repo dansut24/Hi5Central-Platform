@@ -18,7 +18,7 @@ const fail=message=>Object.assign(new Error(message),{code:'RELEASE_FANOUT_BLOCK
  */
 export function nextCustomerReleaseStage({
   tenant,sha,publishedAt,approvedAt,jobs=[],gate=null,liveOffer=null,
-  uatOffer=null,testSoakMinutes=30,now=new Date(),
+  uatOffer=null,testSoakMinutes=30,now=new Date(),deliveryMode='qa_sequential',
 }={}){
   if(!SHA.test(String(sha||''))||tenant?.status!=='active'
     ||tenant?.itsm!==true||!['hi5_managed','admin_controlled'].includes(tenant?.mode))
@@ -29,6 +29,43 @@ export function nextCustomerReleaseStage({
   if(!Number.isFinite(releaseAt.getTime()))
     return {stage:null,reason:'Release has no valid approval and publication timestamps.'}
   const get=env=>jobs.find(j=>j.environment===env&&j.build_sha===sha)
+  // Target customer workflow: one published, staff-approved GitHub SHA is
+  // available immediately. The individual tenant maintenance window is
+  // enforced separately by scheduledCustomerRelease and the host worker.
+  // Dev→Test is an always-current evaluation stream, not a mandatory per-
+  // release intermediate job. Keep old QA sequential mode until migration.
+  if(deliveryMode==='direct_customer_release'){
+    if(tenant.mode==='hi5_managed'){
+      if(get('live'))return {stage:null,reason:'Managed Production already has this release.'}
+      if(tenant.liveAutoPromote!==true)
+        return {stage:null,reason:'Managed automatic updates are disabled.'}
+      return {stage:'live',notBefore:releaseAt,
+        reason:'Published Managed release due in customer Production maintenance window.'}
+    }
+    const uat=get('uat')
+    if(!uat){
+      if(tenant.uatAutoStage!==true)
+        return {stage:null,reason:'Custom automatic UAT staging is disabled.'}
+      return {stage:'uat',notBefore:releaseAt,
+        reason:'Published Custom release due in customer UAT maintenance window.'}
+    }
+    if(uat.status!=='succeeded'||!elapsed(uat.completed_at))
+      return {stage:null,reason:'Exact Custom UAT build must be host verified before customer approval.'}
+    if(get('live'))return {stage:null,reason:'Custom Production already has this release.'}
+    if(!uatOffer||uatOffer.build_sha!==sha
+      ||!['uat_accepted','active'].includes(uatOffer.state)
+      ||!uatOffer.uat_accepted_at||!uatOffer.uat_accepted_by)
+      return {stage:null,reason:'Customer must first approve this exact UAT build.'}
+    if(!liveOffer||liveOffer.build_sha!==sha
+      ||liveOffer.state!=='scheduled'||!liveOffer.promotion_approved_at
+      ||!liveOffer.promotion_approved_by||!liveOffer.maintenance_not_before)
+      return {stage:null,reason:'Customer has not approved and scheduled this Production release.'}
+    return {stage:'live',notBefore:maxDate(releaseAt,uat.completed_at,
+      liveOffer.promotion_approved_at,liveOffer.maintenance_not_before),
+      reason:'Customer-approved Custom Production release due inside tenant window.'}
+  }
+  if(deliveryMode!=='qa_sequential')
+    return {stage:null,reason:'Unknown release delivery policy; no release queued.'}
   const test=get('test')
   if(!test){
     if(!tenant.testAutoSync)return {stage:null,reason:'Tenant has disabled automatic Test releases.'}
