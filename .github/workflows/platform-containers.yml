@@ -32,6 +32,17 @@ env:
   PLATFORM_ADMIN_IMAGE: ghcr.io/dansut24/hi5central-platform-admin
 
 jobs:
+  version-details-contract:
+    name: Installed version copy regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify exact installed build identity and clipboard copy text
+        run: node --test apps/itsm/test/installed-version-copy.test.mjs
+
   containers:
     name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
