@@ -16,6 +16,7 @@ COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolP
 COPY services/api/src/releaseRolloutPlanner.js /runner/services/api/src/releaseRolloutPlanner.js
 COPY services/api/src/tenantCaddyVersionRoutes.js /runner/services/api/src/tenantCaddyVersionRoutes.js
 COPY services/api/src/tenantLiveBaseline.js /runner/services/api/src/tenantLiveBaseline.js
+COPY services/api/src/releaseWorkerIdentity.js /runner/services/api/src/releaseWorkerIdentity.js
 COPY services/api/src/tenantReleaseExecutor.mjs /runner/services/api/src/tenantReleaseExecutor.mjs
 COPY deployment/qa26/tenant-release-host-executor.mjs /runner/deployment/qa26/tenant-release-host-executor.mjs
 COPY services/api/package.json /runner/services/api/package.json
