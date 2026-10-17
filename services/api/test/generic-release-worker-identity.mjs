@@ -38,7 +38,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await plannerDb.connect()
   await workerDb.connect()
   const p=await assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'planner'})
-  const w=await assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'executor'})
+  const w=await assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'executor',stage:'uat'})
   assert.equal(p.canDirectlyUnpause,false)
   assert.equal(w.canDirectlyUnpause,false)
   await assert.rejects(
