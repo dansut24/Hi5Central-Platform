@@ -44,7 +44,7 @@ async function assertSchema(){
  "to_regclass('public.platform_release_gateway_owners') IS NOT NULL AS gateway_lock,",
  "to_regclass('public.platform_release_canary_tenants') IS NOT NULL AS canary_cohort",
  ...(plannerScope==='generic'
-   ?["to_regclass('public.platform_release_generic_stage_approvals') IS NOT NULL AS generic_approvals"]
+   ?[",to_regclass('public.platform_release_generic_stage_approvals') IS NOT NULL AS generic_approvals"]
    :[]),
  ].join(' '))
  const state=rows.rows[0]
