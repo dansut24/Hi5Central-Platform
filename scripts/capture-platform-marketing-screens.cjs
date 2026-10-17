@@ -55,14 +55,16 @@ async function mockApi(page) {
  // Prevent unexpected third-party requests and data leaking from CI browser.
  await page.route('**/*',async route=>{
   const url=route.request().url()
-  if(url.startsWith('http://showcase.hi5central.com:4173/')||
-     url.startsWith('http://showcase-rmm.hi5central.com:4174/')||
-     url.startsWith('data:')||url.startsWith('blob:')) return route.continue()
-  // API was previously handled by first-registered route above.
+  // Catch-all routes have priority over previously registered handlers.
+  // Intercept local API BEFORE allowing the browser to continue to Vite,
+  // otherwise Vite proxies /api to its nonexistent container "api" -> 502.
   if(url.includes('/api/')){
     if(seen++ < 24) console.log('Mocked API (catch-all): '+url.slice(0,170))
     return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(syntheticReply(url))})
   }
+  if(url.startsWith('http://showcase.hi5central.com:4173/')||
+     url.startsWith('http://showcase-rmm.hi5central.com:4174/')||
+     url.startsWith('data:')||url.startsWith('blob:')) return route.continue()
   return route.abort('blockedbyclient')
  })
 }
