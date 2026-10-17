@@ -49,7 +49,7 @@ CREATE INDEX platform_release_generic_scope_audit_recent
 
 CREATE OR REPLACE FUNCTION public.hi5_audit_generic_tenant_scope()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog, public AS $
+SET search_path = pg_catalog, public AS $h5audit$
 DECLARE
  v_tenant uuid := NULL;
 BEGIN
@@ -69,8 +69,8 @@ BEGIN
  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
  RETURN NEW;
 END;
-$$;
-REVOKE ALL ON FUNCTION public.hi5_audit_generic_tenant_scope() FROM PUBLIC;
+$h5audit$;
+REVOKE ALL ON FUNCTION public.hi5_audit_generic_tenant_scope() FROM PUBLIC.
 
 CREATE TRIGGER audit_generic_scope_control
 AFTER INSERT OR UPDATE OR DELETE ON platform_release_generic_scope_control
