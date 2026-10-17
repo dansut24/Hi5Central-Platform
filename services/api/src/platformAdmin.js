@@ -11,9 +11,10 @@ import { assessUatProductionPromotion } from './uatProductionPromotion.js'
 import {readApplicationReleaseExecutor} from './applicationReleaseExecutor.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {readWorkerDeployments,readWorkerDeploymentEvents,readWorkerHeartbeats} from './platformWorkerAudit.js'
-import {verifyOfficialReleaseRun,verifyDevReleaseSmoke} from './officialReleaseCertification.js'
+import {verifyOfficialReleaseRun,verifyDevReleaseSmoke,listOfficialReleaseCandidates} from './officialReleaseCertification.js'
 import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
 import {authoriseDirectCustomerReleaseStages,fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
+import {saveCustomerReleaseDraft,readCustomerReleasePreparation,publishCustomerReleaseNotes} from './customerReleasePreparation.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
 import {readGenericTenantScope,enrolTenTenantPilot} from './genericReleaseTenantScope.js'
 import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
@@ -731,6 +732,42 @@ export function registerPlatformAdminRoutes(app) {
   // Publishing notes does not itself authorise execution. Only a Hi5Central
   // owner/admin may certify an exact official GitHub build after verifying
   // required CI/security/migration jobs and real Dev API+ITSM smoke tests.
+  // One standard release screen; candidate discovery is read-only and never
+  // substitutes for the complete official CI verification on publication.
+  app.get('/api/platform/v1/releases/candidates',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    try{
+      const candidates=await listOfficialReleaseCandidates({
+        token:process.env.GITHUB_RELEASE_READ_TOKEN})
+      return c.json({candidates})
+    }catch(error){
+      return c.json({error:'GitHub release candidates unavailable: '+String(error.message||error)},503)
+    }
+  })
+  app.get('/api/platform/v1/releases/preparations/:sha',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    try{
+      const result=await readCustomerReleasePreparation(pool,{sha:c.req.param('sha')})
+      return c.json(result)
+    }catch(error){return c.json({error:String(error.message||error)},409)}
+  })
+  app.put('/api/platform/v1/releases/preparations/:sha',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const result=await withTransaction(db=>saveCustomerReleaseDraft(db,{
+        sha:c.req.param('sha'),notes:body?.notes,actorId:auth.session.user_id}))
+      await audit(c,auth.session,'release.draft_saved','release',
+        result.buildSha,{editedAt:result.editedAt})
+      return c.json(result)
+    }catch(error){return c.json({error:String(error.message||error)},409)}
+  })
+
   app.get('/api/platform/v1/releases/certifications',async c=>{
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
@@ -917,11 +954,16 @@ export function registerPlatformAdminRoutes(app) {
     }
     try{
       const saved=await withTransaction(async db=>{
-        const published=await db.query(
-          'SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',
-          [sha])
-        if(!published.rowCount)
-          throw new Error('Publish the reviewed version and changelog first.')
+        // CI and Dev smoke were checked BEFORE this transaction. Any
+        // validation, scope or queue failure rolls publication back too.
+        if(releaseToCustomers)
+          await publishCustomerReleaseNotes(db,{sha,notes:body?.releaseNotes})
+        else{
+          const published=await db.query(
+            'SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',[sha])
+          if(!published.rowCount)
+            throw new Error('Publish the reviewed version and changelog first.')
+        }
         const existing=await db.query([
           'SELECT build_sha,status,ci_run_url FROM platform_certified_application_releases',
           'WHERE build_sha=$1 FOR UPDATE',
