@@ -20,6 +20,8 @@ import {assertRestrictedGenericDatabaseIdentity} from './releaseWorkerIdentity.j
 // reviewed worker configuration AND fresh exact-release stage approval.
 const workerScope=process.env.RELEASE_WORKER_SCOPE||'qa'
 if(!['qa','generic'].includes(workerScope))throw Error('Unknown rollout worker scope.')
+if(process.env.RELEASE_EXECUTOR_IMAGE_SCOPE==='generic'&&workerScope!=='generic')
+ throw Error('Generic non-root image must not run legacy privileged QA mode.')
 if(workerScope==='generic'
   &&process.env.RELEASE_GENERIC_WORKER_ACK!=='reviewed-stage-approval-only')
   throw Error('Generic worker requires explicit reviewed execution scope.')
