@@ -5,8 +5,8 @@ const short=sha=>sha?String(sha).slice(0,12):'—'
 const when=value=>value?new Date(value).toLocaleString('en-GB'):'—'
 
 /** Staff-only surface. Nothing is routed by pressing Approve: the backend
- * verifies GitHub Actions, Dev health, role and published immutable notes
- * before the separate PostgreSQL planner is allowed to queue customers.
+ * verifies GitHub Actions, Dev health, role and the exact published notes
+ * before atomically authorising customer delivery paths and queuing jobs.
  */
 export function CertifiedReleaseControls({api,canApprove=false}){
   const [data,setData]=useState({published:[],certifications:[],fanout:[]})
@@ -34,13 +34,15 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   const scan=new Map((data.fanout||[]).map(c=>[c.build_sha,c]))
   async function approve(){
     if(!selected||!runUrl){setError('Choose a published release and its exact official GitHub Actions run.');return}
-    if(!window.confirm('Certify the verified Dev release '+short(selected)+'? This certifies the release only. Scheduling still requires separate reviewed stage planning approval.'))return
+    if(!window.confirm('Release '+short(selected)+' to customers? Managed will queue for its Production maintenance window; Custom will receive UAT and choose when to promote to Production.'))return
     setBusy('approve');setError('');setMessage('')
     try{
-      await api('/releases/certifications/approve',{
-        method:'POST',body:JSON.stringify({buildSha:selected,ciRunUrl:runUrl.trim()}),
+      const result=await api('/releases/certifications/approve',{
+        method:'POST',body:JSON.stringify({buildSha:selected,ciRunUrl:runUrl.trim(),releaseToCustomers:true}),
       })
-      setMessage('Release certified. Review the customer rollout planner and obtain stage-specific scheduling approval before any jobs are queued.')
+      setMessage(result.queued>0
+        ?'Release authorised: '+result.queued+' tenant upgrades queued. Managed Production and Custom UAT follow customer maintenance windows.'
+        :'Release authorised, but no new jobs were scheduled. Check eligible tenants, rollout scope and already queued releases.')
       await refresh()
     }catch(e){setError(e.message||'Release certification failed.')}
     finally{setBusy('')}
@@ -58,16 +60,16 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   return <section className="rmm-card" style={{padding:20,marginBottom:18}}>
     <div className="rmm-card-heading" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
       <div>
-        <span className="rmm-eyebrow">DEV → RELEASE → TENANT SCHEDULE</span>
-        <h2>Certified application releases</h2>
-        <p>Only certified Dev builds with verified GitHub tests, migrations, security and API/frontend smoke checks can be considered for customer scheduling.</p>
+        <span className="rmm-eyebrow">GITHUB → DEV → CUSTOMER RELEASE</span>
+        <h2>Release to customers</h2>
+        <p>Select the exact tested GitHub commit and its prepared features and notes. This one action verifies the build and queues eligible customer upgrades.</p>
       </div>
       <button className="rmm-secondary compact" type="button" onClick={refresh} title="Refresh release fanout"><RefreshCw size={15}/> Refresh</button>
     </div>
     {canApprove&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(230px,1fr))',gap:12,margin:'16px 0'}}>
       <label>Published release
         <select value={selected} onChange={e=>setSelected(e.target.value)}>
-          <option value="">Choose approved changelog</option>
+          <option value="">Select commit and release notes</option>
           {(data.published||[]).map(r=><option key={r.build_sha} value={r.build_sha}>
             {r.version_label||short(r.build_sha)} · {r.title} ({short(r.build_sha)})
           </option>)}
@@ -78,8 +80,8 @@ export function CertifiedReleaseControls({api,canApprove=false}){
           placeholder="https://github.com/dansut24/Hi5Central-Platform/actions/runs/…" autoComplete="off"/>
       </label>
       <div style={{alignSelf:'end'}}>
-        <button className="rmm-primary" disabled={Boolean(busy)||!selected||!runUrl||rows.get(selected)?.status==='approved'}
-          onClick={approve}><ShieldCheck size={16}/> Verify & approve release</button>
+        <button className="rmm-primary" disabled={Boolean(busy)||!selected||!runUrl}
+          onClick={approve}><ShieldCheck size={16}/> Release to customers</button>
       </div>
     </div>}
     {error&&<p role="alert" style={{color:'var(--rmm-danger,#c75050)'}}><ShieldAlert size={16}/> {error}</p>}
@@ -106,7 +108,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       </table>
     </div>
     <p style={{marginTop:10,fontSize:12,opacity:.75}}>
-      Certification alone neither schedules nor deploys a customer release. Stage-specific planning and execution authorisations, customer windows, Custom UAT acceptance and recovery controls remain independent requirements.
+      The release action records authorisation and schedules durable jobs. Actual upgrades require the permitted maintenance window and host safety checks. Custom Production always requires customer-approved UAT promotion.
     </p>
   </section>
 }
