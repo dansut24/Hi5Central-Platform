@@ -118,7 +118,7 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   assert.equal(tenants.filter(t=>!t.managed).length,5)
   assert.equal(tenants.filter(t=>t.hasRmm).length,2)
 
-  const request={sha,scope:'generic',limit:3,now}
+  const request={sha,scope:'generic',limit:3,now,deliveryMode:'qa_sequential'}
   await assert.rejects(transaction(c=>fanoutCertifiedRelease(c,request)),
    /No explicit staff-approved generic release planning stage/)
   assert.equal(await countJobs('test'),0,'Default-deny must schedule zero jobs')
