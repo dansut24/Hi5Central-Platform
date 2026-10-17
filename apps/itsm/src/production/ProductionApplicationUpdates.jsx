@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, CircleAlert, ClipboardCheck, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
+import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
 import './ProductionApplicationUpdates.css'
+import {formatInstalledVersionDetails} from './installedVersionCopy.js'
 
 const API_BASE=window.__HI5_API_BASE__||''
 const ENV=deploymentConfig().runtimeEnvironment
@@ -269,6 +270,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
   const [uatChecks,setUatChecks]=useState([])
   const [busy,setBusy]=useState(false)
   const [expanded,setExpanded]=useState(null)
+  const [copyStatus,setCopyStatus]=useState('')
   async function refresh(){
     setError('')
     try{
@@ -288,6 +290,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
     finally{setLoading(false)}
   }
   useEffect(()=>{refresh()},[])
+  useEffect(()=>{setCopyStatus('')},[data?.sha])
   async function requestLive(){
     if(uatChecks.length!==UAT_CHECKS.length||evidence.trim().length<12){setError('Complete all UAT checks and enter test evidence before requesting promotion.');return}
     if(!reviewScope?.knownBaseline||!reviewScope.reviewChangeCount){setError(reviewScope?.reason||'Full Live-to-UAT history has not been verified.');return}
@@ -307,6 +310,17 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
   const candidate=releases.find(release=>release.buildSha===data?.sha)
   const preview=ENV!=='live'&&!installed
   const available=Boolean(ENV==='live'&&installed&&latest&&latest.buildSha!==data?.sha)
+  const installedVersionDetails=formatInstalledVersionDetails({
+    versionLabel:displayVersion(installed?.versionLabel),buildSha:data?.sha,environment:ENV,
+  })
+  async function copyVersionDetails(){
+    if(!installedVersionDetails)return
+    try{
+      if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(installedVersionDetails)
+      setCopyStatus('Version details copied')
+    }catch{setCopyStatus('Could not copy. Check your browser clipboard permissions.')}
+  }
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
       <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
@@ -322,7 +336,14 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null,
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Installed version</span>
           <strong>{displayVersion(installed?.versionLabel)||(preview?'Preview build':'Not yet published')}</strong>
-          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
+          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small>
+          <button type="button" className="hi5-updates-copy-version"
+            disabled={!installedVersionDetails} onClick={copyVersionDetails}
+            title={installedVersionDetails?'Copy full installed build details':'Installed build identifier is unavailable'}>
+            <Copy size={14}/> Copy version details
+          </button>
+          {copyStatus?<span className="hi5-updates-copy-status" role="status" aria-live="polite">{copyStatus}</span>:null}
+        </article>
         <article><span className="hi5-updates-kicker">Latest published</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
