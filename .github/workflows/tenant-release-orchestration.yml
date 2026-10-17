@@ -35,6 +35,10 @@ on:
       - 'services/api/test/direct-customer-release.mjs'
       - 'services/api/src/customerReleasePreparation.js'
       - 'services/api/src/releaseNotesValidation.js'
+      - 'services/api/src/releaseHostTransport.js'
+      - 'deployment/qa26/release-host-adapter.mjs'
+      - 'deployment/qa26/Dockerfile.release-host-adapter'
+      - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'services/api/test/customer-release-preparation.mjs'
       - 'services/api/src/officialReleaseCertification.js'
       - 'services/api/migrations/platform-admin/171_customer_release_preparation_drafts.sql'
@@ -122,6 +126,8 @@ jobs:
           node --test test/generic-release-admin-approval.mjs
           node --check src/customerReleasePreparation.js
           node --check src/releaseNotesValidation.js
+          node --check src/releaseHostTransport.js
+          node --check ../../deployment/qa26/release-host-adapter.mjs
           node --check src/officialReleaseCertification.js
           node --test test/customer-release-preparation.mjs
           node --check src/genericReleaseDiscovery.js
@@ -175,6 +181,10 @@ jobs:
         run: |
           docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.certified-release-fanout -t h5c-ci-generic-planner:reviewed ../..
           docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.generic-tenant-release-executor -t h5c-ci-generic-executor:reviewed ../..
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.release-host-adapter -t h5c-ci-trusted-host-adapter:reviewed ../..
+          test "$(docker image inspect h5c-ci-generic-executor:reviewed --format '{{.Config.User}}')" = "10001:10002"
+          docker run --rm --network none --entrypoint sh h5c-ci-generic-executor:reviewed -c 'test ! -S /var/run/docker.sock && ! command -v docker'
+          test "$(docker image inspect h5c-ci-trusted-host-adapter:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
           test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{.Config.User}}')" = "scheduler"
           test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
           test "$(docker image inspect h5c-ci-generic-executor:reviewed --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')" = "${{ github.sha }}"
