@@ -47,6 +47,20 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await assert.rejects(
    assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'planner'}),
    /dedicated restricted login/)
+  await admin.query(
+   'REVOKE EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) FROM '+worker)
+  await assert.rejects(
+   assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'executor',stage:'uat'}),
+   /requires the reviewed, audited pause-only permission/)
+  await admin.query(
+   'GRANT EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) TO '+worker)
+  await admin.query(
+   'GRANT EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) TO '+planner)
+  await assert.rejects(
+   assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'planner'}),
+   /planner must never hold emergency execution permissions/)
+  await admin.query(
+   'REVOKE EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) FROM '+planner)
   await assert.rejects(
    workerDb.query('UPDATE platform_release_rollout_control SET paused=false WHERE singleton=true'),
    /permission denied/i)
