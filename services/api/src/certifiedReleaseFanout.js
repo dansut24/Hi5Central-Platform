@@ -129,6 +129,52 @@ export function scheduledCustomerRelease({decision,tenant,sha,now=new Date(),
 }
 
 /**
+ * A single staff release action grants both customer delivery paths after
+ * independent CI/Dev verification. This is a per-SHA audited authorisation,
+ * NOT a fleet unpause, customer UAT acceptance or gateway change.
+ * Called in the same DB transaction as certification and queue fanout.
+ */
+export async function authoriseDirectCustomerReleaseStages(db,{sha,actorId,ciRunUrl}={}){
+ const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
+ if(!SHA.test(String(sha||''))||!UUID.test(String(actorId||'')))
+   throw fail('An immutable build and authenticated platform release author are required.')
+ const verified=await db.query([
+  'SELECT c.build_sha FROM platform_certified_application_releases c',
+  'JOIN hi5central_published_release_notes n ON n.build_sha=c.build_sha',
+  "WHERE c.build_sha=$1 AND c.status='approved' AND c.approved_by IS NOT NULL",
+  'AND c.ci_run_url=$2 AND c.evidence @> $3::jsonb',
+ ].join(' '),[sha,String(ciRunUrl||''),JSON.stringify({
+  build:true,ci:true,security:true,migrations:true,smoke:true,
+ })])
+ if(verified.rowCount!==1)
+   throw fail('Official release verification or published changelog is missing.')
+ for(const stage of ['uat','live']){
+   const evidence={releaseToCustomers:true,ciRunUrl,sourceSha:sha,
+     executionReview:{actorId,source:'single-reviewed-release-action'}}
+   await db.query([
+    'INSERT INTO platform_release_generic_stage_approvals',
+    '(build_sha,environment,planning_enabled,execution_enabled,approved_by,',
+    'approved_at,expires_at,evidence,reason)',
+    "VALUES($1,$2,true,true,$3,now(),now()+interval '365 days',$4::jsonb,$5)",
+    'ON CONFLICT(build_sha,environment) DO NOTHING',
+   ].join(' '),[sha,stage,actorId,JSON.stringify(evidence),
+    'Staff-published and independently CI/Dev-verified customer release'])
+ }
+ const stages=await db.query([
+  'SELECT environment,planning_enabled,execution_enabled,approved_by,',
+  'approved_at,expires_at,evidence',
+  'FROM platform_release_generic_stage_approvals',
+  "WHERE build_sha=$1 AND environment IN ('uat','live')",
+ ],[sha])
+ if(stages.rowCount!==2||stages.rows.some(row=>
+   !row.planning_enabled||!row.execution_enabled||!row.approved_by
+   ||!row.expires_at||new Date(row.expires_at).getTime()<=Date.now()
+   ||row.evidence?.releaseToCustomers!==true))
+   throw fail('Release authorisation was previously revoked or is incomplete; no jobs queued.')
+ return {stages:['uat','live'],executionAuthorised:true}
+}
+
+/**
  * Run inside ONE transaction. The transaction advisory lock prevents two
  * publisher/scheduler instances from double-planning a release cohort.
  * Unique per-tenant+env+SHA job identity survives process restarts.
