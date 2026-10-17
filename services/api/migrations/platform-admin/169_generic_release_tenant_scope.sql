@@ -49,15 +49,21 @@ CREATE INDEX platform_release_generic_scope_audit_recent
 
 CREATE OR REPLACE FUNCTION public.hi5_audit_generic_tenant_scope()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog, public AS $$
+SET search_path = pg_catalog, public AS $
+DECLARE
+ v_tenant uuid := NULL;
 BEGIN
+ -- A scope-control row has no tenant_id column: never reference OLD/NEW
+ -- pilot fields in a CASE expression compiled for the scope table.
+ IF TG_TABLE_NAME='platform_release_generic_pilot_tenants' THEN
+   IF TG_OP='DELETE' THEN v_tenant:=OLD.tenant_id;
+   ELSE v_tenant:=NEW.tenant_id; END IF;
+ END IF;
  INSERT INTO public.platform_release_generic_scope_audit
   (actor_role,operation,target,tenant_id,previous_state,next_state)
  VALUES (session_user::text,TG_OP,
   CASE WHEN TG_TABLE_NAME='platform_release_generic_scope_control' THEN 'scope' ELSE 'pilot' END,
-  CASE WHEN TG_TABLE_NAME='platform_release_generic_pilot_tenants'
-    THEN CASE WHEN TG_OP='DELETE' THEN OLD.tenant_id ELSE NEW.tenant_id END
-    ELSE NULL END,
+  v_tenant,
   CASE WHEN TG_OP='INSERT' THEN '{}'::jsonb ELSE to_jsonb(OLD) END,
   CASE WHEN TG_OP='DELETE' THEN '{}'::jsonb ELSE to_jsonb(NEW) END);
  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
