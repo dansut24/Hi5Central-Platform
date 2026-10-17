@@ -173,6 +173,48 @@ test('ten genuine SQL tenant boundaries: customer rollback holds only its own Li
     "WHERE id=ANY($1::uuid[]) AND id<>$2 AND state='requested'",
    ].join(' '),[cohortResults.map(r=>r.id),selected.id])
    assert.equal(others.rows[0].n,9,'Other customer requests are untouched')
+   // POSITIVE SQL STATE-MACHINE proof only: this synthetic host observation
+   // does NOT attest to any actual Docker/Caddy customer rollback. Use a
+   // SAVEPOINT and restore it after asserting a complete exact-tenant commit.
+   await db.query('SAVEPOINT synthetic_rollback_success')
+   await db.query([
+     'INSERT INTO platform_runtime_pools',
+     '(id,environment,build_sha,api_target,web_target,state,verified_at,last_seen_at)',
+     "VALUES($1,'live',$2,$3,$4,'verified',now(),now())",
+   ].join(' '),[poolName+'-prior',B,'ci-only-api.invalid','ci-only-web.invalid'])
+   const generation=Number(selected.source_route_generation)+1
+   const completed=await completeCustomerRollback(db,{
+    requestId:selected.id,now:new Date(),proof:{status:'rollback_verified',
+     requestId:selected.id,tenantId:selected.tenant_id,environment:'live',
+     sourceBuildSha:A,observedBuildSha:B,routeGeneration:generation,
+     checkedAt:new Date().toISOString(),apiHealthy:true,
+     frontendHealthy:true,gatewaySourceAgreed:true,tenantScopedRouteOnly:true},
+   })
+   assert.equal(completed.state,'verified')
+   assert.equal(completed.upgradeHoldPreserved,true)
+   const post=await db.query([
+    'SELECT a.build_sha,a.generation,v.build_sha AS route_sha',
+    'FROM tenant_runtime_assignments a',
+    'JOIN tenant_runtime_route_attestations v',
+    "ON v.tenant_id=a.tenant_id AND v.environment='live'",
+    "WHERE a.tenant_id=$1 AND a.environment='live'",
+   ].join(' '),[selected.tenant_id])
+   assert.equal(post.rows[0].build_sha,B)
+   assert.equal(post.rows[0].route_sha,B)
+   assert.equal(Number(post.rows[0].generation),generation)
+   const peers=await db.query([
+    'SELECT count(*)::int n FROM tenant_runtime_assignments',
+    "WHERE environment='live' AND tenant_id<>$1",
+    'AND tenant_id=ANY($2::uuid[]) AND build_sha=$3',
+   ].join(' '),[selected.tenant_id,tenants.map(t=>t.id),A])
+   assert.equal(peers.rows[0].n,9,'Previous-version recovery never mutates peer routes')
+   const afterHold=await db.query(
+    'SELECT active FROM tenant_release_upgrade_holds WHERE tenant_id=$1',
+    [selected.tenant_id])
+   assert.equal(afterHold.rows[0].active,true)
+   await db.query('ROLLBACK TO SAVEPOINT synthetic_rollback_success')
+   // With the successful synthetic path undone, invalid host proof MUST
+   // continue to be refused and the hold preserved.
    await assert.rejects(completeCustomerRollback(db,{
     requestId:selected.id,now:new Date(),proof:{status:'rollback_verified',
      requestId:selected.id,tenantId:selected.tenant_id,environment:'live',
