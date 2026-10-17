@@ -384,11 +384,25 @@ async function step(){
         }
       }
       if(activated&&!compensated){
-        await pool.query([
-          'UPDATE platform_release_rollout_control SET paused=true,',
-          "reason='Host cutover could not be confirmed rolled back; operator review required',updated_at=now()",
-          'WHERE singleton=true',
-        ].join(' ')).catch(()=>{})
+        // This fail-closed emergency stop is the ONLY allowed write to
+        // rollout control from a restricted executor. The reviewed database
+        // function can set paused=true, never unpause, and audits the caller.
+        // Direct UPDATE privileges on rollout control remain forbidden.
+        try{
+          const stopped=await pool.query(
+            'SELECT public.hi5_release_emergency_pause($1,$2) AS paused',
+            [ID,'Host cutover could not be confirmed rolled back; operator review required'])
+          if(stopped.rows[0]?.paused!==true)
+            throw Error('Emergency pause was not confirmed by PostgreSQL.')
+        }catch(pauseError){
+          // Never silently swallow a failed emergency-stop request.
+          // Stop THIS worker immediately after finalising the failed job;
+          // the operator must independently halt remaining worker services.
+          running=false
+          process.exitCode=1
+          console.error('DURABLE_RELEASE_EMERGENCY_PAUSE_FAILED',
+            String(pauseError.message||pauseError).slice(0,300))
+        }
       }
       console.error(JSON.stringify({type:'deployment_failed',jobId:job.id,
         gateway,compensated,error:String(e.message||e).slice(0,400)}))
