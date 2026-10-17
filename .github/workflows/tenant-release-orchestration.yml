@@ -5,6 +5,9 @@ on:
       - 'services/api/src/releaseRolloutPlanner.js'
       - 'services/api/src/genericReleaseAuthorization.js'
       - 'services/api/src/genericReleaseAdminApproval.js'
+      - 'services/api/src/genericReleaseTenantScope.js'
+      - 'services/api/test/generic-release-tenant-scope.mjs'
+      - 'apps/admin/src/features/admin/GenericReleasePilotScope.jsx'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/test/generic-release-postgres.mjs'
@@ -100,6 +103,8 @@ jobs:
           node --check src/releaseRolloutPlanner.js
           node --check src/genericReleaseAuthorization.js
           node --check src/genericReleaseAdminApproval.js
+          node --check src/genericReleaseTenantScope.js
+          node --test test/generic-release-tenant-scope.mjs
           node --check src/platformAdmin.js
           node --test test/generic-release-admin-approval.mjs
           node --check src/genericReleaseDiscovery.js
