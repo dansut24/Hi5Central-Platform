@@ -449,7 +449,7 @@ try{
   if(workerScope==='generic'){
     if(existsSync('/var/run/docker.sock'))
       throw Error('Unsafe generic worker: unrestricted host Docker socket is mounted.')
-    if(!existsSync(process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'))
+    if(!preflight&&!existsSync(process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'))
       throw Error('Restricted trusted host adapter socket is not mounted.')
     await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor',stage:gateway})
   }
