@@ -97,11 +97,16 @@ async function checkPool({environment,sha}){
  const prefix='hi5pool-'+environment+'-'+sha.slice(0,12)
  const names=[prefix+'-api',prefix+'-web']
  try{
-  const objects=JSON.parse(await execute('docker',['inspect',...names],10000))
-  return {status:'pool_health',healthy:objects.length===2
-    &&objects.every((x,i)=>x.Name==='/'+names[i]
-       &&x.State?.Running===true&&x.State?.Health?.Status==='healthy'
-       &&x.Config?.Image?.endsWith(':sha-'+sha)===true),environment,buildSha:sha}
+  // Inspect only four bounded non-secret fields. Never transmit Docker
+  // inspection JSON (which may include sensitive container environment).
+  const output=await execute('docker',['inspect','--format',
+   '{{.Name}}|{{.State.Running}}|{{.State.Health.Status}}|{{.Config.Image}}',...names],10000)
+  const lines=output.trim().split('\n')
+  return {status:'pool_health',healthy:lines.length===2&&lines.every((line,i)=>{
+    const [name,running,health,image]=line.split('|')
+    return name==='/'+names[i]&&running==='true'&&health==='healthy'
+     &&image?.endsWith(':sha-'+sha)===true
+   }),environment,buildSha:sha}
  }catch{return {status:'pool_health',healthy:false,environment,buildSha:sha}}
 }
 async function runAction(request){
