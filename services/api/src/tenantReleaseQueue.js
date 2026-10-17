@@ -103,11 +103,20 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
   const queued=await db.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,j.scheduled_at,j.attempt_count,j.max_attempts,',
     'j.expected_duration_minutes,p.maintenance_window,p.blackout_periods,',
-    't.status AS tenant_status,p.update_mode',
+    't.status AS tenant_status,p.update_mode,p.test_auto_sync,',
+    'p.uat_auto_stage,p.live_auto_promote',
     'FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
     "JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha AND c.status='approved'",
     'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
+    // No generic worker can claim a pending release merely because somebody
+    // unpaused the fleet. Each SHA+stage must have an unexpired explicit
+    // execution approval, separate from the scheduling grant.
+    "JOIN platform_release_generic_stage_approvals a ON a.build_sha=j.build_sha",
+    'AND a.environment=j.environment AND a.planning_enabled=true',
+    'AND a.execution_enabled=true AND a.approved_by IS NOT NULL',
+    'AND a.approved_at<=now() AND a.expires_at>now()',
+    "AND a.evidence<>'{}'::jsonb",
     "WHERE ((j.status IN ('scheduled','deferred') AND j.scheduled_at<=$1)",
     "OR (j.status='running' AND j.lease_expires_at<=$1))",
     'AND j.attempt_count<j.max_attempts',
@@ -128,9 +137,12 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
       continue
     // Window and tenant entitlement must be rechecked after dequeuing.
     // No automatic host action occurs in this function.
-    const allowedEnvironment=(row.environment==='uat'&&row.update_mode==='admin_controlled')
-      ||(row.environment==='test')
-      ||(row.environment==='live')
+    const allowedEnvironment=(row.environment==='uat'
+        &&row.update_mode==='admin_controlled'&&row.uat_auto_stage===true)
+      ||(row.environment==='test'&&row.test_auto_sync===true)
+      ||(row.environment==='live'&&(
+        (row.update_mode==='hi5_managed'&&row.live_auto_promote===true)
+        ||row.update_mode==='admin_controlled'))
     const configured=row.maintenance_window && typeof row.maintenance_window==='object'
       && typeof row.maintenance_window.timezone==='string'
       && Array.isArray(row.maintenance_window.days)
