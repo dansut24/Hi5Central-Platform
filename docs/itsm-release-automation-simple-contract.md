@@ -428,3 +428,61 @@ execution in each customer's permitted maintenance window.
 
 Do NOT unpause or claim overnight Production rollout readiness until
 every gate has independently verifiable host evidence.
+
+## 17 October 2026, release-runner activation pass — current go/no-go
+
+The user authorised completing all release activation steps, including
+preserving the active shared Caddy runtime and ten real QA customers.
+**No protected review was bypassed; no Live rollout was unpaused.**
+
+- Privileged final host executor now independently invokes the same
+  three-way host source, container-mounted source and loaded Caddy Admin JSON
+  agreement used by the trusted adapter. Tested with four negative/positive
+  source-agreement unit cases and a **real read-only Live `--preflight`**:
+  production drift correctly denied the cutover; zero customer writes.
+- A reproducible strictly preparation-only reconciliation script is committed
+  at `deployment/qa26/prepare-live-caddy-reconciliation.mjs`. It checks
+  the original verified Caddy source SHA and actual currently served runtime
+  with the independent verified-baseline+PR83-preview proof, creates a
+  12-route candidate, validates it with real Caddy, and compares all 11
+  original host routes after normalising only Caddy-generated group numbers
+  and the candidate's temporary source file path.
+  **11/11 original route structural comparisons passed.**
+  The 12th candidate host is the isolated preview. Candidate archive:
+  private Docker volume `h5c_release79_live_caddy_20261017`,
+  `reconciliation-candidate.Caddyfile`, SHA-256
+  `30d4905f0f32463fc9de5237a893ce5942a35e94c8aabd976c1bbe17ad4f0d17`.
+  This Caddyfile is NOT yet activated; preview candidate's compiled JSON is
+  not byte-equivalent to the currently loaded Admin JSON. Independently
+  validate public routing semantics before promotion.
+- Live Caddy's `/etc/caddy/Caddyfile` is a **read-only bind mount**
+  from `/opt/hi5central/deployment/Caddyfile`, and its mounted inode and
+  current host-side file diverge. A simple reload or host file copy will not
+  reconcile this; it needs a separately reviewed recoverable **gateway
+  remount/recreation** preserving the current active Admin, shared auth,
+  RMM and preview routes. Do not perform this outside a safe window.
+- Read-only release readiness now independently fails on missing four
+  stage-scoped restricted LOGIN credentials, absence of Live baseline
+  assignments, mismatched immutable Live API/frontend build SHA, and
+  public exposure of forbidden Managed UAT or non-entitled RMM aliases.
+  Actual VPS result: **0** stage-restricted role logins, **0** registered
+  Live assignments, **0/10** matched Live API/frontend SHA,
+  **2** Managed-UAT alias frontends and **8** non-RMM alias frontends.
+  Existing legacy QA workers have Docker socket mounts. 16/16 migration
+  ledger and required tables are present; fleet is still globally paused.
+- Independent DB security review and RLS/grant negative tests are required:
+  UAT can create an `offered` Live *metadata* row and stage a Live pool,
+  but must not be able to update Live route assignments or attestations.
+  No broad superuser/shared-credential replacement was attempted.
+- A real customer rollback cannot be accepted without a trusted host
+  rollback action and verified preexisting Live routing assignment/health
+  proof; there are currently **no Live runtime assignment records** to
+  form a valid predecessor. Disposable SQL state transitions and
+  isolated real Docker/Caddy rollback pass, but are not substitutes.
+
+The GitHub PR currently targets a feature base branch and remains a
+draft; passing CI is not approval to deploy. Once the gateway
+reconciliation/remount, stage-restricted credentials, Live API baselines,
+public forbidden-host boundaries and trusted rollback execute safely,
+perform a single Managed+Custom real QA pilot, then ten tenants,
+within 02:00–05:00 Europe/London including weekends.
