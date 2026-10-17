@@ -957,6 +957,9 @@ export function registerPlatformAdminRoutes(app) {
             sha,scope:'generic',deliveryMode:'direct_customer_release',
             limit:200,
           })
+          const rolloutControl=await db.query(
+            'SELECT paused FROM platform_release_rollout_control WHERE singleton=true')
+          const globallyPaused=rolloutControl.rows[0]?.paused!==false
           await db.query([
             'INSERT INTO platform_release_fanout_events',
             '(build_sha,event_type,actor_id,details)',
@@ -968,7 +971,7 @@ export function registerPlatformAdminRoutes(app) {
           return {approved:true,alreadyApproved,buildSha:sha,
             releaseToCustomers:true,queued:plan.queued,
             alreadyQueued:plan.alreadyQueued,scanned:plan.scanned,
-            blocked:plan.blocked,deliveryMode:plan.deliveryMode}
+            blocked:plan.blocked,deliveryMode:plan.deliveryMode,globallyPaused}
         }
         return {approved:true,alreadyApproved,buildSha:sha,
           queuedForPlanner:true}
