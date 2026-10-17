@@ -12,6 +12,7 @@ import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenan
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
 import {parseQaReleaseTenantSlugs,assertQaReleaseTenantAllowed} from './releaseQaCohort.js'
+import {assertRestrictedGenericDatabaseIdentity} from './releaseWorkerIdentity.js'
 
 // QA remains allowlisted by default. Generic execution requires an explicit
 // reviewed worker configuration AND fresh exact-release stage approval.
@@ -418,6 +419,8 @@ async function step(){
   })
 }
 try{
+  if(workerScope==='generic')
+    await assertRestrictedGenericDatabaseIdentity(pool,{kind:'executor'})
   if(preflight){
     const r=await pool.query([
       "SELECT to_regclass('public.platform_certified_application_releases') IS NOT NULL AS certification,",
