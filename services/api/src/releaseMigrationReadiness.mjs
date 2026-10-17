@@ -65,6 +65,8 @@ const expected = [
   {id:'167_release_emergency_pause_least_privilege.sql',
    tables:['platform_release_emergency_pause_events'],
    procedures:['hi5_release_emergency_pause']},
+  {id:'168_verified_test_canary_gate_least_privilege.sql',
+   procedures:['hi5_release_record_verified_test_gate']},
 ]
 const args=process.argv.slice(2)
 if(args.some(x=>x!=='--require-complete') || args.length>1)
@@ -98,7 +100,7 @@ try {
    "SELECT cl.relname||'.'||t.tgname AS name FROM pg_trigger t JOIN pg_class cl ON cl.oid=t.tgrelid JOIN pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='public' AND NOT t.tgisinternal"
  )).map(r=>r.name))
  const procedures=new Map((await fetch(
-   "SELECT p.proname, p.prosecdef, p.proconfig, EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_can_execute FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='hi5_release_emergency_pause' AND pg_get_function_identity_arguments(p.oid)='p_worker_id text, p_reason text'"
+   "SELECT p.proname, p.prosecdef, p.proconfig, EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_can_execute FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('hi5_release_emergency_pause','hi5_release_record_verified_test_gate')"
  )).map(r=>[r.proname,r]))
  const checks=[]
  for(const manifest of expected){
