@@ -770,9 +770,10 @@ export function registerPlatformAdminRoutes(app) {
     ].join(' '),[auth.session.user_id])
     if(!member.rowCount)
       return c.json({error:'Active platform owner/admin authorisation required.'},403)
+    const body=await c.req.json().catch(()=>null)
     try{
       const result=await withTransaction(db=>enrolTenTenantPilot(db,{
-        body:await c.req.json().catch(()=>null),actorId:auth.session.user_id,
+        body,actorId:auth.session.user_id,
       }))
       await audit(c,auth.session,'release.generic_ten_tenant_pilot_enrolled','release',
         'generic_pilot',{managed:result.managed,custom:result.custom,
