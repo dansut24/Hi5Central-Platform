@@ -133,3 +133,70 @@ CI syntax-checked. **No VPS deployment, schema, route, queue or pause writes occ
 A green GitHub PR is **code/CI evidence**, not a Production host upgrade or
 customer rollback acceptance. PR #79 remains draft, and the installed release
 scheduler remains globally paused.
+
+## 17 October 2026 — ACTUAL Production schema reconciliation completed, routing still held
+
+A full PostgreSQL 17 custom-format backup of the existing 486 MB live control
+database was saved to the **VPS-local** Docker volume
+`h5c_release_79_pre_reconcile_backup`, archive
+`hi5central_before_release79_20261017.dump`. `pg_restore --list` verified
+the archive; SHA-256:
+`e712584f76db97bef1ffa55f48fb37289916dcef7ce2a3d9d23a0255ed5edfd4`.
+Do not export this private backup to a public build or CI environment.
+
+The reviewed, guarded `deployment/qa26/reconcile-release-schema.mjs` was
+tested against a disposable schema-only clone and as a **ROLLBACK-only
+transaction on the real database**, then committed with the verified backup
+identifier and checksum. Result:
+`ddlMigrationsApplied=10`, `historicalMigrationsReconciled=6`,
+`transactionCommitted=true`. These were the ten genuinely
+missing/corrective migrations 155,156,157,160,166–171; six already present
+historic migrations 158,159,161,163–165 were reconciled by their verified
+catalog surfaces, not destructive table recreation. The migration ledger
+now contains **16/16 entries**, and the read-only
+`releaseMigrationReadiness.mjs` reports **16/16 passing surface checks**.
+The backup does not replace verification of restore compatibility.
+
+Immediately after commit, `platform_release_rollout_control.paused=true`,
+zero jobs were running, all six active QA tenants remained present, and
+production HTTPS checks for public, Dev, Admin, Live and Test sites returned
+HTTP 200. No routes, Docker gateway containers, application images or
+customer deployment approvals were changed.
+
+**Three-way gateway drift now confirmed, still a hard stop:**
+1. Host persisted Caddy source SHA:
+   `8a04056fc756cff98c71030a1404cede32ef85252ff1ea012f7e86c1515df1b3`.
+2. Gateway container-mounted source SHA:
+   `21657cd198a1e1da167083faad432ac7f66ecd964190b5d75c18acb7fda4e050`.
+3. Adapted mounted runtime JSON SHA:
+   `e694ac9b9208f155cfe3c76c79fb03873601214cc2ffd26074535d56f3ea85f1`;
+   **currently loaded Caddy admin JSON SHA**:
+   `32d51f1f27095a3d4681106c40c46a8090398f5d8d281619740f46b20c81ac49`.
+
+The actual gateway runtime contains the extra exact
+`marketing-preview.hi5central.com` route and a newer worker-audit Admin/API
+preview upstream. The host-persisted Caddy file, meanwhile, contains older
+QA-canary routes and broad redirects for some RMM/tenant hostnames that
+are NOT equivalent to what is being served. Copying either file over the
+currently loaded configuration could silently break other projects. The
+read-only readiness audit now checks and exposes all three sources. The
+pure `releaseGatewaySourceAgreement.js` component and four negative tests
+are committed and passing. Its proposed privileged host-executor integration
+was **blocked by safety checks** during the attempted edit; do not claim that
+this protective runtime check is installed inside the production host executor.
+
+The six existing Live tenant URLs still return HTML for same-origin
+`/api/v1/updates/version`; nine Test/UAT URLs have passing immutable JSON
+versions. Three existing QA executors still mount Docker's socket. The
+new non-root generic worker/privileged IPC adapter remain CI artifacts,
+not live installations. No real customer rollback host operation has yet
+been successfully executed.
+
+**Required remaining controlled acceptance:** approved three-way Caddy
+reconciliation preserving the currently loaded preview, auth, RMM and other
+tenant routes; full Live same-origin API proof; independently reviewed
+restricted executor credentials and host wiring; a durable customer-rollback
+host action with fence/watchdog verification; onboarding and acceptance of
+ten real QA tenants; protected PR review/merge and versioned deployment.
+Only then consider lifting the global rollout pause. Do not bypass a
+security-blocked host change via alternate editing channels.
