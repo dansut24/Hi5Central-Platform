@@ -185,6 +185,17 @@ export async function startReleasePublicationRelay({
     if(schema.rows[0]?.ready!==true)throw fail('Dev release-note migrations missing.')
     if(preflight){
       await verifyCentralPublicationCredential({fetcher,authority,token})
+      if(allowedSha==='verified-dev'){
+        const proof=await fetcher(authority+
+          '/api/platform-operator/v1/releases/publication-capability',{
+            headers:{Authorization:'Bearer '+token},
+            signal:AbortSignal.timeout(7500),
+          })
+        const detail=await proof.json().catch(()=>({}))
+        if(!proof.ok||detail.automaticDevPublication!==true
+          ||detail.centralAuthority!==true)
+          throw fail('Central release authority is not enabled for verified Dev auto-publication.')
+      }
       return {status:'preflight_pass',allowedSha}
     }
     do{
