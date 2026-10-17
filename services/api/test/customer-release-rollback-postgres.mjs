@@ -230,12 +230,13 @@ test('ten genuine SQL tenant boundaries: customer rollback holds only its own Li
    }),/gateway isolation/)
    // Exercise the full metadata success transition with an isolated,
    // synthetic trusted-host proof. No production routing authority is used.
+   const hostCheckedAt=new Date()
    const verified=await completeCustomerRollback(db,{
-    requestId:selected.id,now:new Date(),
+    requestId:selected.id,now:hostCheckedAt,
     proof:{status:'rollback_verified',
      requestId:selected.id,tenantId:selected.tenant_id,environment:'live',
      sourceBuildSha:A,observedBuildSha:B,routeGeneration:999,
-     checkedAt:new Date().toISOString(),apiHealthy:true,
+     checkedAt:hostCheckedAt.toISOString(),apiHealthy:true,
      frontendHealthy:true,gatewaySourceAgreed:true,tenantScopedRouteOnly:true},
    })
    assert.equal(verified.state,'verified')
