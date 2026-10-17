@@ -4,6 +4,9 @@ on:
     paths:
       - 'services/api/src/releaseRolloutPlanner.js'
       - 'services/api/src/genericReleaseAuthorization.js'
+      - 'services/api/src/genericReleaseAdminApproval.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/generic-release-admin-approval.mjs'
       - 'services/api/src/genericReleaseDiscovery.js'
       - 'services/api/src/genericReleasePreview.mjs'
       - 'services/api/src/certifiedReleaseFanout.js'
@@ -79,6 +82,9 @@ jobs:
         run: |
           node --check src/releaseRolloutPlanner.js
           node --check src/genericReleaseAuthorization.js
+          node --check src/genericReleaseAdminApproval.js
+          node --check src/platformAdmin.js
+          node --test test/generic-release-admin-approval.mjs
           node --check src/genericReleaseDiscovery.js
           node --check src/genericReleasePreview.mjs
           node --check src/certifiedReleaseFanout.js
