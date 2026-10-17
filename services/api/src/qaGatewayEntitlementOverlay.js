@@ -25,7 +25,7 @@ const rows=(tenants)=>{
   if(!slugPattern.test(slug)||named.has(slug))
    throw Error('Invalid or duplicate QA slug.')
   named.add(slug)
-  if(t.mode!=='hi5_managed'&&t.mode!=='hi5_custom')
+  if(t.mode!=='hi5_managed'&&t.mode!=='admin_controlled')
    throw Error('Unrecognised QA delivery mode.')
   modes[t.mode==='hi5_managed'?'managed':'custom']++
   if(typeof t.rmm!=='boolean')throw Error('QA RMM entitlement must be verified.')
