@@ -21,6 +21,20 @@ const run=(command,args,timeoutMs=170000)=>{
  return {status:p.status,stdout:p.stdout||'',stderr:p.stderr||'',
   signal:p.signal||null}
 }
+const handoff=run('node',['deployment/qa26/audit-customer-publication-handoff.mjs'],60000)
+let publication=null
+try{publication=JSON.parse(handoff.stdout)}catch{}
+stages.push({name:'DEV_TO_CENTRAL_RELEASE_PUBLICATION_HANDOFF',
+ passed:handoff.status===0&&publication?.status==='READY_FOR_INDEPENDENT_HOST_ACCEPTANCE',
+ result:publication?.status||'ERROR',
+ buildSha:publication?.sha||null,
+ requestedAt:publication?.authorRequestedAt||null,
+ devRequestStatus:publication?.authorRequestStatus||null,
+ centralPublication:publication?.centralPublication||'unknown',
+ centralCertification:publication?.centralCertification||'unknown',
+ queuedJobs:publication?.queuedJobs||[],
+ blockers:publication?.blockers||['Could not parse release publication handoff audit.'],
+})
 const readiness=run('node',['deployment/qa26/audit-release-host-readiness.mjs'],90000)
 let gate=null
 try{gate=JSON.parse(readiness.stdout)}catch{}
