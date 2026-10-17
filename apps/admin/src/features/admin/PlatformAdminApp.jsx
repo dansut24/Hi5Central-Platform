@@ -10,6 +10,7 @@ import './PlatformAdminApp.css'
 import { UatProductionPromotion } from './UatProductionPromotion.jsx'
 import { WorkerActivity } from './WorkerActivity.jsx'
 import { CertifiedReleaseControls } from './CertifiedReleaseControls.jsx'
+import { GenericReleasePlanning } from './GenericReleasePlanning.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -902,6 +903,7 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
   return <>
     <PageHeading view="releases" action={<div className="h5a-release-heading-actions"><button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
     <CertifiedReleaseControls api={api} canApprove={canApproveSharedReleases}/>
+    <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
     <UatProductionPromotion apiBase={API} canApprove={canApproveSharedReleases}/>
     <div className="rmm-card h5a-release-deployment-policy">
       <div className="rmm-card-heading">
