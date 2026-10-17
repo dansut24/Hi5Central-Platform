@@ -124,8 +124,14 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   assert.equal(await countJobs('test'),0,'Default-deny must schedule zero jobs')
   await approve(actor,'test')
   const emptyPilot=await transaction(c=>fanoutCertifiedRelease(c,request))
-  assert.equal(emptyPilot.scanned,0,'Pilot admission defaults to no tenants')
-  assert.equal(emptyPilot.queued,0,'Stage approval alone cannot widen tenant scope')
+  assert.equal(emptyPilot.scanned,previous,
+   'Pilot access is limited to the pre-existing explicitly admitted CI tenants')
+  assert.equal(emptyPilot.queued,previous,
+   'The new ten unapproved tenants must not be discovered by pilot fanout')
+  assert.equal((await pool.query(
+   "SELECT count(*)::int n FROM tenant_release_rollout_jobs j JOIN tenants t ON t.id=j.tenant_id WHERE j.build_sha=$1 AND t.slug LIKE $2",
+   [sha,'ten-ci-'+suffix+'-%'])).rows[0].n,0,
+   'None of the ten new cohort members is admitted without explicit permission')
   // Only actual pilot cohort IDs may be admitted. The previously created
   // eligible CI tenants are also included to verify this is generic, not
   // a hardcoded ten-slug scheduler.
@@ -145,8 +151,8 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   const first=await transaction(c=>fanoutCertifiedRelease(c,request))
   assert.equal(first.scanned,previous+10,
    'All ten cohort tenants AND pre-existing eligible customers discovered')
-  assert.equal(first.queued,previous+10,
-   'Generic discovery cannot exclude other eligible tenants')
+  assert.equal(first.queued,10,
+   'Only newly authorised pilot tenants are scheduled after pre-existing pilot jobs')
   assert.equal(await countJobs('test'),previous+10)
   assert.equal(await countJobs('uat'),0)
   assert.equal(await countJobs('live'),0)
