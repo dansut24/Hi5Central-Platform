@@ -33,6 +33,11 @@ export function GenericReleasePlanning({api,canApprove=false}){
  const [error,setError]=useState('')
  const [message,setMessage]=useState('')
  const [expanded,setExpanded]=useState(false)
+ const [executionExpanded,setExecutionExpanded]=useState(false)
+ const [executionConfirmation,setExecutionConfirmation]=useState('')
+ const [executionHours,setExecutionHours]=useState(2)
+ const [executionReason,setExecutionReason]=useState('')
+ const [executionReviewedChange,setExecutionReviewedChange]=useState('')
 
  useEffect(()=>{
   if(selected&&!eligible.some(x=>x.build_sha===selected)){
@@ -75,6 +80,29 @@ export function GenericReleasePlanning({api,canApprove=false}){
     api('/releases/generic-stage-approvals/'+selected).then(setDetails),
    ])
   }catch(e){setError(e.message||'Planning approval was not recorded.')}
+  finally{setBusy(false)}
+ }
+ async function approveExecution(){
+  if(!selected||!canApprove||!details?.approvals?.[stage]?.planning_enabled)return
+  if(executionConfirmation!=='AUTHORISE_STAGE_EXECUTION'){
+   setError('Type AUTHORISE_STAGE_EXECUTION to approve this release and environment.');return
+  }
+  if(!window.confirm('Grant execution authority for '+stageNames[stage]+' / '+abbrev(selected)+' for up to '+executionHours+' hours? This DOES NOT unpause workers or immediately deploy. Customer windows, UAT and gateway checks remain enforced.'))return
+  setBusy(true);setError('');setMessage('')
+  try{
+   await api('/releases/generic-stage-approvals/'+selected+'/execution',{
+    method:'POST',body:JSON.stringify({
+     environment:stage,expiresInHours:Number(executionHours),reason:executionReason,
+     reviewedChange:executionReviewedChange,confirmation:executionConfirmation,
+    }),
+   })
+   setExecutionConfirmation('')
+   setMessage('Execution stage approved. Workers remain globally paused until separately reviewed activation.')
+   await Promise.all([
+    api('/releases/generic-preview/'+selected).then(setPreview),
+    api('/releases/generic-stage-approvals/'+selected).then(setDetails),
+   ])
+  }catch(e){setError(e.message||'Execution authorisation was not recorded.')}
   finally{setBusy(false)}
  }
  async function revoke(target){
@@ -194,7 +222,36 @@ export function GenericReleasePlanning({api,canApprove=false}){
       <ShieldCheck size={15}/> Authorise planning only
      </button></div>
     </div>}
-   </div>}
+   </div>
+   {details?.approvals?.[stage]?.planning_enabled&&canApprove?
+    <div style={{marginTop:14,padding:14,border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:12}}>
+     <div style={{display:'flex',gap:10,alignItems:'center',justifyContent:'space-between'}}>
+      <div><strong>Separate execution authorisation · {stageNames[stage]}</strong>
+       <p style={{fontSize:12,margin:'5px 0'}}>Requires a current planning approval. This is not a deployment button or a global unpause.</p>
+      </div>
+      <button type="button" className="rmm-secondary compact" onClick={()=>setExecutionExpanded(v=>!v)}>
+       {executionExpanded?'Hide':'Review execution'}
+      </button>
+     </div>
+     {executionExpanded?<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:12,marginTop:12}}>
+      <label>Expiry (1–12 hours)
+       <input type="number" min="1" max="12" value={executionHours} onChange={e=>setExecutionHours(e.target.value)}/>
+      </label>
+      <label>Reviewed change / certification
+       <input value={executionReviewedChange} onChange={e=>setExecutionReviewedChange(e.target.value)} placeholder="PR #79, gateway and Test evidence"/>
+      </label>
+      <label style={{gridColumn:'1 / -1'}}>Why this exact stage is ready (minimum 20 characters)
+       <textarea rows={2} value={executionReason} onChange={e=>setExecutionReason(e.target.value)}/>
+      </label>
+      <label style={{gridColumn:'1 / -1'}}>Type AUTHORISE_STAGE_EXECUTION
+       <input value={executionConfirmation} onChange={e=>setExecutionConfirmation(e.target.value)} autoComplete="off"/>
+      </label>
+      <div><button type="button" className="rmm-secondary compact" disabled={busy||
+       executionConfirmation!=='AUTHORISE_STAGE_EXECUTION'||executionReason.trim().length<20||
+       executionReviewedChange.trim().length<8||!(Number(executionHours)>=1&&Number(executionHours)<=12)}
+       onClick={approveExecution}><ShieldCheck size={15}/> Approve stage execution</button></div>
+     </div>:null}
+    </div>:null}
    <div style={{marginTop:12,display:'flex',gap:8,alignItems:'center'}}>
     <Clock3 size={14}/><small>Preview is read-only. Live customer upgrades require a separate execution approval, maintenance gate and host verification.</small>
    </div>
