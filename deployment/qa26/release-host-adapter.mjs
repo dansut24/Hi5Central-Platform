@@ -12,6 +12,7 @@ import {spawn} from 'node:child_process'
 import {existsSync,mkdirSync,lstatSync,unlinkSync,chmodSync,chownSync} from 'node:fs'
 import {dirname} from 'node:path'
 import {validateHostRequest} from '../../services/api/src/releaseHostTransport.js'
+import {verifyReleaseGatewaySourceAgreement} from '../../services/api/src/releaseGatewaySourceAgreement.js'
 
 const SOCKET=process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'
 const GID=Number(process.env.H5C_RELEASE_HOST_GROUP_ID||10002)
@@ -23,12 +24,12 @@ const queue=new Set()
 const maxOutput=20000
 const readJson=x=>JSON.parse(String(x).trim().split('\n').at(-1))
 
-async function execute(command,args,timeout=30000){
+async function execute(command,args,timeout=30000,outputLimit=maxOutput){
  return new Promise((resolve,reject)=>{
   const proc=spawn(command,args,{env:{...process.env},stdio:['ignore','pipe','pipe']})
   let stdout='',stderr='',done=false
   const timer=setTimeout(()=>{proc.kill('SIGKILL');if(!done){done=true;reject(Error('Trusted host command deadline exceeded.'))}},timeout)
-  proc.stdout.on('data',part=>{stdout+=part;if(stdout.length>maxOutput)proc.kill('SIGKILL')})
+  proc.stdout.on('data',part=>{stdout+=part;if(stdout.length>outputLimit)proc.kill('SIGKILL')})
   proc.stderr.on('data',part=>{stderr+=part;if(stderr.length>maxOutput)proc.kill('SIGKILL')})
   proc.on('error',error=>{if(!done){done=true;clearTimeout(timer);reject(error)}})
   proc.on('close',code=>{
@@ -109,9 +110,31 @@ async function checkPool({environment,sha}){
    }),environment,buildSha:sha}
  }catch{return {status:'pool_health',healthy:false,environment,buildSha:sha}}
 }
+async function requireLiveGatewaySourceAgreement(){
+ // Never trust agreement of two files alone: a previously loaded Caddy admin
+ // JSON may contain unrelated Admin, API, RMM or marketing-preview routes.
+ // All four reads are bounded and read-only, independent of socket inputs.
+ const [hostSource,mountedSource,adaptedRuntime,loadedRuntime]=await Promise.all([
+  execute('docker',['run','--rm','--network','none','--mount',
+   'type=bind,source=/opt/hi5central/deployment/Caddyfile,target=/gateway/Caddyfile,readonly',
+   'busybox:1.36','cat','/gateway/Caddyfile'],12000,100000),
+  execute('docker',['exec','hi5central-web','cat','/etc/caddy/Caddyfile'],12000,100000),
+  execute('docker',['exec','hi5central-web','caddy','adapt',
+   '--config','/etc/caddy/Caddyfile','--adapter','caddyfile'],12000,100000),
+  execute('docker',['exec','hi5central-web','wget','-q','-O','-',
+   'http://127.0.0.1:2019/config/'],12000,100000),
+ ])
+ const proof=verifyReleaseGatewaySourceAgreement({hostSource,mountedSource,
+  adaptedRuntime,loadedRuntime})
+ if(proof.agreed!==true)
+  throw Error('Live gateway host cutover denied: '+proof.reason)
+ return proof
+}
 async function runAction(request){
  if(request.mode==='pool_health')return checkPool(request)
  await authorise(request)
+ if(request.mode==='apply'&&request.environment==='live')
+  await requireLiveGatewaySourceAgreement()
  const args=[request.environment,request.slug,request.sha,'--'+request.mode]
  if(request.backup)args.push(request.backup)
  const timeout=request.mode==='confirm'?25000:request.mode==='restore'?90000:330000
