@@ -50,6 +50,11 @@ add('globalPauseProtected',data.paused===true,'global rollout pause '+(data.paus
 add('noActiveRollouts',Number(data.running)===0,Number(data.running)+' running jobs')
 add('migration166Installed',data.approvalSchema===true,
  data.approvalSchema?'Stage approval schema installed':'Migration 166 not installed')
+add('emergencyPauseProcedureInstalled',(()=>{try{
+ const result=docker('exec','hi5central-certified-release-planner','node','-e',
+  "const{Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const q=await c.query(\"SELECT to_regprocedure('public.hi5_release_emergency_pause(text,text)') IS NOT NULL AS present\");console.log(JSON.stringify(q.rows[0]))}finally{await c.end()}})().catch(e=>{console.error(e.message);process.exitCode=1})")
+ return JSON.parse(result).present===true
+ }catch{return false}})(),'Audited pause-only database procedure from migration 167')
 add('planningStageApproved',data.approval?.planning_enabled===true&&
  new Date(data.approval.expires_at)>new Date(),'Exact release/stage planning grant')
 add('executionStageApproved',data.approval?.execution_enabled===true&&
@@ -57,16 +62,27 @@ add('executionStageApproved',data.approval?.execution_enabled===true&&
 add('genericWorkerActive',activeScope==='generic'&&activeAck,
  'Worker scope: '+activeScope+' / source image: '+activeImage)
 // Inspect role identity only; never display, parse or transfer DATABASE_URL.
-const roleProbe="const{Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=await c.query('SELECT current_user AS role,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser');console.log(JSON.stringify(r.rows[0]))}finally{await c.end()}})().catch(e=>{console.error(e.message);process.exitCode=1})"
+const roleProbe=`const{Client}=require('pg');(async()=>{const c=new Client({connectionString:process.env.DATABASE_URL});await c.connect();try{const r=await c.query("SELECT current_user AS role,(SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser,has_table_privilege(current_user,'public.platform_release_rollout_control','UPDATE') AS can_update_control,CASE WHEN to_regprocedure('public.hi5_release_emergency_pause(text,text)') IS NULL THEN false ELSE has_function_privilege(current_user,'public.hi5_release_emergency_pause(text,text)','EXECUTE') END AS can_pause_emergency");console.log(JSON.stringify(r.rows[0]))}finally{await c.end()}})().catch(e=>{console.error(e.message);process.exitCode=1})`
 for(const [kind,name] of [['planner','hi5central-certified-release-planner'],
                            ['worker',worker]]){
  try{
   const identity=JSON.parse(docker('exec',name,'node','-e',roleProbe))
   add(kind+'DatabaseLeastPrivilege',identity.superuser===false,
    kind+' database role '+identity.role+'; superuser='+String(identity.superuser))
+  add(kind+'NoControlUpdate',identity.can_update_control===false,
+   kind+' role has no direct UPDATE on global pause control')
+  if(kind==='worker')add('workerAuditedEmergencyPause',
+   identity.can_pause_emergency===true,
+   'Executor is granted pause-only audited emergency function')
+  if(kind==='planner')add('plannerCannotEmergencyPause',
+   identity.can_pause_emergency===false,
+   'Planner must not be allowed to request fleet emergency pause')
  }catch(error){
   add(kind+'DatabaseLeastPrivilege',false,
    'Could not independently verify the '+kind+' PostgreSQL identity.')
+  add(kind+'NoControlUpdate',false,'Could not verify table privileges')
+  add(kind==='worker'?'workerAuditedEmergencyPause':'plannerCannotEmergencyPause',
+    false,'Could not independently verify emergency stop privileges')
  }
 }
 const preflights=[]
