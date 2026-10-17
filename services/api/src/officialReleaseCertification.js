@@ -82,7 +82,7 @@ export async function listOfficialReleaseCandidates({token,fetcher=fetch}={}){
   if(String(token).length<10)throw failed('Invalid configured GitHub release credential.')
   headers.Authorization='Bearer '+token
  }
- const endpoint='https://api.github.com/repos/dansut24/Hi5Central-Platform/actions/runs?per_page=100'
+ const endpoint='https://api.github.com/repos/dansut24/Hi5Central-Platform/actions/workflows/qa-real-dev-release-candidate.yml/runs?per_page=50&status=success'
  const response=await request(fetcher,endpoint,headers)
  if(!Array.isArray(response.workflow_runs))throw failed('GitHub release runs are unavailable.')
  return response.workflow_runs.filter(run=>
