@@ -43,6 +43,7 @@ on:
       - 'deployment/qa26/Dockerfile.release-host-adapter'
       - 'deployment/qa26/Dockerfile.generic-tenant-release-executor'
       - 'services/api/test/customer-release-preparation.mjs'
+      - 'services/api/test/customer-release-preparation-postgres.mjs'
       - 'services/api/src/officialReleaseCertification.js'
       - 'services/api/migrations/platform-admin/171_customer_release_preparation_drafts.sql'
       - 'apps/admin/src/features/admin/CertifiedReleaseControls.jsx'
@@ -266,6 +267,7 @@ jobs:
           node --test test/generic-release-ten-tenant-postgres.mjs
           node --test test/customer-release-rollback.mjs
           node --test test/customer-release-rollback-postgres.mjs
+          node --test test/customer-release-preparation-postgres.mjs
           node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
