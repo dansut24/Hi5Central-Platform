@@ -37,6 +37,11 @@ test('generic planner/executor fail closed on superuser and accept only separate
   workerDb=new pg.Client({connectionString:url(worker)})
   await plannerDb.connect()
   await workerDb.connect()
+  await assert.rejects(
+   assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'planner'}),
+   /requires database-verified Test quality gate permission/)
+  await admin.query(
+   'GRANT EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer) TO '+planner)
   const p=await assertRestrictedGenericDatabaseIdentity(plannerDb,{kind:'planner'})
   const w=await assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'executor',stage:'uat'})
   assert.equal(p.canDirectlyUnpause,false)
@@ -47,6 +52,13 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await assert.rejects(
    assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'planner'}),
    /dedicated restricted login/)
+  await admin.query(
+   'GRANT EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer) TO '+worker)
+  await assert.rejects(
+   assertRestrictedGenericDatabaseIdentity(workerDb,{kind:'executor',stage:'uat'}),
+   /executor must never create Test quality gates/)
+  await admin.query(
+   'REVOKE EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer) FROM '+worker)
   await admin.query(
    'REVOKE EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) FROM '+worker)
   await assert.rejects(
@@ -96,6 +108,7 @@ test('generic planner/executor fail closed on superuser and accept only separate
   await plannerDb?.end().catch(()=>{})
   await workerDb?.end().catch(()=>{})
   await admin.query('REVOKE EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) FROM '+worker).catch(()=>{})
+  await admin.query('REVOKE EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer) FROM '+planner).catch(()=>{})
   await admin.query('REVOKE USAGE ON SCHEMA public FROM '+planner+', '+worker).catch(()=>{})
   await admin.query('DROP ROLE IF EXISTS '+planner).catch(()=>{})
   await admin.query('DROP ROLE IF EXISTS '+worker).catch(()=>{})
