@@ -1,6 +1,9 @@
 # Dedicated control-plane scheduler: PostgreSQL only; no Docker socket,
 # SSH key, GitHub publishing token, customer data volume or Caddy mount.
 FROM node:22-alpine
+ARG REVIEWED_SOURCE_SHA=unreviewed
+LABEL hi5central.release.reviewed_source="${REVIEWED_SOURCE_SHA}" \
+      hi5central.release.scope="generic-stage-gated"
 WORKDIR /runner
 RUN printf '%s\n' '{"name":"hi5central-release-planner","private":true,"type":"module","dependencies":{"pg":"8.23.0"}}' > package.json \
  && npm install --omit=dev --ignore-scripts --no-fund --no-audit \
