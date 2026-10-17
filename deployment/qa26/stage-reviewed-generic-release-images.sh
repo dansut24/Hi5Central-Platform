@@ -26,20 +26,27 @@ const {Client}=require("pg");
 prefix="${reviewed:0:12}"
 planner="hi5central-generic-release-planner:reviewed-$prefix"
 executor="hi5central-generic-release-executor:reviewed-$prefix"
+adapter="hi5central-release-host-adapter:reviewed-$prefix"
 docker build --pull=false --build-arg "REVIEWED_SOURCE_SHA=$reviewed" \
  -f deployment/qa26/Dockerfile.certified-release-fanout -t "$planner" .
 docker build --pull=false --build-arg "REVIEWED_SOURCE_SHA=$reviewed" \
  -f deployment/qa26/Dockerfile.generic-tenant-release-executor -t "$executor" .
-for image in "$planner" "$executor";do
+docker build --pull=false --build-arg "REVIEWED_SOURCE_SHA=$reviewed" \
+ -f deployment/qa26/Dockerfile.release-host-adapter -t "$adapter" .
+for image in "$planner" "$executor" "$adapter";do
  actual="$(docker image inspect "$image" --format '{{index .Config.Labels "hi5central.release.reviewed_source"}}')"
  [[ "$actual" == "$reviewed" ]] ||
  { echo "GENERIC_IMAGE_STAGE_BLOCKED: source attestation mismatch for $image" >&2;exit 1; }
 done
+[[ "$(docker image inspect "$executor" --format '{{.Config.User}}')" == "10001:10002" ]] ||
+ { echo 'GENERIC_IMAGE_STAGE_BLOCKED: upgrade executor must not run as root' >&2;exit 1; }
+docker run --rm --network none --entrypoint sh "$executor" -c 'test ! -S /var/run/docker.sock && ! command -v docker' ||
+ { echo 'GENERIC_IMAGE_STAGE_BLOCKED: generic worker must not contain Docker socket/CLI' >&2;exit 1; }
 [[ "$(docker image inspect "$planner" --format '{{.Config.User}}')" == scheduler ]] ||
  { echo 'GENERIC_IMAGE_STAGE_BLOCKED: scheduler must be unprivileged' >&2;exit 1; }
 docker run --rm --network none --entrypoint node "$planner" \
  --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
 echo "GENERIC_RELEASE_IMAGES_STAGED_PLANNING_AND_EXECUTION_STILL_DISABLED"
-docker image inspect "$planner" "$executor" \
+docker image inspect "$planner" "$executor" "$adapter" \
  --format 'image={{.RepoTags}} digest={{.Id}} source={{index .Config.Labels "hi5central.release.reviewed_source"}}'
 echo "CUSTOMER_GATEWAYS_DATABASE_WORKERS_NOT_MODIFIED"
