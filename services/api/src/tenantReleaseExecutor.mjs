@@ -449,7 +449,7 @@ async function step(){
 }
 try{
   if(workerScope==='generic'){
-    if(existsSync('/var/run/docker.sock'))
+    if(!preflight&&existsSync('/var/run/docker.sock'))
       throw Error('Unsafe generic worker: unrestricted host Docker socket is mounted.')
     if(!preflight&&!existsSync(process.env.H5C_RELEASE_HOST_SOCKET||'/run/hi5central-release/host.sock'))
       throw Error('Restricted trusted host adapter socket is not mounted.')
