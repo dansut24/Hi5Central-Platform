@@ -9,6 +9,7 @@ import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
+import {verifyReleaseGatewaySourceAgreement} from '../../services/api/src/releaseGatewaySourceAgreement.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
@@ -101,8 +102,16 @@ async function assertLiveGatewaySource(){
   if(environment!=='live')return
   const disk=await fileHost()
   const mounted=await docker('exec',c.gateway,'cat','/etc/caddy/Caddyfile')
-  if(hash(disk)!==hash(mounted))
-    throw Error('Live gateway Caddy sources differ; dual-source gateway reconciliation required.')
+  const [adaptedRuntime,loadedRuntime]=await Promise.all([
+    docker('exec',c.gateway,'caddy','adapt','--config',
+      '/etc/caddy/Caddyfile','--adapter','caddyfile'),
+    gatewayRuntime(),
+  ])
+  const agreement=verifyReleaseGatewaySourceAgreement({
+    hostSource:disk,mountedSource:mounted,adaptedRuntime,loadedRuntime,
+  })
+  if(agreement.agreed!==true)
+    throw Error('Live gateway cutover denied: '+agreement.reason)
   const canaryBlocks=disk.match(/# QA26 LIVE CANARY BEGIN[\s\S]*?# QA26 LIVE CANARY END/g)||[]
   if(canaryBlocks.some(block=>block.includes('host '+host)))
     throw Error('Legacy QA Live canary would compete with exact tenant release route.')
