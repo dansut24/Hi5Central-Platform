@@ -68,7 +68,9 @@ export function TenantRuntimeUpdates({updateMode}){
   <RefreshCw size={17}/> Checking customer version updates…</div></section>
  if(!data)return null
  const offers=data.updateOffers||[]
- const uat=offers.filter(x=>x.environment==='uat')
+ // Managed tenants never require or operate a customer UAT environment.
+ const uat=data.mode==='admin_controlled'
+  ?offers.filter(x=>x.environment==='uat'):[]
  const live=offers.filter(x=>x.environment==='live')
  return <section className="production-settings-panel" data-hi5-customer-runtime-updates>
   <header><div><h2>Application versions & customer updates</h2>
@@ -125,7 +127,7 @@ export function TenantRuntimeUpdates({updateMode}){
        <ShieldCheck size={15}/> Approve Production update</button>
      </div>:null}
      {data.mode==='hi5_managed'&&offer.state==='offered'?<p>
-      Hi5Central will schedule this update after UAT approval, the configured delay and maintenance checks.</p>:null}
+      Hi5Central will schedule this update after the verified platform Test gate, your configured delay and maintenance window. Managed updates do not require UAT.</p>:null}
      {offer.state==='scheduled'?<p>Pending verified host activation from {when(offer.maintenanceNotBefore)}. Existing Production stays live until the switch succeeds.</p>:null}
    </article>)}
   </div>
