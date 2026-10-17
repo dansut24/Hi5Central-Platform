@@ -62,6 +62,14 @@ async function completeSyntheticStage(stage,rows,completed){
 test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct upgrade stages',async()=>{
  try{
   const now=new Date(),published=new Date(now.getTime()-3*3600000)
+  // Earlier CI tests may already have onboarded eligible tenants. Generic
+  // release fanout must include them too, not silently restrict itself to 10.
+  const previous=(await pool.query([
+   'SELECT count(*)::int n FROM tenants t',
+   'JOIN tenant_settings s ON s.tenant_id=t.id',
+   "WHERE t.status='active' AND s.onboarding_completed_at IS NOT NULL",
+   "AND COALESCE((s.modules->>'itsm')::boolean,false)=true",
+  ].join(' '))).rows[0].n
   const actor=(await pool.query(
    'INSERT INTO users(email,name,password_hash,email_verified_at) VALUES($1,$2,$3,now()) RETURNING id',
    ['ten-cohort-'+suffix+'@example.invalid','Ten-tenant CI reviewer','ci-only'])).rows[0].id
@@ -116,18 +124,20 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
   assert.equal(await countJobs('test'),0,'Default-deny must schedule zero jobs')
   await approve(actor,'test')
   const first=await transaction(c=>fanoutCertifiedRelease(c,request))
-  assert.equal(first.scanned,10,'All ten tenants discovered through pagination')
-  assert.equal(first.queued,10,'Exactly one Test job per tenant')
-  assert.equal(await countJobs('test'),10)
+  assert.equal(first.scanned,previous+10,
+   'All ten cohort tenants AND pre-existing eligible customers discovered')
+  assert.equal(first.queued,previous+10,
+   'Generic discovery cannot exclude other eligible tenants')
+  assert.equal(await countJobs('test'),previous+10)
   assert.equal(await countJobs('uat'),0)
   assert.equal(await countJobs('live'),0)
   const repeated=await transaction(c=>fanoutCertifiedRelease(c,request))
   assert.equal(repeated.queued,0,'Repeat scan must not duplicate Test jobs')
   assert.equal((await pool.query(
    "SELECT count(*)::int n FROM tenant_release_rollout_events WHERE build_sha=$1 AND event_type='scheduled'",
-   [sha])).rows[0].n,10)
+   [sha])).rows[0].n,previous+10)
   assert.equal((await pool.query([
-   'SELECT count(*)::int n FROM tenant_release_rollout_jobs j',
+   'SELECT count(*)::int n FROM tenant_release_rollout_jobs j'
    'JOIN tenant_settings s ON s.tenant_id=j.tenant_id',
    "WHERE j.build_sha=$1 AND j.environment='test'",
    "AND COALESCE((s.modules->>'rmm')::boolean,false)=true",
