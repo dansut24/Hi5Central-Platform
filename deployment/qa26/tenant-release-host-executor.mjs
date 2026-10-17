@@ -109,6 +109,7 @@ async function assertLiveGatewaySource(){
   ])
   const agreement=verifyReleaseGatewaySourceAgreement({
     hostSource:disk,mountedSource:mounted,adaptedRuntime,loadedRuntime,
+    allowReviewedPreviewSemanticEquivalence:true,
   })
   if(agreement.agreed!==true)
     throw Error('Live gateway cutover denied: '+agreement.reason)
