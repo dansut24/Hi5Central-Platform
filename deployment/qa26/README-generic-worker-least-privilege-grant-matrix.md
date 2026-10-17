@@ -33,15 +33,16 @@ secret-management mechanism. Never store DSNs in source, PRs or logs.
 | INSERT and narrowly scoped UPDATE | tenant_release_rollout_jobs |
 | INSERT | tenant_release_rollout_events, platform_release_fanout_events |
 | INSERT and narrowly scoped UPDATE | platform_release_fanout_checkpoints |
-| Controlled QA-gate creation | platform_release_test_qa_gates |
+| EXECUTE reviewed verifier only | public.hi5_release_record_verified_test_gate(text,integer), not QA-gate INSERT |
 
-**Security review blocker:** the current planner emits an INSERT/UPSERT to
-platform_release_test_qa_gates after checking two verified designated Test
-jobs. Granting unrestricted INSERT to a login would let a compromised planner
-fabricate a Passed QA gate for any SHA. Prefer a vetted SECURITY DEFINER
-function that independently checks actual immutable Test job, fence, canary
-designation and soak evidence and writes only a corresponding gate. Do not
-issue a blanket DML grant to this table. A migration/CI proof is required.
+**Implemented in draft PR #79, not deployed:** migration 168 adds the
+revoked-from-PUBLIC SECURITY DEFINER function
+public.hi5_release_record_verified_test_gate(text,integer). Generic fanout
+now invokes it instead of direct QA-gate INSERT. The function rechecks the
+actual human-certified published release, distinct designated Test jobs,
+matching immutable verified fence and at least 30 minutes of real soak.
+Do not grant any planner direct QA-gate INSERT/UPDATE. The function's SECURITY
+DEFINER owner and EXECUTE grants require security review before deployment.
 
 ## Executor SQL access requirements (one role PER stage)
 
@@ -90,7 +91,7 @@ planner. Never mount an unrestricted Docker socket into the API frontend.
 
 1. Independently approved Production schema history remediation and a
    verified restore checkpoint. Stage approvals migration 166, pause migration
-   167 and all genuinely missing historical changes installed.
+   167, verified Test gate migration 168 and all genuinely missing historical changes installed.
 2. Security-reviewed per-table/column permissions with actual stage and
    row restrictions; no broad default grants, no GLOBAL UPDATE, no QA-gate
    forgery; separate audited secret issuance.
