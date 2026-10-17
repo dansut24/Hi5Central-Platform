@@ -27,6 +27,7 @@ const tenant=(slug,mode='hi5_managed')=>({
 const tenants=[tenant('managed'),tenant('custom','admin_controlled'),
  tenant('managed-disabled')]
 tenants[2].test_auto_sync=false
+ tenants[2].live_auto_promote=false
 
 function mockDb({approved=[],jobsByTenant={},offersByTenant={},gate=null,missingApprovals=false}={}){
  const statements=[]
@@ -74,7 +75,7 @@ test('schema absent always means NO generic authorisations',async()=>{
 
 test('generic preview pages all tenant IDs and does not write any DB data',async()=>{
  const db=mockDb()
- const p=await previewGenericCertifiedRelease(db,{sha,now,limit:1})
+ const p=await previewGenericCertifiedRelease(db,{sha,now,limit:1,deliveryMode:'qa_sequential'})
  assert.equal(p.scanned,3)
  assert.equal(p.eligible,0)
  assert.equal(p.approvalBlocked,2)
@@ -87,7 +88,7 @@ test('generic preview pages all tenant IDs and does not write any DB data',async
 
 test('explicit approved TEST scope yields two schedulable tenants only',async()=>{
  const db=mockDb({approved:[grant('test')]})
- const p=await previewGenericCertifiedRelease(db,{sha,now,limit:2})
+ const p=await previewGenericCertifiedRelease(db,{sha,now,limit:2,deliveryMode:'qa_sequential'})
  assert.equal(p.eligible,2)
  assert.equal(p.tenants[0].proposedStage,'test')
  assert.equal(p.tenants[1].proposedStage,'test')
@@ -101,10 +102,27 @@ test('CUSTOM next stage is UAT and never LIVE before acceptance',async()=>{
  const job={environment:'test',build_sha:sha,status:'succeeded',
   completed_at:'2026-10-16T08:00:00Z'}
  const db=mockDb({approved:[grant('uat')],jobsByTenant:{[custom.id]:[job]}})
- const p=await previewGenericCertifiedRelease(db,{sha,now})
+ const p=await previewGenericCertifiedRelease(db,{sha,now,deliveryMode:'qa_sequential'})
  assert.equal(p.tenants.find(t=>t.slug==='custom').status,'eligible')
  assert.equal(p.tenants.find(t=>t.slug==='custom').proposedStage,'uat')
  assert.equal(p.tenants.find(t=>t.slug==='managed').status,'approval_required')
+})
+
+
+test('simple release preview queues Managed Live and Custom UAT immediately with no tenant Test hop',async()=>{
+ const db=mockDb({approved:[grant('live'),grant('uat')]})
+ const result=await previewGenericCertifiedRelease(db,{sha,now})
+ assert.equal(result.deliveryMode,'direct_customer_release')
+ assert.equal(result.scanned,3)
+ assert.equal(result.eligible,2)
+ assert.deepEqual(result.tenants.map(x=>[x.slug,x.proposedStage,x.status]),[
+  ['managed','live','eligible'],['custom','uat','eligible'],
+  ['managed-disabled',null,'blocked'],
+ ])
+ assert(result.tenants.slice(0,2).every(x=>new Date(x.proposedAt)>now))
+ assert(db.statements.every(s=>/^(SELECT|\\s*SELECT)/.test(s.trim())))
+ assert(!db.statements.some(s=>s.includes('FROM platform_release_test_qa_gates')),
+  'Direct release previews must not require tenant Test or canary SQL')
 })
 
 test('generic write fanout refuses when no staff-approved stage; no SQL mutations',async()=>{
