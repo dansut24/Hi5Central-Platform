@@ -9,7 +9,9 @@ on:
       - '.github/scripts/generate-release-manifest.mjs'
       - '.github/workflows/platform-containers.yml'
   push:
-    branches: [main]
+    # This feature branch publishes immutable candidate images ONLY. The
+    # production promotion job remains restricted to refs/heads/main.
+    branches: [main, feat/copy-installed-version-details-20261017]
     paths:
       - 'apps/**'
       - 'services/**'
