@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {createHash} from 'node:crypto'
-import {publicationBearerAuthorised,publicationTokenDigests,publicationShaAuthorised} from '../src/releasePublicationCredential.js'
+import {publicationBearerAuthorised,publicationTokenDigests,publicationShaAuthorised,automaticDevPublicationEnabled} from '../src/releasePublicationCredential.js'
 
 const active='A'.repeat(63)+'9', next='B'.repeat(63)+'2'
 const sha=v=>createHash('sha256').update(v).digest('hex')
@@ -52,4 +52,22 @@ test('Publication token is bound to exactly one immutable QA Dev build SHA',()=>
   ])assert.equal(publicationShaAuthorised(other,settings),false)
   assert.equal(publicationShaAuthorised(allowed,{}),false)
   assert.equal(publicationShaAuthorised(allowed,{RELEASE_PUBLICATION_ALLOWED_SHA:'*'}),false)
+})
+
+test('Automatic publisher is opt-in with an exact mode, never a wildcard',()=>{
+  assert.equal(automaticDevPublicationEnabled({
+    RELEASE_PUBLICATION_ALLOWED_SHA:'verified-dev',
+    RELEASE_PUBLICATION_AUTOMATIC:'true',
+  }),true)
+  for(const settings of [
+    {},{RELEASE_PUBLICATION_ALLOWED_SHA:'*',RELEASE_PUBLICATION_AUTOMATIC:'true'},
+    {RELEASE_PUBLICATION_ALLOWED_SHA:'verified-dev'},
+    {RELEASE_PUBLICATION_ALLOWED_SHA:'verified-dev',RELEASE_PUBLICATION_AUTOMATIC:'yes'},
+    {RELEASE_PUBLICATION_ALLOWED_SHA:'9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0',
+      RELEASE_PUBLICATION_AUTOMATIC:'true'},
+  ])assert.equal(automaticDevPublicationEnabled(settings),false)
+  assert.equal(publicationShaAuthorised('a'.repeat(40),
+    {RELEASE_PUBLICATION_ALLOWED_SHA:'verified-dev',
+      RELEASE_PUBLICATION_AUTOMATIC:'true'}),false,
+    'Auto mode never weakens the original single-SHA authorisation')
 })

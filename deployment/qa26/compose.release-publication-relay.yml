@@ -21,7 +21,11 @@ services:
       DEV_DATABASE_URL_FILE: /run/secrets/qa_dev_db
       RELEASE_PUBLICATION_TOKEN_FILE: /run/secrets/qa_publication_token
       CENTRAL_RELEASE_AUTHORITY_URL: http://hi5central-api:3001
-      RELEASE_PUBLICATION_ALLOWED_SHA: 9f3cb1da7c27ba3f9846c23bd6d9e557fe6267f0
+      # Only the Dev build verified through live HTTPS is eligible. The Live
+      # API must ALSO have independently reviewed automatic mode enabled
+      # and verify official five-job GitHub release CI before publishing.
+      RELEASE_PUBLICATION_ALLOWED_SHA: verified-dev
+      RELEASE_PUBLICATION_AUTOMATIC: 'true'
     secrets:
       - qa_dev_db
       - qa_publication_token

@@ -109,3 +109,52 @@ test('Blackout or window overrun blocks / reschedules rather than bypasses',()=>
   const blocked=scheduledCustomerRelease({decision:d,tenant:tooShort,sha,now})
   assert.equal(blocked.status,'blocked')
 })
+
+test('Simple Managed customer release goes directly to Live without mandatory Test, soak or UAT',()=>{
+  const direct=nextCustomerReleaseStage({...args,deliveryMode:'direct_customer_release',
+    gate:null,jobs:[]})
+  assert.equal(direct.stage,'live')
+  assert.equal(direct.notBefore.getTime(),new Date(before).getTime())
+  const scheduled=scheduledCustomerRelease({decision:direct,tenant,sha,now})
+  assert.equal(scheduled.status,'scheduled')
+  assert.equal(scheduled.stage,'live')
+  assert(new Date(scheduled.scheduledAt).getTime()>=now.getTime())
+  assert.equal(nextCustomerReleaseStage({...args,deliveryMode:'direct_customer_release',
+    tenant:{...tenant,liveAutoPromote:false}}).stage,null)
+})
+
+test('Simple Custom customer release goes to UAT; Production requires approval of that exact SHA',()=>{
+  const custom={...tenant,mode:'admin_controlled',uatAutoStage:true,liveAutoPromote:false}
+  const base={...args,tenant:custom,deliveryMode:'direct_customer_release'}
+  const first=nextCustomerReleaseStage(base)
+  assert.equal(first.stage,'uat')
+  assert.equal(first.notBefore.getTime(),new Date(before).getTime())
+  assert.equal(scheduledCustomerRelease({decision:first,tenant:custom,sha,now}).stage,'uat')
+  assert.equal(nextCustomerReleaseStage({...base,jobs:[{...completedUat,status:'running'}]}).stage,null)
+  const after={...base,jobs:[completedUat]}
+  assert.match(nextCustomerReleaseStage(after).reason,/approve this exact UAT/)
+  const accepted={build_sha:sha,state:'uat_accepted',uat_accepted_at:completed,uat_accepted_by:id}
+  const approval={build_sha:sha,state:'scheduled',promotion_approved_at:completed,
+    promotion_approved_by:id,maintenance_not_before:'2026-10-16T12:00:00Z'}
+  assert.equal(nextCustomerReleaseStage({...after,uatOffer:{...accepted,build_sha:oldSha},liveOffer:approval}).stage,null)
+  assert.equal(nextCustomerReleaseStage({...after,uatOffer:accepted,liveOffer:{...approval,build_sha:oldSha}}).stage,null)
+  const authorised=nextCustomerReleaseStage({...after,uatOffer:accepted,liveOffer:approval})
+  assert.equal(authorised.stage,'live')
+  assert(authorised.notBefore>=new Date(approval.maintenance_not_before))
+  assert.equal(scheduledCustomerRelease({decision:authorised,tenant:custom,sha,now}).stage,'live')
+})
+
+test('Simple releases are idempotent and never bypass a closed maintenance window',()=>{
+  assert.equal(nextCustomerReleaseStage({...args,deliveryMode:'direct_customer_release',
+    jobs:[{environment:'live',build_sha:sha,status:'succeeded',completed_at:completed}]}).stage,null)
+  assert.equal(nextCustomerReleaseStage({...args,deliveryMode:'unknown'}).stage,null)
+  const direct=nextCustomerReleaseStage({...args,deliveryMode:'direct_customer_release'})
+  const blocked=scheduledCustomerRelease({decision:direct,tenant:{...tenant,
+    maintenance:{...tenant.maintenance,start:'14:00',end:'14:05'}},sha,now})
+  assert.equal(blocked.status,'blocked')
+  const custom={...tenant,mode:'admin_controlled',uatAutoStage:true}
+  assert.equal(nextCustomerReleaseStage({...args,tenant:custom,
+    deliveryMode:'direct_customer_release',jobs:[completedUat],
+    uatOffer:{build_sha:sha,state:'uat_accepted',uat_accepted_at:completed,uat_accepted_by:id}}).stage,null,
+    'No Custom Live without separately scheduled customer Production approval')
+})

@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react'
-import {CheckCircle2,Clock3,ExternalLink,RefreshCw,ShieldCheck} from 'lucide-react'
+import {CheckCircle2,Clock3,ExternalLink,RefreshCw,ShieldCheck,RotateCcw} from 'lucide-react'
 import './TenantRuntimeUpdates.css'
 
 const BASE=window.__HI5_API_BASE__||''
@@ -31,10 +31,14 @@ export function TenantRuntimeUpdates({updateMode}){
  const [checks,setChecks]=useState([])
  const [evidence,setEvidence]=useState('')
  const [date,setDate]=useState('')
+ const [rollback,setRollback]=useState(null)
+ const [rollbackReason,setRollbackReason]=useState('')
  async function load(){
   try{
    const r=await request('')
    setData(r);setUnsupported(false);setError('')
+   const reversal=await request('/rollback').catch(()=>null)
+   setRollback(reversal)
   }catch(e){if(e.status===403||e.status===404){setUnsupported(true)}
    else setError(e.message)}
   finally{setLoading(false)}
@@ -63,12 +67,38 @@ export function TenantRuntimeUpdates({updateMode}){
    await load()
   }catch(e){setError(e.message)}finally{setBusy('')}
  }
+ async function requestRollback(){
+  const candidate=rollback?.availability
+  if(!candidate?.available)return
+  if(rollback?.hostExecutionAvailable!==true){
+   setError('The independent host rollback executor is not activated yet. No rollback can be initiated safely.');return
+  }
+  if(rollbackReason.trim().length<20){
+   setError('Explain the rollback reason in at least 20 characters.');return
+  }
+  if(!window.confirm(
+   'Request rollback for ONLY your Production ITSM workspace from '+short(candidate.currentBuildSha)+
+   ' to '+short(candidate.targetBuildSha)+
+   '? This holds all further automatic Production upgrades for your organisation. Proceed?'))return
+  setBusy('rollback');setError('');setMessage('')
+  try{
+   const reply=await request('/rollback',{method:'POST',body:JSON.stringify({
+    expectedCurrentSha:candidate.currentBuildSha,targetBuildSha:candidate.targetBuildSha,
+    reason:rollbackReason.trim(),confirm:true,
+   })})
+   setMessage(reply.message||'Rollback request queued; await a verified host completion.')
+   setRollbackReason('')
+   await load()
+  }catch(error){setError(error.message)}finally{setBusy('')}
+ }
  if(unsupported)return null
  if(loading)return <section className="production-settings-panel"><div className="hi5-release-loading">
   <RefreshCw size={17}/> Checking customer version updates…</div></section>
  if(!data)return null
  const offers=data.updateOffers||[]
- const uat=offers.filter(x=>x.environment==='uat')
+ // Managed tenants never require or operate a customer UAT environment.
+ const uat=data.mode==='admin_controlled'
+  ?offers.filter(x=>x.environment==='uat'):[]
  const live=offers.filter(x=>x.environment==='live')
  return <section className="production-settings-panel" data-hi5-customer-runtime-updates>
   <header><div><h2>Application versions & customer updates</h2>
@@ -82,6 +112,38 @@ export function TenantRuntimeUpdates({updateMode}){
     <span><ShieldCheck size={16}/> {data.mode==='hi5_managed'?'Hi5Central managed':'Customer controlled'}</span>
     <small>Production routing only changes after host verification. An available update is not yet installed.</small>
    </div>
+   <article className="hi5-runtime-update" data-hi5-tenant-rollback>
+     <div className="hi5-runtime-update-header">
+       <div><span>PRODUCTION RECOVERY · TENANT ONLY</span>
+         <strong>Roll back your ITSM application version</strong>
+         <small>Only the immediately previous host-verified compatible release is eligible.</small>
+       </div><RotateCcw size={18}/>
+     </div>
+     {rollback?.hold?.active?<p className="hi5-release-message" role="status">
+       Automatic Production upgrades are held for your organisation while recovery is reviewed.</p>:null}
+     {rollback?.recent?.length?<div className="hi5-runtime-updates-meta">
+       <span>Latest request: {displayState(rollback.recent[0].state)} ·
+       {short(rollback.recent[0].source_build_sha)} → {short(rollback.recent[0].target_build_sha)}</span>
+     </div>:null}
+     {rollback?.availability?.available?<div className="hi5-runtime-update-actions">
+       <p>Current Production: <strong>{short(rollback.availability.currentBuildSha)}</strong>.
+        Previous compatible build: <strong>{short(rollback.availability.targetBuildSha)}</strong>.
+        Only your organisation's Production route will be changed after independent host verification.</p>
+       <textarea rows={2} maxLength={1000} value={rollbackReason}
+         onChange={event=>setRollbackReason(event.target.value)}
+         aria-label="Reason for Production rollback"
+         placeholder="Explain the impact and reason for requesting the previous ITSM version."/>
+       <button type="button" disabled={Boolean(busy)||rollbackReason.trim().length<20||
+         rollback.hostExecutionAvailable!==true} onClick={requestRollback}>
+         <RotateCcw size={15}/> Request verified rollback
+       </button>
+       {rollback.hostExecutionAvailable!==true?<small>
+        Rollback requests cannot be executed until the independently secured release host worker is commissioned.</small>:null}
+     </div>:<p>{rollback?.availability?.reason||
+       'Customer rollback will become available when the release control plane is installed and verified.'}</p>}
+     <small>Application version recovery does not reverse database migrations or delete ITSM records.
+       Incompatible database changes prevent rollback until a verified recovery plan is approved.</small>
+   </article>
    {!offers.length?<div className="hi5-release-sandbox-guidance">
     <strong>No customer-specific application update is pending</strong>
     <p>New versions appear here after Hi5Central publishes them and prepares a verified UAT runtime for your organisation.</p>
@@ -125,7 +187,7 @@ export function TenantRuntimeUpdates({updateMode}){
        <ShieldCheck size={15}/> Approve Production update</button>
      </div>:null}
      {data.mode==='hi5_managed'&&offer.state==='offered'?<p>
-      Hi5Central will schedule this update after UAT approval, the configured delay and maintenance checks.</p>:null}
+      Hi5Central will schedule this update after the verified platform Test gate, your configured delay and maintenance window. Managed updates do not require UAT.</p>:null}
      {offer.state==='scheduled'?<p>Pending verified host activation from {when(offer.maintenanceNotBefore)}. Existing Production stays live until the switch succeeds.</p>:null}
    </article>)}
   </div>

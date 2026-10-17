@@ -9,6 +9,7 @@ import {spawn} from 'node:child_process'
 import {createHash} from 'node:crypto'
 import {prepareTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
+import {verifyReleaseGatewaySourceAgreement} from '../../services/api/src/releaseGatewaySourceAgreement.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
@@ -25,7 +26,7 @@ const CONFIG={
     source:'https://api.hi5central.com',backup:'hi5central_release_live_backups'},
 }
 if(!CONFIG[environment]||!SLUG.test(String(slug||''))||!SHA.test(String(sha||''))
-  ||!['--preflight','--stage','--apply','--restore'].includes(mode))
+  ||!['--preflight','--stage','--apply','--restore','--confirm'].includes(mode))
   throw Error('Usage: tenant-host-executor <test|uat|live> <tenant-slug> <sha40> <--preflight|--stage|--apply|--restore>')
 if(['--apply','--restore'].includes(mode)&&(process.env.H5C_RELEASE_LEASE_AUTH!=='worker-gateway-fenced'
   ||!/^[a-f0-9-]{36}$/.test(String(process.env.H5C_RELEASE_JOB_ID||''))))
@@ -101,8 +102,17 @@ async function assertLiveGatewaySource(){
   if(environment!=='live')return
   const disk=await fileHost()
   const mounted=await docker('exec',c.gateway,'cat','/etc/caddy/Caddyfile')
-  if(hash(disk)!==hash(mounted))
-    throw Error('Live gateway Caddy sources differ; dual-source gateway reconciliation required.')
+  const [adaptedRuntime,loadedRuntime]=await Promise.all([
+    docker('exec',c.gateway,'caddy','adapt','--config',
+      '/etc/caddy/Caddyfile','--adapter','caddyfile'),
+    gatewayRuntime(),
+  ])
+  const agreement=verifyReleaseGatewaySourceAgreement({
+    hostSource:disk,mountedSource:mounted,adaptedRuntime,loadedRuntime,
+    allowReviewedPreviewSemanticEquivalence:true,
+  })
+  if(agreement.agreed!==true)
+    throw Error('Live gateway cutover denied: '+agreement.reason)
   const canaryBlocks=disk.match(/# QA26 LIVE CANARY BEGIN[\s\S]*?# QA26 LIVE CANARY END/g)||[]
   if(canaryBlocks.some(block=>block.includes('host '+host)))
     throw Error('Legacy QA Live canary would compete with exact tenant release route.')
@@ -179,11 +189,23 @@ async function assertCurrentFencedHostLease(){
     'SELECT CASE WHEN EXISTS (SELECT 1 FROM tenant_release_rollout_jobs j',
     'JOIN tenants t ON t.id=j.tenant_id',
     'JOIN platform_certified_application_releases c ON c.build_sha=j.build_sha',
+    'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
+    'JOIN platform_release_generic_stage_approvals a ON a.build_sha=j.build_sha',
+    'AND a.environment=j.environment AND a.planning_enabled=true',
+    'AND a.execution_enabled=true AND a.approved_by IS NOT NULL',
+    'AND a.approved_at<=now() AND a.expires_at>now()',
+    "AND a.evidence<>'{}'::jsonb",
     "WHERE j.id='"+id+"' AND j.lease_token='"+token+"'",
     "AND j.lease_fence="+fence+" AND j.status='running'",
     "AND j.lease_expires_at>now() AND j.environment='"+environment+"'",
     "AND j.build_sha='"+sha+"' AND t.slug='"+slug+"'",
-    "AND t.status='active' AND c.status='approved')",
+    "AND t.status='active' AND c.status='approved'",
+    'AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true',
+    "AND ((j.environment='test' AND p.test_auto_sync=true)",
+    "OR (j.environment='uat' AND p.update_mode='admin_controlled' AND p.uat_auto_stage=true)",
+    "OR (j.environment='live' AND",
+    "((p.update_mode='hi5_managed' AND p.live_auto_promote=true)",
+    "OR p.update_mode='admin_controlled'))))",
     'AND (SELECT paused=false FROM platform_release_rollout_control WHERE singleton=true)',
     "THEN 'ALLOW' ELSE 'DENY' END",
   ].join(' ')
@@ -205,11 +227,51 @@ async function restore(original,liveJson){
 }
 // Compensating rollback for a host cutover whose durable database commit failed.
 // The same gateway session lock remains held by the caller.
+// A watchdog may be retired only after durable DB-confirmed success OR
+// after a separately verified explicit rollback. The timestamp ties this
+// exact backup to its one gateway watchdog.
+const backupMatches=(key)=>typeof key==='string'
+  &&/^release-(test|uat|live)-[0-9]{12,16}-[a-z0-9-]+$/.test(key)
+  &&key.startsWith('release-'+environment+'-')
+  &&key.endsWith('-'+host.replaceAll('.','-'))
+const watchName=(key)=>'h5c-release-watch-'+environment+'-'+key.split('-')[2]
+async function retireWatchdog(key){
+  if(!backupMatches(key))throw Error('Cannot retire an unbound gateway watchdog.')
+  await docker('run','--rm','--network','none','--mount',
+    'type=volume,source='+c.backup+',target=/backup',
+    'busybox:1.36','touch','/backup/'+key+'.done')
+  try{await docker('stop','-t','1',watchName(key))}catch{}
+}
+const durableCommitSql=(jobId)=>[
+  'SELECT CASE WHEN EXISTS (SELECT 1 FROM tenant_release_rollout_jobs j',
+  'JOIN tenants t ON t.id=j.tenant_id',
+  "WHERE j.id='"+jobId+"'::uuid AND j.environment='"+environment+"'",
+  "AND j.build_sha='"+sha+"' AND t.slug='"+slug+"'",
+  "AND j.status='succeeded' AND j.completed_at IS NOT NULL",
+  'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
+  "WHERE e.job_id=j.id AND e.event_type='verified'",
+  'AND e.fence=j.lease_fence)',
+  ") THEN 'COMMITTED' ELSE 'UNCOMMITTED' END",
+].join(' ')
+async function committedHostJob(jobId){
+  const q=durableCommitSql(jobId)
+  return (await docker('exec','hi5central-postgres','sh','-c',
+    'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "'+q+'"')).trim()
+}
+if(mode==='--confirm'){
+  const id=process.env.H5C_RELEASE_JOB_ID
+  if(!/^[a-f0-9-]{36}$/.test(String(id||''))||!backupMatches(restoreKey))
+    throw Error('Watchdog confirmation requires exact bound job and backup.')
+  if(await committedHostJob(id)!=='COMMITTED')
+    throw Error('No durable fenced release success; watchdog must remain armed.')
+  await retireWatchdog(restoreKey)
+  console.log(JSON.stringify({status:'watchdog_confirmed',backup:restoreKey,
+    environment,jobId:id}))
+  process.exit(0)
+}
 if(mode==='--restore'){
   const prefix='release-'+environment+'-'
-  if(!restoreKey||!restoreKey.startsWith(prefix)||
-    !/^release-(test|uat|live)-[0-9]{12,16}-[a-z0-9-]+$/.test(restoreKey)||
-    !restoreKey.endsWith(host.replaceAll('.','-')))
+  if(!backupMatches(restoreKey))
     throw Error('Restore key is not bound to this exact tenant and environment.')
   const load=ext=>docker('run','--rm','--network','none',
     '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
@@ -219,7 +281,9 @@ if(mode==='--restore'){
   await restore(previous,json)
   const served=(await currentTenantRevision()).sha
   if(served===sha)throw Error('Restored route still serves the failed release.')
-  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
+  await retireWatchdog(restoreKey)
+  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served,
+    watchdogRetired:true}))
   process.exit(0)
 }
 let prior='',liveJson='',active=false,watcher='',backupKey=''
@@ -230,6 +294,13 @@ try{
     environment,buildSha:sha})
   await validate(plan.config)
   if(mode==='--preflight'){
+    // Production preflight must verify a tenant-specific existing API build,
+    // not silently accept an HTML response at the API version endpoint.
+    if(environment==='live'){
+      const current=await currentTenantRevision()
+      if(!SHA.test(String(current?.sha||'')))
+        throw Error('Live tenant release baseline cannot be independently verified.')
+    }
     console.log(JSON.stringify({status:'preflight_pass',environment,host,
       newSha:sha,sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
     process.exit(0)
@@ -278,9 +349,20 @@ try{
       'type=volume,source='+c.volume+',target=/gateway',
     '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   ]
-  const watch='sleep 360; if [ ! -e /backup/'+backupKey+'.done ]; then '+
+  // The independent watchdog checks the durable RELEASE JOB and its
+  // matching FENCED verified event before performing a rollback. Otherwise
+  // a missing --confirm after a successful DB commit could undo live traffic.
+  const id=process.env.H5C_RELEASE_JOB_ID
+  if(!/^[a-f0-9-]{36}$/.test(String(id||'')))
+    throw Error('A fenced database job is required to arm host recovery.')
+  const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'"
+  const sql=durableCommitSql(id)
+  const check='docker exec hi5central-postgres sh -c '+
+    quote('psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "'+sql+'"')
+  const watch='sleep 360; if [ ! -e /backup/'+backupKey+
+    '.done ] && [ "$('+check+')" != "COMMITTED" ]; then '+
     restorePart+' fi'
-  watcher='h5c-release-watch-'+environment+'-'+Date.now()
+  watcher=watchName(backupKey)
   await docker('run','-d','--rm','--name',watcher,'--network','none',
     ...mounts,'docker:27-cli','sh','-c',watch)
   active=true
@@ -301,10 +383,8 @@ try{
     await stop(900)
   }
   if(!verified)throw Error('New tenant release did not pass public API+frontend version verification.')
-  await docker('run','--rm','--network','none','--mount',
-    'type=volume,source='+c.backup+',target=/backup',
-    'busybox:1.36','touch','/backup/'+backupKey+'.done')
-  await docker('stop','-t','1',watcher)
+  // Never disarm a recovery watchdog before the WORKER commits verified
+  // success to PostgreSQL. A separate --confirm call does that afterwards.
   active=false
   console.log(JSON.stringify({status:'verified',host,environment,
     buildSha:sha,previousSha:prior,backup:backupKey}))
@@ -313,6 +393,7 @@ try{
   if(active)try{await restore(await fileHost().then(async()=>await docker('run','--rm','--network','none',
     '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
     'busybox:1.36','cat','/backup/'+backupKey+'.caddy')),liveJson)
+    await retireWatchdog(backupKey)
     console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
   }catch(e){console.error('RELEASE_WATCHDOG_REMAINS_ARMED',e.message)}
   process.exitCode=1

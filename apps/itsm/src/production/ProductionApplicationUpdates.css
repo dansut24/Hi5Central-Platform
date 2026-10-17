@@ -154,3 +154,8 @@
 .hi5-release-acceptance-checklist>label strong{font-size:11px;line-height:1.35}
 .hi5-release-acceptance-checklist>label small{font-size:10px;color:var(--muted,#667083);line-height:1.4}
 @media(max-width:700px){.hi5-release-readiness-items{grid-template-columns:1fr}}
+.hi5-updates-copy-version{display:inline-flex;align-items:center;justify-content:center;gap:6px;align-self:flex-start;max-width:100%;margin-top:3px;padding:7px 10px;border:1px solid var(--line,#e1e5ec);border-radius:8px;background:var(--surface,#fff);color:var(--ink,#192234);font:inherit;font-size:11px;font-weight:700;line-height:1.35;cursor:pointer}
+.hi5-updates-copy-version:hover:not(:disabled){background:var(--surface-soft,#f2f4f7)}
+.hi5-updates-copy-version:focus-visible{outline:2px solid var(--primary,#2563eb);outline-offset:2px}
+.hi5-updates-copy-version:disabled{opacity:.55;cursor:not-allowed}
+.hi5-updates-copy-status{font-size:11px;line-height:1.4;color:var(--muted,#667083)}
