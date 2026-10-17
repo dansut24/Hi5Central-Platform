@@ -55,7 +55,7 @@ test('never changes or overwrites a partially reconciled Caddy source',()=>{
  assert.throws(()=>render(source.replace('@tenantRmm expression','@other expression'),tenants),
   /expected unique/)
  assert.throws(()=>render(source.replace('@tenantRmm expression',
-  '@tenantRmm expression\n@tenantRmm expression'),tenants),/expected unique/)
+  '@tenantRmm expression\n    @tenantRmm expression'),tenants),/expected unique/)
 })
 test('denies unsafe scope changes and missing or fabricated entitlements',()=>{
  for(const wrong of [
