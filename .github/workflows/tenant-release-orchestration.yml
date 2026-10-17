@@ -32,6 +32,7 @@ on:
       - 'services/api/src/releaseCatalogFingerprint.mjs'
       - 'services/api/src/tenantReleaseExecutor.mjs'
       - 'services/api/test/generic-release-discovery.mjs'
+      - 'services/api/test/direct-customer-release.mjs'
       - 'services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql'
       - 'services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql'
       - 'services/api/migrations/platform-admin/168_verified_test_canary_gate_least_privilege.sql'
@@ -127,7 +128,7 @@ jobs:
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
           bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
           node --check ../../deployment/qa26/verify-generic-existing-tenant-readiness.mjs
-          node --test test/generic-release-discovery.mjs test/certified-release-fanout.mjs
+          node --test test/generic-release-discovery.mjs test/certified-release-fanout.mjs test/direct-customer-release.mjs
           node --check src/tenantReleaseQueue.js
           node --check src/tenantRouteCutover.js
           node --check src/tenantRouteActivationGate.js
