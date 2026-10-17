@@ -14,7 +14,8 @@ const fail=message=>Object.assign(new Error(message),{code:'RELEASE_FANOUT_BLOCK
  * Pure policy gate. A release is planned by stage and not routed until the
  * trusted worker actually validates its target and the current tenant window.
  * A Custom customer can NEVER enter live without a matching, recorded tenant
- * admin's approval. Managed must have the platform 2-canary Test gate.
+ * admin's approval. Legacy QA retains Test canaries; direct customer
+ * releases do not require tenant Test rollout or a mandatory canary soak.
  */
 export function nextCustomerReleaseStage({
   tenant,sha,publishedAt,approvedAt,jobs=[],gate=null,liveOffer=null,
@@ -135,10 +136,14 @@ export function scheduledCustomerRelease({decision,tenant,sha,now=new Date(),
  */
 export async function fanoutCertifiedRelease(db,{
   sha,now=new Date(),limit=200,testSoakMinutes=30,qaTenantSlugs=null,scope='qa',
+  deliveryMode=scope==='generic'?'direct_customer_release':'qa_sequential',
 }={}){
   if(!SHA.test(String(sha||''))||!Number.isInteger(limit)||limit<1||limit>2000)
     throw fail('Exact immutable revision and bounded tenant batch required.')
   if(!['qa','generic'].includes(scope))throw fail('Unknown release planner scope.')
+  if(!['qa_sequential','direct_customer_release'].includes(deliveryMode)
+    ||(scope==='qa'&&deliveryMode!=='qa_sequential'))
+    throw fail('Unknown or unauthorised release delivery mode.')
   // QA keeps its frozen explicit allowlist. General discovery is deliberately
   // separate and only occurs with fresh staff-approved per-stage DB scope.
   const allowlist=scope==='qa'
@@ -184,7 +189,7 @@ export async function fanoutCertifiedRelease(db,{
   ].join(' ')
   // Automatic quality signoff uses only DESIGNATED real customer Test jobs
   // with a host-verified event, a complete soak and separate staff certification.
-  const canaries=await db.query([
+  const canaries=deliveryMode==='qa_sequential'?await db.query([
     'SELECT j.id,j.tenant_id,j.completed_at FROM tenant_release_rollout_jobs j',
     'JOIN platform_release_canary_tenants c ON c.tenant_id=j.tenant_id AND c.enabled=true',
     'JOIN tenants t ON t.id=j.tenant_id',
@@ -195,9 +200,9 @@ export async function fanoutCertifiedRelease(db,{
     'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
     "WHERE e.job_id=j.id AND e.event_type='verified' AND e.fence=j.lease_fence)",
     'ORDER BY j.completed_at DESC LIMIT 10000',
-  ].join(' '),[sha,now,testSoakMinutes,allowlist])
+  ].join(' '),[sha,now,testSoakMinutes,allowlist]):{rows:[]}
   const designated=[...new Map(canaries.rows.map(j=>[j.tenant_id,j])).values()]
-  if(designated.length>=2){
+  if(deliveryMode==='qa_sequential'&&designated.length>=2){
     if(scope==='generic'){
       // Generic unattended planner has EXECUTE on one verified DB procedure,
       // NEVER direct INSERT/UPDATE on the cross-tenant QA gate. The function
@@ -218,9 +223,10 @@ export async function fanoutCertifiedRelease(db,{
       ].join(' '),[sha,designated.length,now,JSON.stringify(evidence)])
     }
   }
-  const qa=await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha])
+  const qa=deliveryMode==='qa_sequential'
+    ?await db.query('SELECT * FROM platform_release_test_qa_gates WHERE build_sha=$1',[sha]):{rows:[]}
   const gate=qa.rows[0]||null
-  const report={releaseSha:sha,scope,scanned:0,queued:0,alreadyQueued:0,blocked:0,reasons:[]}
+  const report={releaseSha:sha,scope,deliveryMode,scanned:0,queued:0,alreadyQueued:0,blocked:0,reasons:[]}
   let tenantCursor=null
   for(;;){
     const tenants=await db.query(tenantsSql,[limit,tenantCursor,allowlist])
@@ -246,6 +252,7 @@ export async function fanoutCertifiedRelease(db,{
       tenant,sha,publishedAt:release.published_at,approvedAt:release.approved_at,
       jobs,gate,uatOffer:offers.find(x=>x.environment==='uat'),
       liveOffer:offers.find(x=>x.environment==='live'),testSoakMinutes,now,
+       deliveryMode,
     })
     const plan=scheduledCustomerRelease({decision,tenant,sha,now})
     if(plan.status==='scheduled'&&scope==='generic'
@@ -286,7 +293,7 @@ export async function fanoutCertifiedRelease(db,{
     "VALUES($1,'scan',$2::jsonb)",
   ].join(' '),[sha,JSON.stringify({
     scanned:report.scanned,queued:report.queued,alreadyQueued:report.alreadyQueued,
-    blocked:report.blocked,scope,
+    blocked:report.blocked,scope,deliveryMode,
   })])
   return report
 }
