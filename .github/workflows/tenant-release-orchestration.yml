@@ -7,6 +7,11 @@ on:
       - 'services/api/src/genericReleaseAdminApproval.js'
       - 'services/api/src/genericReleaseTenantScope.js'
       - 'services/api/test/generic-release-tenant-scope.mjs'
+      - 'services/api/src/customerReleaseRollback.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/test/customer-release-rollback.mjs'
+      - 'services/api/migrations/platform-admin/170_customer_scoped_itsm_rollback.sql'
+      - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
       - 'apps/admin/src/features/admin/GenericReleasePilotScope.jsx'
       - 'services/api/src/platformAdmin.js'
       - 'services/api/test/generic-release-admin-approval.mjs'
@@ -115,6 +120,9 @@ jobs:
           node --check src/releaseCatalogFingerprint.mjs
           node --check src/releaseWorkerIdentity.js
           node --check src/tenantReleaseExecutor.mjs
+          node --check src/customerReleaseRollback.js
+          node --test test/customer-release-rollback.mjs
+          node --check src/tenantRelease.js
           node --check ../../deployment/qa26/tenant-release-host-executor.mjs
           bash -n ../../deployment/qa26/stage-reviewed-generic-release-images.sh
           node --check ../../deployment/qa26/verify-generic-existing-tenant-readiness.mjs
@@ -228,6 +236,7 @@ jobs:
           node --test test/generic-release-postgres.mjs
           node --check test/generic-release-ten-tenant-postgres.mjs
           node --test test/generic-release-ten-tenant-postgres.mjs
+          node --test test/customer-release-rollback.mjs
           node --test test/generic-release-emergency-pause.mjs
           node --test test/generic-release-failure-recovery.mjs
           node --test test/release-publication-relay.mjs
