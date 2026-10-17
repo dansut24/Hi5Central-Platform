@@ -132,9 +132,11 @@ jobs:
           node --test test/runtime-pool-policy.mjs test/tenant-runtime-release-lifecycle.mjs test/runtime-route-manifest.mjs
       - name: Certify isolated generic scheduler and worker images
         run: |
-          docker build --pull=false -f ../../deployment/qa26/Dockerfile.certified-release-fanout -t h5c-ci-generic-planner:reviewed ../..
-          docker build --pull=false -f ../../deployment/qa26/Dockerfile.generic-tenant-release-executor -t h5c-ci-generic-executor:reviewed ../..
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.certified-release-fanout -t h5c-ci-generic-planner:reviewed ../..
+          docker build --pull=false --build-arg REVIEWED_SOURCE_SHA=${{ github.sha }} -f ../../deployment/qa26/Dockerfile.generic-tenant-release-executor -t h5c-ci-generic-executor:reviewed ../..
           test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{.Config.User}}')" = "scheduler"
+          test "$(docker image inspect h5c-ci-generic-planner:reviewed --format '{{index .Config.Labels \"hi5central.release.reviewed_source\"}}')" = "${{ github.sha }}"
+          test "$(docker image inspect h5c-ci-generic-executor:reviewed --format '{{index .Config.Labels \"hi5central.release.reviewed_source\"}}')" = "${{ github.sha }}"
           docker run --rm --network none --entrypoint node h5c-ci-generic-planner:reviewed --input-type=module -e "import('./certifiedReleaseFanout.js').then(m=>{if(typeof m.fanoutCertifiedRelease!=='function')process.exit(1)})"
           echo "GENERIC_RELEASE_IMAGE_IMPORTS_AND_NONROOT_PLANNER_PASS"
       - name: Validate generated tenant routes using QA Caddy version
