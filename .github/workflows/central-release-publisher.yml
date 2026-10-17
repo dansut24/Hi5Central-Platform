@@ -1,0 +1,46 @@
+name: Central Release Publisher
+
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/releaseOperator.js'
+      - 'services/api/src/releasePublicationCredential.js'
+      - 'services/api/src/releasePublicationRelay.mjs'
+      - 'services/api/src/releasePublicationRelayDaemon.mjs'
+      - 'services/api/src/officialReleaseCertification.js'
+      - 'services/api/src/automaticDevPublication.js'
+      - 'services/api/test/release-publication-credential.mjs'
+      - 'services/api/test/release-publication-relay.mjs'
+      - 'services/api/test/automatic-dev-publication.mjs'
+      - '.github/workflows/central-release-publisher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publisher-security:
+    name: Publisher scope, CI proof and relay regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install API dependencies
+        run: npm ci
+        working-directory: services/api
+      - name: Check immutable publisher sources
+        run: |
+          node --check services/api/src/releaseOperator.js
+          node --check services/api/src/releasePublicationRelay.mjs
+          node --check services/api/src/releasePublicationRelayDaemon.mjs
+          node --check services/api/src/automaticDevPublication.js
+      - name: Prove publication-only token, real Dev proof and retry constraints
+        run: |
+          node --test services/api/test/release-publication-credential.mjs \
+            services/api/test/release-publication-relay.mjs \
+            services/api/test/automatic-dev-publication.mjs
+      - name: Build the exact release API bundle
+        run: npm run build:runtime
+        working-directory: services/api
