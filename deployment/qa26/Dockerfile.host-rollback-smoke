@@ -1,0 +1,14 @@
+# Disposable VPS/CI host rollback acceptance harness. NOT a release worker.
+# No production gateway, customer data, network ports or registry credentials.
+# The Docker socket is mounted by an authorised operator ONLY to launch test
+# containers on a dynamically named private Docker network; never deploy this.
+FROM node:24-alpine
+RUN apk add --no-cache docker-cli
+WORKDIR /runner
+COPY services/api/src/tenantRouteCutover.js /runner/services/api/src/tenantRouteCutover.js
+COPY services/api/src/runtimePoolControl.js /runner/services/api/src/runtimePoolControl.js
+COPY services/api/src/renderQaTenantCaddyRoutes.js /runner/services/api/src/renderQaTenantCaddyRoutes.js
+COPY services/api/src/runtimePoolPolicy.js /runner/services/api/src/runtimePoolPolicy.js
+COPY services/api/test/qa-caddy-tenant-http-smoke-vps.mjs /runner/services/api/test/qa-caddy-tenant-http-smoke-vps.mjs
+COPY services/api/package.json /runner/services/api/package.json
+ENTRYPOINT ["node","services/api/test/qa-caddy-tenant-http-smoke-vps.mjs"]
