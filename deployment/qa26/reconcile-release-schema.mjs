@@ -28,7 +28,7 @@ const live=target==='hi5central-postgres'
 if(live&&mode==='--apply'){
  if(process.env.H5C_RECONCILE_APPROVED!=='schema-only-backup-verified-and-pause-confirmed')
   throw Error('Live reconciliation requires explicit backup and pause authorisation.')
- if(!/^[a-z0-9][a-z0-9-]{8,90}$/.test(process.env.H5C_RECONCILE_BACKUP_ID||''))
+ if(!/^[a-z0-9][a-z0-9_-]{8,90}$/.test(process.env.H5C_RECONCILE_BACKUP_ID||''))
   throw Error('Live reconciliation requires a verified off-database backup identifier.')
  const backupId=process.env.H5C_RECONCILE_BACKUP_ID
  const archive=backupId+'.dump'
