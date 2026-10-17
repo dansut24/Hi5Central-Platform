@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useState} from 'react'
 import {CheckCircle2,Clock3,LockKeyhole,RefreshCw,ShieldCheck,ShieldOff,AlertTriangle} from 'lucide-react'
+import {GenericReleasePilotScope} from './GenericReleasePilotScope.jsx'
 
 const stageNames={test:'Test',uat:'UAT',live:'Production'}
 const fmtTime=value=>value?new Date(value).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—'
@@ -122,7 +123,9 @@ export function GenericReleasePlanning({api,canApprove=false}){
  }
  const tenants=(preview?.tenants||[]).filter(t=>filter==='all'||t.status===filter)
  const decisions=preview?.stageApprovals||{}
- return <section className="rmm-card" style={{padding:20,marginBottom:18}}>
+ return <>
+  <GenericReleasePilotScope api={api} canApprove={canApprove}/>
+  <section className="rmm-card" style={{padding:20,marginBottom:18}}>
   <div className="rmm-card-heading" style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
    <div>
     <span className="rmm-eyebrow">GENERIC RELEASE SCHEDULING</span>
@@ -257,4 +260,5 @@ export function GenericReleasePlanning({api,canApprove=false}){
    </div>
   </div>}
  </section>
+ </>
 }
