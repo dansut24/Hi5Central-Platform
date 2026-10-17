@@ -146,6 +146,7 @@ test('10 provisioned CI tenants: 5 Managed and 5 Custom; two also RMM; correct u
     'INSERT INTO platform_release_generic_pilot_tenants',
     '(tenant_id,enabled,approved_by,approved_at,reason)',
     "VALUES($1,true,$2,now(),'Explicitly approved disposable CI pilot cohort')",
+    'ON CONFLICT(tenant_id) DO NOTHING',
    ].join(' '),[t.id,actor])
   }
   const first=await transaction(c=>fanoutCertifiedRelease(c,request))
