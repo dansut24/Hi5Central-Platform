@@ -50,7 +50,7 @@ test('six exact unclaimed jobs cancelled, with six separately recorded audit eve
  assert(calls.every(x=>!x.sql.includes('platform_release_rollout_control SET')))
  assert(calls.every(x=>!x.sql.includes('docker')&&!x.sql.includes('Caddy')))
  for(const event of calls.filter(x=>x.sql.includes('INSERT INTO tenant_release_rollout_events'))){
-  const detail=JSON.parse(event.params[6])
+  const detail=JSON.parse(event.params[5])
   assert.equal(detail.supersededBy,newSha)
   assert.equal(detail.staffActorId,actorId)
  }
