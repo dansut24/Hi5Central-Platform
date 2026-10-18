@@ -334,14 +334,14 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {loading?<div className="hi5-updates-placeholder">Checking Hi5Central versions…</div>:null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
-        <article><span className="hi5-updates-kicker">Installed version</span>
+        <article><span className="hi5-updates-kicker">Running portal version</span>
           <strong>{displayVersion(installed?.versionLabel)||(unverified?'Unverified build':preview?'Preview build':'Uncatalogued build')}</strong>
           <small>Frontend build {short(installedSha)} · {ENV.toUpperCase()}</small></article>
         <article><span className="hi5-updates-kicker">Latest published release</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt)+' · Publication does not install an update':'No published release recorded'}</small></article>
         <article><span className="hi5-updates-kicker">Update status</span>
-          <strong>{unverified?'Unable to verify':preview?'Preview':latestNotInstalled?'Published, not installed':installed?'Up to date':'No confirmed update'}</strong>
+          <strong>{unverified?'Unable to verify':preview?'Preview':latestNotInstalled?'Published, not installed':installed?'Portal build current':'No confirmed update'}</strong>
           <small>{unverified?'The portal frontend build could not be verified. No installation claim is made.':
             preview?'The running frontend build has no published customer version label.':
             latestNotInstalled?'The latest catalogue release has not been verified as installed here.':
@@ -384,7 +384,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
             onClick={()=>setExpanded(v=>v===release.buildSha?'closed':release.buildSha)}>
             <span><strong>{displayVersion(release.versionLabel)} · {release.title}</strong>
               <small>{dateLabel(release.publishedAt)} · {release.entries?.length||0} changes
-                {release.buildSha===installedSha?' · Installed':''}</small></span>
+                {release.buildSha===installedSha?' · Running portal':''}</small></span>
             <span>{expanded===release.buildSha||(!expanded&&release===latest)?'−':'+'}</span>
           </button>
           {expanded===release.buildSha||(!expanded&&release===latest)?<div className="hi5-updates-release-details">
