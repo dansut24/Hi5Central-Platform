@@ -1,0 +1,29 @@
+name: Rollout Queue Supersession
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/rolloutJobSupersession.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/rollout-job-supersession.mjs'
+      - '.github/workflows/rollout-queue-supersession.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fail-closed-queue-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Queue guard source and test
+        run: |
+          node --check services/api/src/platformAdmin.js
+          node --check services/api/src/rolloutJobSupersession.js
+          node --test services/api/test/rollout-job-supersession.mjs
+      - name: Verify that server bundle still builds
+        working-directory: services/api
+        run: |
+          npm ci
+          npm run build:runtime
