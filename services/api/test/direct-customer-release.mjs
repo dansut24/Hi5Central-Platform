@@ -8,7 +8,9 @@ const ciRunUrl='https://github.com/dansut24/Hi5Central-Platform/actions/runs/123
 function dbFixture({certified=true,revoked=false}={}){
  const statements=[],auth=[]
  return {statements,auth,query:async(q,args=[])=>{
-  const sql=String(q)
+  assert.equal(typeof q,'string','SQL query must be an actual string, not a fragment array')
+  assert.ok(q.trim().length>0,'SQL query text must not be empty')
+  const sql=q
   statements.push(sql)
   if(sql.includes('SELECT c.build_sha FROM platform_certified_application_releases'))
    return {rowCount:certified?1:0,rows:certified?[{build_sha:sha}]:[]}

@@ -165,7 +165,7 @@ export async function authoriseDirectCustomerReleaseStages(db,{sha,actorId,ciRun
   'approved_at,expires_at,evidence',
   'FROM platform_release_generic_stage_approvals',
   "WHERE build_sha=$1 AND environment IN ('uat','live')",
- ],[sha])
+ ].join(' '),[sha])
  if(stages.rowCount!==2||stages.rows.some(row=>
    !row.planning_enabled||!row.execution_enabled||!row.approved_by
    ||!row.expires_at||new Date(row.expires_at).getTime()<=Date.now()
