@@ -86,5 +86,3 @@ try{
   }while(!once&&running)
  }
 }finally{await pool.end()}
-
-[executed on device: hi5central-prod-01 (c36f9f88-6967-4ca8-a047-6c7a233b5550)]
