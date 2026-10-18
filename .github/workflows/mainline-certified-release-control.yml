@@ -1,0 +1,50 @@
+name: Certified Tenant Release Controls
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/certifiedTenantReleaseRoutes.js'
+      - 'services/api/src/certifiedReleaseFanout.js'
+      - 'services/api/src/genericRelease*.js'
+      - 'services/api/src/officialReleaseCertification.js'
+      - 'services/api/src/customerReleasePreparation.js'
+      - 'services/api/src/tenantReleaseQueue.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/*release*.mjs'
+      - 'apps/admin/src/features/admin/*Release*.jsx'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - '.github/workflows/mainline-certified-release-control.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-controls:
+    name: CI/Dev release, pilot and stage-boundary contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Static API imports and route syntax
+        run: |
+          node --check services/api/src/certifiedTenantReleaseRoutes.js
+          node --check services/api/src/certifiedReleaseFanout.js
+          node --check services/api/src/platformAdmin.js
+      - name: Exact release and tenant stage contract
+        run: |
+          node --test \
+            services/api/test/rollout-job-supersession.mjs \
+            services/api/test/direct-customer-release.mjs \
+            services/api/test/certified-release-fanout.mjs \
+            services/api/test/generic-release-tenant-scope.mjs \
+            services/api/test/generic-release-admin-approval.mjs
+      - name: Build central API
+        run: |
+          npm ci
+          npm run build:runtime
+        working-directory: services/api
+      - name: Build review-only Admin UI
+        run: |
+          npm ci
+          npm run build
+        working-directory: apps/admin
