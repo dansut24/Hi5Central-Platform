@@ -34,7 +34,7 @@ test('host cutover remains fenced and gateway-scoped',()=>{
  assert.match(host,/--preflight/)
  assert.match(host,/--restore/)
  assert.match(executor,/assertFencedLease/)
- assert.match(executor,/assertQaReleaseTenantAllowed/)
+ assert.match(executor,/hi5_release_generic_tenant_permitted/)
  assert.match(executor,/activeTenantMaintenanceWindow/)
  assert.match(queue,/platform_release_generic_stage_approvals/)
  assert.match(queue,/execution_enabled=true/)

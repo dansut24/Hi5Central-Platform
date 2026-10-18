@@ -11,9 +11,12 @@ import {withGatewayLock,recordReleaseWorkerHeartbeat} from './releaseGatewayCoor
 import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenantReleaseQueue.js'
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
-import {parseQaReleaseTenantSlugs,assertQaReleaseTenantAllowed} from './releaseQaCohort.js'
+import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
 
-const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
+// One generic worker is for all enrolled ITSM tenants, never a QA allowlist.
+if(process.env.RELEASE_DELIVERY_MODE!=='direct_customer_release')
+  throw Error('RELEASE_DELIVERY_MODE=direct_customer_release is mandatory.')
+const releaseBuildSha=parsePinnedQaReleaseSha(process.env.RELEASE_BUILD_SHA)
 const gateway=process.env.RELEASE_GATEWAY
 if(!['test','uat','live'].includes(gateway))
   throw Error('Set RELEASE_GATEWAY to test, uat or live.')
@@ -92,21 +95,12 @@ async function guards(job){
     ||ctx.build_sha!==job.buildSha||ctx.tenant_status!=='active'
     ||ctx.release_state!=='approved'||ctx.itsm!=='true')
     throw Error('Tenant, release or product entitlement changed; deployment denied.')
-  assertQaReleaseTenantAllowed(ctx.slug,qaTenantSlugs)
+  const permitted=await pool.query(
+    'SELECT public.hi5_release_generic_tenant_permitted($1::uuid) AS allowed',[ctx.tenant_id])
+  if(permitted.rows[0]?.allowed!==true)
+    throw Error('Tenant is not admitted to approved ITSM rollout scope.')
   if(gateway==='uat'&&ctx.update_mode!=='admin_controlled')
     throw Error('Managed customers have no UAT.')
-  if(gateway==='uat'||gateway==='live'){
-    const verifiedTest=await pool.query([
-      'SELECT 1 FROM tenant_release_rollout_jobs j',
-      'WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3',
-      "AND j.status='succeeded' AND j.completed_at IS NOT NULL",
-      'AND EXISTS (SELECT 1 FROM tenant_release_rollout_events e',
-      "WHERE e.job_id=j.id AND e.event_type='verified'",
-      'AND e.fence=j.lease_fence) LIMIT 1',
-    ].join(' '),[job.tenantId,'test',job.buildSha])
-    if(!verifiedTest.rowCount)
-      throw Error('The exact tenant Test release must be verified before UAT or Production.')
-  }
   if(gateway==='live'&&ctx.update_mode==='admin_controlled'){
     const verifiedUat=await pool.query([
       'SELECT 1 FROM tenant_release_rollout_jobs j',
@@ -139,11 +133,6 @@ async function guards(job){
       if(!approved.rowCount)throw Error('A real tenant-admin UAT approval and Production schedule are mandatory.')
     }else if(ctx.update_mode==='hi5_managed'){
       if(!ctx.live_auto_promote)throw Error('Managed automatic Production is disabled.')
-      const gate=await pool.query([
-        'SELECT 1 FROM platform_release_test_qa_gates',
-        "WHERE build_sha=$1 AND state='passed' AND passed_canary_count>=2",
-      ].join(' '),[job.buildSha])
-      if(!gate.rowCount)throw Error('Platform Test/canary release approval is missing.')
     }else throw Error('Invalid update model at cutover.')
   }
   return ctx
@@ -287,7 +276,8 @@ async function step(){
   await heartbeat('idle')
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
-      limit:1,environment:gateway,leaseSeconds:600,qaTenantSlugs}))
+      limit:1,environment:gateway,leaseSeconds:600,
+      genericTenantScope:true,buildSha:releaseBuildSha}))
     const job=claim.claimed?.[0]
     if(!job){await heartbeat(claim.paused?'paused':'idle');return false}
     await gate.registerClaim({jobId:job.id,tenantId:job.tenantId,
@@ -314,7 +304,7 @@ async function step(){
         // Pre-stage the immutable Production pair without altering any tenant route.
         // Customer approval must see a verified candidate Live pool.
         const staged=await shell('node',[
-          'deployment/qa26/tenant-release-host-executor.mjs',
+          'deployment/release/host-deploy.mjs',
           'live',ctx.slug,job.buildSha,'--stage',
         ])
         const poolProof=JSON.parse(staged.trim().split('\n').at(-1))
@@ -322,7 +312,7 @@ async function step(){
           throw Error('Official immutable Production candidate could not be pre-staged.')
       }
       const output=await shell('node',[
-        'deployment/qa26/tenant-release-host-executor.mjs',
+        'deployment/release/host-deploy.mjs',
         gateway,ctx.slug,job.buildSha,'--apply',
       ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
         H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
@@ -343,7 +333,7 @@ async function step(){
       if(activated?.status==='verified'&&activated.backup&&activatedSlug){
         try{
           const output=await shell('node',[
-            'deployment/qa26/tenant-release-host-executor.mjs',
+            'deployment/release/host-deploy.mjs',
             gateway,activatedSlug,job.buildSha,'--restore',activated.backup,
           ],{H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
             H5C_RELEASE_JOB_ID:job.id,H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
@@ -382,7 +372,8 @@ try{
       "to_regclass('public.tenant_release_rollout_jobs') IS NOT NULL AS queue",
     ].join(' '))
     if(Object.values(r.rows[0]).some(x=>x!==true))throw Error('Executor schema incomplete.')
-    console.log('GENERIC_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,'qaTenants='+qaTenantSlugs.length)
+    console.log('DIRECT_CUSTOMER_RELEASE_EXECUTOR_PREFLIGHT_PASS',gateway,
+      'buildSha='+(releaseBuildSha||'latest-approved'))
   }else{
     do{
       try{await step()}catch(e){

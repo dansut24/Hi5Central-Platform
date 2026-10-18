@@ -84,7 +84,7 @@ export async function activateNextPendingRollout(db,{tenantId,environment}){
  * live window, tenant scope, and host proof must be rechecked before a route
  * switch. Default global pause protects environments until full E2E tests pass.
  */
-export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null,genericTenantScope=false}={}){
+export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=120,environment=null,qaTenantSlugs=null,genericTenantScope=false,buildSha=null}={}){
   const at=goodDate(now)
   if(!at||(environment!==null&&!ENV.has(environment))||!Number.isInteger(limit)||limit<1||limit>50
     ||!Number.isInteger(leaseSeconds)||leaseSeconds<30||leaseSeconds>600)
@@ -92,6 +92,8 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
   if(qaTenantSlugs!==null&&(!Array.isArray(qaTenantSlugs)||!qaTenantSlugs.length
     ||qaTenantSlugs.length>24||qaTenantSlugs.some(s=>typeof s!=='string'||!/^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/.test(s))))
     throw invalid('Unsafe QA rollout lease cohort.')
+  if(buildSha!==null&&!SHA.test(String(buildSha)))
+    throw invalid('Exact pinned release SHA required for scoped claim.')
   // Serialize queue claim transactions for shared gateways across different
   // worker processes. Session-level gateway lock stays held separately for
   // the host cutover; this xact lock only protects fair dequeue decisions.
@@ -127,10 +129,11 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     'AND j.attempt_count<j.max_attempts',
     'AND ($3::text IS NULL OR j.environment=$3)',
     'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
+    'AND ($5::text IS NULL OR j.build_sha=$5)',
     ...(genericTenantScope?["AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true"]:[]),
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
-  ].join(' '),[at,limit,environment,qaTenantSlugs])
+  ].join(' '),[at,limit,environment,qaTenantSlugs,buildSha])
   const claimed=[],deferred=[]
   // UAT and Live each currently share one Caddy gateway. Do not issue a
   // second running job for either resource until its first cutover completes.

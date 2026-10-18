@@ -1,0 +1,9 @@
+FROM docker:27-cli
+RUN apk add --no-cache nodejs npm curl
+WORKDIR /app
+COPY deployment/qa26/release-worker-executor/package.json deployment/qa26/release-worker-executor/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY services/api/src/ services/api/src/
+COPY deployment/release/host-deploy.mjs deployment/release/host-deploy.mjs
+ENV NODE_ENV=production
+ENTRYPOINT ["node","services/api/src/releaseSimpleWorker.mjs"]

@@ -1,38 +1,42 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {randomUUID} from 'node:crypto'
-import {validateTenTenantPilotRequest} from '../src/genericReleaseTenantScope.js'
+import {readFileSync} from 'node:fs'
+import {readGenericTenantScope} from '../src/genericReleaseTenantScope.js'
 
-const actor=randomUUID()
-const ids=Array.from({length:10},()=>randomUUID())
-const approved={
- tenantIds:ids,
- confirmation:'AUTHORISE_TEN_TENANT_PILOT',
- reason:'Reviewed real ten-tenant pilot for audited upgrades and rollback.',
- reviewedChange:'PR #79 / independent platform owner review',
-}
-test('pilot approval accepts only exact 10 named tenants with explicit human acknowledgement',()=>{
- const request=validateTenTenantPilotRequest({body:approved,actorId:actor})
- assert.deepEqual(request.tenantIds,ids)
- assert.equal(request.actorId,actor)
- assert.equal(request.reason,approved.reason)
+const sql=readFileSync(new URL('../migrations/platform-admin/172_automatic_all_itsm_customer_release_discovery.sql',import.meta.url),'utf8')
+const routes=readFileSync(new URL('../src/certifiedTenantReleaseRoutes.js',import.meta.url),'utf8')
+const ui=readFileSync(new URL('../../../apps/admin/src/features/admin/GenericReleasePlanning.jsx',import.meta.url),'utf8')
+
+test('all ITSM tenants are discovered without pilot lists, with active/onboarded constraints',async()=>{
+ const calls=[]
+ const db={async query(text){calls.push(text);return calls.length===1?
+  {rows:[{mode:'all_onboarded',reason:'Automatic discovery',updated_at:new Date()}]}:
+  {rows:[{id:'one',slug:'managed',eligible:true},{id:'two',slug:'custom',eligible:true}]}}}
+ const result=await readGenericTenantScope(db)
+ assert.equal(result.eligible,2)
+ assert.equal(result.autoDiscovery,true)
+ assert.equal(result.manualAdmissionRequired,false)
+ assert.equal(result.certificationStillRequired,true)
+ assert.match(calls[1],/hi5_release_generic_tenant_permitted/)
+ assert.match(calls[1],/t.status='active'/)
+ assert.match(calls[1],/s.onboarding_completed_at IS NOT NULL/)
+ assert.match(calls[1],/modules->>'itsm'/)
+ assert.doesNotMatch(calls[1],/platform_release_generic_pilot_tenants/)
 })
-test('pilot denies missing, duplicate or broadened cohorts',()=>{
- for(const tenantIds of [[],ids.slice(0,9),[...ids,randomUUID()],ids.map((x,i)=>i===9?ids[0]:x)]){
-  assert.throws(()=>validateTenTenantPilotRequest({body:{...approved,tenantIds},actorId:actor}),/Exactly ten distinct/)
- }
- for(const key of ['deployNow','unpause','executionEnabled','allTenants','bypassApproval','force']){
-  assert.throws(()=>validateTenTenantPilotRequest({body:{...approved,[key]:true},actorId:actor}),
-   /cannot deploy, unpause or enable general/)
- }
+test('global automatic scope still fails closed until reviewed migration',async()=>{
+ const db={async query(){return {rows:[{mode:'pilot'}]}}}
+ await assert.rejects(readGenericTenantScope(db),/migration has not been applied/)
 })
-test('pilot denies weak evidence, missing platform admin identity or implicit confirmations',()=>{
- assert.throws(()=>validateTenTenantPilotRequest({body:{...approved,confirmation:'yes'},actorId:actor}),
-  /AUTHORISE_TEN_TENANT_PILOT/)
- assert.throws(()=>validateTenTenantPilotRequest({body:{...approved,reason:'short'},actorId:actor}),
-  /meaningful pilot reason/)
- assert.throws(()=>validateTenTenantPilotRequest({body:{...approved,reviewedChange:'PR'},actorId:actor}),
-  /meaningful pilot reason/)
- assert.throws(()=>validateTenTenantPilotRequest({body:approved,actorId:''}),
-  /Authenticated platform owner/)
+test('no pilot admission endpoints or UI; retained central release and route gates',()=>{
+ assert.match(routes,/Named pilot enrollment is retired/)
+ assert.doesNotMatch(routes,/enrolTenTenantPilot/)
+ assert.doesNotMatch(ui,/GenericReleasePilotScope/)
+ assert.match(sql,/c.mode='all_onboarded'/)
+ assert.match(sql,/t.status='active'/)
+ assert.match(sql,/s.onboarding_completed_at IS NOT NULL/)
+ assert.match(sql,/pref.update_mode IN/)
+ assert.doesNotMatch(sql,/platform_release_generic_pilot_tenants/)
+ assert.match(routes,/verifyOfficialReleaseRun/)
+ assert.match(routes,/verifyDevReleaseSmoke/)
+ assert.match(routes,/authoriseDirectCustomerReleaseStages/)
 })

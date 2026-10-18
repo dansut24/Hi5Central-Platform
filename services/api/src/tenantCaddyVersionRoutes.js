@@ -91,3 +91,54 @@ export function undoTenantCaddyRoute({current,original,host}={}){
   if(right<0)throw Error('Missing target block line boundary.')
   return current.slice(0,left)+prior.block+current.slice(right+1)
 }
+
+/**
+ * Clean-install shared gateway: one wildcard Caddy entrypoint for real tenant
+ * Test/UAT/Production routes. No QA gateway, frozen canary or old host pools.
+ * A release changes ONLY the exact tenant marker inside the shared gateway.
+ */
+export function prepareSharedTenantCaddyRoute({config,tenantSlug,environment,buildSha}={}){
+  const slug=String(tenantSlug||'')
+  if(!/^[a-z0-9](?:[a-z0-9-]{1,43}[a-z0-9])?$/.test(slug)
+    ||!ENV.has(environment)||!SHA.test(String(buildSha||'')))
+    throw Error('Invalid tenant, environment or immutable release.')
+  if(typeof config!=='string')throw Error('Missing shared gateway configuration.')
+  const anchor='  # H5C_RELEASE_ROUTE_INSERT'
+  if(config.split(anchor).length!==2)throw Error('Shared Caddy tenant-route insertion anchor is missing or duplicated.')
+  const host=slug+(environment==='live'?'':'-'+environment)+'.hi5central.com'
+  if(!HOST.test(host))throw Error('Unsafe tenant hostname.')
+  const begin='  # H5C_RELEASE_ROUTE_BEGIN '+host
+  const end='  # H5C_RELEASE_ROUTE_END '+host
+  const starts=config.indexOf(begin)
+  const ends=config.indexOf(end)
+  if((starts<0)!==(ends<0))throw Error('Partial existing route marker.')
+  if(starts>=0&&(config.indexOf(begin,starts+begin.length)>=0
+    ||config.indexOf(end,ends+end.length)>=0))
+    throw Error('Duplicate existing tenant route markers.')
+  const pair=releasePair(buildSha,environment)
+  const token=routeDigest(host).slice(0,12)
+  const block=[
+    begin,
+    '  @h5cTenant'+token+' host '+host,
+    '  handle @h5cTenant'+token+' {',
+    '    @h5cApi'+token+' path /api/*',
+    '    handle @h5cApi'+token+' {',
+    '      reverse_proxy '+pair.api+':3001',
+    '    }',
+    '    handle {',
+    '      reverse_proxy '+pair.web+':80',
+    '    }',
+    '  }',
+    end,
+  ].join('\n')
+  let clean=config
+  if(starts>=0){
+    const right=config.indexOf('\n',ends+end.length)
+    if(right<0||right-starts>1500)throw Error('Existing tenant route boundary invalid.')
+    clean=config.slice(0,starts)+config.slice(right+1)
+  }
+  const next=clean.replace(anchor,block+'\n'+anchor)
+  return {host,environment,buildSha,api:pair.api,web:pair.web,
+    originalSha256:routeDigest(config),newSha256:routeDigest(next),
+    config:next,previousConfig:config}
+}
