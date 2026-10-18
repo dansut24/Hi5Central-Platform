@@ -1,0 +1,44 @@
+name: Release Work Activity and Installed Version Truth
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/src/platformAdmin.js'
+      - 'services/api/test/release-work-activity.mjs'
+      - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
+      - 'apps/admin/src/features/admin/ReleaseWorkActivity.css'
+      - 'apps/admin/src/features/admin/PlatformAdminApp.jsx'
+      - 'apps/itsm/src/production/ProductionApplicationUpdates.jsx'
+      - '.github/workflows/release-work-activity-version-truth.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release-control-and-version-truth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Staff job-control authorization and audit regression
+        run: |
+          node --check services/api/src/releaseWorkActivity.js
+          node --check services/api/src/platformAdmin.js
+          node --test services/api/test/release-work-activity.mjs
+          node --test services/api/test/rollout-job-supersession.mjs
+      - name: Build central API with safety gates
+        working-directory: services/api
+        run: |
+          npm ci
+          npm run build:runtime
+      - name: Build platform Admin work activity
+        working-directory: apps/admin
+        run: |
+          npm ci
+          npm run build
+      - name: Build customer ITSM version screen
+        working-directory: apps/itsm
+        run: |
+          npm ci
+          npm run build
