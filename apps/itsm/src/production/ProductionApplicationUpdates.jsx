@@ -11,6 +11,17 @@ const CATEGORIES=[{value:'feature',label:'New feature'},{value:'improvement',lab
 const EMPTY_ENTRY=()=>({category:'feature',title:'',description:''})
 function dateLabel(value){if(!value)return '';const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}
 function short(sha){return String(sha||'').slice(0,8)||'Unknown'}
+const VALID_SHA=/^[a-f0-9]{40}$/
+async function portalFrontendManifest(){
+  // This URL is served by the customer's actual web deployment, not the
+  // shared central API. Do not substitute a central API build on errors.
+  try{
+    const response=await fetch('/release-manifest.json',{cache:'no-store'})
+    if(!response.ok)return null
+    const data=await response.json()
+    return VALID_SHA.test(String(data?.sha||''))?{sha:data.sha}:null
+  }catch{return null}
+}
 function displayVersion(value){return String(value||'').trim().replace(/\+[a-f0-9]{8,40}$/i,'')}
 async function api(path,options={}){
   const response=await fetch(API_BASE+path,{credentials:'include',cache:'no-store',...options,
@@ -271,8 +282,12 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   async function refresh(){
     setError('')
     try{
-      const response=await api('/api/v1/updates')
-      setData(response)
+      const [response,portalBuild]=await Promise.all([
+        api('/api/v1/updates'),portalFrontendManifest(),
+      ])
+      // API SHA is still used for Dev release authorship and UAT review;
+      // installedVersionSha is the actual frontend served by this portal.
+      setData({...response,installedVersionSha:portalBuild?.sha||''})
       if(ENV==='uat'){
         try{
           const {review:next}=await api('/api/v1/updates/uat-review')
@@ -299,11 +314,13 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
   }
   if(!visible)return null
   const releases=data?.releases||[]
-  const installed=releases.find(release=>release.buildSha===data?.sha)
+  const installedSha=data?.installedVersionSha||''
+  const installed=releases.find(release=>release.buildSha===installedSha)
   const latest=releases[0]
   const candidate=releases.find(release=>release.buildSha===data?.sha)
-  const preview=ENV!=='live'&&!installed
-  const available=Boolean(ENV==='live'&&installed&&latest&&latest.buildSha!==data?.sha)
+  const preview=ENV!=='live'&&Boolean(installedSha)&&!installed
+  const latestNotInstalled=Boolean(latest&&installedSha&&latest.buildSha!==installedSha)
+  const unverified=!installedSha
   return <section className={'hi5-updates-surface'+(compact?' is-compact':'')} aria-label="Hi5Central versions and updates">
     <div className="hi5-updates-intro">
       <div><span className="hi5-updates-kicker">Hi5Central</span><h2>Versions & updates</h2>
@@ -317,15 +334,19 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {loading?<div className="hi5-updates-placeholder">Checking Hi5Central versions…</div>:null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
-        <article><span className="hi5-updates-kicker">Installed version</span>
-          <strong>{displayVersion(installed?.versionLabel)||(preview?'Preview build':'Not yet published')}</strong>
-          <small>Build {short(data.sha)} · {ENV.toUpperCase()}</small></article>
-        <article><span className="hi5-updates-kicker">Latest published</span>
+        <article><span className="hi5-updates-kicker">Running portal version</span>
+          <strong>{displayVersion(installed?.versionLabel)||(unverified?'Unverified build':preview?'Preview build':'Uncatalogued build')}</strong>
+          <small>Frontend build {short(installedSha)} · {ENV.toUpperCase()}</small></article>
+        <article><span className="hi5-updates-kicker">Latest published release</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
-          <small>{latest?dateLabel(latest.publishedAt):'Updates will appear when Hi5Central publishes a version'}</small></article>
+          <small>{latest?dateLabel(latest.publishedAt)+' · Publication does not install an update':'No published release recorded'}</small></article>
         <article><span className="hi5-updates-kicker">Update status</span>
-          <strong>{preview?'Preview':available?'Available':installed?'Up to date':'No published update'}</strong>
-          <small>{preview?'This build has not been published to customers':available?'A newer version has been released by Hi5Central':'Only officially released versions are listed'}</small></article>
+          <strong>{unverified?'Unable to verify':preview?'Preview':latestNotInstalled?'Published, not installed':installed?'Portal build current':'No confirmed update'}</strong>
+          <small>{unverified?'The portal frontend build could not be verified. No installation claim is made.':
+            preview?'The running frontend build has no published customer version label.':
+            latestNotInstalled?'The latest catalogue release has not been verified as installed here.':
+            installed?'This portal matches the latest published frontend build.':
+            'The installed build is not associated with a current published version.'}</small></article>
       </div>
       {ENV==='dev'?<DevReleaseReadiness data={data}/>:null}
       {ENV==='dev'?<>
@@ -363,7 +384,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
             onClick={()=>setExpanded(v=>v===release.buildSha?'closed':release.buildSha)}>
             <span><strong>{displayVersion(release.versionLabel)} · {release.title}</strong>
               <small>{dateLabel(release.publishedAt)} · {release.entries?.length||0} changes
-                {release.buildSha===data.sha?' · Installed':''}</small></span>
+                {release.buildSha===installedSha?' · Running portal':''}</small></span>
             <span>{expanded===release.buildSha||(!expanded&&release===latest)?'−':'+'}</span>
           </button>
           {expanded===release.buildSha||(!expanded&&release===latest)?<div className="hi5-updates-release-details">
