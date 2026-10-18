@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { pool } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
+import {callCentralDevHandoff} from './devReleaseHandoff.js'
 
 let manifest
 try {manifest=JSON.parse(readFileSync(resolve(process.cwd(),'release-manifest.json'),'utf8'))}
@@ -126,6 +127,31 @@ export function registerApplicationUpdatesRoutes(app){
       releases,latestPublished:releases[0]||null,
       availableReleases:releases.filter(item=>item.buildSha!==manifest.sha)})
   })
+  // Dev prepares one central release record. This is an authenticated
+  // Dev-session -> signed central service request; the browser never receives
+  // signing keys or Platform Admin authority.
+  async function devHandoff(c,action){
+    const auth=await requireHi5Developer(c)
+    if(auth.error)return auth.error
+    if(auth.session.slug!=='dev')
+      return c.json({error:'Use the internal Hi5Central Dev workspace to submit releases.'},403)
+    const request=action==='candidates'?{}:action==='read'?
+      {sha:String(c.req.param('sha')||'')}:
+      await c.req.json().catch(()=>null)
+    if(!request||((action==='save'||action==='submit')&&!request.sha))
+      return c.json({error:'Choose a verified GitHub commit.'},400)
+    try{
+      const result=await callCentralDevHandoff({
+        action,...request,authorId:auth.session.user_id,devSlug:'dev',
+      })
+      return c.json(result,action==='submit'?202:200)
+    }catch(error){return c.json({error:String(error.message||error)},409)}
+  }
+  app.get('/api/v1/updates/dev-release/candidates',c=>devHandoff(c,'candidates'))
+  app.get('/api/v1/updates/dev-release/:sha',c=>devHandoff(c,'read'))
+  app.put('/api/v1/updates/dev-release',c=>devHandoff(c,'save'))
+  app.post('/api/v1/updates/dev-release/submit',c=>devHandoff(c,'submit'))
+
   // Dev release authors can correct customer-facing version metadata of
   // earlier published builds even after the Dev application itself upgrades.
   app.get('/api/v1/updates/dev-notes/history',async c=>{
@@ -160,26 +186,7 @@ export function registerApplicationUpdatesRoutes(app){
   app.put('/api/v1/updates/dev-notes',async c=>{
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error
-    const body=await c.req.json().catch(()=>null)
-    // Drafts can be saved before any entries are complete; publish validates.
-    if(!SHA.test(manifest.sha))return c.json({error:'A versioned Dev build is required.'},409)
-    const entries=Array.isArray(body?.entries)?body.entries.slice(0,35).map(item=>({
-      category:CATEGORIES.has(String(item?.category||''))?item.category:'feature',
-      title:trimmed(item?.title,160),description:trimmed(item?.description,950),
-    })):[]
-    const params=[manifest.sha,trimmed(body?.versionLabel,64),
-      trimmed(body?.title,180),trimmed(body?.summary,1200),
-      JSON.stringify(entries),auth.session.user_id]
-    const result=await pool.query([
-      'INSERT INTO hi5central_release_note_drafts(build_sha,version_label,title,summary,entries,edited_by)',
-      "VALUES($1,$2,$3,$4,$5::jsonb,$6)",
-      'ON CONFLICT(build_sha) DO UPDATE SET version_label=EXCLUDED.version_label,',
-      'title=EXCLUDED.title,summary=EXCLUDED.summary,entries=EXCLUDED.entries,',
-      "edited_by=EXCLUDED.edited_by,edited_at=now() WHERE hi5central_release_note_drafts.status='draft'",
-      'RETURNING build_sha,status,edited_at',
-    ].join(' '),params)
-    if(!result.rowCount)return c.json({error:'The release was already submitted for publication and cannot be edited.'},409)
-    return c.json({notes:result.rows[0]})
+    return c.json({error:'Use the shared Dev release preparation form. Legacy local drafts are read-only.'},410)
   })
   // Version labels are editorial metadata. A correction to a published
   // release is relayed separately to the Live catalogue by the host operator.
@@ -217,21 +224,7 @@ export function registerApplicationUpdatesRoutes(app){
   app.post('/api/v1/updates/dev-notes/publish',async c=>{
     const auth=await requireHi5Developer(c)
     if(auth.error)return auth.error
-    if(!SHA.test(manifest.sha))return c.json({error:'A versioned Dev build is required.'},409)
-    const result=await pool.query(
-      'SELECT * FROM hi5central_release_note_drafts WHERE build_sha=$1',[manifest.sha])
-    if(!result.rowCount)return c.json({error:'Write and save Dev release notes first.'},409)
-    const row=result.rows[0]
-    if(row.status!=='draft')return c.json({error:'Release publication was already requested.'},409)
-    try{validateReleaseNotes({buildSha:row.build_sha,versionLabel:row.version_label,
-      title:row.title,summary:row.summary,entries:row.entries})}
-    catch(e){return c.json({error:e.message},400)}
-    const requested=await pool.query(
-      "UPDATE hi5central_release_note_drafts SET status='publication_requested',requested_at=now() WHERE build_sha=$1 AND status='draft' RETURNING status,requested_at",
-      [manifest.sha])
-    if(!requested.rowCount)return c.json({error:'The release is already being published.'},409)
-    return c.json({status:'publication_requested',
-      message:'Dev release publication requested. Customers see it only after the trusted release operator publishes the notes centrally.'},202)
+    return c.json({error:'Use Dev → Submit for Platform Admin approval. Legacy local publication is retired.'},410)
   })
 
   app.get('/api/v1/updates/uat-review',async c=>{
