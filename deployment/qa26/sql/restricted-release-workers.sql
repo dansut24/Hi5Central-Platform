@@ -187,8 +187,15 @@ BEGIN
           'h5c_release_'||stage||'_delete',relation_name,role_name,col_name,stage);
       END IF;
     END LOOP;
+    -- Preserve existing nonprivileged QA canary operation, but restrict it
+    -- strictly to Test, never UAT or Live. Table grants remain unchanged.
+    IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='hi5_release_qa_canary') THEN
+      EXECUTE format('DROP POLICY IF EXISTS h5c_legacy_test_canary ON public.%I',relation_name);
+      EXECUTE format('CREATE POLICY h5c_legacy_test_canary ON public.%I FOR ALL TO hi5_release_qa_canary USING (%I=''test'') WITH CHECK (%I=''test'')',
+        relation_name,col_name,col_name);
+    END IF;
   END LOOP;
-END $$;
+END $;
 
 -- UAT is allowed to prepare a precisely bounded Live pool/offer ONLY after
 -- possessing an active UAT lease. It receives NO direct INSERT/UPDATE on Live
