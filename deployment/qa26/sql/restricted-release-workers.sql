@@ -206,6 +206,19 @@ BEGIN
     WHERE c.build_sha=job_row.build_sha AND c.status='approved') THEN
     RAISE EXCEPTION 'Published and certified release required for Live offer';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.platform_release_generic_stage_approvals a
+    WHERE a.build_sha=job_row.build_sha AND a.environment='uat'
+      AND a.planning_enabled=true AND a.execution_enabled=true
+      AND a.approved_by IS NOT NULL AND a.approved_at<=now()
+      AND a.expires_at>now() AND a.evidence<>'{}'::jsonb) THEN
+    RAISE EXCEPTION 'Current independent UAT execution approval required';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.tenant_runtime_route_attestations a
+    WHERE a.tenant_id=job_row.tenant_id AND a.environment='uat'
+      AND a.build_sha=job_row.build_sha AND a.state='active'
+      AND a.checked_at BETWEEN now()-interval '3 minutes' AND now()) THEN
+    RAISE EXCEPTION 'Current UAT host route attestation required';
+  END IF;
   pair_base='hi5pool-live-'||left(job_row.build_sha,12);
   pool_id=pair_base;
   INSERT INTO public.platform_runtime_pools
