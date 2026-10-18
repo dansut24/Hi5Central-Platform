@@ -327,20 +327,20 @@ function LiveProductionReleaseManagement() {
   return <div className="hi5-release-settings">
 
     <section className="production-settings-panel">
-      <header><div><h2>Who manages platform updates?</h2><p>Choose whether your administrators approve each release or Hi5Central handles the release flow automatically using your policy.</p></div></header>
+      <header><div><h2>Who manages platform updates?</h2><p>Managed customers receive certified releases directly in Production during their maintenance window. Custom customers automatically receive UAT, then approve Production themselves.</p></div></header>
       <div className="production-settings-panel-body">
         <div className="hi5-release-policy-grid">
           <button className={policy.updateMode==='admin_controlled'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('admin_controlled')} type="button">
-            <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>Hi5Central publishes the update to Test, but your admin chooses what enters UAT and exactly what is promoted to Production.</small></span>
+            <ShieldCheck size={18}/><span><strong>Admin controlled</strong><small>New certified releases appear automatically in UAT. Your administrators test and explicitly approve the matching Production upgrade.</small></span>
           </button>
           <button className={policy.updateMode==='hi5_managed'?'is-selected':''} disabled={Boolean(busy)} onClick={()=>savePolicy('hi5_managed')} type="button">
-            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>The local release operator follows Hi5Central's signed release feed, stages UAT automatically and promotes approved releases inside your update window.</small></span>
+            <RefreshCw size={18}/><span><strong>Hi5Central managed</strong><small>Certified ITSM updates install automatically in Production during your approved maintenance window. No UAT approval is needed.</small></span>
           </button>
         </div>
         <div className="hi5-release-policy-fields">
-          <label>Production delay after UAT
-            <div><input type="number" min="0" max="720" value={policy.liveDelayHours??24} onChange={e=>setPolicy({...policy,liveDelayHours:e.target.value})}/><span>hours</span></div>
-          </label>
+          {/* No UAT delay field: Managed has no UAT, and Custom Production requires
+              separate customer approval instead of an assumed delay. Keep the
+              stored legacy liveDelayHours value unchanged for compatibility. */}
           <fieldset className="hi5-release-maintenance-days" style={{gridColumn:'1 / -1',border:0,margin:0,padding:0}}>
             <legend>Permitted maintenance days</legend>
             <div style={{display:'flex',flexWrap:'wrap',gap:'10px 18px',marginTop:8}}>
@@ -371,6 +371,8 @@ function LiveProductionReleaseManagement() {
             <input value={policy.maintenanceWindow?.timezone||'Europe/London'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),timezone:e.target.value}})}/>
           </label>
           <label className="hi5-release-policy-check"><input type="checkbox" checked={policy.allowEmergencySecurityUpdates!==false} onChange={e=>setPolicy({...policy,allowEmergencySecurityUpdates:e.target.checked})}/><span><strong>Allow emergency security updates</strong><small>Critical security fixes can bypass the normal delay, but still use signed release artifacts and audit logging.</small></span></label>
+          {error ? <div className="hi5-release-message is-error" role="alert"><CircleAlert size={16}/>{error}</div> : null}
+          {message ? <div className="hi5-release-message is-success" role="status"><CheckCircle2 size={16}/>{message}</div> : null}
           <button className="hi5-release-policy-save" disabled={Boolean(busy)} onClick={()=>savePolicy()} type="button">Save update policy</button>
         </div>
       </div>
