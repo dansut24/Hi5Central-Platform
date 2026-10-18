@@ -1,0 +1,138 @@
+import {useEffect,useMemo,useState} from 'react'
+import {AlertTriangle,CheckCircle2,Clock3,Pause,RefreshCw,RotateCcw,ShieldAlert,Trash2} from 'lucide-react'
+import './ReleaseWorkActivity.css'
+
+const short=value=>String(value||'').slice(0,8)||'—'
+const dt=value=>value?new Date(value).toLocaleString('en-GB'):'—'
+const duration=value=>Number.isFinite(Number(value))&&value!==null
+  ?Math.max(0,Math.round(Number(value)))+'s':'—'
+
+export function ReleaseWorkActivity({api,canApprove}){
+  const [data,setData]=useState(null)
+  const [loading,setLoading]=useState(true)
+  const [busy,setBusy]=useState('')
+  const [error,setError]=useState('')
+  const [notice,setNotice]=useState('')
+  const [filter,setFilter]=useState('all')
+  async function refresh(){
+    try{
+      const response=await api('/releases/rollout-jobs/activity')
+      setData(response)
+      setError('')
+    }catch(err){setError(err.message)}
+    finally{setLoading(false)}
+  }
+  useEffect(()=>{refresh()},[])
+  const jobs=data?.jobs||[]
+  const shown=useMemo(()=>filter==='all'?jobs:jobs.filter(j=>j.status===filter),[filter,jobs])
+  const totals=useMemo(()=>Object.fromEntries(['scheduled','deferred','running','succeeded','failed','cancelled']
+    .map(s=>[s,jobs.filter(j=>j.status===s).length])),[jobs])
+
+  async function run(key,request){
+    setBusy(key);setError('');setNotice('')
+    try{const result=await request();setNotice(
+      result.action==='cancel'?'Job safely cancelled and audited.':
+      result.action==='retry'?'Retry scheduled; global rollout remains paused.':
+      'New rollout claims paused. Any running deployment must still finish or be handled by the host operator.')
+      await refresh()
+    }catch(err){setError(err.message)}
+    finally{setBusy('')}
+  }
+  async function pause(){
+    const reason=window.prompt('Reason for pausing all release rollouts (20 characters minimum)','')
+    if(reason===null)return
+    if(reason.trim().length<20){setError('Enter at least 20 characters for the audit log.');return}
+    if(!window.confirm('Pause all new release job claims? Running jobs are not stopped.'))return
+    await run('pause',()=>api('/releases/rollout-jobs/pause',{method:'POST',body:JSON.stringify({
+      confirm:'PAUSE_RELEASE_ROLLOUTS',reason,
+    })}))
+  }
+  async function act(job,action){
+    const title=action==='cancel'?'Cancel permanently':'Request guarded retry for'
+    const reason=window.prompt(title+' '+job.tenantSlug+' / '+job.environment.toUpperCase()+
+      ' / '+short(job.buildSha)+'? Explain the reason for the staff audit.','')
+    if(reason===null)return
+    if(reason.trim().length<20){setError('Enter at least 20 characters for the audit log.');return}
+    if(!window.confirm(action==='cancel'
+      ?'Cancel this exact unclaimed job? It cannot be automatically resumed.'
+      :'Retry this failed job? The API checks publication, certification and stage approval; rollout stays paused.'))return
+    await run(job.id,()=>api('/releases/rollout-jobs/action',{method:'POST',body:JSON.stringify({
+      action,jobId:job.id,tenantSlug:job.tenantSlug,
+      environment:job.environment,buildSha:job.buildSha,reason,
+      confirm:action==='cancel'?'CANCEL_UNCLAIMED_RELEASE_JOB':'RETRY_FAILED_RELEASE_JOB',
+    })}))
+  }
+
+  if(loading)return <section className="rmm-card h5a-release-work">
+    <p className="h5a-release-work-note">Checking release worker activity…</p></section>
+  return <section className="rmm-card h5a-release-work" aria-label="Release work activity">
+    <div className="rmm-card-heading">
+      <div><span className="rmm-eyebrow">AUDITED RELEASE OPERATIONS</span>
+        <h2>Work activity</h2>
+        <p>Customer rollout jobs, deployment history, timestamps and safe staff actions. Changing a job never bypasses the maintenance window or approval controls.</p>
+      </div>
+      <button type="button" className="rmm-secondary compact" disabled={Boolean(busy)}
+        onClick={refresh} title="Refresh release jobs"><RefreshCw size={15}/> Refresh</button>
+    </div>
+    <div className="h5a-release-work-state">
+      <div className={data?.control?.paused?'h5a-release-work-paused':'h5a-release-work-active'}>
+        {data?.control?.paused?<Pause size={16}/>:<AlertTriangle size={16}/>}
+        <span><strong>{data?.control?.paused?'Globally paused':'New claims permitted'}</strong>
+          <small>{data?.control?.reason||'No global pause description recorded.'}</small></span>
+      </div>
+      <div className="h5a-release-work-controls">
+        {canApprove?<button type="button" className="rmm-secondary compact"
+          disabled={Boolean(busy)||data?.control?.paused} onClick={pause}>
+          <Pause size={14}/> Pause all</button>:null}
+        <button type="button" className="rmm-secondary compact" disabled
+          title={data?.resumeBlockedReason||'Independent rollout security review is required'}>
+          <ShieldAlert size={14}/> Resume locked</button>
+      </div>
+    </div>
+    {error?<p className="h5a-release-work-error" role="alert">{error}</p>:null}
+    {notice?<p className="h5a-release-work-success" role="status"><CheckCircle2 size={15}/>{notice}</p>:null}
+    <div className="h5a-release-work-overview">
+      {['scheduled','deferred','running','succeeded','failed','cancelled'].map(status=>
+        <button type="button" key={status} className={filter===status?'is-active':''}
+          onClick={()=>setFilter(f=>f===status?'all':status)}>
+          <strong>{totals[status]||0}</strong><span>{status.replaceAll('_',' ')}</span></button>)}
+    </div>
+    <div className="h5a-release-work-filter">
+      <span><Clock3 size={14}/> Latest {shown.length} of {jobs.length} recorded jobs (up to 100)</span>
+      <select value={filter} onChange={e=>setFilter(e.target.value)} aria-label="Filter release job status">
+        <option value="all">All statuses</option>
+        {['scheduled','deferred','running','succeeded','failed','cancelled','pending','rolled_back'].map(s=>
+          <option key={s} value={s}>{s.replaceAll('_',' ')}</option>)}
+      </select>
+    </div>
+    <div className="h5a-release-work-scroll">
+      <table>
+        <thead><tr><th>Customer / stage</th><th>Build</th><th>Status</th>
+          <th>Scheduled / completed</th><th>Attempts</th><th>Duration</th><th>Actions</th></tr></thead>
+        <tbody>{shown.map(job=><tr key={job.id}>
+          <td><strong>{job.tenantSlug}</strong><small>{job.environment.toUpperCase()}</small></td>
+          <td><code title={job.buildSha}>{short(job.buildSha)}</code></td>
+          <td><span className={'h5a-release-work-status is-'+job.status}>{job.status.replaceAll('_',' ')}</span>
+            {job.lastError?<small title={job.lastError}>{job.lastError.slice(0,110)}</small>:null}</td>
+          <td><small>{dt(job.scheduledAt)}</small><small>{dt(job.completedAt)}</small></td>
+          <td>{job.attemptCount} / {job.maxAttempts}</td>
+          <td>{duration(job.durationSeconds)}</td>
+          <td><div className="h5a-release-work-row-actions">
+            {canApprove&&['pending','scheduled','deferred'].includes(job.status)&&job.attemptCount===0
+              ?<button type="button" className="rmm-secondary compact danger" disabled={Boolean(busy)||!data?.control?.paused}
+                onClick={()=>act(job,'cancel')} title="Cancel this exact unclaimed job while globally paused">
+                <Trash2 size={13}/> Cancel</button>:null}
+            {canApprove&&job.status==='failed'
+              ?<button type="button" className="rmm-secondary compact" disabled={Boolean(busy)||!data?.control?.paused}
+                onClick={()=>act(job,'retry')} title="Strictly gated, audited retry; no direct execution">
+                <RotateCcw size={13}/> Try again</button>:null}
+            {job.status==='running'?<small>Host-controlled</small>:null}
+            {!['pending','scheduled','deferred','failed','running'].includes(job.status)?<small>Recorded</small>:null}
+          </div></td>
+        </tr>)}
+        {!shown.length?<tr><td colSpan={7} className="h5a-release-work-empty">No matching jobs recorded.</td></tr>:null}</tbody>
+      </table>
+    </div>
+    <p className="h5a-release-work-footnote">Resume is deliberately locked until the four restricted database identities, gateway, rollback and controlled customer pilot are verified. Cancel does not stop a running Docker deployment. Retrying never executes while the global pause is active.</p>
+  </section>
+}
