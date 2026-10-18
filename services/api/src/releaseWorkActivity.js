@@ -161,6 +161,18 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           ].join(' '),[job.build_sha,job.environment])
           if(!certified.rowCount||!published.rowCount||!approval.rowCount)
             throw refuse('Retry requires a still-certified, published build and current separate stage execution approval.')
+          // A failed worker may have attempted routing. Refuse every retry
+          // without independent, fresh host evidence that the customer's
+          // exact previous build is still active at the correct stage.
+          if(!SHA.test(String(job.previous_build_sha||'')))
+            throw refuse('Retry blocked: the previous deployed build has not been recorded for independent route verification.')
+          const restored=await db.query([
+            'SELECT 1 FROM tenant_runtime_route_attestations',
+            "WHERE tenant_id=$1 AND environment=$2 AND state='active'",
+            'AND build_sha=$3 AND checked_at>=now()-interval \'15 minutes\' LIMIT 1',
+          ].join(' '),[job.tenant_id,job.environment,job.previous_build_sha])
+          if(restored.rowCount!==1)
+            throw refuse('Retry blocked: current host-attested route does not confirm the prior build is active.')
           // This only schedules. Global rollout remains paused and the claim
           // worker must independently apply all stage/maintenance/route gates.
           const changed=await db.query([
@@ -175,7 +187,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         }
         const details={reason:request.reason,staffActorId:auth.session.user_id,
           previousStatus:job.status,previousAttempts:job.attempt_count,
-          previousError:job.last_error,retryRequested:action==='retry',globalPausePreserved:true,routeChanges:0}
+          previousError:job.last_error,retryRequested:action==='retry',priorBuild:job.previous_build_sha||null,globalPausePreserved:true,routeChanges:0}
         await db.query([
           'INSERT INTO tenant_release_rollout_events',
           '(job_id,tenant_id,environment,build_sha,event_type,fence,details)',
