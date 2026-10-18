@@ -1,0 +1,23 @@
+name: Recovered Historical Rollout Migrations
+on:
+  pull_request:
+    paths:
+      - 'services/api/migrations/**'
+      - 'services/api/test/recovered-rollout-migrations.mjs'
+      - 'deployment/qa26/recovered-rollout-migration-provenance.json'
+      - '.github/workflows/recovered-rollout-migrations.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  recovered-migration-catalogue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact historical SQL checksums, identities and no duplicate filenames
+        run: node --test services/api/test/recovered-rollout-migrations.mjs
+      - name: Check runtime migration runner grammar
+        run: node --check services/api/src/migrate.js

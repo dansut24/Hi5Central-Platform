@@ -1,0 +1,236 @@
+[
+  {
+    "name": "150_automatic_uat_configuration_tracking.sql",
+    "path": "services/api/migrations/platform-admin/150_automatic_uat_configuration_tracking.sql",
+    "source": "github PR #59",
+    "source_ref": "origin/pr/59",
+    "sha256": "6500087b00b7c0f32f6d009c8d05a704cc98e36773b5459ac93a036d6ce32d7e",
+    "variants": 1,
+    "length": 7287
+  },
+  {
+    "name": "150_onboarding_completion_emails.sql",
+    "path": "services/api/migrations/identity-access/150_onboarding_completion_emails.sql",
+    "source": "github PR #63",
+    "source_ref": "origin/pr/63",
+    "sha256": "b8aa3c3a7e602e10d7e4e6eaf1452b0c293865727d30bf8833867f49f07cd67a",
+    "variants": 1,
+    "length": 940
+  },
+  {
+    "name": "151_admin_tenant_lifecycle.sql",
+    "path": "services/api/migrations/platform-admin/151_admin_tenant_lifecycle.sql",
+    "source": "github PR #63",
+    "source_ref": "origin/pr/63",
+    "sha256": "e6cb8b786a8d53d49ccb6855bdcfce4e4a6eedeffd9e316c0e16898a35003342",
+    "variants": 1,
+    "length": 2645
+  },
+  {
+    "name": "151_environment_reference_sync.sql",
+    "path": "services/api/migrations/platform-admin/151_environment_reference_sync.sql",
+    "source": "github PR #49",
+    "source_ref": "origin/pr/49",
+    "sha256": "652388d25e9d17424b0f37660eeccf1fd9670be05b57c30fdc18abf28076daa3",
+    "variants": 1,
+    "length": 1653
+  },
+  {
+    "name": "152_ai_assist_release_acceptance.sql",
+    "path": "services/api/migrations/platform-admin/152_ai_assist_release_acceptance.sql",
+    "source": "github PR #59",
+    "source_ref": "origin/pr/59",
+    "sha256": "fe6ce60684c5881c503107d327d59ed1396bd1d4a3d9d63a6fde7718d4902f6c",
+    "variants": 1,
+    "length": 1753
+  },
+  {
+    "name": "152_tenant_admin_financial_backup.sql",
+    "path": "services/api/migrations/platform-admin/152_tenant_admin_financial_backup.sql",
+    "source": "github PR #63",
+    "source_ref": "origin/pr/63",
+    "sha256": "798f9954d38566a4bfaadff1e2b2f11a7e45fb4b5af2988bd041e3dd3ecf6765",
+    "variants": 1,
+    "length": 2247
+  },
+  {
+    "name": "153_ai_assist_acceptance_history_and_successor.sql",
+    "path": "services/api/migrations/platform-admin/153_ai_assist_acceptance_history_and_successor.sql",
+    "source": "github PR #59",
+    "source_ref": "origin/pr/59",
+    "sha256": "f7a609cc794864a2e5d680b2f949a9d0460fa8204ec8943907ad663bce863e7b",
+    "variants": 1,
+    "length": 1290
+  },
+  {
+    "name": "154_itsm_configuration_change_events.sql",
+    "path": "services/api/migrations/itsm/154_itsm_configuration_change_events.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "61c5b30b5fbadb53ad76cdd728ef5244699e4fa0aab49eb9944ccf811d62e0e6",
+    "variants": 1,
+    "length": 1050
+  },
+  {
+    "name": "154_tenant_application_deployment_proofs.sql",
+    "path": "services/api/migrations/platform-admin/154_tenant_application_deployment_proofs.sql",
+    "source": "github PR #59",
+    "source_ref": "origin/pr/59",
+    "sha256": "28fe3ec102801e94e02c6e2119d843a7809630deacd914d73d9cddb8452e7a49",
+    "variants": 1,
+    "length": 917
+  },
+  {
+    "name": "155_app_release_executor_heartbeat.sql",
+    "path": "services/api/migrations/platform-admin/155_app_release_executor_heartbeat.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "720dd9a0aea8123f423024c51acf76d4731d1eeac9f9694abc177191ce55b722",
+    "variants": 1,
+    "length": 576
+  },
+  {
+    "name": "156_itsm_configuration_audit_value_summaries.sql",
+    "path": "services/api/migrations/itsm/156_itsm_configuration_audit_value_summaries.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "de192e6f201af020141a25a7fbd8ff930b67b2adc1483395f1222b2edffa1f7f",
+    "variants": 1,
+    "length": 679
+  },
+  {
+    "name": "157_itsm_configuration_promotions.sql",
+    "path": "services/api/migrations/itsm/157_itsm_configuration_promotions.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "b550642e961da3f8af02c817f42415b3b534e94456f785f733df2cbd3ec8d75f",
+    "variants": 1,
+    "length": 1108
+  },
+  {
+    "name": "158_tenant_release_rollout_jobs.sql",
+    "path": "services/api/migrations/platform-admin/158_tenant_release_rollout_jobs.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "4c2fe667ddb44fdeab5ae1c9cd79e70f99029ab068297d1875aa2a4c2d83bf50",
+    "variants": 1,
+    "length": 3591
+  },
+  {
+    "name": "159_platform_release_test_qa_gates.sql",
+    "path": "services/api/migrations/platform-admin/159_platform_release_test_qa_gates.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "269252bdb4d2285d4dd1732a3724135fb515407d66914847f0261cdaa10c77d3",
+    "variants": 1,
+    "length": 1157
+  },
+  {
+    "name": "160_tenant_test_runtime_assignments.sql",
+    "path": "services/api/migrations/platform-admin/160_tenant_test_runtime_assignments.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "6599f175ce437581c470e2c6b27078ccd8c696d087d8db6e18423b4068fe2674",
+    "variants": 1,
+    "length": 2046
+  },
+  {
+    "name": "161_release_rollout_blackouts.sql",
+    "path": "services/api/migrations/platform-admin/161_release_rollout_blackouts.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "72aa69c1e807c40ed8746b1c093392d8cb27872a84a978fc2f87ab2e542d3eef",
+    "variants": 1,
+    "length": 1047
+  },
+  {
+    "name": "162_worker_audit_gateway_exclusion.sql",
+    "path": "services/api/migrations/platform-admin/162_worker_audit_gateway_exclusion.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "11e61bd149ff4cb9f682f89fd31c0846214946edd86ebb534965dcefc91ab057",
+    "variants": 1,
+    "length": 2409
+  },
+  {
+    "name": "163_certified_release_fanout.sql",
+    "path": "services/api/migrations/platform-admin/163_certified_release_fanout.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "fb77f532d3a0017659bccdcf461f4ea536f1bf9f9ca45509658c29491ee42c04",
+    "variants": 1,
+    "length": 2417
+  },
+  {
+    "name": "164_automatic_verified_test_canaries.sql",
+    "path": "services/api/migrations/platform-admin/164_automatic_verified_test_canaries.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "b682fc4547d2196de8411fa6cdc6dec542eddf79894959391a199a559f0d5254",
+    "variants": 1,
+    "length": 1633
+  },
+  {
+    "name": "165_single_paused_test_canary.sql",
+    "path": "services/api/migrations/platform-admin/165_single_paused_test_canary.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "1f8d1576f2942de4087a5e8aaee19aae39c95cd922675b8c6524b22cc11a47bd",
+    "variants": 1,
+    "length": 1356
+  },
+  {
+    "name": "166_generic_release_stage_approvals.sql",
+    "path": "services/api/migrations/platform-admin/166_generic_release_stage_approvals.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "bbaa60982e7f15c31807d9d7a0c430b2d99b94b2fd248ae9f16516150dd6af1e",
+    "variants": 1,
+    "length": 3610
+  },
+  {
+    "name": "167_release_emergency_pause_least_privilege.sql",
+    "path": "services/api/migrations/platform-admin/167_release_emergency_pause_least_privilege.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "0ee9eba2b09af3a2a7bbe5aa03e94d54fdfc08fcb37022d4f8601f20acf6111b",
+    "variants": 1,
+    "length": 2170
+  },
+  {
+    "name": "168_verified_test_canary_gate_least_privilege.sql",
+    "path": "services/api/migrations/platform-admin/168_verified_test_canary_gate_least_privilege.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "d2904cbe8cc9e044053bf10251cf74dadbc98e21aacd6141fb32e6d1e6a58a9b",
+    "variants": 1,
+    "length": 3556
+  },
+  {
+    "name": "169_generic_release_tenant_scope.sql",
+    "path": "services/api/migrations/platform-admin/169_generic_release_tenant_scope.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "8e722270951458d35f680a08d5ead311ae2dc190d941f26610a847d6ac9bf40a",
+    "variants": 1,
+    "length": 5287
+  },
+  {
+    "name": "170_customer_scoped_itsm_rollback.sql",
+    "path": "services/api/migrations/platform-admin/170_customer_scoped_itsm_rollback.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "2a39b622a532cc156cb12df10e78a1767a8ae50000c9b6a791165907e7bcd9ac",
+    "variants": 1,
+    "length": 6281
+  },
+  {
+    "name": "171_customer_release_preparation_drafts.sql",
+    "path": "services/api/migrations/platform-admin/171_customer_release_preparation_drafts.sql",
+    "source": "github PR #85",
+    "source_ref": "origin/pr/85",
+    "sha256": "73d167eaa5a84e39e2db3a4333cff1c729283a93d49376a3860372393f2e3550",
+    "variants": 1,
+    "length": 803
+  }
+]
