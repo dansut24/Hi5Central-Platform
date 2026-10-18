@@ -1,6 +1,7 @@
 import {verifyOfficialReleaseRun,verifyDevReleaseSmoke,listOfficialReleaseCandidates} from './officialReleaseCertification.js'
 import {previewGenericCertifiedRelease} from './genericReleaseDiscovery.js'
 import {authoriseDirectCustomerReleaseStages,fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
+import {supersedeOlderCustomerReleases} from './automaticReleaseSupersession.js'
 import {saveCustomerReleaseDraft,readCustomerReleasePreparation,publishCustomerReleaseNotes} from './customerReleasePreparation.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
 import {readGenericTenantScope} from './genericReleaseTenantScope.js'
@@ -257,6 +258,11 @@ export function registerCertifiedTenantReleaseRoutes(app,{
           // never unpause workers, skip tenant UAT consent or bypass host gates.
           await authoriseDirectCustomerReleaseStages(db,{
             sha,actorId:auth.session.user_id,ciRunUrl:runUrl})
+          // Retire never-claimed older-version jobs BEFORE planning the new
+          // revision. The entire supersession, fanout and audit event commit
+          // atomically; a failed certification never strands the queue.
+          const supersession=await supersedeOlderCustomerReleases(db,{
+            newSha:sha,actorId:auth.session.user_id})
           const plan=await fanoutCertifiedRelease(db,{
             sha,scope:'generic',deliveryMode:'direct_customer_release',
             limit:200,
@@ -271,9 +277,12 @@ export function registerCertifiedTenantReleaseRoutes(app,{
           ].join(' '),[sha,auth.session.user_id,JSON.stringify({
             deliveryMode:'direct_customer_release',
             scanned:plan.scanned,queued:plan.queued,alreadyQueued:plan.alreadyQueued,
+            superseded: supersession.supersededCount,
+            supersededJobIds: supersession.supersededJobIds,
           })])
           return {approved:true,alreadyApproved,buildSha:sha,
             releaseToCustomers:true,queued:plan.queued,
+            superseded:supersession.supersededCount,
             alreadyQueued:plan.alreadyQueued,scanned:plan.scanned,
             blocked:plan.blocked,deliveryMode:plan.deliveryMode,globallyPaused}
         }

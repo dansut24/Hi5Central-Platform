@@ -130,6 +130,19 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     'AND ($3::text IS NULL OR j.environment=$3)',
     'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
     'AND ($5::text IS NULL OR j.build_sha=$5)',
+    // Production/UAT never claim a stale SHA after a newer published release
+    // has received authenticated staff execution approval. This protects
+    // older queued jobs even if a future publication path misses supersession.
+    "AND (j.environment='test' OR j.build_sha=(",
+    ' SELECT n2.build_sha FROM hi5central_published_release_notes n2',
+    ' JOIN platform_certified_application_releases c2 ON c2.build_sha=n2.build_sha',
+    ' JOIN platform_release_generic_stage_approvals a2 ON a2.build_sha=n2.build_sha',
+    '  AND a2.environment=j.environment',
+    " WHERE c2.status='approved' AND c2.approved_by IS NOT NULL",
+    ' AND a2.planning_enabled=true AND a2.execution_enabled=true',
+    ' AND a2.approved_by IS NOT NULL AND a2.expires_at>now()',
+    ' ORDER BY n2.published_at DESC,c2.approved_at DESC,n2.build_sha DESC LIMIT 1',
+    '))',
     ...(genericTenantScope?["AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true"]:[]),
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
