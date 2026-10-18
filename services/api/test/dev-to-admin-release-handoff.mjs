@@ -61,3 +61,13 @@ test('only Admin can release a submitted Dev record; source code prevents browse
  assert.match(editor,/Submit for Platform Admin approval/)
  assert.doesNotMatch(editor,/onClick=\{\(\)=>save\(true\)\}/)
 })
+
+test('Platform Admin renders release approval outside heading action buttons',()=>{
+ const app=readFileSync(new URL('../../../apps/admin/src/features/admin/PlatformAdminApp.jsx',import.meta.url),'utf8')
+ const from=app.indexOf('<PageHeading view="releases" action=')
+ const to=app.indexOf('{canApproveSharedReleases?<ReleaseWorkActivity',from)
+ assert.ok(from>=0&&to>from,'Releases layout was not found')
+ const layout=app.slice(from,to)
+ assert.match(layout,/<\/div>}\/>\s*<CertifiedReleaseControls api=\{api} canApprove=\{canApproveSharedReleases}\/>/)
+ assert.match(layout,/<CertifiedReleaseControls[^>]+\/>\s*<details className="rmm-card"/)
+})
