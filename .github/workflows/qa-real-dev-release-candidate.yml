@@ -1,0 +1,150 @@
+name: Real Hi5Central Dev Release Candidate (QA)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: hi5central-certified-dev-candidate-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  compatibility:
+    name: Dev candidate release compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - name: Verify scheduler, worker and direct customer release policies
+        working-directory: services/api
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          node --test test/generic-release-tenant-scope.mjs test/itsm-direct-customer-runner.mjs test/direct-customer-release.mjs test/restricted-release-worker-boundaries.mjs test/release-simple-runner-contract.mjs test/shared-caddy-release-routes.mjs
+      - name: Validate versioned release manifest generation
+        run: |
+          node .github/scripts/generate-release-manifest.mjs
+          node --input-type=module -e "import m from './services/api/release-manifest.json' with {type:'json'};if(m.sha!==process.env.GITHUB_SHA)process.exit(1)"
+
+  security:
+    name: Security and migration compatibility
+    needs: compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - name: Check migration and release gates are present
+        run: |
+          test -s services/api/migrations/platform-admin/172_automatic_all_itsm_customer_release_discovery.sql
+          node --check services/api/src/tenantReleaseExecutor.mjs
+          node --check services/api/src/releaseSimpleScheduler.mjs
+          node --check services/api/src/releaseSimpleWorker.mjs
+          node --check deployment/release/host-deploy.mjs
+          grep -q 'hi5_release_generic_tenant_permitted' services/api/migrations/platform-admin/172_automatic_all_itsm_customer_release_discovery.sql
+      - name: Compile real ITSM web assets
+        working-directory: apps/itsm
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+  publish-api:
+    name: Publish api immutable Dev candidate
+    needs: [compatibility, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/api
+          push: true
+          tags: ghcr.io/dansut24/hi5central-platform-api:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=API
+          cache-to: type=gha,mode=max,scope=API
+
+  publish-itsm:
+    name: Publish itsm immutable Dev candidate
+    needs: [compatibility, security]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 120
+      - run: node .github/scripts/generate-release-manifest.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: apps/itsm
+          push: true
+          tags: ghcr.io/dansut24/hi5central-platform-itsm:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/dansut24/Hi5Central-Platform
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=ITSM
+          cache-to: type=gha,mode=max,scope=ITSM
+
+  verify-dev:
+    name: Verify exact API+ITSM Dev release pair
+    needs: [publish-api, publish-itsm]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for actual Dev API and frontend to serve immutable candidate SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 120); do
+            api=$(curl -fsS --max-time 8 --retry 0 https://dev-api.hi5central.com/api/v1/updates/version || true)
+            web=$(curl -fsS --max-time 8 --retry 0 https://dev.hi5central.com/release-manifest.json || true)
+            login=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 8 https://dev.hi5central.com/login || true)
+            if API_JSON="$api" WEB_JSON="$web" LOGIN_STATUS="$login" python3 - <<'PY'
+          import os,json,sys
+          try:
+              api=json.loads(os.environ['API_JSON'])
+              web=json.loads(os.environ['WEB_JSON'])
+              ok=(api.get('sha')==os.environ['GITHUB_SHA']
+                  and api.get('environment')=='dev'
+                  and web.get('sha')==os.environ['GITHUB_SHA']
+                  and os.environ['LOGIN_STATUS']=='200')
+          except (ValueError,KeyError):
+              ok=False
+          sys.exit(0 if ok else 1)
+          PY
+            then
+              echo "Real Dev API, ITSM manifest and login proved for $GITHUB_SHA"
+              exit 0
+            fi
+            echo "Waiting for exact Dev deployment of $GITHUB_SHA (attempt $attempt/120)"
+            sleep 10
+          done
+          echo "::error::Dev does not serve the exact verified release candidate"
+          exit 1
