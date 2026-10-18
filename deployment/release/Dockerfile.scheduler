@@ -1,0 +1,8 @@
+FROM node:24-alpine
+WORKDIR /app
+COPY deployment/qa26/release-worker-planner/package.json deployment/qa26/release-worker-planner/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY services/api/src/ services/api/src/
+USER node
+ENV NODE_ENV=production
+ENTRYPOINT ["node","services/api/src/releaseSimpleScheduler.mjs"]

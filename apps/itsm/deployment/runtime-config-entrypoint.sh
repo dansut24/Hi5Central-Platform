@@ -14,7 +14,11 @@ ROOT_DOMAIN_RAW="${ROOT_DOMAIN:-hi5central.com}"
 APP_URL_RAW="${APP_URL:-}"
 API_URL_RAW="${API_URL:-}"
 
-if [ -z "$API_URL_RAW" ]; then
+# Versioned customer frontends use tenant same-origin API routing. The global
+# Marketing/ITSM runtime keeps the normal public API URL behavior.
+if [ "${HI5_API_SAME_ORIGIN:-false}" = "true" ]; then
+  API_URL_RAW=""
+elif [ -z "$API_URL_RAW" ]; then
   if [ "$TENANCY_MODE_RAW" = "single" ]; then
     API_URL_RAW="${APP_URL_RAW:-https://${ROOT_DOMAIN_RAW}}"
   else
