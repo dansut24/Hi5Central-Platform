@@ -24,6 +24,13 @@ const pool=new pg.Pool({
 let running=true
 for(const sig of ['SIGINT','SIGTERM'])process.on(sig,()=>{running=false})
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms))
+async function assertDatabaseIdentity(){
+  const result=await pool.query('SELECT session_user AS login,current_user AS role')
+  if(result.rows[0]?.login!=='hi5_release_planner' ||
+    result.rows[0]?.role!=='hi5_release_planner')
+    throw Error('Planner refuses shared or unrestricted PostgreSQL credentials.')
+}
+
 async function assertSchema(){
  const rows=await pool.query([
  'SELECT',
@@ -73,6 +80,7 @@ async function cycle(){
    console.log(JSON.stringify({type:'release_planner_poll',count:approvals.rowCount}))
 }
 try{
+ await assertDatabaseIdentity()
  await assertSchema()
  if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length)
  else{
