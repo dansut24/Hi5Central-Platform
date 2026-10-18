@@ -1,0 +1,49 @@
+name: Publish Restricted Release Workers
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/src/**'
+      - 'services/api/package.json'
+      - 'deployment/qa26/Dockerfile.*release*'
+      - 'deployment/qa26/release-worker-*/**'
+      - 'deployment/qa26/tenant-release-host-executor.mjs'
+      - '.github/workflows/publish-restricted-release-workers.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish-reviewed-workers:
+    name: Build immutable ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: planner
+            dockerfile: deployment/qa26/Dockerfile.certified-release-planner
+            image: ghcr.io/dansut24/hi5central-release-planner
+          - name: executor
+            dockerfile: deployment/qa26/Dockerfile.tenant-release-executor
+            image: ghcr.io/dansut24/hi5central-release-executor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: ${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=release-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}
+      - name: No automatic worker deployment
+        run: echo 'Images published by SHA only. Stage credentials, review, gateway attestation and worker activation are separate protected steps.'

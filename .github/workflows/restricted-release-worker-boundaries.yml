@@ -1,0 +1,44 @@
+name: Reproducible Release Workers and PostgreSQL Stage Boundaries
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/releaseFanoutDaemon.mjs'
+      - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/src/releaseGatewayCoordinator.js'
+      - 'services/api/src/tenantCaddyVersionRoutes.js'
+      - 'services/api/src/tenantLiveBaseline.js'
+      - 'services/api/src/tenantReleaseQueue.js'
+      - 'services/api/src/certifiedReleaseFanout.js'
+      - 'services/api/test/restricted-release-worker-boundaries.mjs'
+      - 'deployment/qa26/Dockerfile.*release*'
+      - 'deployment/qa26/release-worker-*/**'
+      - 'deployment/qa26/sql/restricted-release-workers.sql'
+      - '.github/workflows/restricted-release-worker-boundaries.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  restricted-release-workers:
+    name: Worker provenance, role safety and stage boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Source and database-boundary contracts
+        run: |
+          node --check services/api/src/releaseFanoutDaemon.mjs
+          node --check services/api/src/tenantReleaseExecutor.mjs
+          node --check deployment/qa26/tenant-release-host-executor.mjs
+          node --test services/api/test/restricted-release-worker-boundaries.mjs
+          node --test services/api/test/release-work-activity.mjs
+          node --test services/api/test/rollout-job-supersession.mjs
+      - name: Build dedicated non-Docker planner
+        run: docker build -f deployment/qa26/Dockerfile.certified-release-planner -t hi5-release-planner:review .
+      - name: Build gateway executor with exact mainline source
+        run: docker build -f deployment/qa26/Dockerfile.tenant-release-executor -t hi5-release-executor:review .
+      - name: Verify both image entrypoints and compile without database access
+        run: |
+          docker run --rm --network none --entrypoint node hi5-release-planner:review --check services/api/src/releaseFanoutDaemon.mjs
+          docker run --rm --network none --entrypoint node hi5-release-executor:review --check services/api/src/tenantReleaseExecutor.mjs

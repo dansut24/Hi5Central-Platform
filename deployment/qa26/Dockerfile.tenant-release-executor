@@ -1,0 +1,16 @@
+# One gateway-scoped executor (Test / UAT / Live), never a generic worker.
+# Docker socket attachment is a separate, explicitly controlled host decision;
+# this image does not embed or inherit privileged database credentials.
+FROM docker:27-cli
+RUN apk add --no-cache nodejs npm curl
+WORKDIR /runner
+COPY deployment/qa26/release-worker-executor/package.json deployment/qa26/release-worker-executor/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+COPY services/api/package.json services/api/package.json
+COPY services/api/src/ services/api/src/
+COPY deployment/qa26/tenant-release-host-executor.mjs deployment/qa26/tenant-release-host-executor.mjs
+RUN node --check services/api/src/tenantReleaseExecutor.mjs \
+ && node --check deployment/qa26/tenant-release-host-executor.mjs \
+ && node --check services/api/src/tenantReleaseQueue.js
+ENV NODE_ENV=production
+ENTRYPOINT ["node","services/api/src/tenantReleaseExecutor.mjs"]
