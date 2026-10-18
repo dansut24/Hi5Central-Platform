@@ -8,6 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
+import {validateOnboardingMaintenanceWindow} from './onboardingMaintenancePolicy.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -87,10 +88,14 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
     throw error
   }
   const managed = updateMode === 'hi5_managed'
+  const maintenanceWindow=validateOnboardingMaintenanceWindow(data?.maintenanceWindow)
+  // UAT is automatic for Custom, Production promotion remains customer approved.
+  // Managed tenants do not have UAT and update Production only in their window.
+  const autoUat=!managed
   await client.query(
     `INSERT INTO tenant_release_preferences
-       (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,live_delay_hours,allow_emergency_security_updates,updated_by,updated_at)
-     VALUES ($1,$2,true,$3,$4,$5,$6,$7,now())
+       (tenant_id,update_mode,test_auto_sync,uat_auto_stage,live_auto_promote,live_delay_hours,allow_emergency_security_updates,maintenance_window,updated_by,updated_at)
+     VALUES ($1,$2,true,$3,$4,$5,$6,$7::jsonb,$8,now())
      ON CONFLICT (tenant_id) DO UPDATE SET
        update_mode=excluded.update_mode,
        test_auto_sync=excluded.test_auto_sync,
@@ -98,9 +103,10 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
        live_auto_promote=excluded.live_auto_promote,
        live_delay_hours=excluded.live_delay_hours,
        allow_emergency_security_updates=excluded.allow_emergency_security_updates,
+       maintenance_window=excluded.maintenance_window,
        updated_by=excluded.updated_by,
        updated_at=now()`,
-    [tenantId, updateMode, managed, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, userId],
+    [tenantId, updateMode, autoUat, managed, liveDelayHours, data?.allowEmergencySecurityUpdates !== false, JSON.stringify(maintenanceWindow), userId],
   )
   await client.query(
     `INSERT INTO tenant_environment_state (tenant_id,environment,status)
@@ -249,10 +255,14 @@ export function registerTenantReleaseRoutes(app) {
       return c.json({ error: 'liveDelayHours must be between 0 and 720.' }, 400)
     }
 
-    const maintenanceWindow = object(body?.maintenanceWindow)
+    const maintenanceWindow = body?.maintenanceWindow == null
+      ? {}
+      : validateOnboardingMaintenanceWindow(body.maintenanceWindow)
+    // Managed has no UAT; Custom UAT is available automatically but only
+    // the customer can approve a matching Production promotion.
     const modeDefaults = updateMode === 'hi5_managed'
-      ? { uatAutoStage: true, liveAutoPromote: true }
-      : { uatAutoStage: false, liveAutoPromote: false }
+      ? { uatAutoStage: false, liveAutoPromote: true }
+      : { uatAutoStage: true, liveAutoPromote: false }
 
     await ensurePreference(auth.session.tenant_id)
     const result = await pool.query(

@@ -53,6 +53,17 @@ function accentTextColour(value) {
   return ((0.2126 * r) + (0.7152 * g) + (0.0722 * b)) > 165 ? '#10213f' : '#ffffff'
 }
 
+const releaseDays = [
+  ['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'],
+  ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun'],
+]
+const defaultReleaseWindow = (session) => ({
+  days: [],
+  start: '02:00',
+  end: '05:00',
+  timezone: session?.onboarding?.data?.company?.timezone || 'Europe/London',
+})
+
 const defaultPrefixes = {
   incident: 'INC-',
   serviceRequest: 'REQ-',
@@ -141,7 +152,12 @@ function defaultData(step, session) {
       passwordPolicy: 'strong',
       auditRetention: '365',
     },
-    updates: { updateMode: SELF_HOSTED ? 'admin_controlled' : 'hi5_managed', liveDelayHours: 24, allowEmergencySecurityUpdates: true },
+    updates: {
+      updateMode: SELF_HOSTED ? 'admin_controlled' : 'hi5_managed',
+      liveDelayHours: 24,
+      allowEmergencySecurityUpdates: true,
+      maintenanceWindow: defaultReleaseWindow(session),
+    },
     itsm: {
       numberingMode: 'default',
       recordPrefixes: { ...defaultPrefixes },
@@ -699,13 +715,72 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <button type="button" className={data.updateMode !== 'hi5_managed' ? 'is-selected' : ''} onClick={() => update('updateMode', 'admin_controlled')}>Custom / admin controlled</button>
               </div>
               <p>{data.updateMode === 'hi5_managed'
-                ? 'Hi5Central stages releases through Test and UAT before scheduled promotion to Live.'
-                : 'Your administrators control when updates are staged and promoted to Live.'}</p>
+                ? 'New certified releases install automatically in Production during your chosen maintenance window. Managed customers do not need UAT.'
+                : 'New certified releases are made available automatically in UAT. Your administrators review and explicitly approve promotion to Production.'}</p>
               {data.updateMode === 'hi5_managed' ? (
                 <Field label="Live release delay (hours)" hint="0 to 720 hours after an eligible staged release.">
                   <input type="number" min="0" max="720" value={data.liveDelayHours ?? 24} onChange={(event) => update('liveDelayHours', Number(event.target.value))} />
                 </Field>
               ) : null}
+              <Section title="Application release maintenance window"
+                description={data.updateMode === 'hi5_managed'
+                  ? 'Choose when Hi5Central may update your Production ITSM service. No updates are scheduled until you select permitted days.'
+                  : 'Choose when Hi5Central may stage UAT releases and when an approved Production promotion may be scheduled.'}>
+                <div className="onboarding-form-grid">
+                  <Field label="Start time">
+                    <input type="time"
+                      value={data.maintenanceWindow?.start ?? '02:00'}
+                      onChange={(event) => update('maintenanceWindow', {
+                        ...(data.maintenanceWindow || defaultReleaseWindow(session)), start: event.target.value,
+                      })}/>
+                  </Field>
+                  <Field label="End time" hint="A window may run past midnight. Minimum 30 minutes.">
+                    <input type="time"
+                      value={data.maintenanceWindow?.end ?? '05:00'}
+                      onChange={(event) => update('maintenanceWindow', {
+                        ...(data.maintenanceWindow || defaultReleaseWindow(session)), end: event.target.value,
+                      })}/>
+                  </Field>
+                  <Field label="Time zone" hint="Local time adjusts automatically for daylight-saving changes." full>
+                    <select value={data.maintenanceWindow?.timezone || defaultReleaseWindow(session).timezone}
+                      onChange={(event) => update('maintenanceWindow', {
+                        ...(data.maintenanceWindow || defaultReleaseWindow(session)), timezone: event.target.value,
+                      })}>
+                      {Array.from(new Set([
+                        defaultReleaseWindow(session).timezone,
+                        'Europe/London', 'Europe/Dublin', 'Europe/Paris', 'Europe/Berlin',
+                        'America/New_York', 'America/Chicago', 'America/Denver',
+                        'America/Los_Angeles', 'Asia/Dubai', 'Asia/Singapore',
+                        'Australia/Sydney', 'UTC',
+                      ])).map((zone) => <option value={zone} key={zone}>{zone}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <fieldset className="onboarding-release-days">
+                  <legend>Permitted days <span>(select at least one)</span></legend>
+                  <div className="onboarding-release-day-options">
+                    {releaseDays.map(([day,label])=>(
+                      <label key={day} className="onboarding-release-day">
+                        <input type="checkbox"
+                          checked={(data.maintenanceWindow?.days || []).includes(day)}
+                          onChange={(event) => {
+                            const previous=data.maintenanceWindow || defaultReleaseWindow(session)
+                            const next=new Set(previous.days || [])
+                            if(event.target.checked) next.add(day)
+                            else next.delete(day)
+                            update('maintenanceWindow', {
+                              ...previous,days:releaseDays.map(([d])=>d).filter(d=>next.has(d)),
+                            })
+                          }}/>
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+                {!(data.maintenanceWindow?.days?.length) ? (
+                  <p className="onboarding-release-warning">Select your maintenance days to continue. No automatic upgrade will run without your permission.</p>
+                ) : null}
+              </Section>
               <Toggle checked={data.allowEmergencySecurityUpdates !== false} onChange={(value) => update('allowEmergencySecurityUpdates', value)} title="Allow emergency security updates" description="Permit critical Hi5Central security fixes outside the normal rollout window." />
             </Section>
           ) : null}
@@ -806,6 +881,7 @@ export function OnboardingWizard({ session, onSessionChange }) {
                 <div><span>Tenant</span><strong>{SELF_HOSTED ? DEPLOYMENT.appUrl : `${session.tenant.slug}.${DEPLOYMENT.rootDomain}`}</strong></div>
                 <div><span>Owner</span><strong>{session.user.email}</strong></div>
                 <div><span>Hi5Central updates</span><strong>{savedUpdates.updateMode === 'hi5_managed' ? 'Hi5Central managed' : 'Custom / admin controlled'}</strong></div>
+                <div><span>Maintenance window</span><strong>{(savedUpdates.maintenanceWindow?.days || []).join(', ') || 'Not selected'} · {savedUpdates.maintenanceWindow?.start || '—'}–{savedUpdates.maintenanceWindow?.end || '—'} {savedUpdates.maintenanceWindow?.timezone || ''}</strong></div>
                 <div><span>Products</span><strong>{[modules.itsm ? 'ITSM' : null, modules.rmm ? 'RMM' : null].filter(Boolean).join(' + ')}</strong></div>
                 <div><span>Domain</span><strong>{savedDelivery.domainMode === 'custom' ? `${savedDelivery.customWorkspaceDomain || 'Custom domain'} (${savedDelivery.domainStatus === 'verified' ? 'ownership verified' : 'pending verification'})` : defaultWorkspaceAddress}</strong></div>
                 <div><span>Outbound email</span><strong>{savedDelivery.smtpMode === 'custom' ? (savedDelivery.smtpVerifiedAt ? 'Custom SMTP verified' : 'Custom SMTP pending') : (SELF_HOSTED ? 'Server SMTP' : 'Hi5Central managed mail')}</strong></div>
