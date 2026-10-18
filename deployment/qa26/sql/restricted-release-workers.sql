@@ -21,9 +21,14 @@ BEGIN
   LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS',role_name);
+    ELSE
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=role_name
+        AND (rolsuper OR rolbypassrls OR rolinherit OR rolcreaterole)) THEN
+        RAISE EXCEPTION 'Existing % is not a restricted role',role_name;
+      END IF;
     END IF;
   END LOOP;
-END $$;
+END $;
 
 GRANT CONNECT ON DATABASE hi5central TO
   hi5_release_planner,hi5_release_executor_test,hi5_release_executor_uat,hi5_release_executor_live;
@@ -137,7 +142,7 @@ BEGIN
            status IN ('pending','scheduled') AND attempt_count=0
            AND lease_token IS NULL AND lease_expires_at IS NULL
            AND EXISTS(SELECT 1 FROM public.platform_release_generic_stage_approvals a
-             WHERE a.build_sha=build_sha AND a.environment=environment
+             WHERE a.build_sha=tenant_release_rollout_jobs.build_sha AND a.environment=tenant_release_rollout_jobs.environment
                AND a.planning_enabled=true AND a.approved_by IS NOT NULL
                AND a.expires_at>now())
           )$p$,relation_name);
@@ -178,13 +183,13 @@ CREATE OR REPLACE FUNCTION public.hi5_release_prepare_live_after_uat(
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path=pg_catalog,public
 AS $$
-DECLARE record public.tenant_release_rollout_jobs%ROWTYPE;
+DECLARE job_row public.tenant_release_rollout_jobs%ROWTYPE;
   pool_id text;pair_base text;
 BEGIN
   IF session_user <> 'hi5_release_executor_uat' THEN
     RAISE EXCEPTION 'Only the restricted UAT executor can prepare a Live offer';
   END IF;
-  SELECT * INTO record FROM public.tenant_release_rollout_jobs
+  SELECT * INTO job_row FROM public.tenant_release_rollout_jobs
     WHERE id=p_job AND environment='uat' AND status='running'
       AND lease_token=p_token AND lease_fence=p_fence
       AND lease_expires_at>now() AND routed_generation IS NULL
@@ -192,34 +197,34 @@ BEGIN
   IF NOT FOUND THEN RAISE EXCEPTION 'Verified current UAT lease required'; END IF;
   IF NOT EXISTS(SELECT 1 FROM public.tenants t
     JOIN public.tenant_release_preferences p ON p.tenant_id=t.id
-    WHERE t.id=record.tenant_id AND t.status='active'
+    WHERE t.id=job_row.tenant_id AND t.status='active'
       AND p.update_mode='admin_controlled') THEN
     RAISE EXCEPTION 'Only active Custom UAT tenants can stage Live offers';
   END IF;
   IF NOT EXISTS(SELECT 1 FROM public.platform_certified_application_releases c
     JOIN public.hi5central_published_release_notes n ON n.build_sha=c.build_sha
-    WHERE c.build_sha=record.build_sha AND c.status='approved') THEN
+    WHERE c.build_sha=job_row.build_sha AND c.status='approved') THEN
     RAISE EXCEPTION 'Published and certified release required for Live offer';
   END IF;
-  pair_base='hi5pool-live-'||left(record.build_sha,12);
+  pair_base='hi5pool-live-'||left(job_row.build_sha,12);
   pool_id=pair_base;
   INSERT INTO public.platform_runtime_pools
     (id,environment,build_sha,api_target,web_target,state,verified_at,last_seen_at,health)
-  VALUES(pool_id,'live',record.build_sha,pair_base||'-api:3001',
+  VALUES(pool_id,'live',job_row.build_sha,pair_base||'-api:3001',
          pair_base||'-web:80','verified',now(),now(),
          '{"status":"healthy","source":"verified-uat-staging"}'::jsonb)
   ON CONFLICT(id) DO UPDATE SET
     verified_at=now(),last_seen_at=now(),updated_at=now(),
     health=EXCLUDED.health
     WHERE platform_runtime_pools.environment='live'
-      AND platform_runtime_pools.build_sha=record.build_sha;
+      AND platform_runtime_pools.build_sha=job_row.build_sha;
   IF NOT FOUND THEN RAISE EXCEPTION 'Live pool conflicts with immutable release'; END IF;
   INSERT INTO public.tenant_runtime_update_offers
     (tenant_id,environment,pool_id,build_sha,update_mode,state)
-  SELECT record.tenant_id,'live',pool_id,record.build_sha,'admin_controlled','offered'
+  SELECT job_row.tenant_id,'live',pool_id,job_row.build_sha,'admin_controlled','offered'
   WHERE NOT EXISTS(
     SELECT 1 FROM public.tenant_runtime_update_offers
-    WHERE tenant_id=record.tenant_id AND environment='live' AND build_sha=record.build_sha
+    WHERE tenant_id=job_row.tenant_id AND environment='live' AND build_sha=job_row.build_sha
   );
   RETURN pool_id;
 END $$;
