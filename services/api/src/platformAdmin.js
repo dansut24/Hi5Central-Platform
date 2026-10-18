@@ -8,6 +8,7 @@ import { ensureRedisConnected } from './redis.js'
 import { requestIp, requestUserAgent } from './securityAudit.js'
 import { applicationDeployments } from './applicationDeployment.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
+import {supersedeScheduledReleaseJobs} from './rolloutJobSupersession.js'
 import {
   cancelSoftwareQualificationQueue,
   forceQualificationCleanup,
@@ -706,6 +707,42 @@ export function registerPlatformAdminRoutes(app) {
   // Preview-only runtime-pool control. Tenants cannot choose Docker upstreams
   // or activate routes from a browser. Platform Admin can prepare one offer
   // for one tenant; the host operator must attest and activate infrastructure.
+  // Does not grant release approval, unpause any stage, route traffic or
+  // enqueue a replacement. Only cancels the exact unclaimed jobs reviewed
+  // by an authenticated ACTIVE Hi5Central staff owner/admin.
+  app.post('/api/platform/v1/releases/rollout-jobs/supersede',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central Production authority only.'},403)
+    const member=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(member.rowCount!==1)
+      return c.json({error:'Active Hi5Central staff release authority required.'},403)
+    const body=await c.req.json().catch(()=>null)
+    if(body?.confirm!=='CANCEL_SUPERSEDED_UNCLAIMED_JOBS')
+      return c.json({error:'Explicit exact cancellation confirmation required.'},400)
+    try{
+      const result=await withTransaction(async db=>{
+        const review=await supersedeScheduledReleaseJobs(db,{
+          oldSha:body.oldSha,newSha:body.newSha,expected:body.expected,
+          reason:body.reason,actorId:auth.session.user_id,
+        })
+        // This audit commits in the very same transaction as six job rows
+        // and six per-job events. A failed audit rolls everything back.
+        await audit(c,auth.session,'release.rollout_jobs_superseded','release',
+          review.oldSha,{newSha:review.newSha,cancelled:review.cancelled,
+          reason:body.reason,reviewedPairs:review.reviewedPairs},db)
+        return review
+      })
+      return c.json({superseded:true,...result})
+    }catch(error){
+      return c.json({error:String(error?.message||error).slice(0,400)},409)
+    }
+  })
+
   app.get('/api/platform/v1/releases/runtime-pools',async c=>{
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
