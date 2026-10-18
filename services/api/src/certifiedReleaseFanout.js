@@ -187,8 +187,7 @@ export async function fanoutCertifiedRelease(db,{
   if(!SHA.test(String(sha||''))||!Number.isInteger(limit)||limit<1||limit>2000)
     throw fail('Exact immutable revision and bounded tenant batch required.')
   if(!['qa','generic'].includes(scope))throw fail('Unknown release planner scope.')
-  if(!['qa_sequential','direct_customer_release'].includes(deliveryMode)
-    ||(scope==='qa'&&deliveryMode!=='qa_sequential'))
+  if(!['qa_sequential','direct_customer_release'].includes(deliveryMode))
     throw fail('Unknown or unauthorised release delivery mode.')
   // QA keeps its frozen explicit allowlist. General discovery is deliberately
   // separate and only occurs with fresh staff-approved per-stage DB scope.
@@ -196,12 +195,20 @@ export async function fanoutCertifiedRelease(db,{
     ?parseQaReleaseTenantSlugs(Array.isArray(qaTenantSlugs)?qaTenantSlugs.join(','):'')
     :null
   let genericStagePermissions=null
-  if(scope==='generic'){
+  let approvalsForDirect=null
+  // Direct releases, even within an explicitly named QA cohort, need the
+  // independent staff 'Release to customers' authority for their stage.
+  if(scope==='generic'||deliveryMode==='direct_customer_release'){
     const approvals=await readGenericReleaseApprovals(db,{sha})
+    approvalsForDirect=approvals
     genericStagePermissions=Object.fromEntries(GENERIC_STAGES.map(stage=>[
       stage,authorisedGenericReleaseStage({approval:approvals[stage],sha,stage,now})]))
     if(!GENERIC_STAGES.some(stage=>genericStagePermissions[stage].allowed))
-      throw fail('No explicit staff-approved generic release planning stage; refusing all writes.')
+      throw fail('No explicit staff-approved release planning stage; refusing all writes.')
+    if(scope==='qa'&&deliveryMode==='direct_customer_release'&&
+      !GENERIC_STAGES.some(stage=>approvals[stage]?.evidence?.releaseToCustomers===true
+        &&genericStagePermissions[stage]?.allowed===true))
+      throw fail('QA direct release requires an explicit audited staff Release to customers approval.')
   }
   const lock=await db.query('SELECT pg_try_advisory_xact_lock(hashtext($1),hashtext($2)) AS locked',
     ['hi5central-certified-release-fanout',sha])
@@ -303,8 +310,10 @@ export async function fanoutCertifiedRelease(db,{
        deliveryMode,
     })
     const plan=scheduledCustomerRelease({decision,tenant,sha,now})
-    if(plan.status==='scheduled'&&scope==='generic'
-      &&!genericStagePermissions[plan.stage]?.allowed){
+    if(plan.status==='scheduled'&&(scope==='generic'||deliveryMode==='direct_customer_release')
+      &&(!genericStagePermissions[plan.stage]?.allowed||
+        (scope==='qa'&&deliveryMode==='direct_customer_release'&&
+        (approvalsForDirect?.[plan.stage]?.evidence?.releaseToCustomers!==true)))){
       report.blocked++
       if(report.reasons.length<20)report.reasons.push({slug:row.slug,
         reason:'Generic '+plan.stage+' scheduling has no current staff approval.'})
