@@ -5,7 +5,7 @@
 -- Existing hi5central superuser and customer routes are unchanged.
 BEGIN;
 
-DO $$
+DO $roleblock$
 DECLARE role_name text;
 BEGIN
   IF to_regclass('public.tenant_release_rollout_jobs') IS NULL
@@ -28,7 +28,7 @@ BEGIN
       END IF;
     END IF;
   END LOOP;
-END $;
+END $roleblock$;
 
 GRANT CONNECT ON DATABASE hi5central TO
   hi5_release_planner,hi5_release_executor_test,hi5_release_executor_uat,hi5_release_executor_live;
