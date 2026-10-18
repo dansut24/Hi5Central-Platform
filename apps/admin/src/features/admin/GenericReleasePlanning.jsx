@@ -1,6 +1,5 @@
 import {useEffect,useMemo,useState} from 'react'
 import {CheckCircle2,Clock3,LockKeyhole,RefreshCw,ShieldCheck,ShieldOff,AlertTriangle} from 'lucide-react'
-import {GenericReleasePilotScope} from './GenericReleasePilotScope.jsx'
 
 const stageNames={test:'Test',uat:'UAT',live:'Production'}
 const fmtTime=value=>value?new Date(value).toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'}):'—'
@@ -124,7 +123,12 @@ export function GenericReleasePlanning({api,canApprove=false}){
  const tenants=(preview?.tenants||[]).filter(t=>filter==='all'||t.status===filter)
  const decisions=preview?.stageApprovals||{}
  return <>
-  <GenericReleasePilotScope api={api} canApprove={canApprove}/>
+  <p style={{fontSize:13,margin:'0 0 16px'}}>
+    Every active, onboarded ITSM customer is discovered automatically.
+    Managed updates follow each customer's Production maintenance window;
+    Custom customers receive UAT and approve Production themselves.
+    There is no named pilot or tenant enrolment.
+  </p>
   <section className="rmm-card" style={{padding:20,marginBottom:18}}>
   <div className="rmm-card-heading" style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
    <div>
