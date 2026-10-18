@@ -1,0 +1,14 @@
+# Central queue planning only. This image has no Docker CLI or daemon socket.
+# Build from the reviewed mainline repository so the stage authorisation and
+# customer fanout code cannot drift from the API release.
+FROM node:22-alpine
+WORKDIR /runner
+COPY deployment/qa26/release-worker-planner/package.json deployment/qa26/release-worker-planner/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
+COPY services/api/package.json services/api/package.json
+COPY services/api/src/ services/api/src/
+RUN node --check services/api/src/releaseFanoutDaemon.mjs \
+ && node --check services/api/src/certifiedReleaseFanout.js
+ENV NODE_ENV=production
+USER node
+ENTRYPOINT ["node","services/api/src/releaseFanoutDaemon.mjs"]
