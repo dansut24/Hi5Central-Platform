@@ -9,6 +9,7 @@ import { requestIp, requestUserAgent } from './securityAudit.js'
 import { applicationDeployments } from './applicationDeployment.js'
 import { runtimePoolsOverview,preparePoolOffer } from './runtimePoolControl.js'
 import {supersedeScheduledReleaseJobs} from './rolloutJobSupersession.js'
+import {registerReleaseWorkActivityRoutes} from './releaseWorkActivity.js'
 import {registerCertifiedTenantReleaseRoutes} from './certifiedTenantReleaseRoutes.js'
 import {
   cancelSoftwareQualificationQueue,
@@ -557,6 +558,7 @@ function nullablePositiveInteger(value) {
 
 export function registerPlatformAdminRoutes(app) {
   registerCertifiedTenantReleaseRoutes(app,{requireAdmin,WRITE_ROLES,pool,withTransaction,audit,deployment})
+  registerReleaseWorkActivityRoutes(app,{requireAdmin,WRITE_ROLES,pool,withTransaction,audit,deployment})
   app.post('/api/platform/v1/auth/login', async (c) => {
     if (!originAllowed(c)) return c.json({ error: 'Admin origin required.' }, 403)
     let body
