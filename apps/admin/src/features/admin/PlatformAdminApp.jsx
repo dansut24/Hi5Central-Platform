@@ -898,12 +898,19 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
   const environmentOrder=['dev','test','uat','live']
   const envMap=Object.fromEntries((viewData.environments||[]).map(item=>[item.environment,item]))
   return <>
-    <PageHeading view="releases" action={<div className="h5a-release-heading-actions"><button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/>
+    <PageHeading view="releases" action={<div className="h5a-release-heading-actions">
+      <button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}>
+        <ShieldCheck size={14}/>Feature flag
+      </button>
+      <button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}>
+        <Plus size={14}/>New change
+      </button>
+    </div>}/>
     <CertifiedReleaseControls api={api} canApprove={canApproveSharedReleases}/>
     <details className="rmm-card" style={{padding:12,marginBottom:16}}>
       <summary style={{cursor:'pointer',fontWeight:600}}>Advanced certified release planning and QA pilot admission</summary>
       <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
-    </details>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
+    </details>
     {canApproveSharedReleases?<ReleaseWorkActivity api={api} canApprove/>:null}
     <div className="rmm-card h5a-release-deployment-policy">
       <div className="rmm-card-heading">
