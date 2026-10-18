@@ -1,230 +1,159 @@
 import {useEffect,useMemo,useState} from 'react'
-import {CheckCircle2,Clock3,RefreshCw,ShieldCheck,ShieldAlert,Plus,Trash2,Save} from 'lucide-react'
+import {CheckCircle2,Clock3,RefreshCw,ShieldCheck,ShieldAlert} from 'lucide-react'
 
 const short=sha=>sha?String(sha).slice(0,12):'—'
 const when=value=>value?new Date(value).toLocaleString('en-GB'):'—'
-const emptyNotes=()=>({versionLabel:'',title:'',summary:'',
-  entries:[{category:'feature',title:'',description:''}]})
-const categories=['feature','improvement','fix','security','other']
+const categories={feature:'New feature',improvement:'Improvement',fix:'Fix',
+  security:'Security update',other:'Other'}
 
-/** One customer release action. Drafts are editable before publication;
- * the server verifies exact GitHub CI+Dev and schedules both tenant tracks.
+/**
+ * Dev owns release drafts and submissions. Platform Admin may ONLY review,
+ * reject or approve an immutable submitted SHA/CI/notes combination.
+ * Customer fanout is performed solely by the signed central approval endpoint.
  */
 export function CertifiedReleaseControls({api,canApprove=false}){
  const [data,setData]=useState({published:[],certifications:[],fanout:[]})
- const [candidates,setCandidates]=useState([])
+ const [submissions,setSubmissions]=useState([])
  const [selected,setSelected]=useState('')
- const [notes,setNotes]=useState(emptyNotes)
- const [isPublished,setIsPublished]=useState(false)
+ const [rejectReason,setRejectReason]=useState('')
  const [busy,setBusy]=useState('')
  const [error,setError]=useState('')
  const [message,setMessage]=useState('')
- const [pickerError,setPickerError]=useState('')
- const [loadingNotes,setLoadingNotes]=useState(false)
  const rows=useMemo(()=>new Map((data.certifications||[]).map(c=>[c.build_sha,c])),[data])
  const scan=new Map((data.fanout||[]).map(c=>[c.build_sha,c]))
- const candidate=candidates.find(item=>item.buildSha===selected)
+ const current=submissions.find(item=>item.build_sha===selected)
  async function refresh(){
-  const [releases,candidateList]=await Promise.allSettled([
-   api('/releases/certifications'),api('/releases/candidates'),
+  const [releases,proposals]=await Promise.allSettled([
+   api('/releases/certifications'),api('/releases/dev-submissions'),
   ])
   if(releases.status==='fulfilled')setData(releases.value)
   else setError(releases.reason?.message||'Release history unavailable.')
-  if(candidateList.status==='fulfilled'){
-   setCandidates(candidateList.value.candidates||[])
-   setPickerError('')
-  }else setPickerError(candidateList.reason?.message||'GitHub candidates unavailable.')
+  if(proposals.status==='fulfilled'){
+   const next=proposals.value.submissions||[]
+   setSubmissions(next)
+   setSelected(old=>next.some(item=>item.build_sha===old)?old:
+     next.find(item=>item.status==='submitted')?.build_sha||'')
+  }else setError(proposals.reason?.message||'Dev submissions unavailable.')
  }
  useEffect(()=>{
   let active=true
-  Promise.allSettled([api('/releases/certifications'),api('/releases/candidates')])
-   .then(([r,g])=>{
-    if(!active)return
-    if(r.status==='fulfilled')setData(r.value)
-    if(g.status==='fulfilled')setCandidates(g.value.candidates||[])
-    else setPickerError(g.reason?.message||'GitHub release list unavailable.')
-   }).catch(()=>{})
+  refresh().catch(e=>{if(active)setError(e.message)})
   const timer=setInterval(()=>{if(active)refresh().catch(()=>{})},30000)
   return()=>{active=false;clearInterval(timer)}
  },[api])
- useEffect(()=>{
-  let active=true
-  setIsPublished(false);setNotes(emptyNotes());setError('');setMessage('')
-  if(!selected)return()=>{active=false}
-  setLoadingNotes(true)
-  api('/releases/preparations/'+selected).then(result=>{
-   if(!active)return
-   const next=result.published||result.draft
-   if(next)setNotes({...emptyNotes(),...next,
-    entries:Array.isArray(next.entries)&&next.entries.length?next.entries:emptyNotes().entries})
-   setIsPublished(Boolean(result.published))
-  }).catch(error=>{if(active)setError(error.message||'Cannot load release notes.')})
-   .finally(()=>{if(active)setLoadingNotes(false)})
-  return()=>{active=false}
- },[api,selected])
- const update=(name,value)=>setNotes(current=>({...current,[name]:value}))
- const updateEntry=(index,name,value)=>setNotes(current=>({
-  ...current,entries:current.entries.map((entry,i)=>i===index?{...entry,[name]:value}:entry),
- }))
- function addEntry(){
-  setNotes(current=>({...current,entries:[...current.entries,
-   {category:'feature',title:'',description:''}]}))
- }
- async function saveDraft(){
-  if(!selected||busy||isPublished)return
-  setBusy('draft');setError('');setMessage('')
-  try{
-   await api('/releases/preparations/'+selected,{
-    method:'PUT',body:JSON.stringify({notes}),
-   })
-   setMessage('Release notes saved for commit '+short(selected)+'. No release has been sent.')
-  }catch(e){setError(e.message||'Could not save the draft.')}
-  finally{setBusy('')}
- }
- async function release(){
-  if(!selected||!candidate||busy||loadingNotes){
-   setError('Select a GitHub release candidate that has completed successfully.');return
-  }
-  if(!notes.versionLabel.trim()||!notes.title.trim()||notes.entries.length===0
-     ||notes.entries.some(entry=>entry.title.trim().length<3)){
-   setError('Add a version, title and at least one feature, improvement or fix.');return
-  }
-  if(!window.confirm('Release '+short(selected)+' to customers? Managed will enter its Production maintenance queue; Custom will receive UAT and must approve Production itself.'))return
-  setBusy('release');setError('');setMessage('')
+ async function approve(){
+  if(!current||current.status!=='submitted'||busy)return
+  if(!window.confirm('Approve Dev submission '+short(current.build_sha)+
+      ' and release it to ALL eligible ITSM customers? Managed schedules Production; Custom stages UAT.'))return
+  setBusy('approve');setError('');setMessage('')
   try{
    const result=await api('/releases/certifications/approve',{
-    method:'POST',body:JSON.stringify({buildSha:selected,ciRunUrl:candidate.ciRunUrl,
-     releaseNotes:notes,releaseToCustomers:true}),
+    method:'POST',body:JSON.stringify({buildSha:current.build_sha,
+      ciRunUrl:current.ci_run_url,releaseToCustomers:true}),
    })
-   setIsPublished(true)
-   setMessage(result.globallyPaused
-    ?'Release published and '+result.queued+' jobs queued. Actual upgrades remain held by the platform safety pause.'
-    :result.queued
-     ?'Release published: '+result.queued+' new Managed Production / Custom UAT jobs queued within customer windows.'
-     :'Release published; no new eligible tenant jobs. Check rollout admission and existing jobs.')
+   setMessage('Approved Dev submission '+short(current.build_sha)+
+     '. Queued '+(result.queued||0)+' customer jobs; '+(result.superseded||0)+' older jobs superseded.')
    await refresh()
-  }catch(e){setError(e.message||'Release was not published. Nothing was deployed.')}
+  }catch(e){setError(e.message||'Release approval failed; customers were not queued.')}
+  finally{setBusy('')}
+ }
+ async function reject(){
+  if(!current||current.status!=='submitted'||busy||rejectReason.trim().length<8)return
+  if(!window.confirm('Reject this Dev submission? The Dev author may revise and resubmit it.'))return
+  setBusy('reject');setError('');setMessage('')
+  try{
+   await api('/releases/dev-submissions/'+current.build_sha+'/reject',{
+    method:'POST',body:JSON.stringify({reason:rejectReason.trim()}),
+   })
+   setMessage('Rejected with reason. Dev may revise and resubmit.')
+   setRejectReason('')
+   await refresh()
+  }catch(e){setError(e.message||'Could not reject release submission.')}
   finally{setBusy('')}
  }
  async function revoke(sha){
   if(!window.confirm('Revoke future release planning for '+short(sha)+'?'))return
-  setBusy(sha);setError('')
+  setBusy('revoke');setError('')
   try{
    await api('/releases/certifications/'+sha+'/revoke',{method:'POST',body:'{}'})
-   setMessage('Release certification revoked. Inspect Worker activity for existing jobs.')
+   setMessage('Certification revoked. Existing recorded jobs remain auditable.')
    await refresh()
-  }catch(e){setError(e.message||'Could not revoke release.')}
+  }catch(e){setError(e.message||'Revocation failed.')}
   finally{setBusy('')}
  }
+ const pending=submissions.filter(item=>item.status==='submitted').length
  return <section className="rmm-card" style={{padding:20,marginBottom:18}}>
-  <div className="rmm-card-heading" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
-   <div>
-    <span className="rmm-eyebrow">GITHUB → DEV → RELEASE TO CUSTOMERS</span>
+  <div className="rmm-card-heading" style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start'}}>
+   <div><span className="rmm-eyebrow">GITHUB → DEV SUBMISSION → ADMIN APPROVAL</span>
     <h2>Application releases</h2>
-    <p>Select a successful commit, prepare the features and notes, then release once. The scheduler handles every eligible customer's maintenance window.</p>
+    <p>Developers select and test the GitHub commit in Dev, then submit its release notes. Platform Admin reviews that exact submission before any customer rollout.</p>
    </div>
-   <button className="rmm-secondary compact" type="button" onClick={()=>refresh().catch(()=>{})} title="Refresh releases"><RefreshCw size={15}/> Refresh</button>
+   <button className="rmm-secondary compact" type="button" onClick={()=>refresh().catch(()=>{})}>
+    <RefreshCw size={15}/> Refresh</button>
   </div>
-  {canApprove&&<div style={{margin:'16px 0'}}>
-   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(240px,1fr))',gap:12}}>
-    <label>Verified GitHub candidate
-     <select value={selected} disabled={Boolean(busy)} onChange={e=>setSelected(e.target.value)}>
-      <option value="">Choose GitHub commit</option>
-      {candidates.map(run=><option key={run.ciRunUrl} value={run.buildSha}>
-       {short(run.buildSha)} · {run.branch||'release'} · {when(run.createdAt)}
-      </option>)}
-     </select>
-    </label>
-    <div style={{alignSelf:'end',fontSize:12}}>
-     {candidate?<a href={candidate.ciRunUrl} target="_blank" rel="noreferrer">View successful GitHub Actions build ↗</a>
-      :<span>Only successfully built release candidates are selectable.</span>}
-     {pickerError&&<p role="alert" style={{color:'var(--rmm-danger,#c75050)'}}>{pickerError}</p>}
-    </div>
+  <div style={{padding:'12px 0',fontSize:13}}>
+   <strong>{pending} awaiting Platform Admin review</strong>
+   <p style={{marginTop:7,opacity:.8}}>Release notes are authored in Dev and locked on submission. Admin cannot change the selected SHA or notes.</p>
+  </div>
+  {submissions.length?<label style={{display:'block',margin:'12px 0'}}>
+   Dev release submission
+   <select value={selected} disabled={Boolean(busy)} onChange={e=>{setSelected(e.target.value);setRejectReason('')}}>
+    <option value="">Select a submitted release</option>
+    {submissions.map(item=><option key={item.build_sha} value={item.build_sha}>
+      {short(item.build_sha)} · {item.notes?.versionLabel||'Draft'} · {item.notes?.title||'Untitled'} — {item.status}
+    </option>)}
+   </select>
+  </label>:<p>No Dev releases have been submitted yet. Developers prepare them in dev.hi5central.com.</p>}
+  {current?<div style={{padding:14,border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:10}}>
+   <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+    <strong>{current.notes?.versionLabel||'Unversioned'} · {current.notes?.title||'Untitled'}</strong>
+    <span>{current.status.toUpperCase()}</span>
    </div>
-   {selected&&<div style={{marginTop:16}}>
-    <p style={{fontSize:12,opacity:.8,marginBottom:10}}>
-     {loadingNotes?'Loading prepared notes…':isPublished?'Published notes are immutable.':
-      'Draft notes may be saved and edited while Development testing continues.'}
-    </p>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))',gap:12}}>
-     <label>Customer version
-      <input disabled={isPublished||Boolean(busy)||loadingNotes} value={notes.versionLabel}
-       onChange={e=>update('versionLabel',e.target.value)} placeholder="1.2.0"/>
-     </label>
-     <label>Release title
-      <input disabled={isPublished||Boolean(busy)||loadingNotes} value={notes.title}
-       onChange={e=>update('title',e.target.value)} placeholder="October improvements"/>
-     </label>
-    </div>
-    <label style={{display:'block',marginTop:12}}>Release summary
-     <textarea rows={2} disabled={isPublished||Boolean(busy)||loadingNotes}
-      value={notes.summary} onChange={e=>update('summary',e.target.value)}
-      placeholder="What should customers know about this release?"/>
+   <p>{current.notes?.summary||''}</p>
+   <small>GitHub SHA: {current.build_sha} · Submitted: {when(current.submitted_at)}</small>
+   {current.ci_run_url?<p><a href={current.ci_run_url} target="_blank" rel="noreferrer">
+    View exact successful GitHub release candidate ↗</a></p>:null}
+   <h3 style={{fontSize:14,margin:'14px 0 8px'}}>Dev-submitted features and release notes</h3>
+   {(current.notes?.entries||[]).map((entry,i)=><div key={i} style={{
+    padding:'9px 0',borderTop:'1px solid var(--rmm-border,#d7dce2)'}}>
+    <strong>{entry.title}</strong> <small>· {categories[entry.category]||'Other'}</small>
+    <p style={{fontSize:13,marginTop:5}}>{entry.description||'No description'}</p>
+   </div>)}
+   {current.status==='rejected'&&<p role="status">Rejection reason: {current.rejection_reason}</p>}
+   {current.status==='submitted'&&canApprove?<div style={{display:'flex',gap:12,flexWrap:'wrap',marginTop:16}}>
+    <button type="button" className="rmm-primary" disabled={Boolean(busy)} onClick={approve}>
+      <ShieldCheck size={16}/> {busy==='approve'?'Releasing…':'Approve & release to customers'}</button>
+    <label style={{flex:'1 1 240px'}}>Reason for rejection
+      <input value={rejectReason} disabled={Boolean(busy)} maxLength={500}
+        onChange={e=>setRejectReason(e.target.value)} placeholder="What must the Dev team fix?"/>
     </label>
-    <h3 style={{fontSize:14,margin:'16px 0 8px'}}>Features and release notes</h3>
-    {notes.entries.map((entry,i)=><div key={i} style={{border:'1px solid var(--rmm-border,#d7dce2)',
-     borderRadius:10,padding:12,marginBottom:10}}>
-     <div style={{display:'flex',flexWrap:'wrap',gap:10,alignItems:'end'}}>
-      <label style={{width:145}}>Type
-       <select disabled={isPublished||Boolean(busy)||loadingNotes} value={entry.category||'feature'}
-        onChange={e=>updateEntry(i,'category',e.target.value)}>
-        {categories.map(category=><option key={category} value={category}>{category}</option>)}
-       </select>
-      </label>
-      <label style={{flex:'1 1 220px'}}>Feature or change
-       <input disabled={isPublished||Boolean(busy)||loadingNotes} value={entry.title||''}
-        onChange={e=>updateEntry(i,'title',e.target.value)} placeholder="Improved incident assignment"/>
-      </label>
-      {!isPublished&&notes.entries.length>1&&<button className="rmm-secondary compact" type="button"
-       disabled={Boolean(busy)} onClick={()=>setNotes(current=>({...current,
-        entries:current.entries.filter((_,index)=>index!==i)}))} title="Remove release note">
-       <Trash2 size={14}/>
-      </button>}
-     </div>
-     <label style={{display:'block',marginTop:9}}>Description
-      <textarea rows={2} disabled={isPublished||Boolean(busy)||loadingNotes}
-       value={entry.description||''} onChange={e=>updateEntry(i,'description',e.target.value)}
-       placeholder="Describe the customer-facing improvement"/>
-     </label>
-    </div>)}
-    {!isPublished&&<button type="button" className="rmm-secondary compact"
-     disabled={Boolean(busy)||notes.entries.length>=35} onClick={addEntry}>
-     <Plus size={14}/> Add feature or note
-    </button>}
-    <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginTop:16}}>
-     {!isPublished&&<button className="rmm-secondary" type="button" disabled={Boolean(busy)||loadingNotes}
-      onClick={saveDraft}><Save size={15}/> Save draft</button>}
-     <button className="rmm-primary" type="button" disabled={Boolean(busy)||loadingNotes||!candidate}
-      onClick={release}><ShieldCheck size={16}/> {busy==='release'?'Releasing…':'Release to customers'}</button>
-    </div>
-   </div>}
-  </div>}
-  {error&&<p role="alert" style={{color:'var(--rmm-danger,#c75050)'}}><ShieldAlert size={16}/> {error}</p>}
-  {message&&<p role="status" style={{color:'var(--rmm-accent)'}}><CheckCircle2 size={14}/> {message}</p>}
-  <div style={{overflowX:'auto',marginTop:14}}>
+    <button type="button" className="rmm-secondary" disabled={Boolean(busy)||rejectReason.trim().length<8}
+      onClick={reject}>Reject submission</button>
+   </div>:null}
+  </div>:null}
+  {error?<p role="alert" style={{color:'var(--rmm-danger,#c75050)'}}>
+    <ShieldAlert size={16}/> {error}</p>:null}
+  {message?<p role="status"><CheckCircle2 size={15}/> {message}</p>:null}
+  <div style={{overflowX:'auto',marginTop:20}}>
+   <h3 style={{fontSize:15,marginBottom:10}}>Approved customer releases</h3>
    <table style={{width:'100%',fontSize:13,textAlign:'left'}}>
     <thead><tr><th>Release</th><th>Certification</th><th>Last queue scan</th><th>Queued</th><th>Blocked</th><th>Actions</th></tr></thead>
-    <tbody>
-     {(data.published||[]).map(r=>{
-      const cert=rows.get(r.build_sha),status=cert?.status||'not certified',item=scan.get(r.build_sha)
-      return <tr key={r.build_sha}>
-       <td><strong>{r.version_label}</strong><div><small>{short(r.build_sha)} · {r.title}</small></div></td>
-       <td>{status==='approved'?<><CheckCircle2 size={14}/> Approved</>:<><Clock3 size={14}/> {status}</>}</td>
-       <td>{when(item?.last_scan_at)}</td>
-       <td>{item?.last_queued_count??'—'}</td>
-       <td>{item?.last_blocked_count??'—'}</td>
-       <td>{canApprove&&status==='approved'
-        ?<button className="rmm-secondary compact" disabled={Boolean(busy)}
-          onClick={()=>revoke(r.build_sha)}>Revoke</button>:'—'}</td>
-      </tr>
-     })}
-     {!data.published?.length&&<tr><td colSpan={6}>No customer releases published yet.</td></tr>}
-    </tbody>
+    <tbody>{(data.published||[]).map(r=>{
+     const cert=rows.get(r.build_sha),status=cert?.status||'not certified',item=scan.get(r.build_sha)
+     return <tr key={r.build_sha}>
+      <td><strong>{r.version_label}</strong><div><small>{short(r.build_sha)} · {r.title}</small></div></td>
+      <td>{status==='approved'?<><CheckCircle2 size={14}/> Approved</>:<><Clock3 size={14}/> {status}</>}</td>
+      <td>{when(item?.last_scan_at)}</td><td>{item?.last_queued_count??'—'}</td>
+      <td>{item?.last_blocked_count??'—'}</td>
+      <td>{canApprove&&status==='approved'?
+       <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
+         onClick={()=>revoke(r.build_sha)}>Revoke</button>:'—'}</td>
+     </tr>
+    })}</tbody>
    </table>
   </div>
-  <p style={{fontSize:12,opacity:.78,marginTop:10}}>
-   Managed updates queue directly for Production. Custom updates deploy to UAT and require customer approval for Production.
-   Global safety pause, maintenance windows, tenant isolation, gateway locks and rollback protection remain mandatory.
+  <p style={{fontSize:12,opacity:.78,marginTop:12}}>
+   Managed releases automatically enter Production maintenance windows. Custom receives UAT first, then the customer approves Production. Both tracks use the same two release workers.
   </p>
  </section>
 }

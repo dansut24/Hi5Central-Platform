@@ -40,111 +40,115 @@ function noteEntry(item,index){
   </div>
 }
 function DevReleaseEditor({installed,onPublished}){
-  const [notes,setNotes]=useState(null)
-  const [loading,setLoading]=useState(true)
+  const [candidates,setCandidates]=useState([])
+  const [sha,setSha]=useState(installed||'')
+  const [runUrl,setRunUrl]=useState('')
+  const [notes,setNotes]=useState({versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()]})
+  const [status,setStatus]=useState('draft')
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [success,setSuccess]=useState('')
-  const [originalVersion,setOriginalVersion]=useState('')
+  const [loading,setLoading]=useState(true)
   useEffect(()=>{
     let active=true
-    api('/api/v1/updates/dev-notes').then(data=>{
-      if(!active)return
-      setOriginalVersion(data.notes?.versionLabel||'')
-      setNotes(data.notes
-        ?{...data.notes,versionLabel:displayVersion(data.notes.versionLabel)}
-        :{buildSha:data.buildSha,versionLabel:data.defaultVersion||'',
-          title:'',summary:'',entries:[EMPTY_ENTRY()],status:'draft'})
-    }).catch(e=>{if(active&&e.status!==403)setError(e.message)}).finally(()=>{if(active)setLoading(false)})
+    api('/api/v1/updates/dev-release/candidates')
+      .then(data=>{if(active)setCandidates(data.candidates||[])})
+      .catch(e=>{if(active)setError(e.message)})
+      .finally(()=>{if(active)setLoading(false)})
     return()=>{active=false}
   },[installed])
-  const editable=notes?.status==='draft'
-  const versionEditable=editable||(notes?.status==='published'&&notes?.versionSyncState!=='pending')
-  const pendingVersion=notes?.versionSyncState==='pending'
-  const versionChanged=notes?.status==='published'&&notes?.versionLabel?.trim()!==originalVersion
-  function field(key,value){setNotes(current=>({...current,[key]:value}))}
-  function entry(index,key,value){
-    field('entries',notes.entries.map((item,i)=>i===index?{...item,[key]:value}:item))
-  }
-  async function save(publish=false){
-    if(!notes||busy)return
-    if(publish&&!window.confirm('Release this version and its notes to customers? Unreleased notes are private; publication cannot be undone for this build. This does not deploy application code.'))return
+  useEffect(()=>{
+    let active=true
+    if(!sha)return()=>{active=false}
+    setError('');setSuccess('')
+    api('/api/v1/updates/dev-release/'+sha).then(data=>{
+      if(!active)return
+      setStatus(data.submission?.status||'draft')
+      setNotes(data.submission?.notes||{versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()]})
+      setRunUrl(data.submission?.ci_run_url||'')
+    }).catch(e=>{if(active)setError(e.message)})
+    return()=>{active=false}
+  },[sha])
+  const candidate=candidates.find(item=>item.buildSha===sha)
+  const current=sha===installed
+  const editable=['draft','rejected'].includes(status)
+  const chosenRun=candidate?.ciRunUrl||runUrl
+  const update=(key,value)=>setNotes(old=>({...old,[key]:value}))
+  const change=(index,key,value)=>update('entries',notes.entries.map((row,i)=>i===index?{...row,[key]:value}:row))
+  async function act(submit){
+    if(busy)return
+    if(!sha||!candidate){setError('Select a successful GitHub release candidate.');return}
+    if(submit&&!current){setError('Deploy and verify this exact GitHub commit in Dev before submitting it.');return}
     setBusy(true);setError('');setSuccess('')
     try{
-      await api('/api/v1/updates/dev-notes',{method:'PUT',body:JSON.stringify(notes)})
-      if(publish){
-        await api('/api/v1/updates/dev-notes/publish',{method:'POST',body:'{}'})
-        field('status','publication_requested')
-        setSuccess('Publication requested. The trusted release operator will make these notes customer-visible once the central release authority accepts them.')
-      }else setSuccess('Release-note draft saved. Customers cannot see it yet.')
+      await api('/api/v1/updates/dev-release',{method:'PUT',
+        body:JSON.stringify({sha,notes})})
+      if(submit){
+        await api('/api/v1/updates/dev-release/submit',{method:'POST',
+          body:JSON.stringify({sha,ciRunUrl:chosenRun})})
+        setStatus('submitted')
+        setSuccess('Submitted to Platform Admin for review. Customers have not been released.')
+      }else{
+        setStatus('draft')
+        setSuccess('Central release draft saved; Platform Admin has not approved it.')
+      }
       onPublished?.()
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
   }
-  async function updatePublishedVersion(){
-    if(!notes||busy||!versionChanged)return
-    if(!window.confirm('Update only this published release version number? The build and release notes will remain unchanged.'))return
-    setBusy(true);setError('');setSuccess('')
-    try{
-      const response=await api('/api/v1/updates/dev-notes/version',{
-        method:'PUT',body:JSON.stringify({buildSha:notes.buildSha,versionLabel:notes.versionLabel})})
-      setNotes(current=>({...current,versionSyncState:'pending'}))
-      setSuccess(response.message||'Customer version correction requested.')
-    }catch(e){setError(e.message)}
-    finally{setBusy(false)}
-  }
-  if(loading)return <p className="hi5-updates-placeholder">Loading Dev release editor…</p>
-  if(!notes)return error?<p role="alert" className="hi5-updates-error">{error}</p>:null
-  return <section className="hi5-updates-editor" aria-label="Hi5Central Dev release-note editor">
+  return <section className="hi5-updates-editor" aria-label="Dev release preparation and submission">
     <div className="hi5-updates-change-header">
-      <div><h3>Dev team · Prepare release notes</h3>
-        <p>Choose a customer version number and write what changed. The technical build ID is tracked separately.</p>
-      </div>
-      <span className="hi5-updates-status">{pendingVersion?'Updating version':notes.status==='draft'?'Unpublished draft':notes.status==='publication_requested'?'Publishing requested':'Published'}</span>
+      <div><h3>Dev team · Prepare customer release</h3>
+        <p>Select the tested GitHub commit, record the release details, then submit to Platform Admin for approval. Submission never deploys to customers.</p></div>
+      <span className="hi5-updates-status">{status==='submitted'?'Awaiting Admin approval':status==='approved'?'Approved':status==='rejected'?'Rejected — revise draft':'Dev draft'}</span>
     </div>
     {error?<p role="alert" className="hi5-updates-error"><CircleAlert size={16}/>{error}</p>:null}
     {success?<p role="status" className="hi5-updates-success">{success}</p>:null}
     <div className="hi5-updates-editor-fields">
-      <label>Customer version number<input maxLength={32} disabled={!versionEditable} value={notes.versionLabel||''}
-        onChange={e=>field('versionLabel',e.target.value)} placeholder="e.g. 1.0.1 or 2026.10.1"/>
-        <small className="hi5-updates-field-hint">Customer-facing label only. Build {short(notes.buildSha)} remains unchanged.</small>
+      <label>Verified GitHub commit
+        <select value={sha} disabled={busy||loading} onChange={e=>setSha(e.target.value)}>
+          <option value="">Select commit</option>
+          {candidates.map(item=><option key={item.ciRunUrl} value={item.buildSha}>
+            {short(item.buildSha)} · {item.branch||'main'} {item.buildSha===installed?'(running in Dev)':''}
+          </option>)}
+        </select>
+        <small className="hi5-updates-field-hint">{current?'This commit matches the running Dev build.':
+          'Only the commit currently running in Dev may be submitted.'}</small>
       </label>
-      <label>Release title<input maxLength={180} disabled={!editable} value={notes.title||''}
-        onChange={e=>field('title',e.target.value)} placeholder="e.g. October platform improvements"/></label>
-      <label>Release summary<textarea rows={2} maxLength={1200} disabled={!editable} value={notes.summary||''}
-        onChange={e=>field('summary',e.target.value)} placeholder="A short overview of this release…"/></label>
+      <label>Customer version<input disabled={!editable||busy} value={notes.versionLabel||''}
+        onChange={e=>update('versionLabel',e.target.value)} placeholder="2026.10.19.1"/></label>
+      <label>Release title<input disabled={!editable||busy} value={notes.title||''}
+        onChange={e=>update('title',e.target.value)} placeholder="October ITSM improvements"/></label>
+      <label>Release summary<textarea rows={2} disabled={!editable||busy} value={notes.summary||''}
+        onChange={e=>update('summary',e.target.value)}/></label>
     </div>
-    <div className="hi5-updates-change-header"><h3>Changes in this version</h3>
-      {editable?<button type="button" className="hi5-updates-add-note" disabled={notes.entries.length>=35}
-        onClick={()=>field('entries',[...notes.entries,EMPTY_ENTRY()])}><Plus size={15}/> Add change</button>:null}
+    <div className="hi5-updates-change-header"><h3>Features and release notes</h3>
+      {editable?<button className="hi5-updates-add-note" type="button" disabled={busy||notes.entries.length>=35}
+        onClick={()=>update('entries',[...notes.entries,EMPTY_ENTRY()])}><Plus size={15}/> Add change</button>:null}
     </div>
     <div className="hi5-updates-editor-entries">
-      {(notes.entries||[]).map((item,i)=><div className="hi5-updates-edit-row" key={i}>
+      {notes.entries.map((entry,i)=><div className="hi5-updates-edit-row" key={i}>
         <div className="hi5-updates-edit-head"><strong>Change {i+1}</strong>
-          {editable&&notes.entries.length>1?<button type="button" aria-label={'Remove change '+(i+1)}
-            onClick={()=>field('entries',notes.entries.filter((_,j)=>i!==j))}><Trash2 size={15}/></button>:null}</div>
-        <select disabled={!editable} value={item.category} onChange={e=>entry(i,'category',e.target.value)}>
-          {CATEGORIES.map(category=><option key={category.value} value={category.value}>{category.label}</option>)}</select>
-        <input disabled={!editable} maxLength={160} aria-label={'Change '+(i+1)+' title'}
-          placeholder="What changed?" value={item.title} onChange={e=>entry(i,'title',e.target.value)}/>
-        <textarea disabled={!editable} rows={2} maxLength={950} aria-label={'Change '+(i+1)+' description'}
-          placeholder="What does this improve for customers?" value={item.description||''}
-          onChange={e=>entry(i,'description',e.target.value)}/>
+          {editable&&notes.entries.length>1?<button type="button"
+            onClick={()=>update('entries',notes.entries.filter((_,j)=>i!==j))}><Trash2 size={15}/></button>:null}
+        </div>
+        <select disabled={!editable||busy} value={entry.category||'feature'} onChange={e=>change(i,'category',e.target.value)}>
+          {CATEGORIES.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}
+        </select>
+        <input disabled={!editable||busy} value={entry.title||''}
+          onChange={e=>change(i,'title',e.target.value)} placeholder="What changed?"/>
+        <textarea disabled={!editable||busy} rows={2} value={entry.description||''}
+          onChange={e=>change(i,'description',e.target.value)} placeholder="Customer-facing description"/>
       </div>)}
     </div>
     {editable?<div className="hi5-updates-approval-actions">
-      <button type="button" disabled={busy} onClick={()=>save(false)}><Save size={15}/> Save draft</button>
-      <button type="button" className="is-primary" disabled={busy||!notes.versionLabel?.trim()||!notes.title?.trim()||
-        !(notes.entries||[]).length||notes.entries.some(item=>item.title.trim().length<3)}
-        onClick={()=>save(true)}><Send size={15}/> Release to customers</button>
-    </div>:notes.status==='published'
-      ?<div className="hi5-updates-version-correction">
-        <p>The notes are published and locked. You can still correct the customer version number without deploying new code.</p>
-        {pendingVersion?<small>Version correction submitted. It will appear to customers after central synchronisation. Refresh this page to see the result.</small>
-          :<button type="button" disabled={busy||!versionChanged||!notes.versionLabel?.trim()}
-            onClick={updatePublishedVersion}><Save size={15}/> Update published version number</button>}
-      </div>
-      :<small>Publication is in progress. Release notes cannot be changed after submission.</small>}
+      <button type="button" disabled={busy||!candidate} onClick={()=>act(false)}><Save size={15}/> Save draft</button>
+      <button type="button" className="is-primary" disabled={busy||!current||!candidate||
+        !notes.versionLabel?.trim()||!notes.title?.trim()||notes.entries.some(e=>!e.title?.trim())}
+        onClick={()=>act(true)}><Send size={15}/> Submit for Platform Admin approval</button>
+    </div>:<p className="hi5-updates-field-hint">
+      {status==='submitted'?'This immutable release submission is awaiting Platform Admin approval or rejection.':
+        'Platform Admin has decided this submission. Release history remains available below.'}</p>}
   </section>
 }
 function DevPublishedVersionManager(){
@@ -351,7 +355,7 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
       {ENV==='dev'?<DevReleaseReadiness data={data}/>:null}
       {ENV==='dev'?<>
         <DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>
-        <DevPublishedVersionManager/>
+        {/* Central submission is the sole authoritative Dev release workflow. */}
       </>:null}
       {ENV==='uat'&&canReview?<div className="hi5-updates-approval">
         <div><strong><GitBranch size={17}/> UAT release review</strong>

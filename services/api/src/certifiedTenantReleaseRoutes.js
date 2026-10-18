@@ -4,6 +4,7 @@ import {authoriseDirectCustomerReleaseStages,fanoutCertifiedRelease} from './cer
 import {supersedeOlderCustomerReleases} from './automaticReleaseSupersession.js'
 import {saveCustomerReleaseDraft,readCustomerReleasePreparation,publishCustomerReleaseNotes} from './customerReleasePreparation.js'
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
+import {verifyDevHandoff,processDevHandoff} from './devReleaseHandoff.js'
 import {readGenericTenantScope} from './genericReleaseTenantScope.js'
 import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
 
@@ -16,6 +17,67 @@ import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStag
 export function registerCertifiedTenantReleaseRoutes(app,{
   requireAdmin,WRITE_ROLES,pool,withTransaction,audit,deployment,
 }={}){
+  // Signed server-to-server transport, never a public release approval.
+  // Validates HMAC/short expiry/replay and Dev-only author identity.
+  app.post('/api/platform/v1/releases/dev-handoff',async c=>{
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Only central release authority accepts Dev handoff.'},403)
+    try{
+      const payload=await c.req.text()
+      const request=verifyDevHandoff({payload,headers:{
+        time:c.req.header('x-h5c-dev-time'),
+        nonce:c.req.header('x-h5c-dev-nonce'),
+        signature:c.req.header('x-h5c-dev-signature'),
+      }})
+      const result=await withTransaction(async db=>{
+        await db.query("DELETE FROM platform_dev_release_handoff_nonces WHERE received_at<now()-interval '1 day'")
+        await db.query('INSERT INTO platform_dev_release_handoff_nonces(nonce) VALUES($1)',[request.nonce])
+        return processDevHandoff(db,request)
+      })
+      return c.json(result)
+    }catch(error){
+      const conflict=error?.code==='23505'
+      return c.json({error:conflict?'Dev release request was already used.':String(error.message||error)},409)
+    }
+  })
+
+  app.get('/api/platform/v1/releases/dev-submissions',async c=>{
+    const auth=await requireAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const result=await pool.query([
+      'SELECT build_sha,notes,ci_run_url,status,dev_author_id,edited_at,',
+      'submitted_at,reviewed_at,rejection_reason',
+      'FROM platform_dev_release_submissions ORDER BY edited_at DESC LIMIT 80',
+    ].join(' '))
+    return c.json({submissions:result.rows})
+  })
+  app.post('/api/platform/v1/releases/dev-submissions/:sha/reject',async c=>{
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const sha=c.req.param('sha')
+    const body=await c.req.json().catch(()=>({}))
+    const reason=String(body?.reason||'').trim().slice(0,500)
+    if(!/^[a-f0-9]{40}$/.test(sha)||reason.length<8)
+      return c.json({error:'An exact SHA and a rejection reason are required.'},400)
+    const rejected=await withTransaction(async db=>{
+      const result=await db.query([
+        'UPDATE platform_dev_release_submissions',
+        "SET status='rejected',rejection_reason=$2,reviewed_by=$3,reviewed_at=now()",
+        "WHERE build_sha=$1 AND status='submitted' RETURNING build_sha,status",
+      ].join(' '),[sha,reason,auth.session.user_id])
+      if(!result.rowCount)throw new Error('Only a submitted release may be rejected.')
+      await db.query(
+        "INSERT INTO platform_admin_audit_events(actor_user_id,action,target_type,target_id,metadata) VALUES($1,'release.dev_submission_rejected','release',$2,$3::jsonb)",
+        [auth.session.user_id,sha,JSON.stringify({reason})])
+      return result.rows[0]
+    })
+    return c.json({submission:rejected})
+  })
+
   app.get('/api/platform/v1/releases/candidates',async c=>{
     const auth=await requireAdmin(c)
     if(auth.error)return auth.error
@@ -38,16 +100,7 @@ export function registerCertifiedTenantReleaseRoutes(app,{
   app.put('/api/platform/v1/releases/preparations/:sha',async c=>{
     const auth=await requireAdmin(c,WRITE_ROLES)
     if(auth.error)return auth.error
-    if(deployment.runtimeEnvironment!=='live')
-      return c.json({error:'Central release authority only.'},403)
-    const body=await c.req.json().catch(()=>null)
-    try{
-      const result=await withTransaction(db=>saveCustomerReleaseDraft(db,{
-        sha:c.req.param('sha'),notes:body?.notes,actorId:auth.session.user_id}))
-      await audit(c,auth.session,'release.draft_saved','release',
-        result.buildSha,{editedAt:result.editedAt})
-      return c.json(result)
-    }catch(error){return c.json({error:String(error.message||error)},409)}
+    return c.json({error:'Release drafts are authored in Dev and submitted to Platform Admin for review.'},410)
   })
 
   app.get('/api/platform/v1/releases/certifications',async c=>{
@@ -219,9 +272,18 @@ export function registerCertifiedTenantReleaseRoutes(app,{
       const saved=await withTransaction(async db=>{
         // CI and Dev smoke were checked BEFORE this transaction. Any
         // validation, scope or queue failure rolls publication back too.
-        if(releaseToCustomers)
-          await publishCustomerReleaseNotes(db,{sha,notes:body?.releaseNotes})
-        else{
+        if(releaseToCustomers){
+          const handoff=await db.query([
+            'SELECT notes,ci_run_url,status FROM platform_dev_release_submissions',
+            'WHERE build_sha=$1 FOR UPDATE',
+          ].join(' '),[sha])
+          const record=handoff.rows[0]
+          if(record?.status!=='submitted'||record.ci_run_url!==runUrl)
+            throw new Error('Dev must submit this exact GitHub SHA and CI run for Platform Admin approval first.')
+          if(body?.releaseNotes!==undefined)
+            throw new Error('Submitted Dev release notes are immutable; Admin may approve or reject, not rewrite.')
+          await publishCustomerReleaseNotes(db,{sha,notes:record.notes})
+        }else{
           const published=await db.query(
             'SELECT build_sha FROM hi5central_published_release_notes WHERE build_sha=$1',[sha])
           if(!published.rowCount)
@@ -267,6 +329,11 @@ export function registerCertifiedTenantReleaseRoutes(app,{
             sha,scope:'generic',deliveryMode:'direct_customer_release',
             limit:200,
           })
+          await db.query([
+            'UPDATE platform_dev_release_submissions',
+            "SET status='approved',reviewed_by=$2,reviewed_at=now()",
+            "WHERE build_sha=$1 AND status='submitted'",
+          ].join(' '),[sha,auth.session.user_id])
           const rolloutControl=await db.query(
             'SELECT paused FROM platform_release_rollout_control WHERE singleton=true')
           const globallyPaused=rolloutControl.rows[0]?.paused!==false
