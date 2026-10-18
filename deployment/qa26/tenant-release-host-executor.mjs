@@ -317,5 +317,3 @@ try{
   }catch(e){console.error('RELEASE_WATCHDOG_REMAINS_ARMED',e.message)}
   process.exitCode=1
 }
-
-[executed on device: hi5central-prod-01 (c36f9f88-6967-4ca8-a047-6c7a233b5550)]
