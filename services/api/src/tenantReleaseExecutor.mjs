@@ -22,6 +22,10 @@ if(!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
 const ID='h5c-dynamic-'+gateway+'-'+(process.env.RELEASE_WORKER_ID||'primary')
 if(!/^[a-z0-9-]{4,120}$/.test(ID))throw Error('Invalid release worker identifier.')
 const one=process.argv.includes('--once'),preflight=process.argv.includes('--preflight')
+// Standby is an independent, positive execution gate. Even an accidental
+// unpause cannot claim jobs or invoke Docker unless the container is recreated
+// without this explicit standby setting after rollback and gateway approval.
+const standby=process.env.RELEASE_WORKER_STANDBY==='true'
 if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
   throw Error('Worker accepts only --once or --preflight.')
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,
@@ -272,6 +276,10 @@ async function refreshVerifiedPools(){
   }
 }
 async function step(){
+  if(standby){
+    await heartbeat('paused')
+    return false
+  }
   if(Date.now()-lastHealthScan>240000){
     lastHealthScan=Date.now()
     await refreshVerifiedPools().catch(e=>console.error('POOL_HEALTH_REFRESH_ERROR',e.message))
