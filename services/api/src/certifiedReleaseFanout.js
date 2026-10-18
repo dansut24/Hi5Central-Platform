@@ -155,7 +155,7 @@ export async function authoriseDirectCustomerReleaseStages(db,{sha,actorId,ciRun
     'INSERT INTO platform_release_generic_stage_approvals',
     '(build_sha,environment,planning_enabled,execution_enabled,approved_by,',
     'approved_at,expires_at,evidence,reason)',
-    "VALUES($1,$2,true,true,$3,now(),now()+interval '365 days',$4::jsonb,$5)",
+    "VALUES($1,$2,true,true,$3,now(),now()+interval '72 hours',$4::jsonb,$5)",
     'ON CONFLICT(build_sha,environment) DO NOTHING',
    ].join(' '),[sha,stage,actorId,JSON.stringify(evidence),
     'Staff-published and independently CI/Dev-verified customer release'])
