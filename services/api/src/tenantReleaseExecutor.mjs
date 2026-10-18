@@ -27,6 +27,14 @@ if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
 const pool=new pg.Pool({connectionString:process.env.DATABASE_URL,
   max:5,connectionTimeoutMillis:7000,idleTimeoutMillis:25000})
 const sleep=ms=>new Promise(done=>setTimeout(done,ms))
+const expectedDbIdentity='hi5_release_executor_'+gateway
+async function assertDatabaseIdentity(){
+  const result=await pool.query('SELECT session_user AS login, current_user AS role')
+  if(result.rows[0]?.login!==expectedDbIdentity||
+     result.rows[0]?.role!==expectedDbIdentity)
+    throw Error('Worker database identity is not restricted to '+gateway+'; refusing startup.')
+}
+
 let running=true
 for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>{running=false})
 const clientTx=async fn=>{
@@ -171,14 +179,12 @@ async function persistVerified(job,ctx,result){
         "public_host=excluded.public_host,state='active',checked_at=now()",
       ].join(' '),[job.tenantId,gateway,poolId,job.buildSha,result.host])
       if(gateway==='uat'){
-        const stagedLivePool=await registerVerifiedPool(tx,'live',job.buildSha)
-        await tx.query([
-          'INSERT INTO tenant_runtime_update_offers',
-          '(tenant_id,environment,pool_id,build_sha,update_mode,state)',
-          "SELECT $1,'live',$2,$3,'admin_controlled','offered'",
-          'WHERE NOT EXISTS (SELECT 1 FROM tenant_runtime_update_offers',
-          "WHERE tenant_id=$1 AND environment='live' AND build_sha=$3)",
-        ].join(' '),[job.tenantId,stagedLivePool,job.buildSha])
+        // SECURITY DEFINER performs the one tightly checked cross-stage
+        // UAT-to-Live offer transition. UAT's DB identity has no direct
+        // INSERT/UPDATE access to Live rows, even through compromised code.
+        await tx.query(
+          'SELECT public.hi5_release_prepare_live_after_uat($1::uuid,$2::uuid,$3::bigint)',
+          [job.id,job.leaseToken,job.leaseFence])
         await tx.query([
           'INSERT INTO tenant_runtime_update_offers',
           '(tenant_id,environment,pool_id,build_sha,update_mode,state)',
@@ -341,11 +347,11 @@ async function step(){
         }
       }
       if(activated&&!compensated){
-        await pool.query([
-          'UPDATE platform_release_rollout_control SET paused=true,',
-          "reason='Host cutover could not be confirmed rolled back; operator review required',updated_at=now()",
-          'WHERE singleton=true',
-        ].join(' ')).catch(()=>{})
+        // Restricted workers have no global UPDATE permission. The existing
+        // audited SECURITY DEFINER can only set paused=true, never resume.
+        await pool.query('SELECT public.hi5_release_emergency_pause($1,$2)',[
+          ID,'Host cutover could not be confirmed rolled back; operator review required',
+        ]).catch(()=>{})
       }
       console.error(JSON.stringify({type:'deployment_failed',jobId:job.id,
         gateway,compensated,error:String(e.message||e).slice(0,400)}))
@@ -360,6 +366,7 @@ async function step(){
   })
 }
 try{
+  await assertDatabaseIdentity()
   if(preflight){
     const r=await pool.query([
       "SELECT to_regclass('public.platform_certified_application_releases') IS NOT NULL AS certification,",
