@@ -7,6 +7,8 @@ import {
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import '../rmm/RmmPlatformApp.css'
 import './PlatformAdminApp.css'
+import { CertifiedReleaseControls } from './CertifiedReleaseControls.jsx'
+import { GenericReleasePlanning } from './GenericReleasePlanning.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
@@ -764,7 +766,7 @@ function Winget({ query, refreshKey }) {
 
 
 
-function Releases({ data, refresh, query }) {
+function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
   const releaseData=data||{environments:[],features:[],changes:[],promotions:[],actions:[],tenants:[]}
   const [scopedData,setScopedData]=useState(null)
   const [selectedTenantId,setSelectedTenantId]=useState('')
@@ -895,7 +897,12 @@ function Releases({ data, refresh, query }) {
   const environmentOrder=['dev','test','uat','live']
   const envMap=Object.fromEntries((viewData.environments||[]).map(item=>[item.environment,item]))
   return <>
-    <PageHeading view="releases" action={<div className="h5a-release-heading-actions"><button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
+    <PageHeading view="releases" action={<div className="h5a-release-heading-actions"><button className="rmm-secondary compact" onClick={()=>setFeatureCreating(v=>!v)}><ShieldCheck size={14}/>
+    <CertifiedReleaseControls api={api} canApprove={canApproveSharedReleases}/>
+    <details className="rmm-card" style={{padding:12,marginBottom:16}}>
+      <summary style={{cursor:'pointer',fontWeight:600}}>Advanced certified release planning and QA pilot admission</summary>
+      <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
+    </details>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
     <div className="rmm-card h5a-release-deployment-policy">
       <div className="rmm-card-heading">
         <div><span className="rmm-eyebrow">PLATFORM UPDATE OWNERSHIP</span><h2>Who manages this installation?</h2><p>This controls the platform artifact/schema flow for the whole deployment. Tenant activation remains separate below.</p></div>
@@ -1298,7 +1305,7 @@ export function PlatformAdminApp() {
   function refreshCurrent(){if(view==='winget')setWingetRefreshKey(value=>value+1);else load(view)}
   function renderPage(){
     if(view==='overview')return <Overview data={data.overview} refresh={()=>load('overview')}/>
-    if(view==='releases')return <Releases data={data.releases} refresh={()=>load('releases')} query={query}/>
+    if(view==='releases')return <Releases data={data.releases} refresh={()=>load('releases')} query={query} canApproveSharedReleases={['owner','admin'].includes(user?.role)}/>
     if(view==='tenants')return <Tenants items={data.tenants} refresh={()=>load('tenants')} query={query}/>
     if(view==='billing')return <Billing items={data.billing} refresh={()=>load('billing')} query={query}/>
     if(view==='licenses')return <Licenses items={data.licenses} refresh={()=>load('licenses')} query={query}/>
