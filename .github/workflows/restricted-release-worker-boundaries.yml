@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'services/api/src/releaseFanoutDaemon.mjs'
+      - 'services/api/src/releasePlannerScope.js'
+      - 'services/api/test/release-planner-scope.mjs'
       - 'services/api/src/tenantReleaseExecutor.mjs'
       - 'services/api/src/releaseGatewayCoordinator.js'
       - 'services/api/src/tenantCaddyVersionRoutes.js'
@@ -29,6 +31,8 @@ jobs:
       - name: Source and database-boundary contracts
         run: |
           node --check services/api/src/releaseFanoutDaemon.mjs
+          node --check services/api/src/releasePlannerScope.js
+          node --test services/api/test/release-planner-scope.mjs
           node --check services/api/src/tenantReleaseExecutor.mjs
           node --check deployment/qa26/tenant-release-host-executor.mjs
           node --test services/api/test/restricted-release-worker-boundaries.mjs

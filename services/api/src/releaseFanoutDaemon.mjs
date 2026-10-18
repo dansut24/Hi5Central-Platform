@@ -7,9 +7,12 @@
 import pg from 'pg'
 import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
 import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
+import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
 
 // Prevent a QA-certified build from ever planning work outside the approved cohort.
 const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
+// Optional exact-SHA scope prevents this pilot from scheduling older certified builds.
+const qaBuildSha=parsePinnedQaReleaseSha(process.env.RELEASE_QA_BUILD_SHA)
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
 // Explicit fail-closed standby for operators validating DB rights before gateway cutover.
@@ -68,8 +71,9 @@ async function cycle(){
   'FROM platform_certified_application_releases c',
   'JOIN hi5central_published_release_notes n ON n.build_sha=c.build_sha',
   "WHERE c.status='approved' AND c.approved_at IS NOT NULL",
+  'AND ($1::text IS NULL OR c.build_sha=$1)',
   'ORDER BY n.published_at ASC,c.build_sha ASC LIMIT 50',
- ].join(' '))
+ ].join(' '),[qaBuildSha])
  for(const approval of approvals.rows){
   const client=await pool.connect()
   try{
@@ -99,7 +103,8 @@ try{
  await assertDatabaseIdentity()
  await assertSchema()
  await assertReadOnlyCertificationQuery()
- if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length)
+ if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length+
+   ' pinnedSha='+(qaBuildSha||'all-approved'))
  else{
   do{
    try{
