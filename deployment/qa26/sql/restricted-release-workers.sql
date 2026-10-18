@@ -55,6 +55,10 @@ TO hi5_release_planner,hi5_release_executor_test,hi5_release_executor_uat,hi5_re
 
 GRANT INSERT ON public.tenant_release_rollout_jobs,public.tenant_release_rollout_events
 TO hi5_release_planner;
+-- Planner must make ONLY pending -> scheduled transitions during safe fanout.
+-- Column grants prevent changing leases, fences, errors or deployments.
+GRANT UPDATE(status,updated_at) ON public.tenant_release_rollout_jobs
+TO hi5_release_planner;
 GRANT SELECT,INSERT,UPDATE ON
   public.platform_release_fanout_checkpoints,
   public.platform_release_fanout_events,
@@ -150,6 +154,17 @@ BEGIN
         EXECUTE format($p$CREATE POLICY h5c_release_planner_insert ON public.%I
           FOR INSERT TO hi5_release_planner WITH CHECK (event_type IN ('scheduled','deferred'))$p$,relation_name);
       END IF;
+    END IF;
+    IF relation_name='tenant_release_rollout_jobs' THEN
+      EXECUTE 'DROP POLICY IF EXISTS h5c_release_planner_activate ON public.tenant_release_rollout_jobs';
+      EXECUTE $policy$
+        CREATE POLICY h5c_release_planner_activate ON public.tenant_release_rollout_jobs
+        FOR UPDATE TO hi5_release_planner
+        USING (status='pending' AND attempt_count=0 AND lease_token IS NULL
+          AND lease_expires_at IS NULL AND routed_generation IS NULL)
+        WITH CHECK (status='scheduled' AND attempt_count=0 AND lease_token IS NULL
+          AND lease_expires_at IS NULL AND routed_generation IS NULL)
+      $policy$;
     END IF;
     FOREACH stage IN ARRAY ARRAY['test','uat','live']
     LOOP
