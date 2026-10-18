@@ -11,6 +11,7 @@ const executor=read('services/api/src/tenantReleaseExecutor.mjs')
 const host=read('deployment/qa26/tenant-release-host-executor.mjs')
 const queue=read('services/api/src/tenantReleaseQueue.js')
 const sql=read('deployment/qa26/sql/restricted-release-workers.sql')
+const fanout=read('services/api/src/certifiedReleaseFanout.js')
 const plannerDocker=read('deployment/qa26/Dockerfile.certified-release-planner')
 const executorDocker=read('deployment/qa26/Dockerfile.tenant-release-executor')
 
@@ -85,4 +86,23 @@ test('planner image has no Docker CLI and executor cannot silently inherit secre
  assert.match(executorDocker,/COPY services\/api\/src\//)
  assert.match(executorDocker,/tenantReleaseExecutor\.mjs/)
  assert.doesNotMatch(executorDocker,/ENV DATABASE_URL|ARG DATABASE_URL/)
+})
+
+test('restricted planner performs certification lookup without UPDATE-level row locks',()=>{
+ assert.doesNotMatch(fanout,/FOR (SHARE|UPDATE) OF c/)
+ assert.match(fanout,/c\.status='approved'/)
+ assert.match(fanout,/c\.evidence @> \$2::jsonb/)
+ assert.match(planner,/assertReadOnlyCertificationQuery/)
+ assert.match(planner,/await assertReadOnlyCertificationQuery\(\)/)
+})
+test('standby is an independent fail-closed job-admission boundary',()=>{
+ assert.match(planner,/const standby=process\.env\.RELEASE_WORKER_STANDBY==='true'/)
+ assert.match(planner,/if\(standby\)\{/)
+ assert.match(planner,/else await cycle\(\)/)
+ assert.match(executor,/const standby=process\.env\.RELEASE_WORKER_STANDBY==='true'/)
+ assert.match(executor,/if\(standby\)\{\s*await heartbeat\('paused'\)\s*return false/)
+ const standbyIndex=executor.indexOf("if(standby){\n    await heartbeat('paused')")
+ const claimIndex=executor.indexOf('claimDueRollouts(tx,')
+ assert.ok(standbyIndex>=0 && claimIndex>standbyIndex,
+  'standby bypasses all claim and host-execution paths')
 })

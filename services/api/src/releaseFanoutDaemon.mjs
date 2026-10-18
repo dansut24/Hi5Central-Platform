@@ -12,6 +12,9 @@ import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
 const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
+// Explicit fail-closed standby for operators validating DB rights before gateway cutover.
+// This avoids queue writes even if another administrator unpauses the fleet.
+const standby=process.env.RELEASE_WORKER_STANDBY==='true'
 if(process.argv.slice(2).some(x=>!['--once','--preflight'].includes(x)))
   throw Error('Supported arguments: --once or --preflight')
 const dbUrl=process.env.DATABASE_URL
@@ -45,6 +48,19 @@ async function assertSchema(){
  if(Object.values(state).some(v=>v!==true))
    throw Error('Release planner schema incomplete; migrations 159, 162 and 163 are required.')
  return state
+}
+async function assertReadOnlyCertificationQuery(){
+ // A read-only replica of the certification lookup catches restricted-role
+ // query permissions during --preflight, not only once scheduling begins.
+ await pool.query([
+  'SELECT c.build_sha,c.status,c.approved_at,c.evidence,',
+  'n.published_at,n.version_label',
+  'FROM platform_certified_application_releases c',
+  'JOIN hi5central_published_release_notes n ON n.build_sha=c.build_sha',
+  "WHERE c.build_sha=$1 AND c.status='approved' AND c.approved_by IS NOT NULL",
+  'AND c.evidence @> $2::jsonb',
+ ].join(' '),['0000000000000000000000000000000000000000',
+   JSON.stringify({build:true,ci:true,security:true,migrations:true,smoke:true})])
 }
 async function cycle(){
  const approvals=await pool.query([
@@ -82,10 +98,16 @@ async function cycle(){
 try{
  await assertDatabaseIdentity()
  await assertSchema()
+ await assertReadOnlyCertificationQuery()
  if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length)
  else{
   do{
-   try{await cycle()}
+   try{
+    if(standby){
+      if(process.env.RELEASE_PLANNER_VERBOSE==='true')
+        console.log(JSON.stringify({type:'release_planner_standby',queueMutation:false}))
+    }else await cycle()
+   }
    catch(error){
     console.error('RELEASE_PLANNER_CYCLE_ERROR',error.message)
     if(once){process.exitCode=1;break}
