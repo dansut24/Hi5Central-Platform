@@ -61,11 +61,11 @@ test('four NOLOGIN identities and no secrets embedded',()=>{
  assert.doesNotMatch(sql,/GRANT UPDATE ON\s+public\.platform_release_rollout_control/)
 })
 test('planner can activate only pending jobs without changing leases',()=>{
- assert.match(sql,/GRANT UPDATE\\(status,updated_at\\)/)
- assert.match(sql,/h5c_release_planner_activate/)
- assert.match(sql,/USING \\(status='pending'/)
- assert.match(sql,/WITH CHECK \\(status='scheduled'/)
- assert.match(sql,/legacy Test-only canary|hi5_release_qa_canary/)
+ assert.ok(sql.includes('GRANT UPDATE(status,updated_at)'), 'planner column-only GRANT')
+ assert.ok(sql.includes('h5c_release_planner_activate'), 'planner RLS policy')
+ assert.ok(sql.includes("USING (status='pending'"), 'only pending jobs can be promoted')
+ assert.ok(sql.includes("WITH CHECK (status='scheduled'"), 'new status must be scheduled')
+ assert.ok(sql.includes('hi5_release_qa_canary'), 'legacy Test canary preserved')
 })
 test('all stage-bearing tables use PostgreSQL row-level security',()=>{
  for(const table of [
