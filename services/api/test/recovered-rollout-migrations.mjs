@@ -36,7 +36,7 @@ test('recovered SQL bytes are identical to their original reviewed PR source',()
  }
 })
 test('no duplicate global migration filenames — matches runtime migration identity semantics',()=>{
- const names=files(dir).map(basename)
+ const names=files(dir).map(p=>basename(p))
  assert.equal(new Set(names).size,names.length)
  for(const e of entries)assert.equal(names.filter(n=>n===e.name).length,1)
 })
