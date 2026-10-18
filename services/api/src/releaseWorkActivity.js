@@ -175,13 +175,13 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         }
         const details={reason:request.reason,staffActorId:auth.session.user_id,
           previousStatus:job.status,previousAttempts:job.attempt_count,
-          previousError:job.last_error,globalPausePreserved:true,routeChanges:0}
+          previousError:job.last_error,retryRequested:action==='retry',globalPausePreserved:true,routeChanges:0}
         await db.query([
           'INSERT INTO tenant_release_rollout_events',
           '(job_id,tenant_id,environment,build_sha,event_type,fence,details)',
           'VALUES($1,$2,$3,$4,$5,$6,$7::jsonb)',
         ].join(' '),[job.id,job.tenant_id,job.environment,job.build_sha,
-          action==='cancel'?'cancelled':'retry_scheduled',job.lease_fence,JSON.stringify(details)])
+          action==='cancel'?'cancelled':'scheduled',job.lease_fence,JSON.stringify(details)])
         await audit(c,auth.session,action==='cancel'?'release.rollout_job_cancelled':'release.rollout_job_retry_scheduled',
           'rollout_job',job.id,{...details,tenantSlug:job.slug,environment:job.environment,buildSha:job.build_sha},db)
         return {action,jobId:job.id,previousStatus:job.status,
