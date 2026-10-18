@@ -202,6 +202,10 @@ function LiveProductionReleaseManagement() {
   async function savePolicy(nextMode = policy.updateMode) {
     const next={...policy,updateMode:nextMode}
     setPolicy(next)
+    if(!Array.isArray(next.maintenanceWindow?.days)||next.maintenanceWindow.days.length===0){
+      setError('Choose at least one maintenance day before saving your update policy.')
+      return
+    }
     await action('policy',async()=>{
       const payload={
         updateMode:next.updateMode,
@@ -337,6 +341,26 @@ function LiveProductionReleaseManagement() {
           <label>Production delay after UAT
             <div><input type="number" min="0" max="720" value={policy.liveDelayHours??24} onChange={e=>setPolicy({...policy,liveDelayHours:e.target.value})}/><span>hours</span></div>
           </label>
+          <fieldset className="hi5-release-maintenance-days" style={{gridColumn:'1 / -1',border:0,margin:0,padding:0}}>
+            <legend>Permitted maintenance days</legend>
+            <div style={{display:'flex',flexWrap:'wrap',gap:'10px 18px',marginTop:8}}>
+              {[['mon','Mon'],['tue','Tue'],['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']].map(([day,label])=>(
+                <label key={day} style={{display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                  <input type="checkbox"
+                    checked={(policy.maintenanceWindow?.days||[]).includes(day)}
+                    onChange={event=>{
+                      const previous=policy.maintenanceWindow||{}
+                      const chosen=new Set(previous.days||[])
+                      if(event.target.checked)chosen.add(day)
+                      else chosen.delete(day)
+                      setPolicy({...policy,maintenanceWindow:{...previous,days:[...chosen]}})
+                    }}/>
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <small>Choose at least one weekday. The scheduler will never update outside your selected days and hours.</small>
+          </fieldset>
           <label>Maintenance window start
             <input type="time" value={policy.maintenanceWindow?.start||'02:00'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),start:e.target.value}})}/>
           </label>
