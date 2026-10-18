@@ -120,7 +120,7 @@ ALTER TABLE public.tenant_runtime_update_offers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_release_gateway_owners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.platform_release_worker_heartbeats ENABLE ROW LEVEL SECURITY;
 
-DO $$
+DO $stagepolicies$
 DECLARE relation_name text; col_name text; suffix text; role_name text;stage text;read_stages text; expr text;
 BEGIN
   FOR relation_name,col_name IN
@@ -195,7 +195,7 @@ BEGIN
         relation_name,col_name,col_name);
     END IF;
   END LOOP;
-END $;
+END $stagepolicies$;
 
 -- UAT is allowed to prepare a precisely bounded Live pool/offer ONLY after
 -- possessing an active UAT lease. It receives NO direct INSERT/UPDATE on Live
