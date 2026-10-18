@@ -10,9 +10,18 @@ import {parseQaReleaseTenantSlugs} from './releaseQaCohort.js'
 import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
 
 // Prevent a QA-certified build from ever planning work outside the approved cohort.
-const qaTenantSlugs=parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS)
-// Optional exact-SHA scope prevents this pilot from scheduling older certified builds.
+// Generic scope uses independently approved tenant admission; QA scope uses exact slugs.
+const scope=process.env.RELEASE_PLANNER_SCOPE||'qa'
+if(!['qa','generic'].includes(scope))
+  throw Error('Unknown release planner scope.')
+const qaTenantSlugs=scope==='qa'
+  ?parseQaReleaseTenantSlugs(process.env.RELEASE_QA_TENANT_SLUGS):null
 const qaBuildSha=parsePinnedQaReleaseSha(process.env.RELEASE_QA_BUILD_SHA)
+const deliveryMode=scope==='generic'?'direct_customer_release':
+  process.env.RELEASE_QA_DELIVERY_MODE||'qa_sequential'
+if(!['qa_sequential','direct_customer_release'].includes(deliveryMode)
+  ||(scope==='qa'&&deliveryMode==='direct_customer_release'&&!qaBuildSha))
+  throw Error('QA direct release requires a pinned exact SHA40 and explicit delivery mode.')
 const once=process.argv.includes('--once')
 const verify=process.argv.includes('--preflight')
 // Explicit fail-closed standby for operators validating DB rights before gateway cutover.
@@ -84,7 +93,7 @@ async function cycle(){
     sha:approval.build_sha,
     limit:Number(process.env.RELEASE_PLANNER_TENANT_BATCH||200),
     testSoakMinutes:Number(process.env.RELEASE_PLANNER_TEST_SOAK_MINUTES||30),
-    qaTenantSlugs,
+    qaTenantSlugs,scope,deliveryMode,
    })
    await client.query('COMMIT')
    if(result.queued||result.alreadyQueued)
@@ -103,8 +112,9 @@ try{
  await assertDatabaseIdentity()
  await assertSchema()
  await assertReadOnlyCertificationQuery()
- if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS qaTenants='+qaTenantSlugs.length+
-   ' pinnedSha='+(qaBuildSha||'all-approved'))
+ if(verify)console.log('RELEASE_PLANNER_PREFLIGHT_PASS scope='+scope+
+   ' qaTenants='+(qaTenantSlugs?.length||0)+' pinnedSha='+(qaBuildSha||'all-approved')+
+   ' deliveryMode='+deliveryMode)
  else{
   do{
    try{
