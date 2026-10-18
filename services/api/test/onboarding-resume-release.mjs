@@ -15,6 +15,10 @@ const initial = { company: { displayName: 'Saved Company' }, theme: { accent: 'b
   users: { source: 'local' }, groups: { firstSite: 'London' }, permissions: { preset: 'balanced' } }
 const url = process.env.TEST_API_URL || 'http://127.0.0.1:3001'
 const digest = x => createHash('sha256').update(x).digest('hex')
+const releaseWindow = {
+  timezone:'Europe/London',days:['mon','tue','wed','thu','fri'],
+  start:'02:00',end:'05:00',
+}
 let tenantId, userId, token
 try {
   const tenant = await db.query(
@@ -59,15 +63,20 @@ try {
   assert.equal(bad.code,400,'invalid update modes must be rejected')
   const afterBad = await call('GET','/api/v1/onboarding/session')
   assert.equal(afterBad.data.onboarding.step,'updates','validation must not advance progress')
+  const missingWindow = await call('POST','/api/v1/onboarding/save',
+    {step:'updates',data:{updateMode:'admin_controlled',liveDelayHours:24}})
+  assert.equal(missingWindow.code,400,'missing maintenance selection must fail closed')
   const edit = await call('POST','/api/v1/onboarding/save',
-    {step:'updates',data:{updateMode:'admin_controlled',liveDelayHours:24,allowEmergencySecurityUpdates:true}})
+    {step:'updates',data:{updateMode:'admin_controlled',liveDelayHours:24,allowEmergencySecurityUpdates:true,
+      maintenanceWindow:releaseWindow}})
   assert.equal(edit.code,200,JSON.stringify(edit.data))
   assert.equal(edit.data.onboarding.step,'updates')
   let policy = await db.query('SELECT update_mode,uat_auto_stage,live_auto_promote FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId])
   assert.equal(policy.rows[0].update_mode,'admin_controlled')
-  assert.equal(policy.rows[0].uat_auto_stage,false)
+  assert.equal(policy.rows[0].uat_auto_stage,true,'Custom automatically receives UAT')
   const advance = await call('POST','/api/v1/onboarding/step',
-    {step:'updates',data:{updateMode:'hi5_managed',liveDelayHours:48,allowEmergencySecurityUpdates:false}})
+    {step:'updates',data:{updateMode:'hi5_managed',liveDelayHours:48,
+      allowEmergencySecurityUpdates:false,maintenanceWindow:releaseWindow}})
   assert.equal(advance.code,200,JSON.stringify(advance.data))
   assert.equal(advance.data.onboarding.step,'itsm')
   const resume = await call('GET','/api/v1/onboarding/session')
@@ -77,7 +86,7 @@ try {
   policy = await db.query('SELECT update_mode,live_delay_hours,uat_auto_stage,live_auto_promote,allow_emergency_security_updates FROM tenant_release_preferences WHERE tenant_id=$1',[tenantId])
   assert.equal(policy.rows[0].update_mode,'hi5_managed')
   assert.equal(policy.rows[0].live_delay_hours,48)
-  assert.equal(policy.rows[0].uat_auto_stage,true)
+  assert.equal(policy.rows[0].uat_auto_stage,false,'Managed must not create UAT jobs')
   assert.equal(policy.rows[0].live_auto_promote,true)
   assert.equal(policy.rows[0].allow_emergency_security_updates,false)
   const previous = await call('POST','/api/v1/onboarding/save',{step:'security',data:{requireMfa:false}})
