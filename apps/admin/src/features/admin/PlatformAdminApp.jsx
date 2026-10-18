@@ -11,6 +11,7 @@ import { CertifiedReleaseControls } from './CertifiedReleaseControls.jsx'
 import { GenericReleasePlanning } from './GenericReleasePlanning.jsx'
 import { ProductionUserExperience } from '../../production/ProductionUserExperience.jsx'
 import { ProductionProfileWorkspace } from '../../production/ProductionProfileWorkspace.jsx'
+import { ReleaseWorkActivity } from './ReleaseWorkActivity.jsx'
 import '../../production/ProductionWorkspaceBootstrap.css'
 import '../../production/RmmSidebarParity.css'
 
@@ -903,6 +904,7 @@ function Releases({ data, refresh, query, canApproveSharedReleases = false }) {
       <summary style={{cursor:'pointer',fontWeight:600}}>Advanced certified release planning and QA pilot admission</summary>
       <GenericReleasePlanning api={api} certifications={releaseData.certifications||[]} canApprove={canApproveSharedReleases}/>
     </details>Feature flag</button><button className="rmm-primary compact" onClick={()=>setCreating(v=>!v)}><Plus size={14}/>New change</button></div>}/>
+    <ReleaseWorkActivity api={api} canApprove={canApproveSharedReleases}/>
     <div className="rmm-card h5a-release-deployment-policy">
       <div className="rmm-card-heading">
         <div><span className="rmm-eyebrow">PLATFORM UPDATE OWNERSHIP</span><h2>Who manages this installation?</h2><p>This controls the platform artifact/schema flow for the whole deployment. Tenant activation remains separate below.</p></div>
