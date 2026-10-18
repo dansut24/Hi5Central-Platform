@@ -212,8 +212,10 @@ export async function fanoutCertifiedRelease(db,{
     'FROM platform_certified_application_releases c',
     'JOIN hi5central_published_release_notes n ON n.build_sha=c.build_sha',
     "WHERE c.build_sha=$1 AND c.status='approved' AND c.approved_by IS NOT NULL",
+    // The restricted planner has SELECT, deliberately not UPDATE, on release
+    // certification. FOR SHARE would require UPDATE privileges in PostgreSQL;
+    // claimDueRollouts independently rechecks certification and stage approvals.
     'AND c.evidence @> $2::jsonb',
-    'FOR SHARE OF c',
   ].join(' '),[sha,JSON.stringify({
     build:true,ci:true,security:true,migrations:true,smoke:true,
   })])
