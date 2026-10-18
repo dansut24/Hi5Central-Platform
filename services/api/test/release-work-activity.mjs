@@ -15,6 +15,7 @@ const request=(action='cancel')=>({
 })
 const baseJob={
   id:jobId,tenant_id:tenantId,slug:'customer-one',environment:'uat',build_sha:buildSha,
+  previous_build_sha:'b'.repeat(40),
   status:'scheduled',attempt_count:0,max_attempts:3,lease_token:null,
   lease_expires_at:null,lease_fence:0,routed_generation:null,last_error:null,
 }
@@ -46,7 +47,7 @@ test('only an unleased, unrouted failed job is potentially retryable',()=>{
 })
 function harness(body,{
   job=baseJob,paused=true,running=0,member=true,admin=true,
-  certified=false,published=false,approved=false,
+  certified=false,published=false,approved=false,routeRestored=false,
 }={}){
   const paths=new Map(),writes=[],audits=[]
   const app={get:(path,handler)=>paths.set('GET '+path,handler),
@@ -59,6 +60,7 @@ function harness(body,{
     if(sql.includes('platform_certified_application_releases'))return {rowCount:Number(certified),rows:certified?[{}]:[]}
     if(sql.includes('hi5central_published_release_notes'))return {rowCount:Number(published),rows:published?[{}]:[]}
     if(sql.includes('platform_release_generic_stage_approvals'))return {rowCount:Number(approved),rows:approved?[{}]:[]}
+    if(sql.includes('tenant_runtime_route_attestations'))return {rowCount:Number(routeRestored),rows:routeRestored?[{}]:[]}
     if(sql.includes('UPDATE tenant_release_rollout_jobs'))return {rowCount:1,rows:[{id:jobId}]}
     return {rowCount:1,rows:[]}
   }}
@@ -123,7 +125,7 @@ test('retry remains blocked without certified/published/stage approved release',
 })
 test('retry only schedules after all approvals and audits original failure',async()=>{
   const failed={...baseJob,status:'failed',attempt_count:2,lease_fence:2,last_error:'Stage startup failed'}
-  const h=harness(request('retry'),{job:failed,certified:true,published:true,approved:true})
+  const h=harness(request('retry'),{job:failed,certified:true,published:true,approved:true,routeRestored:true})
   const out=await h.paths.get('POST /api/platform/v1/releases/rollout-jobs/action')(h.c)
   assert.equal(out.status,200)
   assert.equal(out.value.status,'scheduled')
@@ -133,4 +135,13 @@ test('retry only schedules after all approvals and audits original failure',asyn
   assert.equal(JSON.parse(scheduled.params[6]).previousAttempts,2)
   assert.equal(JSON.parse(scheduled.params[6]).retryRequested,true)
   assert.equal(h.audits[0][2],'release.rollout_job_retry_scheduled')
+})
+
+test('retry is denied without independently attested original customer route',async()=>{
+  const failed={...baseJob,status:'failed',attempt_count:1,lease_fence:1}
+  const h=harness(request('retry'),{job:failed,certified:true,published:true,approved:true})
+  const out=await h.paths.get('POST /api/platform/v1/releases/rollout-jobs/action')(h.c)
+  assert.equal(out.status,409)
+  assert.match(out.value.error,/host-attested route/)
+  assert.equal(h.writes.some(w=>w.sql.includes('UPDATE tenant_release_rollout_jobs')),false)
 })
