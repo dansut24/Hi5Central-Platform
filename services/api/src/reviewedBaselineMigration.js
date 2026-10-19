@@ -101,8 +101,8 @@ export function validateSignedBaseline({
    fail('Two-person review is expired, premature or longer than four hours.')
  let reviewer,dba
  try{
-   reviewer=createPublicKey(reviewerPublicKey)
-   dba=createPublicKey(dbaPublicKey)
+   reviewer=reviewerPublicKey?.type==='public' ? reviewerPublicKey : createPublicKey(reviewerPublicKey)
+   dba=dbaPublicKey?.type==='public' ? dbaPublicKey : createPublicKey(dbaPublicKey)
  }catch{fail('Trust anchors were not provisioned by platform security.')}
  if(reviewer.asymmetricKeyType!=='ed25519'||dba.asymmetricKeyType!=='ed25519'
    ||reviewer.export({format:'der',type:'spki'}).equals(dba.export({format:'der',type:'spki'})))
