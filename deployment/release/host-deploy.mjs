@@ -81,6 +81,30 @@ async function assertLiveGatewaySource(){
   const mounted=await docker('exec',c.gateway,'cat','/etc/caddy/Caddyfile')
   if(hash(disk)!==hash(mounted)||!disk.includes('  # H5C_RELEASE_ROUTE_INSERT'))
     throw Error('Shared gateway revision or route anchor changed; refusing cutover.')
+  // The active Caddy admin API may have routes that an earlier watchdog
+  // removed from the mounted source. Reloading that source would silently
+  // remove a working customer's route. Refuse until an operator reconciles it.
+  const live=JSON.parse(await gatewayRuntime())
+  const runtimeHosts=new Set()
+  const visit=value=>{
+    if(Array.isArray(value)){for(const item of value)visit(item);return}
+    if(value&&typeof value==='object'){
+      if(Array.isArray(value.host))for(const host of value.host)runtimeHosts.add(host)
+      for(const child of Object.values(value))visit(child)
+    }
+  }
+  visit(live.apps?.http?.servers||{})
+  const sourceHosts=new Set([...disk.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\.hi5central\.com)/g)]
+    .map(match=>match[1]))
+  const infrastructure=new Set(['api','admin','dev','dev-api','test','uat','rmm','www']
+    .map(slug=>slug+'.hi5central.com'))
+  for(const host of runtimeHosts){
+    if(typeof host!=='string'||!host.endsWith('.hi5central.com')
+       ||host.includes('*')||infrastructure.has(host))continue
+    if(!sourceHosts.has(host))
+      throw Error('Gateway source drift: active tenant route '+host+
+        ' is missing from saved Caddyfile. Reconcile before any reload.')
+  }
 }
 async function clone(source,name,image,isWeb){
   const old=await dockerInspect(source)
