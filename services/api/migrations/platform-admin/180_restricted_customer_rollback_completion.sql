@@ -25,7 +25,10 @@ BEGIN
    OR p_proof->>'routeGeneration' IS DISTINCT FROM q.source_route_generation::text
    OR p_proof->>'observedBuildSha' IS DISTINCT FROM q.target_build_sha
    OR p_proof->>'workerRevision' IS DISTINCT FROM p_revision
-   OR NOT coalesce((p_proof->>'previousSnapshotSha256' ~ '^[a-f0-9]{64}
+   OR length(coalesce(p_proof->>'previousSnapshotSha256',''))<>64
+   OR NOT coalesce((p_proof->>'previousSnapshotSha256' ~ '^[a-f0-9]{64}'),false)
+   OR length(coalesce(p_proof->>'restoredRouteSha256',''))<>64
+   OR NOT coalesce((p_proof->>'restoredRouteSha256' ~ '^[a-f0-9]{64}'),false)
  THEN RAISE EXCEPTION 'Independently verified complete route/versions/recovery proof is required'; END IF;
  mode:=p_proof->>'restorationMode';
  IF mode NOT IN ('legacy_shared_fallback','previous_versioned_pool')
