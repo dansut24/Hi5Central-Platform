@@ -8,7 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
-import {customerRollbackReadiness,requestCustomerRollback} from './customerProductionRollback.js'
+import {rollbackReadiness,queueRollback} from './stageRollbackControl.js'
 import {validateOnboardingMaintenanceWindow} from './onboardingMaintenancePolicy.js'
 import {tenantOrganisationTimezone,withOrganisationReleaseTimezone} from './tenantOrganisationTimezone.js'
 import {rescheduleUnclaimedTenantReleaseJobs} from './tenantMaintenanceReschedule.js'
@@ -155,55 +155,54 @@ export async function tenantReleaseState(tenantId, slug = '') {
 }
 
 export function registerTenantReleaseRoutes(app) {
-  // Customer rollback is a REQUEST ONLY. The rollout hold and immutable
-  // request/event are recorded atomically. Only a separate reviewed host
-  // executor may verify and activate the restored Production route.
+  // Custom customers can request a rollback of their own UAT only.
+  // Production rollback is exclusively a Hi5Central administrator operation.
+  // Use the existing Live workspace as the authenticated release centre; the
+  // selected target is UAT and its isolated database/runtime, never Live.
   app.get('/api/v1/release-management/rollback',async c=>{
     const auth=await requireTenantAdmin(c)
     if(auth.error)return auth.error
     if(deployment.runtimeEnvironment!=='live')
-      return c.json({error:'Customer Production rollback can only be requested from the Live workspace.'},403)
+      return c.json({error:'Open your Production release centre to manage UAT rollback.'},403)
     try{
-      const result=await customerRollbackReadiness(pool,{
-        tenantId:auth.session.tenant_id,
-        executorReady:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY==='true',
-        executorRevisionSha:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_SHA||null,
-      })
-      return c.json(result)
+      const result=await rollbackReadiness(pool,{
+        tenantId:auth.session.tenant_id,environment:'uat',actor:'customer',
+        executorReady:process.env.H5C_STAGE_ROLLBACK_QUEUE_READY==='true'})
+      return c.json({...result,customerCanRollbackProduction:false,
+        rollbackEnvironment:'uat'})
     }catch(error){
-      return c.json({error:error.message||'Could not read rollback readiness.'},error.status||409)
+      return c.json({error:error.message||'Could not read UAT rollback status.'},error.status||409)
     }
   })
   app.post('/api/v1/release-management/rollback',async c=>{
     const auth=await requireTenantAdmin(c)
     if(auth.error)return auth.error
     if(deployment.runtimeEnvironment!=='live')
-      return c.json({error:'Request a Production rollback only from your Live workspace.'},403)
-    // Global hard-off until the independent host executor, cross-role fences,
-    // route CAS, public HTTPS check and recovery path pass real verification.
-    if(process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY!=='true')
-      return c.json({error:'Customer rollback activation is not enabled. No Production changes were made.'},409)
+      return c.json({error:'Open your Production release centre to manage UAT rollback.'},403)
     const body=await c.req.json().catch(()=>null)
+    if(body?.environment!=='uat'||body?.confirm!=='ROLLBACK_MY_CUSTOM_UAT')
+      return c.json({error:'Customer rollback is permitted for Custom UAT only. Hi5Central manages all Production rollback.'},403)
+    // Fail closed until a stage-restricted executor is independently proven.
+    // Never accept requests the worker is not able to service.
+    if(process.env.H5C_STAGE_ROLLBACK_QUEUE_READY!=='true')
+      return c.json({error:'UAT rollback execution is not yet enabled. No changes were made.'},409)
     try{
-      const created=await withTransaction(async db=>{
-        await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
-        const request=await requestCustomerRollback(db,{
+      const request=await withTransaction(async db=>{
+        const queued=await queueRollback(db,{
           tenantId:auth.session.tenant_id,userId:auth.session.user_id,
-          body,executorReady:true,
-          executorRevisionSha:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_SHA||null,
-        })
+          actor:'customer',body})
         await recordSecurityEvent({
           db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
           sessionId:auth.session.session_id||null,
-          eventType:'release.customer_production_rollback_requested',
+          eventType:'release.custom_uat_rollback_requested',
           ipAddress:requestIp(c),userAgent:requestUserAgent(c),
-          metadata:{requestId:request.id,fromBuildSha:request.source_build_sha,
-            toBuildSha:request.target_build_sha,productionChanged:false,
-            tenantUpgradeHoldActive:true},
+          metadata:{requestId:queued.id,fromBuildSha:queued.source_build_sha,
+            toBuildSha:queued.target_build_sha,environment:'uat',
+            productionChanged:false},
         })
-        return request
+        return queued
       })
-      return c.json({request:created,productionChanged:false},202)
+      return c.json({request,productionChanged:false},202)
     }catch(error){
       return c.json({error:String(error.message||error).slice(0,500)},error.status||409)
     }

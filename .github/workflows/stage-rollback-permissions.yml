@@ -1,0 +1,80 @@
+name: Custom UAT and Platform Rollback Safety
+
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/stageRollbackControl.js'
+      - 'services/api/src/stageRollbackExecution.mjs'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/migrations/platform-admin/181_*'
+      - 'services/api/migrations/platform-admin/182_*'
+      - 'services/api/test/stage-rollback-permissions-and-fleet.mjs'
+      - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
+      - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
+      - 'deployment/release/host-deploy.mjs'
+      - '.github/workflows/stage-rollback-permissions.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/src/stageRollbackControl.js'
+      - 'services/api/src/stageRollbackExecution.mjs'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/migrations/platform-admin/181_*'
+      - 'services/api/migrations/platform-admin/182_*'
+      - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
+      - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
+      - 'deployment/release/host-deploy.mjs'
+      - '.github/workflows/stage-rollback-permissions.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-rollback-permissions:
+    name: Tenant UAT, staff fleet, and shared worker boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - name: Install API dependencies
+        run: npm ci --prefix services/api --ignore-scripts --no-audit --no-fund
+      - name: Fail-closed customer, staff and host execution tests
+        run: |
+          set -euo pipefail
+          node --check services/api/src/stageRollbackControl.js
+          node --check services/api/src/stageRollbackExecution.mjs
+          node --check services/api/src/tenantReleaseExecutor.mjs
+          node --check services/api/src/tenantRelease.js
+          node --check services/api/src/releaseWorkActivity.js
+          node --check deployment/release/host-deploy.mjs
+          node --test \
+            services/api/test/stage-rollback-permissions-and-fleet.mjs \
+            services/api/test/tenant-runtime-release-lifecycle.mjs \
+            services/api/test/release-work-activity.mjs
+      - name: Build API runtime
+        run: npm run build:runtime --prefix services/api
+      - name: Confirm new scope is strictly UAT or Live
+        run: |
+          set -euo pipefail
+          grep -q "environment IN ('uat','live')" services/api/migrations/platform-admin/181_stage_scoped_rollback_queue.sql
+          grep -q "requested_via<>'custom_customer' OR environment='uat'" services/api/migrations/platform-admin/181_stage_scoped_rollback_queue.sql
+          grep -q 'session_user=' services/api/migrations/platform-admin/182_stage_rollback_worker_fences.sql
+          grep -q 'H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED' services/api/src/tenantReleaseExecutor.mjs
+          grep -q 'H5C_STAGE_ROLLBACK_QUEUE_READY' services/api/src/tenantRelease.js
+          echo 'No direct customer Production rollback and no automatic activation.'
+      - name: Build real customer frontend
+        run: |
+          npm ci --prefix apps/itsm --ignore-scripts --no-audit --no-fund
+          npm run build --prefix apps/itsm
+      - name: Build central admin frontend
+        run: |
+          npm ci --prefix apps/admin --ignore-scripts --no-audit --no-fund
+          npm run build --prefix apps/admin

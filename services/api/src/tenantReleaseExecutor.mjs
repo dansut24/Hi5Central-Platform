@@ -12,6 +12,7 @@ import {claimDueRollouts,finishRollout,activateNextPendingRollout} from './tenan
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
 import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
+import {processQueuedStageRollback} from './stageRollbackExecution.mjs'
 
 // One generic worker is for all enrolled ITSM tenants, never a QA allowlist.
 if(process.env.RELEASE_DELIVERY_MODE!=='direct_customer_release')
@@ -274,6 +275,15 @@ async function step(){
     await refreshVerifiedPools().catch(e=>console.error('POOL_HEALTH_REFRESH_ERROR',e.message))
   }
   await heartbeat('idle')
+  // Recovery uses this same UAT/Live stage worker. There is no new daemon.
+  // A separate explicit flag gates rollback, and the ordinary gateway
+  // session lock is still required for every host change.
+  if(process.env.H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED==='true'
+     &&(gateway==='uat'||gateway==='live')){
+    const processed=await processQueuedStageRollback({
+      pool,stage:gateway,shell,heartbeat})
+    if(processed)return true
+  }
   return withGatewayLock(pool,{gateway,workerId:ID},async gate=>{
     const claim=await clientTx(tx=>claimDueRollouts(tx,{
       limit:1,environment:gateway,leaseSeconds:600,

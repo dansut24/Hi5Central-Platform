@@ -80,18 +80,19 @@ export function TenantRuntimeUpdates({updateMode}){
      setError('An approved rollback and a reason of at least 20 characters are required.');return
    }
    const expected=short(rollback.installedBuildSha)
-   const typed=window.prompt('This will roll back your Production application version from '+
+   const typed=window.prompt('This will restore your UAT application version from '+
      expected+' to '+short(rollback.previousBuildSha)+
-     '. Type the current build prefix '+expected+' to request the rollback:','')
+     '. Type the current build prefix '+expected+' to request the UAT rollback:','')
    if(typed!==expected)return
-   if(!window.confirm('Final confirmation: place a hold on this organisation’s automatic Production upgrades and request a verified rollback to the previous build? This is a Production-impacting change.'))return
+   if(!window.confirm('Confirm rollback of this organisation’s UAT to its previous verified build? Production will not be changed.'))return
    setRollbackBusy(true);setError('');setMessage('')
    try{
      const result=await fetch(BASE+'/api/v1/release-management/rollback',{
        method:'POST',credentials:'include',cache:'no-store',
        headers:{'Content-Type':'application/json'},
        body:JSON.stringify({
-         confirm:'ROLLBACK_MY_CUSTOM_PRODUCTION',
+         confirm:'ROLLBACK_MY_CUSTOM_UAT',
+         environment:'uat',
          fromBuildSha:rollback.installedBuildSha,
          toBuildSha:rollback.previousBuildSha,
          routeGeneration:Number(rollback.sourceRouteGeneration),
@@ -100,7 +101,7 @@ export function TenantRuntimeUpdates({updateMode}){
      })
      const json=await result.json().catch(()=>({}))
      if(!result.ok)throw Error(json.error||'Rollback request was not accepted.')
-     setMessage('Customer rollback requested and upgrade hold recorded. The trusted executor must complete and verify the Production route restoration.')
+     setMessage('UAT rollback queued. The stage-restricted executor must verify the previous UAT build before this request is shown as complete. Production is unchanged.')
      setRollbackReason('')
      await load()
    }catch(error){setError(error.message)}
@@ -156,40 +157,40 @@ export function TenantRuntimeUpdates({updateMode}){
    </article>)}
    {data.mode==='admin_controlled'&&rollback?<article className="hi5-runtime-update" data-hi5-customer-rollback>
      <div className="hi5-runtime-update-header">
-       <div><span>Production · Recovery</span>
-         <strong>Rollback this organisation's Production version</strong>
+       <div><span>Custom UAT · Recovery</span>
+         <strong>Restore this organisation's previous UAT version</strong>
          <small>Current {short(rollback.installedBuildSha)} · previous {short(rollback.previousBuildSha)}</small>
        </div><RotateCcw size={18}/>
      </div>
      {rollback.activeRequest?<p role="status">
-       Rollback request {rollback.activeRequest.state.replaceAll('_',' ')}. This organisation's upgrade hold protects Production while recovery is processed.
+       Rollback request {rollback.activeRequest.state.replaceAll('_',' ')}. UAT rollback is pending independent host verification; Production remains unchanged.
      </p>:null}
      {rollback.latestRequest?<div className="hi5-runtime-update-pending" role="status" data-hi5-rollback-history>
        <strong>Most recent rollback: {rollback.latestRequest.state.replaceAll('_',' ')}</strong>
        <small>From {short(rollback.latestRequest.source_build_sha)} to {short(rollback.latestRequest.target_build_sha)}
          {rollback.latestRequest.completed_at?' · completed '+when(rollback.latestRequest.completed_at):''}
-         {rollback.latestRequest.host_verified_at?' · Production host verified':''}</small>
+         {rollback.latestRequest.host_verified_at?' · UAT host verified':''}</small>
        {rollback.latestRequest.state==='verified'?<p>
-         The previous Production build was verified. Automatic Production upgrades remain held until an authorised release administrator explicitly lifts the hold.
+         The previous UAT build was independently verified. Production has not changed.
        </p>:null}
        {rollback.latestRequest.last_error?<small>{rollback.latestRequest.last_error}</small>:null}
      </div>:null}
      {rollback.upgradeHoldActive&&!rollback.activeRequest?<p className="hi5-runtime-update-pending">
-       Production upgrades for this organisation are on hold following rollback processing.
+       A rollback is being processed for this organisation.
      </p>:null}
      {!rollback.canRequest?<p className="hi5-runtime-update-pending">
-       Rollback is locked until an independently verified previous build, compatibility approval, recovery evidence and the trusted executor are ready.
+       UAT rollback is available only when a previously verified UAT build and the stage-restricted recovery worker are ready.
        {rollback.reasons?.length?<small>{rollback.reasons.join(' ')}</small>:null}
      </p>:null}
      {rollback.canRequest?<div className="hi5-runtime-update-actions">
-       <p>A customer rollback restores only this organisation's Production application build. It will hold new Production upgrades and requires independent host verification and an audit trail.</p>
-       <label>Reason for Production rollback
+       <p>This restores only your organisation's previous UAT build. Hi5Central manages Production rollback. The UAT change requires independent host verification and an audit trail.</p>
+       <label>Reason for UAT rollback
          <textarea rows={3} maxLength={1000} value={rollbackReason}
            onChange={e=>setRollbackReason(e.target.value)}
-           placeholder="Explain why the approved application version must be restored."/>
+           placeholder="Explain why the previous UAT application version must be restored."/>
        </label>
        <button type="button" disabled={rollbackBusy||rollbackReason.trim().length<20}
-         onClick={requestRollback}><RotateCcw size={15}/> Request Production rollback</button>
+         onClick={requestRollback}><RotateCcw size={15}/> Roll back UAT</button>
      </div>:null}
    </article>:null}
    {live.map(offer=><article className="hi5-runtime-update" key={offer.id}>
