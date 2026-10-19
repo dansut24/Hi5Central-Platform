@@ -17,11 +17,20 @@ export function tenantOrganisationTimezone(settings,releasePreference=null){
   const onboarding=settings?.onboarding_data?.company?.timezone
   // An older tenant might have a stored release timezone but lack modern
   // company onboarding fields. Use it only as a legacy fallback.
-  const candidates=[configuration,onboarding,releasePreference?.maintenance_window?.timezone]
-  for(const candidate of candidates){
-    const timezone=validOrganisationTimezone(candidate)
-    if(timezone)return timezone
+  // A configured Organisation timezone always wins; invalid configuration
+  // must not silently fall back to stale release or onboarding defaults.
+  if(configuration!=null&&String(configuration).trim()){
+    const current=validOrganisationTimezone(configuration)
+    if(!current)throw fail('Organisation time zone is invalid; fix it in Settings → Organisation.')
+    return current
   }
+  if(onboarding!=null&&String(onboarding).trim()){
+    const original=validOrganisationTimezone(onboarding)
+    if(!original)throw fail('Onboarding organisation time zone is invalid.')
+    return original
+  }
+  const legacy=validOrganisationTimezone(releasePreference?.maintenance_window?.timezone)
+  if(legacy)return legacy
   throw fail('Set a valid organisation time zone in Settings → Organisation before changing maintenance hours.')
 }
 
