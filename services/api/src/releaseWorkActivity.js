@@ -257,6 +257,8 @@ export function registerReleaseWorkActivityRoutes(app,deps){
       const result=await withTransaction(async db=>{
         await pausedTransaction(db)
         const job=await lockJob(db,request)
+        let retryPriorBuild=job.previous_build_sha||null
+        let retryPreWrite=false
         if(action==='cancel'){
           if(!jobSafeToCancel(job))throw refuse('Only an unclaimed, unrouted pending/scheduled/deferred job can be cancelled.')
           const changed=await db.query([
@@ -291,13 +293,13 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           // An exact, known pre-gateway SQL rejection cannot record it.
           // Only this one proven pre-write failure can recover from the
           // independently host-attested, actually served customer baseline.
-          const narrowlyPreWrite=job.environment==='live'
+          retryPreWrite=job.environment==='live'
             &&typeof job.last_error==='string'
             &&job.last_error.includes('missing FROM-clause entry for table "j"')
             &&job.routed_generation==null
           let priorBuild=job.previous_build_sha
           if(!SHA.test(String(priorBuild||''))){
-            if(!narrowlyPreWrite)
+            if(!retryPreWrite)
               throw refuse('Retry blocked: previous deployed build was not recorded; independent host recovery required.')
             const assigned=await db.query([
               'SELECT a.build_sha FROM tenant_runtime_assignments a',
@@ -319,7 +321,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
             job.slug+(job.environment==='live'?'':'-'+job.environment)+'.hi5central.com'])
           if(restored.rowCount!==1)
             throw refuse('Retry blocked: a fresh independent attestation of the old customer route is required.')
-          if(narrowlyPreWrite){
+          if(retryPreWrite){
             // Public HTTPS proof in addition to current 15-minute worker attestation.
             // Host is based on a validated tenant slug and fixed application domain.
             const response=await fetch('https://'+job.slug+'.hi5central.com/api/v1/updates/version',{
@@ -329,6 +331,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
             if(!response.ok||version?.sha!==priorBuild||version?.environment!=='live')
               throw refuse('The actual public Managed Production site does not serve the attested prior SHA.')
           }
+          retryPriorBuild=priorBuild
           // A failed one-customer pilot must be explicitly rearmed by staff
           // only after this separately authorised retry; no stale permit
           // is allowed to authorise the second attempt.
@@ -351,8 +354,8 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         }
         const details={reason:request.reason,staffActorId:auth.session.user_id,
           previousStatus:job.status,previousAttempts:job.attempt_count,
-          previousError:job.last_error,retryRequested:action==='retry',priorBuild:action==='retry'?priorBuild:(job.previous_build_sha||null),
-          preWritePilotRecovery:action==='retry'?narrowlyPreWrite:false,
+          previousError:job.last_error,retryRequested:action==='retry',priorBuild:retryPriorBuild,
+          preWritePilotRecovery:retryPreWrite,
           globalPausePreserved:true,routeChanges:0}
         await db.query([
           'INSERT INTO tenant_release_rollout_events',
