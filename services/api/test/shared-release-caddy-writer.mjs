@@ -64,3 +64,19 @@ test('Failed source CAS cannot arm a stale snapshot rollback watchdog',()=>{
  assert.match(script,/refusing unsafe rollback/)
  assert.match(script,/TENANT_RELEASE_ROLLBACK_UNCONFIRMED/)
 })
+
+test('Customer Test/UAT cutovers require isolated runtime databases',()=>{
+ const script=readFileSync(new URL('../../../deployment/release/host-deploy.mjs',import.meta.url),'utf8')
+ assert.match(script,/async function assertIsolatedStageApi/)
+ assert.match(script,/candidateEnv\.DATABASE_URL===productionEnv\.DATABASE_URL/)
+ assert.match(script,/candidateEnv\.RUNTIME_ENVIRONMENT!==environment/)
+ assert.match(script,/if\(mode==='--apply'\)await assertIsolatedStageApi\(plan\.api\)/)
+})
+test('Central fanout and preview refuse an unprovisioned sandbox',()=>{
+ const fanout=readFileSync(new URL('../src/certifiedReleaseFanout.js',import.meta.url),'utf8')
+ const preview=readFileSync(new URL('../src/genericReleaseDiscovery.js',import.meta.url),'utf8')
+ assert.match(fanout,/uat_environment_status/)
+ assert.match(fanout,/row\[plan\.stage\+'_environment_status'\]!=='ready'/)
+ assert.match(preview,/sandboxNotReady/)
+ assert.match(preview,/status:allowed\?'eligible':sandboxNotReady\?'blocked'/)
+})
