@@ -117,7 +117,7 @@ function stageApiEnvironment(){
       ||parsed.pathname!=='/hi5central_'+environment
       ||!parsed.password)throw Error('Stage API credentials have an invalid isolated database identity.')
   const keys=Object.fromEntries(readFileSync(base+environment+'_api_keys.env','utf8')
-    .trim().split('\\n').map(line=>line.split('=',2)))
+    .trim().split('\n').map(line=>line.split('=',2)))
   for(const name of ['MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY',
     'TENANT_SECRET_ENCRYPTION_KEY','RMM_RECOVERY_KEY_ENCRYPTION_KEY']){
     if(!/^[0-9a-f]{64}$/.test(keys[name]||''))
