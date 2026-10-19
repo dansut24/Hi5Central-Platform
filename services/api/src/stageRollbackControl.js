@@ -101,6 +101,15 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
   "WHERE tenant_id=$1 AND environment=$2 AND status IN ('pending','scheduled','deferred','running') LIMIT 1",
  ],[tenantId,environment])
  if(running.rowCount)throw fail('A customer release is pending or running in this environment.')
+ if(environment==='uat'){
+   const production=await db.query([
+     'SELECT 1 FROM tenant_release_rollout_jobs',
+     "WHERE tenant_id=$1 AND environment='live' AND build_sha=$2",
+     "AND status IN ('pending','scheduled','deferred','running') LIMIT 1",
+   ].join(' '),[tenantId,a.build_sha])
+   if(production.rowCount)
+     throw fail('Cancel or finish the pending Production promotion of this UAT build before rolling it back.')
+ }
  const concurrent=await db.query([
   'SELECT 1 FROM platform_release_rollback_jobs',
   "WHERE tenant_id=$1 AND environment=$2 AND state IN ('requested','running') LIMIT 1",
