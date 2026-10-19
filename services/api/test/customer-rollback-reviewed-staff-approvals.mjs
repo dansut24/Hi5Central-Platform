@@ -27,7 +27,7 @@ const cert={
 test('staff signoff is exact-tenant, exact-version, expires within one day, and requires recovery evidence',()=>{
  assert.equal(reviewedRollbackCompatibilityRequest(pair).targetSha,old)
  for(const altered of [
-  {confirm:'approved'},{tenantSlug:'x'},{tenantSlug:'company-uat'},
+  {confirm:'approved'},{tenantSlug:'x'},{tenantSlug:'Company Test'},
   {sourceBuildSha:'fake'},{targetBuildSha:sha},
   {reason:'yes'},{expiresHours:0},{expiresHours:25},{expiresHours:'4'},
   {evidence:{...pair.evidence,schemaChecked:false}},
