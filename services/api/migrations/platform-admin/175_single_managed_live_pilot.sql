@@ -24,10 +24,27 @@ COMMENT ON TABLE platform_release_single_live_pilot_permits IS
 -- RLS prevents Test/UAT identities from ever seeing an authorised Live pilot.
 ALTER TABLE platform_release_single_live_pilot_permits ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON platform_release_single_live_pilot_permits FROM PUBLIC;
-GRANT SELECT ON platform_release_single_live_pilot_permits
-  TO hi5_release_executor_test,hi5_release_executor_uat,hi5_release_executor_live;
-DROP POLICY IF EXISTS h5c_release_pilot_live_read ON platform_release_single_live_pilot_permits;
-CREATE POLICY h5c_release_pilot_live_read ON platform_release_single_live_pilot_permits
- FOR SELECT TO hi5_release_executor_live USING(environment='live');
+-- A fresh CI database does not yet contain host-created restricted worker
+-- identities. Apply the minimum grants only to identities that already exist.
+-- The production host MUST have all three separate roles before activation.
+DO $roles$
+DECLARE worker text;
+BEGIN
+  FOR worker IN SELECT rolname FROM pg_roles
+    WHERE rolname IN ('hi5_release_executor_test','hi5_release_executor_uat',
+                      'hi5_release_executor_live')
+  LOOP
+    EXECUTE format('GRANT SELECT ON platform_release_single_live_pilot_permits TO %I',worker);
+  END LOOP;
+  EXECUTE 'DROP POLICY IF EXISTS h5c_release_pilot_live_read ON platform_release_single_live_pilot_permits';
+  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='hi5_release_executor_live') THEN
+    EXECUTE 'CREATE POLICY h5c_release_pilot_live_read ON platform_release_single_live_pilot_permits
+      FOR SELECT TO hi5_release_executor_live USING(environment=''live'')';
+  ELSE
+    EXECUTE 'CREATE POLICY h5c_release_pilot_live_read ON platform_release_single_live_pilot_permits
+      FOR SELECT TO PUBLIC USING(false)';
+  END IF;
+END
+$roles$;
 -- No INSERT/UPDATE/DELETE for release workers. Admin API uses the established
 -- trusted control database identity and performs all staff/audit checks.
