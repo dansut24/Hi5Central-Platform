@@ -22,3 +22,36 @@ export function assertHistoricalMigrationLedgerSafe({appliedCount,publicTableCou
    ].join(' '))
  return {safeToProceed:true,freshDatabase:publicTableCount===0}
 }
+
+/**
+ * A partially reconstructed history is equally dangerous. Example: someone
+ * marks only rollback migrations 178–180 as applied while 001–177 remain
+ * unverified. Sorting the source filenames must yield an uninterrupted
+ * applied prefix followed by unapplied newer migrations, never gaps.
+ */
+export function assertMigrationHistoryPrefixSafe({appliedVersions,sourceVersions}){
+ if(!Array.isArray(appliedVersions)||!Array.isArray(sourceVersions)
+   ||appliedVersions.some(x=>typeof x!=='string'||!x.endsWith('.sql'))
+   ||sourceVersions.some(x=>typeof x!=='string'||!x.endsWith('.sql')))
+   throw Error('MIGRATION_HISTORY_INVALID: expected exact SQL migration filename arrays.')
+ const applied=new Set(appliedVersions)
+ const source=new Set(sourceVersions)
+ if(applied.size!==appliedVersions.length||source.size!==sourceVersions.length)
+   throw Error('MIGRATION_HISTORY_INVALID: duplicate historical migration identities.')
+ for(const version of applied){
+   if(!source.has(version))
+     throw Error('MIGRATION_HISTORY_UNVERIFIED: applied migration source unavailable: '+version)
+ }
+ const sorted=[...source].sort((a,b)=>a.localeCompare(b))
+ let firstUnapplied=null
+ for(const version of sorted){
+   if(!applied.has(version)){
+     firstUnapplied??=version
+   }else if(firstUnapplied){
+     throw Error('MIGRATION_HISTORY_UNVERIFIED: applied '+version+
+       ' follows missing historical '+firstUnapplied+
+       '. Refusing migration replay against a non-contiguous ledger.')
+   }
+ }
+ return {safeToProceed:true,appliedCount:applied.size}
+}
