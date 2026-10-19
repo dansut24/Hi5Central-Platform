@@ -206,9 +206,15 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           'INSERT INTO platform_release_single_live_pilot_permits',
           '(job_id,tenant_id,build_sha,environment,state,not_before,expires_at,approved_by,reason)',
           "VALUES($1,$2,$3,'live','armed',$4,$5,$6,$7)",
+          'ON CONFLICT (job_id) DO UPDATE SET',
+          "state='armed',closed_at=NULL,not_before=excluded.not_before,",
+          'expires_at=excluded.expires_at,approved_by=excluded.approved_by,',
+          'reason=excluded.reason,armed_at=now()',
+          "WHERE platform_release_single_live_pilot_permits.state IN ('revoked','completed')",
           'RETURNING job_id,tenant_id,build_sha,not_before,expires_at',
         ].join(' '),[job.id,job.tenant_id,job.build_sha,now,end,
           auth.session.user_id,request.reason])
+        if(entry.rowCount!==1)throw refuse('Existing pilot must first be revoked before re-arming.')
         await audit(c,auth.session,'release.managed_production_pilot_armed',
           'rollout_job',job.id,{
             tenantSlug:job.slug,environment:'live',buildSha:job.build_sha,
