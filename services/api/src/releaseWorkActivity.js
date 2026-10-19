@@ -326,7 +326,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           ].join(' '),[job.tenant_id,job.environment,priorBuild,
             job.slug+(job.environment==='live'?'':'-'+job.environment)+'.hi5central.com'])
           if(restored.rowCount!==1)
-            throw refuse('Retry blocked: a fresh independent attestation of the old customer route is required.')
+            throw refuse('Retry blocked: a fresh independent host-attested route of the old customer build is required.')
           if(retryPreWrite){
             // Public HTTPS proof in addition to current 15-minute worker attestation.
             // Host is based on a validated tenant slug and fixed application domain.
