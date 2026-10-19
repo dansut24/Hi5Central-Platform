@@ -3,6 +3,7 @@
  * exact unclaimed job, or request a reviewed retry, but NEVER unpause,
  * claim, deploy, approve a stage, or change a tenant route here.
  */
+import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SHA=/^[a-f0-9]{40}$/
 const STAGES=new Set(['test','uat','live'])
@@ -154,10 +155,10 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         if(!livePilotJobEligible(job))
           throw refuse('Only an active, unclaimed Managed Production job can be piloted.')
         const now=new Date()
-        const window=await import('./releaseRolloutPlanner.js').then(m=>m.activeTenantMaintenanceWindow({
+        const window=activeTenantMaintenanceWindow({
           policy:job.maintenance_window,blackouts:job.blackout_periods,
           durationMinutes:job.expected_duration_minutes,now,
-        }))
+        })
         if(!window.allowed||new Date(job.scheduled_at)>now)
           throw refuse('Pilot can only be armed at or after its scheduled time, inside the full approved customer window.')
         const release=await db.query([
@@ -190,10 +191,14 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         const already=await db.query(
           "SELECT 1 FROM platform_release_single_live_pilot_permits WHERE state='armed' LIMIT 1")
         if(already.rowCount)throw refuse('An existing single-customer pilot is still armed.')
-        const end=new Date(Math.min(now.getTime()+30*60000,
-          new Date(window.endsAt).getTime()-1000))
-        if(end.getTime()-now.getTime()<10*60000)
-          throw refuse('Less than 10 minutes remain; choose a later maintenance window.')
+        const end=new Date(now.getTime()+30*60000)
+        const remainingWindow=activeTenantMaintenanceWindow({
+          policy:job.maintenance_window,blackouts:job.blackout_periods,
+          durationMinutes:job.expected_duration_minutes,
+          now:new Date(end.getTime()-job.expected_duration_minutes*60000),
+        })
+        if(!remainingWindow.allowed)
+          throw refuse('The protected 30-minute pilot does not fit the remaining customer maintenance window.')
         const entry=await db.query([
           'INSERT INTO platform_release_single_live_pilot_permits',
           '(job_id,tenant_id,build_sha,environment,state,not_before,expires_at,approved_by,reason)',
