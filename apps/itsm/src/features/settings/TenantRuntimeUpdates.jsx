@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react'
-import {CheckCircle2,Clock3,ExternalLink,RefreshCw,ShieldCheck} from 'lucide-react'
+import {CheckCircle2,Clock3,ExternalLink,RefreshCw,ShieldCheck,RotateCcw} from 'lucide-react'
 import './TenantRuntimeUpdates.css'
 
 const BASE=window.__HI5_API_BASE__||''
@@ -31,10 +31,22 @@ export function TenantRuntimeUpdates({updateMode}){
  const [checks,setChecks]=useState([])
  const [evidence,setEvidence]=useState('')
  const [date,setDate]=useState('')
+ const [rollback,setRollback]=useState(null)
+ const [rollbackReason,setRollbackReason]=useState('')
+ const [rollbackBusy,setRollbackBusy]=useState(false)
  async function load(){
   try{
    const r=await request('')
    setData(r);setUnsupported(false);setError('')
+   if(r.mode==='admin_controlled'&&r.updateOffers?.some(x=>x.environment==='live'&&x.state==='active')){
+     try{
+       const result=await fetch(BASE+'/api/v1/release-management/rollback',{
+         credentials:'include',cache:'no-store',
+       })
+       if(result.ok)setRollback(await result.json())
+       else setRollback(null)
+     }catch{setRollback(null)}
+   }else setRollback(null)
   }catch(e){if(e.status===403||e.status===404){setUnsupported(true)}
    else setError(e.message)}
   finally{setLoading(false)}
@@ -62,6 +74,37 @@ export function TenantRuntimeUpdates({updateMode}){
    setMessage(res.message||'Production update scheduled for host verification.')
    await load()
   }catch(e){setError(e.message)}finally{setBusy('')}
+ }
+ async function requestRollback(){
+   if(!rollback?.canRequest||rollbackReason.trim().length<20){
+     setError('An approved rollback and a reason of at least 20 characters are required.');return
+   }
+   const expected=short(rollback.installedBuildSha)
+   const typed=window.prompt('This will roll back your Production application version from '+
+     expected+' to '+short(rollback.previousBuildSha)+
+     '. Type the current build prefix '+expected+' to request the rollback:','')
+   if(typed!==expected)return
+   if(!window.confirm('Final confirmation: place a hold on this organisation’s automatic Production upgrades and request a verified rollback to the previous build? This is a Production-impacting change.'))return
+   setRollbackBusy(true);setError('');setMessage('')
+   try{
+     const result=await fetch(BASE+'/api/v1/release-management/rollback',{
+       method:'POST',credentials:'include',cache:'no-store',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({
+         confirm:'ROLLBACK_MY_CUSTOM_PRODUCTION',
+         fromBuildSha:rollback.installedBuildSha,
+         toBuildSha:rollback.previousBuildSha,
+         routeGeneration:Number(rollback.sourceRouteGeneration),
+         reason:rollbackReason.trim(),
+       }),
+     })
+     const json=await result.json().catch(()=>({}))
+     if(!result.ok)throw Error(json.error||'Rollback request was not accepted.')
+     setMessage('Customer rollback requested and upgrade hold recorded. The trusted executor must complete and verify the Production route restoration.')
+     setRollbackReason('')
+     await load()
+   }catch(error){setError(error.message)}
+   finally{setRollbackBusy(false)}
  }
  if(unsupported)return null
  if(loading)return <section className="production-settings-panel"><div className="hi5-release-loading">
@@ -111,6 +154,31 @@ export function TenantRuntimeUpdates({updateMode}){
      Awaiting a trusted host check that this exact build is serving your UAT URL.</p>:null}
     {offer.uatAcceptedAt?<small>Accepted on {when(offer.uatAcceptedAt)}</small>:null}
    </article>)}
+   {data.mode==='admin_controlled'&&rollback?<article className="hi5-runtime-update" data-hi5-customer-rollback>
+     <div className="hi5-runtime-update-header">
+       <div><span>Production · Recovery</span>
+         <strong>Rollback this organisation's Production version</strong>
+         <small>Current {short(rollback.installedBuildSha)} · previous {short(rollback.previousBuildSha)}</small>
+       </div><RotateCcw size={18}/>
+     </div>
+     {rollback.activeRequest?<p role="status">
+       Rollback request {rollback.activeRequest.state.replaceAll('_',' ')}. This organisation's upgrade hold protects Production while recovery is processed.
+     </p>:null}
+     {!rollback.canRequest?<p className="hi5-runtime-update-pending">
+       Rollback is locked until an independently verified previous build, compatibility approval, recovery evidence and the trusted executor are ready.
+       {rollback.reasons?.length?<small>{rollback.reasons.join(' ')}</small>:null}
+     </p>:null}
+     {rollback.canRequest?<div className="hi5-runtime-update-actions">
+       <p>A customer rollback restores only this organisation's Production application build. It will hold new Production upgrades and requires independent host verification and an audit trail.</p>
+       <label>Reason for Production rollback
+         <textarea rows={3} maxLength={1000} value={rollbackReason}
+           onChange={e=>setRollbackReason(e.target.value)}
+           placeholder="Explain why the approved application version must be restored."/>
+       </label>
+       <button type="button" disabled={rollbackBusy||rollbackReason.trim().length<20}
+         onClick={requestRollback}><RotateCcw size={15}/> Request Production rollback</button>
+     </div>:null}
+   </article>:null}
    {live.map(offer=><article className="hi5-runtime-update" key={offer.id}>
      <div className="hi5-runtime-update-header">
       <div><span>Production · {displayState(offer.state)}</span>

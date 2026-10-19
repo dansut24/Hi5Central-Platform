@@ -8,6 +8,7 @@ import { establishEnvironmentSession } from './environmentDirectSession.js'
 import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
+import {customerRollbackReadiness,requestCustomerRollback} from './customerProductionRollback.js'
 import {validateOnboardingMaintenanceWindow} from './onboardingMaintenancePolicy.js'
 import {tenantOrganisationTimezone,withOrganisationReleaseTimezone} from './tenantOrganisationTimezone.js'
 import {rescheduleUnclaimedTenantReleaseJobs} from './tenantMaintenanceReschedule.js'
@@ -154,6 +155,57 @@ export async function tenantReleaseState(tenantId, slug = '') {
 }
 
 export function registerTenantReleaseRoutes(app) {
+  // Customer rollback is a REQUEST ONLY. The rollout hold and immutable
+  // request/event are recorded atomically. Only a separate reviewed host
+  // executor may verify and activate the restored Production route.
+  app.get('/api/v1/release-management/rollback',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Customer Production rollback can only be requested from the Live workspace.'},403)
+    try{
+      const result=await customerRollbackReadiness(pool,{
+        tenantId:auth.session.tenant_id,
+        executorReady:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY==='true',
+      })
+      return c.json(result)
+    }catch(error){
+      return c.json({error:error.message||'Could not read rollback readiness.'},error.status||409)
+    }
+  })
+  app.post('/api/v1/release-management/rollback',async c=>{
+    const auth=await requireTenantAdmin(c)
+    if(auth.error)return auth.error
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Request a Production rollback only from your Live workspace.'},403)
+    // Global hard-off until the independent host executor, cross-role fences,
+    // route CAS, public HTTPS check and recovery path pass real verification.
+    if(process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY!=='true')
+      return c.json({error:'Customer rollback activation is not enabled. No Production changes were made.'},409)
+    const body=await c.req.json().catch(()=>null)
+    try{
+      const created=await withTransaction(async db=>{
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
+        const request=await requestCustomerRollback(db,{
+          tenantId:auth.session.tenant_id,userId:auth.session.user_id,
+          body,executorReady:true,
+        })
+        await recordSecurityEvent({
+          db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
+          sessionId:auth.session.session_id||null,
+          eventType:'release.customer_production_rollback_requested',
+          ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+          metadata:{requestId:request.id,fromBuildSha:request.source_build_sha,
+            toBuildSha:request.target_build_sha,productionChanged:false,
+            tenantUpgradeHoldActive:true},
+        })
+        return request
+      })
+      return c.json({request:created,productionChanged:false},202)
+    }catch(error){
+      return c.json({error:String(error.message||error).slice(0,500)},error.status||409)
+    }
+  })
   // Inform customer owners of their installed runtime assignment and
   // pending version offers; this route cannot select or activate a pool.
   app.get('/api/v1/release-management/runtime-updates',async c=>{
