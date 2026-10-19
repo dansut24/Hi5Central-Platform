@@ -102,6 +102,15 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
  ].join(' '),[tenantId,environment])
  if(running.rowCount)throw fail('A customer release is pending or running in this environment.')
  if(environment==='uat'){
+   // Never make UAT older than an already-promoted Production build.
+   // Require exact alignment with the intended UAT restore target;
+   // unsupported ancestry comparisons must fail closed.
+   const installedProduction=await db.query([
+     'SELECT build_sha FROM tenant_runtime_assignments',
+     "WHERE tenant_id=$1 AND environment='live' LIMIT 1",
+   ].join(' '),[tenantId])
+   if(installedProduction.rows[0]?.build_sha!==j.previous_build_sha)
+     throw fail('Roll back Production to the intended UAT restore build first. Production must never be ahead of UAT.')
    const production=await db.query([
      'SELECT 1 FROM tenant_release_rollout_jobs',
      "WHERE tenant_id=$1 AND environment='live' AND build_sha=$2",
