@@ -125,7 +125,7 @@ export async function rescheduleUnclaimedTenantReleaseJobs(db,{
      continue
    }
    const updated=await db.query([
-     'UPDATE tenant_release_rollout_jobs SET scheduled_at=$2,updated_at=now(),last_error=NULL',
+     'UPDATE tenant_release_rollout_jobs SET scheduled_at=$2,updated_at=now(),last_error=''',
      'WHERE id=$1 AND status=$3 AND attempt_count=0 AND lease_fence=0',
      'AND lease_token IS NULL AND lease_expires_at IS NULL AND routed_generation IS NULL',
      'RETURNING id',
