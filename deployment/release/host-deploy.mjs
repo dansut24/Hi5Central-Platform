@@ -87,14 +87,14 @@ async function currentRevisionOrUnassigned(snapshot){
   if(environment==='live'||snapshot.includes(marker))
     return {...await currentTenantRevision(),unassigned:false}
   const raw=await cmd('curl',[
-    '-sS','--max-time','8','-w','\\n%{http_code}',
+    '-sS','--max-time','8','-w','__H5C_STATUS__%{http_code}',
     'https://'+host+'/api/v1/updates/version',
   ],null,13000)
-  const separator=raw.lastIndexOf('\\n')
+  const separator=raw.lastIndexOf('__H5C_STATUS__')
   if(separator<0)throw Error('Undeployed sandbox response lacks an HTTP status.')
   return assertUnassignedSandboxBaseline({
     environment,host,source:snapshot,
-    body:raw.slice(0,separator),status:raw.slice(separator+1).trim(),
+    body:raw.slice(0,separator),status:raw.slice(separator+'__H5C_STATUS__'.length).trim(),
   })
 }
 async function assertLiveGatewaySource(){
