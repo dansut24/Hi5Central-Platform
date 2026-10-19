@@ -174,7 +174,8 @@ BEGIN
     AND build_sha=r.source_build_sha AND state='active';
  ELSE
   UPDATE public.tenant_runtime_update_offers SET
-    state='rolled_back',updated_at=now()
+    state='blocked',updated_at=now(),
+    last_gate_reason='Custom UAT rollback independently verified; this version is no longer accepted for Production promotion.'
   WHERE tenant_id=r.tenant_id AND environment='uat'
     AND build_sha=r.source_build_sha
     AND state IN ('uat_testing','uat_accepted','active');
