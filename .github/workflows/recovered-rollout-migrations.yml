@@ -10,6 +10,10 @@ on:
       - 'services/api/src/migrationBaselineEvidence.js'
       - 'services/api/src/reportMigrationBaseline.mjs'
       - 'services/api/test/migration-baseline-evidence.mjs'
+      - 'services/api/src/reviewedBaselineMigration.js'
+      - 'services/api/src/reviewedBaselineMigrationRunner.mjs'
+      - 'services/api/test/reviewed-baseline-migration.mjs'
+      - 'deployment/release/REVIEWED_BASELINE_ROLLBACK_MIGRATIONS.md'
       - 'deployment/qa26/recovered-rollout-migration-provenance.json'
       - '.github/workflows/recovered-rollout-migrations.yml'
   workflow_dispatch:
@@ -24,9 +28,11 @@ jobs:
         with:
           node-version: '22'
       - name: Exact historical SQL checksums, identities and no duplicate filenames
-        run: node --test services/api/test/recovered-rollout-migrations.mjs services/api/test/migration-empty-ledger-guard.mjs services/api/test/migration-baseline-evidence.mjs
+        run: node --test services/api/test/recovered-rollout-migrations.mjs services/api/test/migration-empty-ledger-guard.mjs services/api/test/migration-baseline-evidence.mjs services/api/test/reviewed-baseline-migration.mjs
       - name: Check runtime migration runner grammar
         run: |
           node --check services/api/src/migrate.js
           node --check services/api/src/migrationBaselineEvidence.js
           node --check services/api/src/reportMigrationBaseline.mjs
+          node --check services/api/src/reviewedBaselineMigration.js
+          node --check services/api/src/reviewedBaselineMigrationRunner.mjs
