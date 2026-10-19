@@ -5,6 +5,7 @@ import { pool } from './db.js'
 
 const { Client } = pg
 const environments = ['test', 'uat']
+export const tenantSandboxStages=mode=>mode==='hi5_managed'?['test']:[...environments]
 const isId = (value) => /^[a-f0-9-]{36}$/i.test(String(value || ''))
 const targetUrl = (slug, env, kind = 'workspace') => {
   const prefix = `${slug}-${env}`
@@ -53,7 +54,7 @@ export async function provisionTenantSandboxes(tenantId, { source = pool, target
     throw new Error('An active organisation owner is required for sandbox access.')
   }
   const summary = {}
-  for (const env of environments) {
+  for (const env of tenantSandboxStages(tenant.update_mode)) {
     const connectionString = targets[env]
       || (process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`]
         ? readFileSync(process.env[`TENANT_${env.toUpperCase()}_DATABASE_URL_FILE`],'utf8').trim()
@@ -152,8 +153,10 @@ export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
        FROM tenants t
        JOIN tenant_settings ts ON ts.tenant_id=t.id
        JOIN tenant_environment_state te ON te.tenant_id=t.id
+       JOIN tenant_release_preferences rp ON rp.tenant_id=t.id
       WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL
-        AND te.environment IN ('test','uat') AND te.status<>'ready'
+        AND (te.environment='test' OR (te.environment='uat' AND rp.update_mode='admin_controlled'))
+        AND te.status<>'ready'
       GROUP BY t.id ORDER BY t.id LIMIT 100`,
   )
   let ready = 0
@@ -161,7 +164,9 @@ export async function backfillCompletedTenantSandboxes({ source = pool } = {}) {
   for (const row of result.rows) {
     try {
       const status = await provisionTenantSandboxes(row.id, { source })
-      for (const env of ['test','uat']) status[env]?.status === 'ready' ? ready++ : failed++
+      const preference=await source.query('SELECT update_mode FROM tenant_release_preferences WHERE tenant_id=$1',[row.id])
+      for (const env of tenantSandboxStages(preference.rows[0]?.update_mode))
+        status[env]?.status === 'ready' ? ready++ : failed++
     } catch (error) {
       failed++
       console.error('Backfill environment provisioning failed', {tenantId:row.id,code:error.code || 'UNKNOWN'})
