@@ -23,6 +23,47 @@ export function rollbackRequestPayload(body){
   return {fromBuildSha:body.fromBuildSha,toBuildSha:body.toBuildSha,
     routeGeneration:body.routeGeneration,reason}
 }
+/** A deployment variable is only an opt-in switch, never evidence of a
+ * trusted executor. A separately authenticated staff review of the exact
+ * worker revision must exist and still be valid when a customer asks.
+ * No certification is seeded or inferred from the operator-only PR #116.
+ */
+export function reviewedExecutorCertification(record,revisionSha,now=new Date()){
+ if(!SHA.test(String(revisionSha||''))||!record
+   ||record.revision_sha!==revisionSha||record.state!=='approved'
+   ||record.worker_role!=='hi5_release_rollback_executor'
+   ||record.gateway_fence_tested!==true
+   ||record.restricted_role_tested!==true
+   ||record.customer_only_route_tested!==true
+   ||record.failure_compensation_tested!==true
+   ||record.public_version_verified!==true
+   ||record.audit_completion_tested!==true
+   ||!UUID.test(String(record.reviewed_by||''))
+   ||!newest(record.reviewed_at)||!newest(record.expires_at)
+   ||newest(record.reviewed_at)>now
+   ||newest(record.expires_at)<=now
+   ||typeof record.reason!=='string'
+   ||record.reason.trim().length<20)return false
+ const proof=record.evidence||{}
+ return proof.independentHostTest===true&&proof.customerIsolationTest===true
+}
+export async function certifiedRollbackExecutorReady(db,{
+ enabled=false,revisionSha=null,now=new Date()
+}={}){
+ // Refuse to consult or trust self-reported build metadata if the feature
+ // is off. The CI-produced revision must be explicitly pinned in the API.
+ if(enabled!==true||!SHA.test(String(revisionSha||'')))return false
+ const {rows}=await db.query([
+   'SELECT revision_sha,state,worker_role,gateway_fence_tested,',
+   'restricted_role_tested,customer_only_route_tested,',
+   'failure_compensation_tested,public_version_verified,',
+   'audit_completion_tested,reviewed_by,reviewed_at,expires_at,',
+   'reason,evidence',
+   'FROM platform_release_customer_rollback_executor_certifications',
+   'WHERE revision_sha=$1',
+ ].join(' '),[revisionSha])
+ return reviewedExecutorCertification(rows[0],revisionSha,now)
+}
 function reviewedCompatibility(row,from,to,now){
   if(!row||row.from_build_sha!==from||row.to_build_sha!==to||row.state!=='approved'
     ||row.schema_backward_compatible!==true||row.immutable_images_verified!==true
@@ -73,7 +114,9 @@ export function evaluateCustomerRollback({
 }
 
 /** Never inserts/updates a request or hold. Safe for customer summary UI. */
-export async function customerRollbackReadiness(db,{tenantId,now=new Date(),executorReady=false}){
+export async function customerRollbackReadiness(db,{
+ tenantId,now=new Date(),executorReady=false,executorRevisionSha=null,
+}){
  if(!UUID.test(String(tenantId||'')))throw fail('Invalid tenant.',400)
  const tenant=await db.query([
    'SELECT t.slug,t.status,p.update_mode FROM tenants t',
@@ -123,12 +166,18 @@ export async function customerRollbackReadiness(db,{tenantId,now=new Date(),exec
    "WHERE tenant_id=$1 AND environment='live'",
    "AND status IN ('pending','scheduled','deferred','running')",
  ].join(' '),[tenantId])
+ // Both an explicit service switch and a valid, independently reviewed
+ // revision are mandatory. The GET path returns a locked readiness result
+ // rather than making a customer-visible promise about a missing executor.
+ const admitted=await certifiedRollbackExecutorReady(db,{
+   enabled:executorReady,revisionSha:executorRevisionSha,now,
+ })
  const status=evaluateCustomerRollback({
    mode:tenant.rows[0]?.status==='active'?tenant.rows[0]?.update_mode:null,
    slug:tenant.rows[0]?.slug,current:current.rows[0],route:route.rows[0],
    verifiedJob:verified.rows[0],compatibility:compatibility.rows[0],
    activeRequest:active.rows[0],activeHold:holds.rows[0],
-   activeRolloutCount:queued.rows[0]?.total,executorReady,now,
+   activeRolloutCount:queued.rows[0]?.total,executorReady:admitted,now,
  })
  return {...status,activeRequest:active.rows[0]||null}
 }
@@ -137,13 +186,16 @@ export async function customerRollbackReadiness(db,{tenantId,now=new Date(),exec
  * Tenant row lock serialises with the upgrade-hold trigger.
  */
 export async function requestCustomerRollback(db,{
- tenantId,userId,body,now=new Date(),executorReady=false
+ tenantId,userId,body,now=new Date(),executorReady=false,
+ executorRevisionSha=null,
 }){
  if(!UUID.test(String(tenantId))||!UUID.test(String(userId)))
    throw fail('Invalid customer/user identity.',400)
  const request=rollbackRequestPayload(body)
  await db.query('SELECT id FROM tenants WHERE id=$1 AND status=$2 FOR UPDATE',[tenantId,'active'])
- const gate=await customerRollbackReadiness(db,{tenantId,now,executorReady})
+ const gate=await customerRollbackReadiness(db,{
+   tenantId,now,executorReady,executorRevisionSha,
+ })
  if(!gate.canRequest)throw fail('Rollback is not available: '+gate.reasons.join(' '))
  if(gate.installedBuildSha!==request.fromBuildSha
    ||gate.previousBuildSha!==request.toBuildSha
