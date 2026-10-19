@@ -9,6 +9,7 @@ import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
 import {validateOnboardingMaintenanceWindow} from './onboardingMaintenancePolicy.js'
+import {tenantOrganisationTimezone,withOrganisationReleaseTimezone} from './tenantOrganisationTimezone.js'
 import {rescheduleUnclaimedTenantReleaseJobs} from './tenantMaintenanceReschedule.js'
 
 function object(value) {
@@ -119,7 +120,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
 
 export async function tenantReleaseState(tenantId, slug = '') {
   await ensurePreference(tenantId)
-  const [preference, environments, pendingReleases] = await Promise.all([
+  const [preference, environments, pendingReleases, settings] = await Promise.all([
     pool.query('SELECT * FROM tenant_release_preferences WHERE tenant_id=$1', [tenantId]),
     pool.query(
       `SELECT * FROM tenant_environment_state
@@ -133,13 +134,19 @@ export async function tenantReleaseState(tenantId, slug = '') {
       "WHERE j.tenant_id=$1 AND j.status IN ('pending','scheduled','deferred')",
       'ORDER BY j.scheduled_at,j.id LIMIT 25',
     ].join(' '),[tenantId]),
+    pool.query('SELECT configuration,onboarding_data FROM tenant_settings WHERE tenant_id=$1',[tenantId]),
   ])
+  const organisationTimezone=tenantOrganisationTimezone(settings.rows[0]||{},preference.rows[0])
+  const ownedPreference={...preference.rows[0],
+    maintenance_window:withOrganisationReleaseTimezone(
+      preference.rows[0].maintenance_window,organisationTimezone)}
   return {
+    organisationTimezone,
     pendingReleases:pendingReleases.rows.map(row=>({
       jobId:row.id,environment:row.environment,buildSha:row.build_sha,
       status:row.status,scheduledAt:row.scheduled_at,
     })),
-    preference: preferencePayload(preference.rows[0]),
+    preference: preferencePayload(ownedPreference),
     environments: environments.rows
       .filter(row => row.environment!=='uat'||preference.rows[0]?.update_mode==='admin_controlled')
       .map(row => environmentPayload(row, slug)),
@@ -270,7 +277,7 @@ export function registerTenantReleaseRoutes(app) {
 
     const maintenanceWindow = body?.maintenanceWindow == null
       ? {}
-      : validateOnboardingMaintenanceWindow(body.maintenanceWindow)
+      : body.maintenanceWindow
     // Managed has no UAT; Custom UAT is available automatically but only
     // the customer can approve a matching Production promotion.
     const modeDefaults = updateMode === 'hi5_managed'
@@ -288,6 +295,17 @@ export function registerTenantReleaseRoutes(app) {
           'SELECT maintenance_window FROM tenant_release_preferences WHERE tenant_id=$1 FOR UPDATE',
           [auth.session.tenant_id])
         if(!before.rowCount)throw new Error('Release preference record is missing.')
+        const currentSettings=await db.query(
+          'SELECT configuration,onboarding_data FROM tenant_settings WHERE tenant_id=$1 FOR SHARE',
+          [auth.session.tenant_id])
+        const organisationTimezone=tenantOrganisationTimezone(
+          currentSettings.rows[0]||{},before.rows[0])
+        // Ignore stale/browser/client timezone. Validate only the explicitly
+        // edited hours/days; always use the tenant's Organisation timezone.
+        const adjustedWindow=Object.keys(maintenanceWindow).length
+          ?validateOnboardingMaintenanceWindow(
+            withOrganisationReleaseTimezone(maintenanceWindow,organisationTimezone))
+          :{}
         const previousWindow=before.rows[0].maintenance_window
         const result=await db.query(
           `UPDATE tenant_release_preferences SET
@@ -309,7 +327,7 @@ export function registerTenantReleaseRoutes(app) {
             modeDefaults.liveAutoPromote,
             delay,
             body?.allowEmergencySecurityUpdates !== false,
-            JSON.stringify(maintenanceWindow),
+            JSON.stringify(adjustedWindow),
             auth.session.user_id,
           ])
         const after=result.rows[0]
@@ -334,8 +352,8 @@ export function registerTenantReleaseRoutes(app) {
             customerDeploymentStarted:false,
           },
         })
-        return {preference:preferencePayload(after),maintenanceWindowChanged:windowChanged,
-          ...rescheduling}
+        return {preference:preferencePayload(after),organisationTimezone,
+          maintenanceWindowChanged:windowChanged,...rescheduling}
       })
     }catch(error){
       return c.json({error:String(error.message||error)},error.status||409)
