@@ -69,7 +69,7 @@ test('tampered, missing or single-signer review never passes',()=>{
    migrationHashes:hashes,sourceCommit:sha,
   }),/BASELINE_APPROVAL_DENIED/)
  }
- assert.throws(()=>check(payload,{dba:reviewer}),/two separate Ed25519/)
+ assert.throws(()=>check(payload,{dba:reviewer}),/[Tt]wo separate Ed25519/)
 })
 test('all stage, schema, backup, timing and scope mismatches are denied even if signed',()=>{
  const changes=[
