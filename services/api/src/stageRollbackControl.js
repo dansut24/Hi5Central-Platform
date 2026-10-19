@@ -10,7 +10,7 @@ const SHA=/^[a-f0-9]{40}$/
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/
 const fail=(msg,status=409)=>Object.assign(new Error(msg),{status})
-export const RELEASE_ROLLBACK_STAGE=new Set(['test','uat','live'])
+export const RELEASE_ROLLBACK_STAGE=new Set(['uat','live'])
 export function rollbackPermission({actor,mode,environment}){
  if(!RELEASE_ROLLBACK_STAGE.has(environment))return false
  if(actor==='platform_admin')return environment!=='uat'||mode==='admin_controlled'
