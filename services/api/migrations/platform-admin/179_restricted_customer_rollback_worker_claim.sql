@@ -41,6 +41,8 @@ AS $function$
    )
 $function$;
 REVOKE ALL ON FUNCTION public.hi5_customer_rollback_worker_session_ok() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.hi5_customer_rollback_worker_session_ok()
+ TO hi5_release_rollback_executor;
 
 CREATE OR REPLACE FUNCTION public.hi5_customer_rollback_worker_heartbeat(p_revision text,p_state text,p_error text DEFAULT '')
 RETURNS boolean
