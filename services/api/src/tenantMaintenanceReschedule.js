@@ -5,9 +5,6 @@
  */
 import {nextTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 
-const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[89ab][a-f0-9]{12}$/i
-// PostgreSQL UUIDs can contain any hexadecimal digit in the variant positions;
-// the database constraint is the authoritative tenant identity.
 const ID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i
 const SAFE_STATES=new Set(['pending','scheduled','deferred'])
 const SHA=/^[a-f0-9]{40}$/
@@ -174,4 +171,40 @@ export async function reconcileChangedTenantMaintenanceWindows(db,{now=new Date(
    all.push(...result.rescheduledJobs)
  }
  return {scannedTenants:pending.rows.length,rescheduledJobs:all}
+}
+
+
+/** Central API control-plane only. Restricted planner credentials cannot
+ * UPDATE already scheduled jobs (RLS by design); no grant is widened here.
+ * Every reconciliation still takes the same claim advisory lock and audits
+ * the time change in tenant_release_rollout_events.
+ */
+export function startCentralMaintenanceReconciler({pool,withTransaction,enabled=false,logger=console}={}){
+ if(!enabled)return {enabled:false}
+ if(!pool||typeof withTransaction!=='function')
+   throw Error('Central release-maintenance reconciliation requires the trusted control database.')
+ let busy=false
+ const run=async()=>{
+   if(busy)return
+   busy=true
+   try{
+     const result=await withTransaction(db=>reconcileChangedTenantMaintenanceWindows(db))
+     if(result.rescheduledJobs.length)
+       logger.info('RELEASE_MAINTENANCE_AUTO_RESCHEDULE',JSON.stringify({
+         scannedTenants:result.scannedTenants,
+         changes:result.rescheduledJobs.map(job=>({
+           jobId:job.jobId,environment:job.environment,
+           scheduledAt:job.scheduledAt,
+         })),
+       }))
+   }catch(error){
+     logger.error('RELEASE_MAINTENANCE_RECONCILE_FAILED',String(error.message||error).slice(0,300))
+   }finally{busy=false}
+ }
+ // On boot and every minute, including while customer deployment is paused.
+ // Host cutover authorization remains entirely independent of this loop.
+ const interval=setInterval(()=>void run(),60000)
+ interval.unref?.()
+ void run()
+ return {enabled:true,stop:()=>clearInterval(interval)}
 }
