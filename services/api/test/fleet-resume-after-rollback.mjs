@@ -105,7 +105,7 @@ test('Admin exposes guarded readiness, not blanket unpause, and audit is atomic'
  assert.match(api,/readFleetResumeReadiness\(pool\)/)
  assert.match(api,/pg_advisory_xact_lock\(hashtext\('hi5central-release-claim'\),hashtext\('shared-gateway'\)\)/)
  assert.match(api,/readFleetResumeReadiness\(db\)/)
- assert.match(api,/JSON\.stringify\(ready\.jobIds\)\!\=JSON\.stringify\(request\.expectedJobIds\)/)
+ assert.ok(api.includes('JSON.stringify(ready.jobIds)!==JSON.stringify(request.expectedJobIds)'))
  assert.match(api,/release\.fleet_resumed_after_managed_rollback/)
  assert.match(api,/WHERE singleton=true AND paused=true/)
  assert.match(api,/tenant_release_rollout_events/)
