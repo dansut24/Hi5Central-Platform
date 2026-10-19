@@ -194,12 +194,14 @@ if(mode==='--restore'){
   console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
   process.exit(0)
 }
-let prior='',liveJson='',active=false,watcher='',backupKey=''
+let prior='',liveJson='',active=false,watcher='',backupKey='',oldSource='',plannedHash=''
 try{
   if(mode==='--preflight'||mode==='--apply')await assertLiveGatewaySource()
   const old=await fileHost()
+  oldSource=old
   const plan=prepareSharedTenantCaddyRoute({config:old,tenantSlug:slug,
     environment,buildSha:sha})
+  plannedHash=hash(plan.config)
   await validate(plan.config)
   if(mode==='--preflight'){
     console.log(JSON.stringify({status:'preflight_pass',environment,host,
@@ -234,8 +236,14 @@ try{
   backupKey='release-'+environment+'-'+Date.now()+'-'+plan.host.replaceAll('.','-')
   await save(backupKey+'.caddy',old)
   if(liveJson)await save(backupKey+'.json',liveJson)
-  // Independent host process recovers the pre-cutover config if the caller dies.
-  // Watchdog never deletes the snapshot, and checks the '.done' marker.
+  // Validate source and fenced job identity BEFORE creating any watchdog.
+  // A stale read must never trigger a restore that overwrites another writer.
+  const actual=await fileHost()
+  if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
+  await assertCurrentFencedHostLease()
+  // Independent crash recovery may restore only if the on-disk source is
+  // STILL exactly this job's planned revision. This prevents a delayed
+  // watchdog from reverting another tenant's successful deployment.
   const restorePart='cat /backup/'+backupKey+'.caddy > /gateway/Caddyfile; '+
     "docker exec -i "+c.gateway+" sh -c 'cat >/tmp/h5c-rescue.json && caddy reload --config /tmp/h5c-rescue.json' "+
     '</backup/'+backupKey+'.json >/dev/null 2>&1 || true;'
@@ -245,15 +253,12 @@ try{
     '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   ]
   const watch='sleep 360; if [ ! -e /backup/'+backupKey+'.done ]; then '+
-    restorePart+' fi'
+    'current=$(sha256sum /gateway/Caddyfile | cut -c1-64); '+
+    'if [ "$current" = "'+plannedHash+'" ]; then '+restorePart+' fi; fi'
   watcher='h5c-release-watch-'+environment+'-'+Date.now()
   await docker('run','-d','--rm','--name',watcher,'--network','none',
     ...mounts,'docker:27-cli','sh','-c',watch)
   active=true
-  // Source CAS before modifying a shared Caddy configuration.
-  const actual=await fileHost()
-  if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
-  await assertCurrentFencedHostLease()
   await writeGateway(plan.config)
   let verified=false
   for(let i=0;i<16;i++){
@@ -276,10 +281,25 @@ try{
     buildSha:sha,previousSha:prior,backup:backupKey}))
 }catch(error){
   console.error('TENANT_RELEASE_DEPLOYMENT_FAILED',error.message)
-  if(active)try{await restore(await fileHost().then(async()=>await docker('run','--rm','--network','none',
-    '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
-    'busybox:1.36','cat','/backup/'+backupKey+'.caddy')),liveJson)
-    console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
-  }catch(e){console.error('RELEASE_WATCHDOG_REMAINS_ARMED',e.message)}
+  if(active){
+    try{
+      const current=await fileHost()
+      if(hash(current)!==hash(oldSource)&&hash(current)!==plannedHash)
+        throw Error('Gateway changed after this cutover; refusing unsafe rollback.')
+      await restore(oldSource,liveJson)
+      console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
+    }catch(e){
+      console.error('TENANT_RELEASE_ROLLBACK_UNCONFIRMED',e.message)
+    }finally{
+      // A failed CAS or a completed compensation must never leave a delayed
+      // watchdog that later replaces another stage's live gateway routes.
+      try{
+        await docker('run','--rm','--network','none','--mount',
+          'type=volume,source='+c.backup+',target=/backup',
+          'busybox:1.36','touch','/backup/'+backupKey+'.done')
+        await docker('stop','-t','1',watcher)
+      }catch(e){console.error('TENANT_RELEASE_ROLLBACK_UNCONFIRMED','Watchdog disarm failed: '+e.message)}
+    }
+  }
   process.exitCode=1
 }
