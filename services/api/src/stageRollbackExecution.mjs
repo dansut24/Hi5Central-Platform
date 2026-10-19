@@ -91,6 +91,7 @@ export async function processQueuedStageRollback({pool,stage,shell,heartbeat}){
    H5C_RELEASE_LEASE_TOKEN:job.leaseToken,
    H5C_RELEASE_LEASE_FENCE:String(job.leaseFence),
    H5C_STAGE_ROLLBACK_WORKER:'true',
+   H5C_ROLLBACK_REQUEST_ID:job.id,
   }
   let before='',activated=null,baselines=null,sourceVerified=false,restored=false
   try{
