@@ -9,6 +9,7 @@ import { tenantRuntimePoolState } from './runtimePoolControl.js'
 import {withTransaction} from './db.js'
 import {acceptTenantUat,scheduleTenantLive} from './tenantRuntimeReleaseLifecycle.js'
 import {validateOnboardingMaintenanceWindow} from './onboardingMaintenancePolicy.js'
+import {rescheduleUnclaimedTenantReleaseJobs} from './tenantMaintenanceReschedule.js'
 
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
@@ -118,7 +119,7 @@ export async function persistOnboardingUpdatePreference(client, { tenantId, user
 
 export async function tenantReleaseState(tenantId, slug = '') {
   await ensurePreference(tenantId)
-  const [preference, environments] = await Promise.all([
+  const [preference, environments, pendingReleases] = await Promise.all([
     pool.query('SELECT * FROM tenant_release_preferences WHERE tenant_id=$1', [tenantId]),
     pool.query(
       `SELECT * FROM tenant_environment_state
@@ -126,8 +127,18 @@ export async function tenantReleaseState(tenantId, slug = '') {
        ORDER BY CASE environment WHEN 'test' THEN 1 WHEN 'uat' THEN 2 ELSE 3 END`,
       [tenantId],
     ),
+    pool.query([
+      'SELECT j.id,j.environment,j.build_sha,j.status,j.scheduled_at',
+      'FROM tenant_release_rollout_jobs j',
+      "WHERE j.tenant_id=$1 AND j.status IN ('pending','scheduled','deferred')",
+      'ORDER BY j.scheduled_at,j.id LIMIT 25',
+    ].join(' '),[tenantId]),
   ])
   return {
+    pendingReleases:pendingReleases.rows.map(row=>({
+      jobId:row.id,environment:row.environment,buildSha:row.build_sha,
+      status:row.status,scheduledAt:row.scheduled_at,
+    })),
     preference: preferencePayload(preference.rows[0]),
     environments: environments.rows
       .filter(row => row.environment!=='uat'||preference.rows[0]?.update_mode==='admin_controlled')
@@ -267,45 +278,68 @@ export function registerTenantReleaseRoutes(app) {
       : { uatAutoStage: true, liveAutoPromote: false }
 
     await ensurePreference(auth.session.tenant_id)
-    const result = await pool.query(
-      `UPDATE tenant_release_preferences SET
-         update_mode=$2,
-         test_auto_sync=true,
-         uat_auto_stage=$3,
-         live_auto_promote=$4,
-         live_delay_hours=$5,
-         allow_emergency_security_updates=$6,
-         maintenance_window=CASE WHEN $7::jsonb='{}'::jsonb THEN maintenance_window ELSE $7::jsonb END,
-         updated_by=$8,
-         updated_at=now()
-       WHERE tenant_id=$1
-       RETURNING *`,
-      [
-        auth.session.tenant_id,
-        updateMode,
-        modeDefaults.uatAutoStage,
-        modeDefaults.liveAutoPromote,
-        delay,
-        body?.allowEmergencySecurityUpdates !== false,
-        JSON.stringify(maintenanceWindow),
-        auth.session.user_id,
-      ],
-    )
-
-    await recordSecurityEvent({
-      tenantId: auth.session.tenant_id,
-      actorUserId: auth.session.user_id,
-      sessionId: auth.session.session_id || null,
-      eventType: 'release.preferences_updated',
-      ipAddress: requestIp(c),
-      userAgent: requestUserAgent(c),
-      metadata: {
-        updateMode,
-        liveDelayHours: delay,
-        allowEmergencySecurityUpdates: body?.allowEmergencySecurityUpdates !== false,
-      },
-    })
-
-    return c.json({ preference: preferencePayload(result.rows[0]) })
+    let outcome
+    try {
+      outcome=await withTransaction(async db=>{
+        // Same advisory claim lock as the restricted host worker; a running,
+        // leased or routed release cannot move in a preferences race.
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
+        const before=await db.query(
+          'SELECT maintenance_window FROM tenant_release_preferences WHERE tenant_id=$1 FOR UPDATE',
+          [auth.session.tenant_id])
+        if(!before.rowCount)throw new Error('Release preference record is missing.')
+        const previousWindow=before.rows[0].maintenance_window
+        const result=await db.query(
+          `UPDATE tenant_release_preferences SET
+             update_mode=$2,
+             test_auto_sync=true,
+             uat_auto_stage=$3,
+             live_auto_promote=$4,
+             live_delay_hours=$5,
+             allow_emergency_security_updates=$6,
+             maintenance_window=CASE WHEN $7::jsonb='{}'::jsonb THEN maintenance_window ELSE $7::jsonb END,
+             updated_by=$8,
+             updated_at=now()
+           WHERE tenant_id=$1
+           RETURNING *`,
+          [
+            auth.session.tenant_id,
+            updateMode,
+            modeDefaults.uatAutoStage,
+            modeDefaults.liveAutoPromote,
+            delay,
+            body?.allowEmergencySecurityUpdates !== false,
+            JSON.stringify(maintenanceWindow),
+            auth.session.user_id,
+          ])
+        const after=result.rows[0]
+        const windowChanged=JSON.stringify(previousWindow)!==JSON.stringify(after.maintenance_window)
+        const rescheduling=windowChanged
+          ?await rescheduleUnclaimedTenantReleaseJobs(db,{
+            tenantId:auth.session.tenant_id,actorId:auth.session.user_id,
+          })
+          :{rescheduledJobs:[],unchangedJobs:[],blockedJobs:[]}
+        await recordSecurityEvent({
+          db,tenantId:auth.session.tenant_id,
+          actorUserId:auth.session.user_id,sessionId:auth.session.session_id||null,
+          eventType:'release.preferences_updated',ipAddress:requestIp(c),
+          userAgent:requestUserAgent(c),
+          metadata:{
+            updateMode,liveDelayHours:delay,
+            allowEmergencySecurityUpdates:body?.allowEmergencySecurityUpdates!==false,
+            maintenanceWindowChanged:windowChanged,previousMaintenanceWindow:windowChanged?previousWindow:null,
+            newMaintenanceWindow:windowChanged?after.maintenance_window:null,
+            rescheduledJobs:rescheduling.rescheduledJobs,
+            blockedJobs:rescheduling.blockedJobs,
+            customerDeploymentStarted:false,
+          },
+        })
+        return {preference:preferencePayload(after),maintenanceWindowChanged:windowChanged,
+          ...rescheduling}
+      })
+    }catch(error){
+      return c.json({error:String(error.message||error)},error.status||409)
+    }
+    return c.json(outcome)
   })
 }

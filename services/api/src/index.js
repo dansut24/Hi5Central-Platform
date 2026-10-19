@@ -15,6 +15,7 @@ import { registerCatalogueRoutes } from './catalogue.js'
 import { featureEntitled, registerLicensingRoutes, startLicensingRefreshScheduler } from './licensing.js'
 import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
+import {startCentralMaintenanceReconciler} from './tenantMaintenanceReschedule.js'
 import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
@@ -722,6 +723,14 @@ registerLicenseAuthorityRoutes(app)
 registerLicensingRoutes(app)
 registerFeatureFlagRoutes(app)
 registerTenantReleaseRoutes(app)
+if(process.env.H5C_MAINTENANCE_RECONCILER_ACTIVE==='true'){
+  if(deployment.runtimeEnvironment!=='live'||deployment.deploymentMode!=='managed')
+    throw Error('Maintenance reconciler is allowed only in managed central control.')
+  startCentralMaintenanceReconciler({
+    pool,withTransaction,enabled:true,
+  })
+}
+
 registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
 registerEnvironmentHandoffRoutes(app)
