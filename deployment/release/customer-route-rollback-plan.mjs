@@ -65,8 +65,13 @@ export function planCustomerRouteRollback({
  const unrelatedBefore=canonical(drop(previousSource,old))
  if(unrelatedNow!==unrelatedBefore)
    invalid('Unrelated shared gateway directives changed since the preserved previous snapshot.')
- let restored=currentSource.slice(0,current.start)+(old.present?old.route:'')
-   +currentSource.slice(current.end)
+ // The versioned route is inserted between newline-terminated directives.
+ // When reverting to a legacy fallback, drop the one extra separator
+ // newline as well so the exact reviewed baseline can be recovered.
+ let suffix=currentSource.slice(current.end)
+ if(!old.present&&suffix.startsWith('\n')&&current.start>0
+   &&currentSource[current.start-1]==='\n')suffix=suffix.slice(1)
+ let restored=currentSource.slice(0,current.start)+(old.present?old.route:'')+suffix
  // No other customer route may be created, removed, moved or rewritten.
  if(canonical(drop(restored,customerRouteBlock(restored,hostname)))!==unrelatedNow)
    invalid('Rollback candidate modified other customers or shared routes.')
