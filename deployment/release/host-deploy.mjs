@@ -6,6 +6,7 @@
  * snapshots and an independent watchdog before a gateway is modified.
  */
 import {spawn} from 'node:child_process'
+import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {prepareSharedTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
@@ -106,13 +107,50 @@ async function assertLiveGatewaySource(){
         ' is missing from saved Caddyfile. Reconcile before any reload.')
   }
 }
+function stageApiEnvironment(){
+  if(environment==='live')return null
+  const base='/opt/hi5central/runtime/isolated-stage-dbs/'
+  const url=readFileSync(base+environment+'_app.url','utf8').trim()
+  const parsed=new URL(url)
+  if(parsed.protocol!=='postgresql:'||parsed.hostname!=='db'
+      ||parsed.username!=='hi5central_'+environment+'_app'
+      ||parsed.pathname!=='/hi5central_'+environment
+      ||!parsed.password)throw Error('Stage API credentials have an invalid isolated database identity.')
+  const keys=Object.fromEntries(readFileSync(base+environment+'_api_keys.env','utf8')
+    .trim().split('\\n').map(line=>line.split('=',2)))
+  for(const name of ['MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY',
+    'TENANT_SECRET_ENCRYPTION_KEY','RMM_RECOVERY_KEY_ENCRYPTION_KEY']){
+    if(!/^[0-9a-f]{64}$/.test(keys[name]||''))
+      throw Error('Stage '+environment+' API has no independent '+name+'.')
+  }
+  return {
+    DATABASE_URL:url,RUNTIME_ENVIRONMENT:environment,
+    REDIS_URL:'redis://redis:6379/'+(environment==='test'?'1':'2'),
+    BACKGROUND_WORKERS_ENABLED:'false',
+    FEATURE_MODE:environment==='test'?'all_enabled':'controlled',
+    COOKIE_DOMAIN:'.hi5central.com',
+    ...keys,
+  }
+}
+function containerEnvironment(container){
+  return Object.fromEntries((container?.Config?.Env||[]).map(pair=>{
+    const at=pair.indexOf('=')
+    return at<0?[pair,'']:[pair.slice(0,at),pair.slice(at+1)]
+  }))
+}
 async function clone(source,name,image,isWeb){
   const old=await dockerInspect(source)
   if(!old?.State?.Running)throw Error('Existing base environment container is not running.')
+  const intended=!isWeb?stageApiEnvironment():null
   const existing=await dockerInspect(name)
   if(existing){
     if(existing.Config.Image!==image||existing.State?.Health?.Status!=='healthy')
       throw Error('Existing version pool differs from target or is unhealthy.')
+    if(intended){
+      const environmentNow=containerEnvironment(existing)
+      if(Object.entries(intended).some(([key,value])=>environmentNow[key]!==value))
+        throw Error('Existing non-Live pool retains unsafe or stale runtime credentials. Rebuild the unrouted pool before use.')
+    }
     return
   }
   const network=Object.keys(old.NetworkSettings?.Networks||{})[0]
@@ -123,13 +161,27 @@ async function clone(source,name,image,isWeb){
     '--log-opt','max-size=10m','--log-opt','max-file=3']
   if(old.Config.User)args.push('--user',old.Config.User)
   if(old.Config.WorkingDir)args.push('--workdir',old.Config.WorkingDir)
+  const denyForStage=new Set([
+    'DATABASE_URL','RUNTIME_ENVIRONMENT','REDIS_URL','BACKGROUND_WORKERS_ENABLED',
+    'FEATURE_MODE','COOKIE_DOMAIN','MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY',
+    'TENANT_SECRET_ENCRYPTION_KEY','RMM_RECOVERY_KEY_ENCRYPTION_KEY',
+    'SMTP_PASSWORD','SMTP_USER','SMTP_HOST','SMTP_PORT','SMTP_FROM',
+    'TENANT_TEST_DATABASE_URL','TENANT_UAT_DATABASE_URL',
+    'TENANT_TEST_DATABASE_URL_FILE','TENANT_UAT_DATABASE_URL_FILE',
+    'ENV_IDENTITY_SHARED_SECRET','ENV_IDENTITY_SHARED_SECRET_FILE',
+    'API_URL','APP_URL','ADMIN_URL','PORTAL_URL','MARKETING_URL','RMM_URL'
+  ])
   for(const item of old.Config.Env||[]){
-    if(isWeb&&(item.startsWith('API_URL=')||item.startsWith('HI5_API_SAME_ORIGIN=')))continue
-    if(!isWeb&&item.startsWith('BACKGROUND_WORKERS_ENABLED='))continue
+    const key=item.slice(0,item.indexOf('='))
+    if(isWeb&&(key==='API_URL'||key==='HI5_API_SAME_ORIGIN'))continue
+    if(intended&&denyForStage.has(key))continue
+    if(!isWeb&&key==='BACKGROUND_WORKERS_ENABLED')continue
     args.push('--env',item)
   }
   if(isWeb)args.push('--env','API_URL=','--env','HI5_API_SAME_ORIGIN=true')
-  else args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
+  else if(intended){
+    for(const [key,value] of Object.entries(intended))args.push('--env',key+'='+value)
+  }else args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
   for(const mount of old.Mounts||[]){
     if(!['volume','bind'].includes(mount.Type))throw Error('Unrecognised base container mount.')
     args.push('--mount','type='+mount.Type+',source='+
@@ -266,7 +318,7 @@ try{
       type==='itsm')
   }
   await Promise.all([healthy(plan.api),healthy(plan.web)])
-  if(mode==='--apply')await assertIsolatedStageApi(plan.api)
+  if(environment!=='live')await assertIsolatedStageApi(plan.api)
   if(mode==='--stage'){
     console.log(JSON.stringify({status:'pool_verified',environment,buildSha:sha,
       api:plan.api,web:plan.web}))
