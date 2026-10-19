@@ -101,9 +101,11 @@ export function registerReleaseWorkActivityRoutes(app,deps){
       pool.query([
         'SELECT j.id,t.slug AS tenant_slug,j.environment,j.build_sha,j.status,',
         'j.attempt_count,j.max_attempts,j.scheduled_at,j.created_at,j.updated_at,',
+        'p.update_mode,p.live_auto_promote,',
         'j.completed_at,j.last_error,j.expected_duration_minutes,',
         "EXTRACT(EPOCH FROM (COALESCE(j.completed_at,now())-e.occurred_at))::int AS duration_seconds",
         'FROM tenant_release_rollout_jobs j JOIN tenants t ON t.id=j.tenant_id',
+        'JOIN tenant_release_preferences p ON p.tenant_id=j.tenant_id',
         'LEFT JOIN LATERAL (SELECT occurred_at FROM tenant_release_rollout_events',
         "WHERE job_id=j.id AND event_type='claimed' ORDER BY occurred_at DESC LIMIT 1) e ON true",
         'ORDER BY j.updated_at DESC,j.id DESC LIMIT 100',
@@ -123,7 +125,8 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         buildSha:j.build_sha,status:j.status,attemptCount:j.attempt_count,maxAttempts:j.max_attempts,
         scheduledAt:j.scheduled_at,createdAt:j.created_at,updatedAt:j.updated_at,
         completedAt:j.completed_at,lastError:j.last_error,durationSeconds:j.duration_seconds,
-        expectedMinutes:j.expected_duration_minutes})),
+        expectedMinutes:j.expected_duration_minutes,
+        updateMode:j.update_mode,managedAutoPromote:j.live_auto_promote===true})),
       activeLivePilot:pilot.rows[0]?{
         jobId:pilot.rows[0].job_id,tenantSlug:pilot.rows[0].tenant_slug,
         buildSha:pilot.rows[0].build_sha,state:pilot.rows[0].state,
