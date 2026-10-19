@@ -205,7 +205,13 @@ export function ReleaseWorkActivity({api,canApprove}){
         <label>Scope <select value={rollbackScope} onChange={e=>{
           const value=e.target.value
           setRollbackScope(value)
-          if(value==='all')setRollbackEnvironment('live')
+          if(value==='all'){
+            setRollbackEnvironment('live')
+            setRollbackTenant('')
+            setRollbackData(null)
+            api('/releases/rollback/candidates?environment=live')
+              .then(setRollbackData).catch(err=>setError(err.message))
+          }
         }}>
           <option value="one">One customer</option>
           <option value="all">All Production customers</option>
@@ -220,7 +226,7 @@ export function ReleaseWorkActivity({api,canApprove}){
           }}>
           <option value="live">Production</option>
           <option value="uat">Custom UAT</option>
-          <option value="test">Test</option>
+
         </select></label>
         {rollbackScope==='one'?<label>Customer <select value={rollbackTenant}
           onChange={e=>setRollbackTenant(e.target.value)}>
