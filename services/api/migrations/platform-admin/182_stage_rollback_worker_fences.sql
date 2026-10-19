@@ -20,8 +20,7 @@ SET search_path=pg_catalog,public AS $$
  )
 $$;
 REVOKE ALL ON FUNCTION public.hi5_stage_rollback_session_ok(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.hi5_stage_rollback_session_ok(text)
- TO hi5_release_executor_uat,hi5_release_executor_live;
+-- Existing role grants are applied conditionally at the end of this migration.
 
 CREATE OR REPLACE FUNCTION public.hi5_stage_rollback_claim(p_stage text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
@@ -98,8 +97,7 @@ BEGIN
   'leaseToken',token,'leaseFence',request_row.lease_fence);
 END $$;
 REVOKE ALL ON FUNCTION public.hi5_stage_rollback_claim(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.hi5_stage_rollback_claim(text)
- TO hi5_release_executor_uat,hi5_release_executor_live;
+-- Existing role grants are applied conditionally at the end of this migration.
 
 CREATE OR REPLACE FUNCTION public.hi5_stage_rollback_assert(
  p_id uuid,p_token uuid,p_fence bigint,p_stage text)
@@ -124,8 +122,7 @@ BEGIN
  RETURN true;
 END $$;
 REVOKE ALL ON FUNCTION public.hi5_stage_rollback_assert(uuid,uuid,bigint,text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.hi5_stage_rollback_assert(uuid,uuid,bigint,text)
- TO hi5_release_executor_uat,hi5_release_executor_live;
+-- Existing role grants are applied conditionally at the end of this migration.
 
 CREATE OR REPLACE FUNCTION public.hi5_stage_rollback_complete(
  p_id uuid,p_token uuid,p_fence bigint,p_stage text,p_proof jsonb)
@@ -211,8 +208,7 @@ BEGIN
  RETURN true;
 END $$;
 REVOKE ALL ON FUNCTION public.hi5_stage_rollback_complete(uuid,uuid,bigint,text,jsonb) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.hi5_stage_rollback_complete(uuid,uuid,bigint,text,jsonb)
- TO hi5_release_executor_uat,hi5_release_executor_live;
+-- Existing role grants are applied conditionally at the end of this migration.
 
 CREATE OR REPLACE FUNCTION public.hi5_stage_rollback_fail(
  p_id uuid,p_token uuid,p_fence bigint,p_stage text,
@@ -242,5 +238,29 @@ BEGIN
  RETURN true;
 END $$;
 REVOKE ALL ON FUNCTION public.hi5_stage_rollback_fail(uuid,uuid,bigint,text,text,boolean) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.hi5_stage_rollback_fail(uuid,uuid,bigint,text,text,boolean)
- TO hi5_release_executor_uat,hi5_release_executor_live;
+-- Existing role grants are applied conditionally at the end of this migration.
+
+-- A fresh CI/onboarding PostgreSQL database may not yet have stage-restricted
+-- executor roles: those are provisioned independently during host staging.
+-- Do not CREATE them or grant a generic identity access just to make schema
+-- migration succeed. If a stage role already exists (as on the VPS), grant
+-- EXECUTE ONLY on exactly the five protected SECURITY DEFINER functions.
+DO $stage_grants$
+DECLARE stage_role text;signature text;
+BEGIN
+ FOREACH stage_role IN ARRAY ARRAY[
+   'hi5_release_executor_uat','hi5_release_executor_live'
+ ] LOOP
+   IF to_regrole(stage_role) IS NULL THEN CONTINUE; END IF;
+   FOREACH signature IN ARRAY ARRAY[
+     'public.hi5_stage_rollback_session_ok(text)',
+     'public.hi5_stage_rollback_claim(text)',
+     'public.hi5_stage_rollback_assert(uuid,uuid,bigint,text)',
+     'public.hi5_stage_rollback_complete(uuid,uuid,bigint,text,jsonb)',
+     'public.hi5_stage_rollback_fail(uuid,uuid,bigint,text,text,boolean)'
+   ] LOOP
+     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I',
+       signature,stage_role);
+   END LOOP;
+ END LOOP;
+END $stage_grants$;
