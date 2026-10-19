@@ -118,7 +118,7 @@ CREATE OR REPLACE FUNCTION public.hi5_customer_rollback_claim(p_revision text)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public
 AS $function$
-DECLARE q record; tenant_state record; j record; cert record; snapshot text; pool_row record;
+DECLARE q record; tenant_state record; job_state record; cert record; snapshot text; pool_row record;
         token uuid; fence bigint;
 BEGIN
  IF NOT public.hi5_customer_rollback_worker_session_ok() OR p_revision !~ '^[a-f0-9]{40}$'
@@ -165,7 +165,7 @@ BEGIN
     AND c.evidence @> '{"schemaChecked":true,"previousImagePulled":true,"recoveryTestPassed":true}'::jsonb)
  THEN RAISE EXCEPTION 'Rollback exact build pair has no valid independent compatibility review'; END IF;
  SELECT j.id,j.status,j.build_sha,j.previous_build_sha,j.completed_at
- INTO j FROM public.tenant_release_rollout_jobs j
+ INTO job_state FROM public.tenant_release_rollout_jobs j
  WHERE j.tenant_id=q.tenant_id AND j.environment='live'
    AND j.build_sha=q.source_build_sha AND j.previous_build_sha=q.target_build_sha
    AND j.status='succeeded' AND j.completed_at IS NOT NULL
@@ -173,7 +173,7 @@ BEGIN
  IF NOT FOUND THEN RAISE EXCEPTION 'No verified source release to restore'; END IF;
  SELECT e.details->>'backup' INTO snapshot
  FROM public.tenant_release_rollout_events e
- WHERE e.job_id=j.id AND e.event_type='verified'
+ WHERE e.job_id=job_state.id AND e.event_type='verified'
    AND e.details->>'previousSha'=q.target_build_sha
  ORDER BY e.id DESC LIMIT 1;
  IF snapshot IS NULL
@@ -196,7 +196,7 @@ BEGIN
    'requestId',q.id,'tenantId',q.tenant_id,'slug',tenant_state.slug,'host',tenant_state.public_host,
    'sourceSha',q.source_build_sha,'targetSha',q.target_build_sha,
    'generation',q.source_route_generation,'poolId',tenant_state.pool_id,
-   'originalJobId',j.id,'snapshot',snapshot,
+   'originalJobId',job_state.id,'snapshot',snapshot,
    'leaseToken',token,'leaseFence',fence,'workerRevision',p_revision);
 END $function$;
 REVOKE ALL ON FUNCTION public.hi5_customer_rollback_claim(text) FROM PUBLIC;
