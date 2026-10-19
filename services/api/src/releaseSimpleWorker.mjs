@@ -14,6 +14,7 @@ const preflight=process.argv.includes('--preflight')
 if(process.argv.slice(2).some(v=>v!=='--preflight'))
   throw Error('Usage: releaseSimpleWorker.mjs [--preflight]')
 const standby=process.env.RELEASE_WORKER_ACTIVE!=='true'
+import {rollbackExecutorEnabledForStage} from './stageRollbackActivationPolicy.js'
 const children=[]
 let closing=false
 let code=0
@@ -37,6 +38,11 @@ for(const stage of stages){
  childEnv.RELEASE_GATEWAY=stage
  childEnv.RELEASE_WORKER_STANDBY=standby?'true':'false'
  childEnv.RELEASE_WORKER_ID='simple-'+stage
+ // Explicit stage allowlist keeps Production rollback off during the UAT pilot.
+ childEnv.H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED=rollbackExecutorEnabledForStage({
+  stage,enabled:process.env.H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED,
+  stages:process.env.H5C_STAGE_ROLLBACK_ENABLED_STAGES,
+ })?'true':'false'
  const child=spawn(process.execPath,
    ['services/api/src/tenantReleaseExecutor.mjs',...(preflight?['--preflight']:[])],
    {cwd:process.cwd(),stdio:'inherit',env:childEnv})
