@@ -321,7 +321,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           const restored=await db.query([
             'SELECT 1 FROM tenant_runtime_route_attestations',
             "WHERE tenant_id=$1 AND environment=$2 AND state='active'",
-            'AND build_sha=$3 AND checked_at>=now()-interval \\'15 minutes\\'',
+            "AND build_sha=$3 AND checked_at>=now()-interval '15 minutes'",
             'AND public_host=$4 LIMIT 1',
           ].join(' '),[job.tenant_id,job.environment,priorBuild,
             job.slug+(job.environment==='live'?'':'-'+job.environment)+'.hi5central.com'])
