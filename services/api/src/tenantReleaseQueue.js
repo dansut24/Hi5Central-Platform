@@ -105,8 +105,21 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     // Exact execution approval is required by the job-claim join, and the
     // host independently verifies the pause and fenced lease before routing.
     'SELECT paused,reason FROM platform_release_rollout_control WHERE singleton=true')
-  if(control.rows[0]?.paused!==false)
-    return {claimed:[],paused:true,reason:control.rows[0]?.reason||'No explicit rollout enablement.'}
+  const globallyPaused=control.rows[0]?.paused!==false
+  if(globallyPaused){
+    // A paused fleet is normally a hard stop. The only exception is ONE
+    // exact, unexpired, admin-armed Managed Production job. Restricted Test/
+    // UAT identities see no rows under the permit table's RLS policy.
+    const armed=await db.query([
+      'SELECT 1 FROM platform_release_single_live_pilot_permits p',
+      "WHERE p.state='armed' AND p.environment=$1",
+      'AND p.not_before<=now() AND p.expires_at>now()',
+      'AND ($2::text IS NULL OR p.build_sha=$2)',
+      'LIMIT 1',
+    ].join(' '),[environment,buildSha])
+    if(armed.rowCount!==1)
+      return {claimed:[],paused:true,reason:control.rows[0]?.reason||'No explicit rollout enablement.'}
+  }
   const queued=await db.query([
     'SELECT j.id,j.tenant_id,j.environment,j.build_sha,j.scheduled_at,j.attempt_count,j.max_attempts,',
     'j.expected_duration_minutes,p.maintenance_window,p.blackout_periods,',
@@ -130,6 +143,15 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     'AND ($3::text IS NULL OR j.environment=$3)',
     'AND ($4::text[] IS NULL OR t.slug=ANY($4::text[]))',
     'AND ($5::text IS NULL OR j.build_sha=$5)',
+    // Even if an armed pilot exists, every other customer remains paused.
+    // The permit has no authority beyond its immutable tenant, job and SHA.
+    "AND ($6::boolean=false OR (j.environment='live' AND p.update_mode='hi5_managed'",
+    ' AND p.live_auto_promote=true AND EXISTS (',
+    ' SELECT 1 FROM platform_release_single_live_pilot_permits pilot',
+    " WHERE pilot.state='armed' AND pilot.environment='live'",
+    ' AND pilot.job_id=j.id AND pilot.tenant_id=j.tenant_id',
+    ' AND pilot.build_sha=j.build_sha AND pilot.not_before<=now()',
+    ' AND pilot.expires_at>now())))',
     // Production/UAT never claim a stale SHA after a newer published release
     // has received authenticated staff execution approval. This protects
     // older queued jobs even if a future publication path misses supersession.
@@ -146,7 +168,7 @@ export async function claimDueRollouts(db,{now=new Date(),limit=10,leaseSeconds=
     ...(genericTenantScope?["AND public.hi5_release_generic_tenant_permitted(j.tenant_id)=true"]:[]),
     'ORDER BY j.scheduled_at ASC,j.id ASC',
     'FOR UPDATE OF j SKIP LOCKED LIMIT $2',
-  ].join(' '),[at,limit,environment,qaTenantSlugs,buildSha])
+  ].join(' '),[at,limit,environment,qaTenantSlugs,buildSha,globallyPaused])
   const claimed=[],deferred=[]
   // UAT and Live each currently share one Caddy gateway. Do not issue a
   // second running job for either resource until its first cutover completes.

@@ -276,7 +276,18 @@ async function assertCurrentFencedHostLease(){
     " WHERE a.build_sha=j.build_sha AND a.environment=j.environment",
     " AND a.planning_enabled=true AND a.execution_enabled=true",
     " AND a.approved_by IS NOT NULL AND a.expires_at>now()))",
-    'AND (SELECT paused=false FROM platform_release_rollout_control WHERE singleton=true)',
+    // Even after a fenced claim, independently check that the fleet is
+    // unpaused OR this exact Managed Production job owns the short permit.
+    'AND ((SELECT paused=false FROM platform_release_rollout_control WHERE singleton=true)',
+    "OR (j.environment='live' AND EXISTS (",
+    ' SELECT 1 FROM tenant_release_preferences pref',
+    " WHERE pref.tenant_id=j.tenant_id AND pref.update_mode='hi5_managed'",
+    ' AND pref.live_auto_promote=true) AND EXISTS (',
+    ' SELECT 1 FROM platform_release_single_live_pilot_permits pilot',
+    " WHERE pilot.state='armed' AND pilot.environment='live'",
+    ' AND pilot.job_id=j.id AND pilot.tenant_id=j.tenant_id',
+    ' AND pilot.build_sha=j.build_sha AND pilot.not_before<=now()',
+    ' AND pilot.expires_at>now())))',
     "THEN 'ALLOW' ELSE 'DENY' END",
   ].join(' ')
   const decision=await docker('exec','hi5central-db-1','sh','-c',
@@ -333,7 +344,13 @@ try{
   if(mode==='--stage')console.log('STAGING_ONLY_NO_CUSTOMER_ROUTE',environment,sha)
   const currentControl=await cmd('docker',['exec','hi5central-db-1','sh','-c',
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT paused FROM platform_release_rollout_control WHERE singleton=true;"'])
-  if(mode==='--apply'&&currentControl.trim()!=='f')throw Error('Global customer rollout is paused.')
+  if(mode==='--apply'&&currentControl.trim()!=='f'){
+    // Never interpret a pilot as global resume. The same exact scoped, expiring
+    // permit is rechecked under the fenced host lease immediately before
+    // writing Caddy. No lease, no Production route mutation.
+    if(environment!=='live')throw Error('Global customer rollout is paused.')
+    await assertCurrentFencedHostLease()
+  }
   if(mode==='--apply'){
     prior=(await currentRevisionOrUnassigned(old)).sha
     if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
