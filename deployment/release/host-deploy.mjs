@@ -173,12 +173,17 @@ async function clone(source,name,image,isWeb){
   ])
   for(const item of old.Config.Env||[]){
     const key=item.slice(0,item.indexOf('='))
-    if(isWeb&&(key==='API_URL'||key==='HI5_API_SAME_ORIGIN'))continue
+    if(isWeb&&(key==='API_URL'||key==='HI5_API_SAME_ORIGIN'||
+      (environment!=='live'&&['RUNTIME_ENVIRONMENT','FEATURE_MODE'].includes(key))))continue
     if(intended&&denyForStage.has(key))continue
     if(!isWeb&&key==='BACKGROUND_WORKERS_ENABLED')continue
     args.push('--env',item)
   }
-  if(isWeb)args.push('--env','API_URL=','--env','HI5_API_SAME_ORIGIN=true')
+  if(isWeb){
+    args.push('--env','API_URL=','--env','HI5_API_SAME_ORIGIN=true')
+    if(environment!=='live')args.push('--env','RUNTIME_ENVIRONMENT='+environment,
+      '--env','FEATURE_MODE='+(environment==='test'?'all_enabled':'controlled'))
+  }
   else if(intended){
     for(const [key,value] of Object.entries(intended))args.push('--env',key+'='+value)
   }else args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
