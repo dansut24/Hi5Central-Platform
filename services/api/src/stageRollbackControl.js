@@ -51,11 +51,11 @@ export function staffRollbackSelection(body){
  return {scope:body.scope,environment:body.environment,reason:body.reason.trim(),
   tenantSlug:body.scope==='one'?body.tenantSlug:null}
 }
-async function readEligible(db,{tenantId,environment}){
+async function readEligible(db,{tenantId,environment,lockTenant=true}){
  const tenant=await db.query([
   'SELECT t.id,t.slug,t.status,p.update_mode',
   'FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id',
-  'WHERE t.id=$1 FOR UPDATE OF t',
+  'WHERE t.id=$1'+(lockTenant?' FOR UPDATE OF t':''),
  ].join(' '),[tenantId])
  const t=tenant.rows[0]
  if(!t||t.status!=='active')
@@ -108,7 +108,7 @@ async function readEligible(db,{tenantId,environment}){
  if(concurrent.rowCount)throw fail('A rollback is already pending for this customer and environment.')
  return {tenant:t,assignment:a,original:j,host}
 }
-export async function rollbackReadiness(db,{tenantId,environment,actor}){
+export async function rollbackReadiness(db,{tenantId,environment,actor,executorReady=false}){
  if(!UUID.test(String(tenantId||''))||!RELEASE_ROLLBACK_STAGE.has(environment))
    throw fail('Invalid tenant or stage.',400)
  const mode=await db.query([
@@ -138,12 +138,21 @@ export async function rollbackReadiness(db,{tenantId,environment,actor}){
   "WHERE j.tenant_id=$1 AND j.environment=$2 AND j.build_sha=$3 AND j.status='succeeded'",
   'ORDER BY j.completed_at DESC NULLS LAST LIMIT 1',
  ].join(' '),[tenantId,environment,cur.build_sha]):{rows:[]}
- return {canRequest:Boolean(cur&&SHA.test(String(previous.rows[0]?.previous_build_sha||''))),
+ // Readiness uses the same backup, route and queue guards as admission,
+ // but never acquires a tenant write lock or changes any state. The customer
+ // must not see an enabled button while there is no runnable stage worker.
+ let admissionError=null
+ if(executorReady!==true)admissionError='The stage rollback executor is disabled.'
+ else {
+  try{await readEligible(db,{tenantId,environment,lockTenant:false})}
+  catch(error){admissionError=String(error.message||error).slice(0,350)}
+ }
+ return {canRequest:admissionError===null,
+  reasons:admissionError?[admissionError]:[],
   environment,installedBuildSha:cur?.build_sha||null,
   previousBuildSha:previous.rows[0]?.previous_build_sha||null,
   sourceRouteGeneration:cur?.generation??null,
   latestRequest:latest.rows[0]||null,
-  // Admission always rechecks route freshness, backup and queue in the transaction.
   confirmationRequired:true}
 }
 export async function queueRollback(db,{
