@@ -6,6 +6,8 @@ on:
       - 'services/api/src/**'
       - 'services/api/package.json'
       - 'deployment/qa26/Dockerfile.*release*'
+      - 'deployment/qa26/Dockerfile.customer-rollback-executor'
+      - 'deployment/release/customer-route-rollback-plan.mjs'
       - 'deployment/qa26/release-worker-*/**'
       - 'deployment/qa26/tenant-release-host-executor.mjs'
       - '.github/workflows/publish-restricted-release-workers.yml'
@@ -27,6 +29,9 @@ jobs:
           - name: executor
             dockerfile: deployment/qa26/Dockerfile.tenant-release-executor
             image: ghcr.io/dansut24/hi5central-release-executor
+          - name: customer-rollback
+            dockerfile: deployment/qa26/Dockerfile.customer-rollback-executor
+            image: ghcr.io/dansut24/hi5central-customer-rollback-executor
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -46,4 +51,4 @@ jobs:
           cache-from: type=gha,scope=release-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=release-${{ matrix.name }}
       - name: No automatic worker deployment
-        run: echo 'Images published by SHA only. Stage credentials, review, gateway attestation and worker activation are separate protected steps.'
+        run: echo 'Images published by SHA only. Restricted DB credentials, independent staff certifications and explicit host activation remain separate protected steps.'
