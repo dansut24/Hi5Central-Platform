@@ -62,7 +62,22 @@ export async function certifiedRollbackExecutorReady(db,{
    'FROM platform_release_customer_rollback_executor_certifications',
    'WHERE revision_sha=$1',
  ].join(' '),[revisionSha])
- return reviewedExecutorCertification(rows[0],revisionSha,now)
+ if(!reviewedExecutorCertification(rows[0],revisionSha,now))return false
+ // A staff-reviewed certificate does not mean there is an independent host
+ // process capable of consuming a customer request. Refuse to place a tenant
+ // in a rollback hold if the exact dedicated worker is offline or stale.
+ const heartbeat=await db.query([
+   'SELECT gateway,state,version_sha,last_poll_at,last_error',
+   'FROM platform_release_worker_heartbeats',
+   'WHERE worker_id=$1',
+ ].join(' '),['customer-rollback-live'])
+ const running=heartbeat.rows[0],seen=newest(running?.last_poll_at)
+ return running?.gateway==='live'
+   &&['idle','busy'].includes(running.state)
+   &&running.version_sha===revisionSha
+   &&typeof running.last_error==='string'&&running.last_error.length===0
+   &&seen!==null&&now.getTime()-seen.getTime()>=0
+   &&now.getTime()-seen.getTime()<=90000
 }
 function reviewedCompatibility(row,from,to,now){
   if(!row||row.from_build_sha!==from||row.to_build_sha!==to||row.state!=='approved'
