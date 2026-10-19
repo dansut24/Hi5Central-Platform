@@ -133,6 +133,7 @@ export function ProductionReleaseManagement() {
 function LiveProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
+  const [pendingReleaseJobs,setPendingReleaseJobs]=useState([])
   const [liveChatRelease,setLiveChatRelease]=useState(null)
   const [uatEvidence,setUatEvidence]=useState('')
   const [platformAvailable,setPlatformAvailable]=useState(false)
@@ -151,6 +152,7 @@ function LiveProductionReleaseManagement() {
       if(tenantResult.status!=='fulfilled') throw tenantResult.reason
       const tenantState=tenantResult.value
       setTenantEnvironments(tenantState?.environments || [])
+      setPendingReleaseJobs(tenantState?.pendingReleases || [])
       if(tenantState?.preference?.updateMode==='admin_controlled') {
         // Only tenant owners/admins see this release ledger in their Live workspace.
         const feature=await tenantReleaseApi('/feature-rollouts/live-chat')
@@ -188,8 +190,8 @@ function LiveProductionReleaseManagement() {
   async function action(key,fn,success='') {
     setBusy(key);setError('');setMessage('')
     try {
-      await fn()
-      if(success)setMessage(success)
+      const response=await fn()
+      if(success)setMessage(typeof success==='function'?success(response):success)
       await load()
     } catch(err) {
       setError(err.message)
@@ -220,7 +222,14 @@ function LiveProductionReleaseManagement() {
         const deploymentResult=await releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)})
         if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
       }
-    },nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.')
+      return tenantResult
+    },result=>{
+      const changed=result?.rescheduledJobs||[]
+      const blocked=result?.blockedJobs||[]
+      if(blocked.length)return 'Update policy saved. Some queued releases could not be rescheduled; check the release activity for their approval and maintenance requirements.'
+      if(changed.length)return 'Update policy saved. '+changed.length+' pending release'+(changed.length===1?' was':'s were')+' automatically rescheduled to the new maintenance window.'
+      return nextMode==='hi5_managed'?'Hi5Central managed updates enabled.':'Admin-controlled updates enabled.'
+    })
   }
 
   async function openEnvironment(environment) {
@@ -359,7 +368,7 @@ function LiveProductionReleaseManagement() {
                 </label>
               ))}
             </div>
-            <small>Choose at least one weekday. The scheduler will never update outside your selected days and hours.</small>
+            <small>Choose at least one weekday. Saving a changed maintenance window automatically reschedules any unstarted release jobs. Running or completed deployments will not be moved.</small>
           </fieldset>
           <label>Maintenance window start
             <input type="time" value={policy.maintenanceWindow?.start||'02:00'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),start:e.target.value}})}/>
@@ -373,6 +382,15 @@ function LiveProductionReleaseManagement() {
           <label className="hi5-release-policy-check"><input type="checkbox" checked={policy.allowEmergencySecurityUpdates!==false} onChange={e=>setPolicy({...policy,allowEmergencySecurityUpdates:e.target.checked})}/><span><strong>Allow emergency security updates</strong><small>Critical security fixes can bypass the normal delay, but still use signed release artifacts and audit logging.</small></span></label>
           {error ? <div className="hi5-release-message is-error" role="alert"><CircleAlert size={16}/>{error}</div> : null}
           {message ? <div className="hi5-release-message is-success" role="status"><CheckCircle2 size={16}/>{message}</div> : null}
+          {pendingReleaseJobs.length ? <div className="hi5-release-maintenance-pending" style={{gridColumn:'1 / -1'}}>
+            <strong>Upcoming scheduled application releases</strong>
+            {pendingReleaseJobs.map(job=><div key={job.jobId} style={{marginTop:6}}>
+              {job.environment.toUpperCase()} · {String(job.buildSha).slice(0,8)} · {job.status} · <time dateTime={job.scheduledAt}>
+                {new Date(job.scheduledAt).toLocaleString('en-GB',{timeZone:policy.maintenanceWindow?.timezone||'Europe/London',dateStyle:'medium',timeStyle:'short'})}
+              </time>
+            </div>)}
+            <small>Changes to your maintenance window recalculate these times after Save. Platform release pauses and approvals still apply.</small>
+          </div> : null}
           <button className="hi5-release-policy-save" disabled={Boolean(busy)} onClick={()=>savePolicy()} type="button">Save update policy</button>
         </div>
       </div>
