@@ -97,6 +97,17 @@ test('Stage pool deployment must override Live runtime credentials and secrets',
  assert.match(script,/key==='HI5_API_SAME_ORIGIN'/)
 })
 
+test('Test and Custom UAT pools always reach the canonical Central identity authority',()=>{
+ const source=readFileSync(new URL('../../../deployment/release/host-deploy.mjs',import.meta.url),'utf8')
+ const begin=source.indexOf('function stageApiEnvironment(){')
+ const end=source.indexOf('function containerEnvironment(',begin)
+ assert.ok(begin>=0&&end>begin)
+ const declaration=source.slice(begin,end)
+ assert.match(declaration,/ENV_IDENTITY_API_URL:'https:\/\/api\.hi5central\.com\/'/)
+ assert.match(source,/\s'ENV_IDENTITY_API_URL',/)
+ assert.match(source,/Object\.entries\(intended\)\.some\(\(\[key,value\]\)=>environmentNow\[key\]!==value\)/)
+ assert.match(source,/Existing non-Live pool retains unsafe or stale runtime credentials/)
+})
 test('Managed never receives a UAT sandbox or UAT access',async()=>{
  const {tenantSandboxStages}=await import('../src/tenantEnvironmentProvisioner.js')
  assert.deepEqual(tenantSandboxStages('hi5_managed'),['test'])
