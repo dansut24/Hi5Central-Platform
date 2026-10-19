@@ -9,6 +9,9 @@ on:
       - 'services/api/src/stageRollbackExecution.mjs'
       - 'services/api/src/tenantRelease.js'
       - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/src/releaseSimpleWorker.mjs'
+      - 'services/api/src/stageRollbackActivationPolicy.js'
+      - 'services/api/test/stage-rollback-activation-policy.mjs'
       - 'services/api/src/uatRuntimeOfferSupersession.js'
       - 'services/api/test/uat-offer-supersession.mjs'
       - 'services/api/src/releaseWorkActivity.js'
@@ -54,6 +57,7 @@ jobs:
           node --check deployment/release/host-deploy.mjs
           node --test \
             services/api/test/stage-rollback-permissions-and-fleet.mjs \
+            services/api/test/stage-rollback-activation-policy.mjs \
             services/api/test/uat-offer-supersession.mjs \
             services/api/test/customer-production-route-rollback-plan.mjs \
             services/api/test/customer-production-rollback-worker.mjs
