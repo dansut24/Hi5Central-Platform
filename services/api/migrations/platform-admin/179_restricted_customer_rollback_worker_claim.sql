@@ -118,7 +118,7 @@ CREATE OR REPLACE FUNCTION public.hi5_customer_rollback_claim(p_revision text)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public
 AS $function$
-DECLARE q record; t record; j record; cert record; snapshot text; pool_row record;
+DECLARE q record; tenant_state record; j record; cert record; snapshot text; pool_row record;
         token uuid; fence bigint;
 BEGIN
  IF NOT public.hi5_customer_rollback_worker_session_ok() OR p_revision !~ '^[a-f0-9]{40}$'
@@ -138,19 +138,19 @@ BEGIN
  SELECT t.id,t.slug,t.status,p.update_mode,h.active,
         a.build_sha AS current_sha,a.generation,a.pool_id,
         ra.build_sha AS route_sha,ra.public_host,ra.state AS route_state,ra.checked_at
-   INTO t
+   INTO tenant_state
  FROM public.tenants t
  JOIN public.tenant_release_preferences p ON p.tenant_id=t.id
  JOIN public.tenant_release_upgrade_holds h ON h.tenant_id=t.id
  JOIN public.tenant_runtime_assignments a ON a.tenant_id=t.id AND a.environment='live'
  JOIN public.tenant_runtime_route_attestations ra ON ra.tenant_id=t.id AND ra.environment='live'
  WHERE t.id=q.tenant_id FOR UPDATE OF t;
- IF NOT FOUND OR t.status<>'active' OR t.update_mode<>'admin_controlled'
-  OR t.active IS DISTINCT FROM true
-  OR t.current_sha<>q.source_build_sha OR t.generation<>q.source_route_generation
-  OR t.route_sha<>q.source_build_sha OR t.route_state<>'active'
-  OR t.public_host<>t.slug||'.hi5central.com'
-  OR t.checked_at<now()-interval '15 minutes'
+ IF NOT FOUND OR tenant_state.status<>'active' OR tenant_state.update_mode<>'admin_controlled'
+  OR tenant_state.active IS DISTINCT FROM true
+  OR tenant_state.current_sha<>q.source_build_sha OR tenant_state.generation<>q.source_route_generation
+  OR tenant_state.route_sha<>q.source_build_sha OR tenant_state.route_state<>'active'
+  OR tenant_state.public_host<>tenant_state.slug||'.hi5central.com'
+  OR tenant_state.checked_at<now()-interval '15 minutes'
   OR EXISTS(SELECT 1 FROM public.tenant_release_rollout_jobs
      WHERE tenant_id=q.tenant_id AND environment='live'
        AND status IN ('pending','scheduled','deferred','running'))
@@ -178,7 +178,7 @@ BEGIN
  ORDER BY e.id DESC LIMIT 1;
  IF snapshot IS NULL
    OR snapshot !~ '^release-live-[0-9]{10,18}-[a-z0-9-]+$'
-   OR snapshot NOT LIKE '%-'||replace(t.public_host,'.','-')
+   OR snapshot NOT LIKE '%-'||replace(tenant_state.public_host,'.','-')
  THEN RAISE EXCEPTION 'Immutable prior gateway snapshot proof missing'; END IF;
  token:=gen_random_uuid();fence:=q.lease_fence+1;
  UPDATE public.tenant_release_customer_rollback_requests SET
@@ -193,9 +193,9 @@ BEGIN
      'originalCustomerApprover',q.requested_by,
      'sourceRouteGeneration',q.source_route_generation));
  RETURN jsonb_build_object(
-   'requestId',q.id,'tenantId',q.tenant_id,'slug',t.slug,'host',t.public_host,
+   'requestId',q.id,'tenantId',q.tenant_id,'slug',tenant_state.slug,'host',tenant_state.public_host,
    'sourceSha',q.source_build_sha,'targetSha',q.target_build_sha,
-   'generation',q.source_route_generation,'poolId',t.pool_id,
+   'generation',q.source_route_generation,'poolId',tenant_state.pool_id,
    'originalJobId',j.id,'snapshot',snapshot,
    'leaseToken',token,'leaseFence',fence,'workerRevision',p_revision);
 END $function$;
