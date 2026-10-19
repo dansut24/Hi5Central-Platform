@@ -14,6 +14,11 @@ export function ReleaseWorkActivity({api,canApprove}){
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
   const [filter,setFilter]=useState('all')
+  const [rollbackStage,setRollbackStage]=useState('live')
+  const [rollbackScope,setRollbackScope]=useState('one')
+  const [rollbackTenant,setRollbackTenant]=useState('')
+  const [rollbackInfo,setRollbackInfo]=useState(null)
+  const [rollbackLoading,setRollbackLoading]=useState(false)
   const [rollbackData,setRollbackData]=useState(null)
   const [rollbackScope,setRollbackScope]=useState('one')
   const [rollbackEnvironment,setRollbackEnvironment]=useState('live')
@@ -35,6 +40,40 @@ export function ReleaseWorkActivity({api,canApprove}){
     finally{setLoading(false)}
   }
   useEffect(()=>{refresh()},[])
+  async function loadRollback(stage=rollbackStage){
+    setRollbackLoading(true)
+    try{
+      const r=await api('/releases/rollback/candidates?environment='+encodeURIComponent(stage))
+      setRollbackInfo(r)
+      setRollbackTenant(prev=>r.candidates.some(c=>c.tenantSlug===prev)?prev:(r.candidates[0]?.tenantSlug||''))
+    }catch(err){setError(err.message);setRollbackInfo(null)}
+    finally{setRollbackLoading(false)}
+  }
+  useEffect(()=>{if(canApprove)loadRollback(rollbackStage)},[canApprove,rollbackStage])
+  async function queueRollback(){
+    if(!rollbackInfo?.queueEnabled){setError('The restricted rollback executor is not active. No customer will be changed.');return}
+    const candidates=rollbackInfo.candidates||[]
+    const chosen=rollbackScope==='all'?candidates:candidates.filter(c=>c.tenantSlug===rollbackTenant)
+    if(!chosen.length){setError('No customer has a verified previous version for this stage.');return}
+    const summary=chosen.map(c=>c.tenantSlug+' '+short(c.fromBuildSha)+' → '+short(c.toBuildSha)).join('\n')
+    const reason=window.prompt('Rollback '+chosen.length+' customer(s) in '+rollbackStage.toUpperCase()+
+      ':\n'+summary+'\n\nEnter a 20–1000 character administrator audit reason:','')
+    if(reason===null)return
+    if(reason.trim().length<20){setError('Enter at least 20 characters for rollback audit.');return}
+    if(!window.confirm('Confirm '+chosen.length+' '+rollbackStage.toUpperCase()+
+      ' rollback request(s)? Each customer is verified and recovered independently; this does not bypass the queue.'))return
+    setBusy('rollback');setError('');setNotice('')
+    try{
+      const result=await api('/releases/rollback/request',{method:'POST',body:JSON.stringify({
+        scope:rollbackScope,environment:rollbackStage,
+        ...(rollbackScope==='one'?{tenantSlug:rollbackTenant}:{}),
+        confirm:'HI5CENTRAL_ROLLBACK_CONFIRMED',reason:reason.trim(),
+      })})
+      setNotice('Queued '+result.queued.length+' rollback(s) for host verification. '+
+        (result.skipped.length?result.skipped.length+' customer(s) were not eligible.':''))
+      await loadRollback()
+    }catch(error){setError(error.message)}finally{setBusy('')}
+  }
   const jobs=data?.jobs||[]
   const shown=useMemo(()=>filter==='all'?jobs:jobs.filter(j=>j.status===filter),[filter,jobs])
   const totals=useMemo(()=>Object.fromEntries(['scheduled','deferred','running','succeeded','failed','cancelled']
@@ -257,6 +296,46 @@ export function ReleaseWorkActivity({api,canApprove}){
         {rollbackData.history[0].environment.toUpperCase()} ·
         {rollbackData.history[0].state.replaceAll('_',' ')}
       </p>:null}
+    </div>:null}
+    {canApprove?<div className="h5a-release-work-state" data-hi5-platform-rollback>
+      <div>
+        <strong>Hi5Central rollback control</strong>
+        <p>Only Hi5Central administrators can roll back Production. Custom customers can roll back UAT themselves; Managed customers cannot initiate a rollback.</p>
+        <div className="h5a-release-work-controls">
+          <label>Stage
+            <select value={rollbackStage} onChange={e=>{setRollbackStage(e.target.value);setRollbackScope('one')}} aria-label="Rollback stage">
+              <option value="live">Production</option><option value="uat">Custom UAT</option><option value="test">Test</option>
+            </select>
+          </label>
+          <label>Scope
+            <select value={rollbackScope} onChange={e=>setRollbackScope(e.target.value)} aria-label="Rollback scope">
+              <option value="one">One customer</option>
+              {rollbackStage==='live'?<option value="all">All eligible Production customers</option>:null}
+            </select>
+          </label>
+          {rollbackScope==='one'?<label>Customer
+            <select value={rollbackTenant} onChange={e=>setRollbackTenant(e.target.value)} aria-label="Rollback customer">
+              {(rollbackInfo?.candidates||[]).map(c=><option key={c.tenantId} value={c.tenantSlug}>
+                {c.tenantSlug} · {short(c.fromBuildSha)} → {short(c.toBuildSha)}
+              </option>)}
+            </select>
+          </label>:null}
+          <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)||rollbackLoading}
+            onClick={()=>loadRollback()}><RefreshCw size={14}/> Refresh rollback status</button>
+          <button className="rmm-secondary compact danger" type="button"
+            disabled={Boolean(busy)||rollbackLoading||!rollbackInfo?.queueEnabled||
+              !(rollbackInfo?.candidates||[]).length}
+            onClick={queueRollback}><RotateCcw size={14}/> Queue rollback</button>
+        </div>
+        {!rollbackInfo?.queueEnabled?<p className="h5a-release-work-note" role="status">
+          Rollback requests are locked until the verified stage executor is enabled.
+        </p>:null}
+        {(rollbackInfo?.history||[]).slice(0,8).map(h=><p key={h.id} className="h5a-release-work-note">
+          {h.tenant_slug} · {h.environment.toUpperCase()} · {short(h.source_build_sha)}
+          {' → '}{short(h.target_build_sha)} · {h.state.replaceAll('_',' ')}
+          {h.last_error?' · '+h.last_error.slice(0,110):''}
+        </p>)}
+      </div>
     </div>:null}
     <div className="h5a-release-work-overview">
       {['scheduled','deferred','running','succeeded','failed','cancelled'].map(status=>
