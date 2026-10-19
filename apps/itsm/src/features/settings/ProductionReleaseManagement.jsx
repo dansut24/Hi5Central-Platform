@@ -133,6 +133,7 @@ export function ProductionReleaseManagement() {
 function LiveProductionReleaseManagement() {
   const [data,setData]=useState({environments:[],features:[],changes:[],actions:[]})
   const [tenantEnvironments,setTenantEnvironments]=useState([])
+  const [organisationTimezone,setOrganisationTimezone]=useState('')
   const [pendingReleaseJobs,setPendingReleaseJobs]=useState([])
   const [liveChatRelease,setLiveChatRelease]=useState(null)
   const [uatEvidence,setUatEvidence]=useState('')
@@ -152,6 +153,7 @@ function LiveProductionReleaseManagement() {
       if(tenantResult.status!=='fulfilled') throw tenantResult.reason
       const tenantState=tenantResult.value
       setTenantEnvironments(tenantState?.environments || [])
+      setOrganisationTimezone(tenantState?.organisationTimezone || '')
       setPendingReleaseJobs(tenantState?.pendingReleases || [])
       if(tenantState?.preference?.updateMode==='admin_controlled') {
         // Only tenant owners/admins see this release ledger in their Live workspace.
@@ -166,7 +168,9 @@ function LiveProductionReleaseManagement() {
         } catch {
           setPlatformApplicationDeployments(null)
         }
-        setPolicy(platformResult.value?.deploymentPolicy || tenantState.preference)
+        // Tenant preferences, not platform-wide release defaults, own the
+        // customer maintenance policy and organisation timezone.
+        setPolicy(tenantState.preference)
       } else {
         setPlatformAvailable(false)
         setPlatformApplicationDeployments(null)
@@ -214,14 +218,12 @@ function LiveProductionReleaseManagement() {
         releaseChannel:next.releaseChannel||'stable',
         liveDelayHours:Number(next.liveDelayHours||0),
         allowEmergencySecurityUpdates:next.allowEmergencySecurityUpdates!==false,
-        maintenanceWindow:next.maintenanceWindow||{},
+        maintenanceWindow:{...(next.maintenanceWindow||{}),timezone:organisationTimezone},
       }
       const tenantResult=await tenantReleaseApi('/preferences',{method:'PATCH',body:JSON.stringify(payload)})
       if(tenantResult?.preference)setPolicy(tenantResult.preference)
-      if(platformAvailable) {
-        const deploymentResult=await releaseApi('/deployment/preferences',{method:'PATCH',body:JSON.stringify(payload)})
-        if(deploymentResult?.preference)setPolicy(deploymentResult.preference)
-      }
+      // Tenant settings must never change the platform-wide release policy.
+      // The server independently derives timezone from Organisation settings.
       return tenantResult
     },result=>{
       const changed=result?.rescheduledJobs||[]
@@ -376,8 +378,10 @@ function LiveProductionReleaseManagement() {
           <label>Maintenance window end
             <input type="time" value={policy.maintenanceWindow?.end||'05:00'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),end:e.target.value}})}/>
           </label>
-          <label>Time zone
-            <input value={policy.maintenanceWindow?.timezone||'Europe/London'} onChange={e=>setPolicy({...policy,maintenanceWindow:{...(policy.maintenanceWindow||{}),timezone:e.target.value}})}/>
+          <label>Time zone (from Organisation settings)
+            <input readOnly value={organisationTimezone || 'Loading organisation time zone…'}
+              title="To change this, use Settings → Organisation" />
+            <small>Automatically inherited from the time zone selected during onboarding. Change it in Organisation settings, not on this page.</small>
           </label>
           <label className="hi5-release-policy-check"><input type="checkbox" checked={policy.allowEmergencySecurityUpdates!==false} onChange={e=>setPolicy({...policy,allowEmergencySecurityUpdates:e.target.checked})}/><span><strong>Allow emergency security updates</strong><small>Critical security fixes can bypass the normal delay, but still use signed release artifacts and audit logging.</small></span></label>
           {error ? <div className="hi5-release-message is-error" role="alert"><CircleAlert size={16}/>{error}</div> : null}
