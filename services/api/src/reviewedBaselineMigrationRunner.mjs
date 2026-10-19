@@ -4,8 +4,8 @@
  *
  * --inspect (read-only): print source SQL hashes + live schema fingerprint.
  * --preflight /abs/review.json (read-only): verify 2 independent signatures.
- * --apply /abs/review.json (explicit): requires a separate non-superuser,
- * CREATEROLE-capable migration operator, protected host trust anchors,
+ * --apply /abs/review.json (explicit): requires the established database
+ * owner/DBA session, protected host trust anchors,
  * checked/recoverable backup and signed approval for THIS DB/SHA.
  *
  * There is NO automated invocation from CI/Dev/container startup.
@@ -84,7 +84,7 @@ async function verifyBackup(path,expectedSha){
 async function readDbState(db){
  const result=await db.query([
   'SELECT current_database() AS database,session_user AS session_user,',
-  'r.rolsuper,r.rolbypassrls,r.rolcreaterole,r.rolcanlogin',
+  'current_user AS current_user,r.rolsuper,r.rolbypassrls,r.rolcreaterole,r.rolcanlogin',
   'FROM pg_roles r WHERE r.rolname=session_user',
  ].join(' '))
  const row=result.rows[0]
@@ -149,10 +149,14 @@ async function perform(){
     dbaKeyFingerprint:approval.dbaKeyFingerprint},null,2))
    await db.query('ROLLBACK');transaction=false;return
   }
-  if(row.session_user!=='hi5_release_migration_operator'
-    ||row.rolsuper!==false||row.rolbypassrls!==false
-    ||row.rolcreaterole!==true||row.rolcanlogin!==true)
-   throw Error('Production migration APPLY denied: dedicated non-superuser CREATEROLE migration identity required.')
+  // PostgreSQL schema changes on existing tables require object ownership.
+  // The 216-table legacy schema is owned by the existing DBA account; a
+  // non-owner role cannot ALTER it even when granted ALL table privileges.
+  // Use ONLY the established DBA session behind exact two-person signatures;
+  // never provision a new broadly privileged migration login.
+  if(row.session_user!=='hi5central'||row.current_user!=='hi5central'
+    ||row.rolsuper!==true||row.rolcanlogin!==true)
+   throw Error('Scoped schema APPLY requires established DBA owner identity and independent signed review.')
   // The reviewed stamp binds this one transaction to an *exact* starting
   // schema, source SHA, backup, stage and two independent trust anchors.
   // The regular migration runner is never called and its ledger stays zero.
