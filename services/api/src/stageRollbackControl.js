@@ -132,7 +132,8 @@ export async function rollbackReadiness(db,{tenantId,environment,actor,executorR
   environment}
  // Read-only status must not take FOR UPDATE locks or mutate the source.
  const latest=await db.query([
-  'SELECT id,state,source_build_sha,target_build_sha,created_at,completed_at,last_error',
+  "SELECT id,state,source_build_sha,target_build_sha,created_at,completed_at,last_error,",
+  "CASE WHEN state='verified' THEN completed_at ELSE NULL END AS host_verified_at",
   'FROM platform_release_rollback_jobs',
   'WHERE tenant_id=$1 AND environment=$2 ORDER BY created_at DESC LIMIT 1',
  ].join(' '),[tenantId,environment])
@@ -162,6 +163,8 @@ export async function rollbackReadiness(db,{tenantId,environment,actor,executorR
   previousBuildSha:previous.rows[0]?.previous_build_sha||null,
   sourceRouteGeneration:cur?.generation??null,
   latestRequest:latest.rows[0]||null,
+  activeRequest:['requested','running'].includes(latest.rows[0]?.state)?latest.rows[0]:null,
+  upgradeHoldActive:false,
   confirmationRequired:true}
 }
 export async function queueRollback(db,{
@@ -225,8 +228,10 @@ export async function listStaffRollbackCandidates(db,{environment}){
   'WHERE tenant_id=t.id AND environment=$1 AND build_sha=a.build_sha',
   "AND status='succeeded' ORDER BY completed_at DESC LIMIT 1) j ON true",
   "WHERE t.status='active' AND ($1<>'uat' OR p.update_mode='admin_controlled')",
-  'ORDER BY t.slug LIMIT 500',
+  'ORDER BY t.slug LIMIT 501',
  ].join(' '),[environment])
+ if(result.rows.length>500)
+   throw fail('A fleet exceeds 500 tenant candidates. Split into reviewed batches rather than silently omit customers.')
  return result.rows.filter(r=>SHA.test(String(r.previous_build_sha||''))
   &&r.previous_build_sha!==r.build_sha).map(r=>({
     tenantId:r.id,tenantSlug:r.slug,mode:r.update_mode,
