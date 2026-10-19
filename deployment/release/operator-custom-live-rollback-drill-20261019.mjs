@@ -165,8 +165,33 @@ try{
   expectedCurrentGatewayHash:EXPECT.currentCaddy,
   expectedPreviousGatewayHash:EXPECT.previousCaddy,
  })
- expect(plan.mode==='legacy_shared_fallback'&&plan.restoredSource===previous,
+ expect(plan.mode==='legacy_shared_fallback'&&plan.restoredSource===previous
+   &&plan.previousSnapshotSha256===EXPECT.previousCaddy,
   'Not an exact legacy customer-only Caddy route restoration.')
+ // Verify loaded Caddy runtime contains the same active hostnames as this
+ // disk/mount source; reloading a stale source would silently remove another
+ // tenant's route even if the backup diff were correct.
+ const runtime=JSON.parse(docker('exec',GATEWAY,'wget','-q','-O','-',
+  'http://127.0.0.1:2019/config/'))
+ const seen=new Set()
+ const visit=v=>{
+  if(Array.isArray(v)){for(const i of v)visit(i);return}
+  if(v&&typeof v==='object'){
+   if(Array.isArray(v.host))for(const host of v.host)seen.add(host)
+   for(const value of Object.values(v))visit(value)
+  }
+ }
+ visit(runtime.apps?.http?.servers||{})
+ const inSource=new Set([...current.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\\.hi5central\\.com)/g)]
+  .map(m=>m[1]))
+ const infrastructure=new Set(['api','admin','dev','dev-api','test','uat','rmm','www']
+  .map(x=>x+'.hi5central.com'))
+ for(const activeHost of seen){
+  if(typeof activeHost!=='string'||!activeHost.endsWith('.hi5central.com')
+    ||activeHost.includes('*')||infrastructure.has(activeHost))continue
+  expect(inSource.has(activeHost),'A runtime-only customer route is missing from disk: '+activeHost)
+ }
+ expect(seen.has(EXPECT.host),'Current Production customer route not active in gateway.')
  // Use exactly the official Caddy image to validate the proposed source without writing it.
  run('docker',['run','--rm','-i','--network','none','--entrypoint','sh',
   'hi5central/caddy-ionos:2.10.2','-c',
