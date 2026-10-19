@@ -51,7 +51,12 @@ export function livePilotJobEligible(job){
   return job?.environment==='live'&&job?.update_mode==='hi5_managed'
     &&job.live_auto_promote===true&&job.status==='scheduled'
     &&job.attempt_count===0&&job.lease_token==null
-    &&job.lease_expires_at==null&&Number(job.lease_fence)===0
+    &&job.lease_expires_at==null
+    &&(Number(job.lease_fence)===0
+      ||(Number.isSafeInteger(Number(job.lease_fence))
+        &&Number(job.lease_fence)>0
+        &&SHA.test(String(job.previous_build_sha||''))
+        &&job.retryAuthorised===true))
     &&job.routed_generation==null&&job.tenant_status==='active'
 }
 const checkSame=(job,request)=>{
@@ -155,6 +160,21 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         ].join(' '),[request.jobId])
         const job=inspected.rows[0]
         checkSame(job,request)
+        if(Number(job.lease_fence)>0){
+          // Fence counters never reset. Only an exact, recent staff-audited
+          // retry event with a verified previous SHA may arm this job again.
+          const latest=await db.query([
+            'SELECT details FROM tenant_release_rollout_events',
+            "WHERE job_id=$1 AND event_type='scheduled'",
+            'ORDER BY id DESC LIMIT 1',
+          ].join(' '),[job.id])
+          const details=latest.rows[0]?.details
+          job.retryAuthorised=details?.retryRequested===true
+            &&details?.globalPausePreserved===true
+            &&SHA.test(String(details?.priorBuild||''))
+            &&details.priorBuild===job.previous_build_sha
+            &&UUID.test(String(details?.staffActorId||''))
+        }
         if(!livePilotJobEligible(job))
           throw refuse('Only an active, unclaimed Managed Production job can be piloted.')
         const now=new Date()

@@ -71,6 +71,20 @@ function harness(flags={}){
  return {paths,queries,audits,c:{req:{json:async()=>({...request,...flags.request})},
   json:(body,status=200)=>({body,status})}}
 }
+test('rearmed pilot keeps monotonic fenced lease after an explicitly audited retry',()=>{
+ const prior='27f2378adccc1a66a84bac5a28a08ebbad835d6b'
+ const retry={...job,lease_fence:1,previous_build_sha:prior,
+   attempt_count:0,status:'scheduled',lease_token:null,
+   lease_expires_at:null,routed_generation:null}
+ assert.equal(livePilotJobEligible(retry),false,
+   'No recorded staff retry must mean no second permit')
+ assert.equal(livePilotJobEligible({...retry,retryAuthorised:true}),true,
+   'A verified staff retry may be rearmed without altering the fenced lease number')
+ for(const invalid of [{previous_build_sha:null},{lease_token:jobId},
+   {attempt_count:1},{routed_generation:2},{status:'failed'}]){
+   assert.equal(livePilotJobEligible({...retry,...invalid,retryAuthorised:true}),false)
+ }
+})
 test('unauthenticated or non-member may never create a pilot permit',async()=>{
  for(const flags of [{auth:false},{member:false}]){
   const h=harness(flags)
