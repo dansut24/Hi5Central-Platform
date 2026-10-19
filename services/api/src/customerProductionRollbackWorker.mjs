@@ -252,6 +252,7 @@ async function processClaim(client,claim){
    recoveredFromBackup:true,otherCustomersUnchanged:true,uatUnchanged:true,
    gatewaySourceAndMountMatch:true,priorImagesHealthy:true,
    workerRevision:REVISION,sourceRouteGeneration:claim.generation,
+   routeGeneration:claim.generation,observedBuildSha:claim.targetSha,
    restorationMode:rollbackPlan.mode,
    previousSnapshotSha256:rollbackPlan.previousSnapshotSha256,
    restoredRouteSha256:rollbackPlan.restoredSourceSha256,
