@@ -162,6 +162,20 @@ export async function queueRollback(db,{
    ||Number(check.assignment.generation)!==intent.generation)
    throw fail('Current or previous build/route generation changed; refresh and reconfirm.')
  const via=actor==='customer'?'custom_customer':'hi5central_admin'
+ if(intent.environment==='live'){
+   // Share the EXISTING Production upgrade hold/trigger with the normal
+   // release worker so a rollback never races an automatic Live promotion.
+   const hold=await db.query([
+     'INSERT INTO tenant_release_upgrade_holds',
+     '(tenant_id,active,reason,requested_by,held_at,released_at,released_by)',
+     'VALUES($1,true,$2,$3,now(),NULL,NULL)',
+     'ON CONFLICT (tenant_id) DO UPDATE SET',
+     'active=true,reason=excluded.reason,requested_by=excluded.requested_by,',
+     'held_at=excluded.held_at,released_at=NULL,released_by=NULL',
+     'WHERE tenant_release_upgrade_holds.active=false RETURNING tenant_id',
+   ].join(' '),[tenantId,intent.reason,userId])
+   if(hold.rowCount!==1)throw fail('An existing Production upgrade hold prevents a duplicate rollback.')
+ }
  const result=await db.query([
   'INSERT INTO platform_release_rollback_jobs',
   '(batch_id,tenant_id,environment,source_build_sha,target_build_sha,',
