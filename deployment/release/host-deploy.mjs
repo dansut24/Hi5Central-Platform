@@ -10,6 +10,7 @@ import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {prepareSharedTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
+import {assertUnassignedSandboxBaseline} from '../../services/api/src/tenantFirstStageBaseline.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
@@ -76,6 +77,25 @@ async function currentTenantRevision(){
   const v=JSON.parse(await getText('https://'+host+'/api/v1/updates/version'))
   if(!SHA.test(String(v.sha||'')))throw Error('Tenant API version response has no valid SHA.')
   return {sha:v.sha}
+}
+/** Before first customer UAT/Test cutover there is intentionally no public
+ * version SHA. Accept ONLY the exact fail-closed 503 and a source with no
+ * tenant-specific route; never interpret arbitrary HTTP failures as a baseline.
+ */
+async function currentRevisionOrUnassigned(snapshot){
+  const marker='  # H5C_RELEASE_ROUTE_BEGIN '+host
+  if(environment==='live'||snapshot.includes(marker))
+    return {...await currentTenantRevision(),unassigned:false}
+  const raw=await cmd('curl',[
+    '-sS','--max-time','8','-w','__H5C_STATUS__%{http_code}',
+    'https://'+host+'/api/v1/updates/version',
+  ],null,13000)
+  const separator=raw.lastIndexOf('__H5C_STATUS__')
+  if(separator<0)throw Error('Undeployed sandbox response lacks an HTTP status.')
+  return assertUnassignedSandboxBaseline({
+    environment,host,source:snapshot,
+    body:raw.slice(0,separator),status:raw.slice(separator+'__H5C_STATUS__'.length).trim(),
+  })
 }
 async function assertLiveGatewaySource(){
   const disk=await fileHost()
@@ -286,9 +306,10 @@ if(mode==='--restore'){
   const previous=await load('caddy')
   const json=await load('json')
   await restore(previous,json)
-  const served=(await currentTenantRevision()).sha
-  if(served===sha)throw Error('Restored route still serves the failed release.')
-  console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
+  const baseline=await currentRevisionOrUnassigned(previous)
+  if(baseline.sha===sha)throw Error('Restored route still serves the failed release.')
+  console.log(JSON.stringify({status:'rolled_back',host,environment,
+    previousSha:baseline.sha,restoredUnassigned:baseline.unassigned}))
   process.exit(0)
 }
 let prior='',liveJson='',active=false,watcher='',backupKey='',oldSource='',plannedHash=''
@@ -301,8 +322,12 @@ try{
   plannedHash=hash(plan.config)
   await validate(plan.config)
   if(mode==='--preflight'){
+    // Preflight the first-deployment route and public 503 before the scheduled
+    // job may execute; never infer a first cutover from an arbitrary 503.
+    const baseline=await currentRevisionOrUnassigned(old)
     console.log(JSON.stringify({status:'preflight_pass',environment,host,
-      newSha:sha,sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
+      newSha:sha,previousSha:baseline.sha,firstStage:baseline.unassigned,
+      sourceSha256:hash(old),newRouteSha256:hash(plan.config)}))
     process.exit(0)
   }
   if(mode==='--stage')console.log('STAGING_ONLY_NO_CUSTOMER_ROUTE',environment,sha)
@@ -310,7 +335,7 @@ try{
     'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "SELECT paused FROM platform_release_rollout_control WHERE singleton=true;"'])
   if(mode==='--apply'&&currentControl.trim()!=='f')throw Error('Global customer rollout is paused.')
   if(mode==='--apply'){
-    prior=(await currentTenantRevision()).sha
+    prior=(await currentRevisionOrUnassigned(old)).sha
     if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
   }
   for(const type of ['api','itsm']){
