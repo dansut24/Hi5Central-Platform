@@ -28,7 +28,7 @@ if(!['--inspect','--preflight','--apply'].includes(mode)
  throw Error('Usage: reviewedBaselineMigrationRunner.mjs --inspect | --preflight /absolute/signed-review.json | --apply /absolute/signed-review.json')
 if(!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
  throw Error('A scoped PostgreSQL DATABASE_URL is required.')
-const sourceDir=resolve(dirname(fileURLToPath(import.meta.url)),'../..')
+const sourceDir=resolve(dirname(fileURLToPath(import.meta.url)),'../../..')
 const migrationDir=join(sourceDir,'services/api/migrations/platform-admin')
 const shaCheck=/^[0-9a-f]{40}$/
 function gitCommit(){
