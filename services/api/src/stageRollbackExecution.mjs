@@ -85,6 +85,18 @@ export async function processQueuedStageRollback({pool,stage,shell,heartbeat}){
   const fenced=async()=>session.query(
    'SELECT public.hi5_stage_rollback_assert($1,$2,$3,$4)',
    [job.id,job.leaseToken,job.leaseFence,stage])
+  // Verify cross-stage order in the stage-restricted session before and
+  // after host execution. A Production upgrade/rollback is not a version
+  // number comparison; only the intended exact restore SHA is accepted.
+  const productionBeforeUat=async()=>{
+   if(stage!=='uat')return
+   const installed=await session.query([
+     'SELECT build_sha FROM tenant_runtime_assignments',
+     "WHERE tenant_id=$1 AND environment='live' LIMIT 1",
+   ].join(' '),[job.tenantId])
+   if(installed.rows[0]?.build_sha!==job.toSha)
+     throw Error('Rollback Production to the UAT target build before restoring UAT.')
+  }
   const hostEnv={
    H5C_RELEASE_LEASE_AUTH:'worker-gateway-fenced',
    H5C_RELEASE_JOB_ID:job.id,
@@ -97,6 +109,7 @@ export async function processQueuedStageRollback({pool,stage,shell,heartbeat}){
   try{
    await heartbeat('busy')
    await fenced()
+   await productionBeforeUat()
    before=await observedSource(shell)
    const hosts=otherHosts(before,hostname)
    if(hosts.length>500)throw Error('Too many routes to independently verify.')
@@ -122,6 +135,7 @@ export async function processQueuedStageRollback({pool,stage,shell,heartbeat}){
      throw Error('Public API/frontend version mismatch after recovery.')
    sameOtherVersions(baselines,await versionsOf(shell,hosts))
    await fenced()
+   await productionBeforeUat()
    const pair=releasePair(job.toSha,stage),poolId='h5pool-'+stage+'-'+job.toSha.slice(0,12)
    const proof={
     hostname,verifiedStage:stage,sourceSha:job.fromSha,targetSha:job.toSha,
