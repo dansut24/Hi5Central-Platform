@@ -47,6 +47,40 @@ export function ReleaseWorkActivity({api,canApprove}){
       confirm:'PAUSE_RELEASE_ROLLOUTS',reason,
     })}))
   }
+  async function resume(){
+    const evidence=data?.resumeReadiness
+    if(!data?.canResume||!evidence?.buildSha||!evidence?.jobIds?.length){
+      setError(data?.resumeBlockedReason||'The server has not approved fleet resume.');return
+    }
+    const rows=evidence.jobs.map(j=>j.tenantSlug+' / '+j.environment.toUpperCase()+
+      ' / '+dt(j.scheduledAt)).join('\n')
+    const reason=window.prompt(
+      'Resume the certified release '+short(evidence.buildSha)+
+      ' for these exact customers?\n'+rows+
+      '\nReason for staff audit (20–500 characters):','')
+    if(reason===null)return
+    if(reason.trim().length<20){setError('Enter a specific audit reason of at least 20 characters.');return}
+    if(!window.confirm(
+      'Final confirmation: enable automatic customer releases for this approved SHA. '+
+      'Only currently scheduled and independently authorised jobs can deploy, '+
+      'and only in their saved maintenance windows. The previously rolled-back '+
+      'Managed pilot will NOT automatically redeploy. Continue?'))return
+    setBusy('resume');setNotice('');setError('')
+    try{
+      const result=await api('/releases/rollout-jobs/resume',{
+        method:'POST',body:JSON.stringify({
+          confirm:'RESUME_VERIFIED_CUSTOMER_RELEASE_FLEET',
+          buildSha:evidence.buildSha,expectedJobIds:evidence.jobIds,reason,
+        }),
+      })
+      if(result.paused!==false)throw Error('Central release control has not confirmed activation.')
+      setNotice('Customer release automation enabled. '+result.scheduledJobs.length+
+        ' approved jobs remain scheduled in their own maintenance windows. '+
+        'The completed rollback pilot is not requeued.')
+      await refresh()
+    }catch(err){setError(err.message)}
+    finally{setBusy('')}
+  }
   async function armPilot(job){
     const reason=window.prompt(
       'Authorise ONE Managed Production pilot for '+job.tenantSlug+' / LIVE / '+short(job.buildSha)+
@@ -113,9 +147,11 @@ export function ReleaseWorkActivity({api,canApprove}){
         {canApprove?<button type="button" className="rmm-secondary compact"
           disabled={Boolean(busy)||data?.control?.paused} onClick={pause}>
           <Pause size={14}/> Pause all</button>:null}
-        <button type="button" className="rmm-secondary compact" disabled
-          title={data?.resumeBlockedReason||'Independent rollout security review is required'}>
-          <ShieldAlert size={14}/> Resume locked</button>
+        <button type="button" className="rmm-secondary compact"
+          disabled={Boolean(busy)||!canApprove||!data?.canResume||!data?.control?.paused}
+          onClick={resume}
+          title={data?.resumeBlockedReason||'Staff-confirmed fleet activation following verified Production rollback'}>
+          <ShieldAlert size={14}/> {data?.canResume?'Resume verified rollout':'Resume locked'}</button>
       </div>
     </div>
     {error?<p className="h5a-release-work-error" role="alert">{error}</p>:null}
@@ -168,6 +204,6 @@ export function ReleaseWorkActivity({api,canApprove}){
         {!shown.length?<tr><td colSpan={7} className="h5a-release-work-empty">No matching jobs recorded.</td></tr>:null}</tbody>
       </table>
     </div>
-    <p className="h5a-release-work-footnote">Fleet Resume remains locked. An authorised platform admin may arm exactly one unclaimed Managed Production pilot for 30 minutes inside its maintenance window; the globally paused state and all other jobs remain unchanged. Real customer rollback and host validation are still required before full rollout. Cancel does not stop a running deployment.</p>
+    <p className="h5a-release-work-footnote">Fleet Resume requires certified release approvals, safe scheduled customer windows, healthy restricted workers, an audited real Managed Production deployment and rollback, and explicit platform owner/admin confirmation. The API rechecks everything when you confirm. Customer routes do not change immediately, and existing rolled-back jobs are not automatically requeued. Pause all remains available after resuming.</p>
   </section>
 }
