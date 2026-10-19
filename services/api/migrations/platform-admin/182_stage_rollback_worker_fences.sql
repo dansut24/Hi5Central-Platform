@@ -43,6 +43,11 @@ BEGIN
     ON att.tenant_id=r.tenant_id AND att.environment=r.environment
  JOIN public.tenant_release_rollout_jobs j ON j.id=r.original_release_job_id
  WHERE r.environment=p_stage AND r.state='requested'
+   -- Any unverified running recovery freezes the entire shared gateway
+   -- rollback queue, even after its lease expires. Operator reconciliation
+   -- is mandatory before resuming a fleet or switching another customer.
+   AND NOT EXISTS(SELECT 1 FROM public.platform_release_rollback_jobs stuck
+     WHERE stuck.state='running')
    AND (r.requested_via='hi5central_admin'
        OR (r.requested_via='custom_customer' AND p_stage='uat'
            AND p.update_mode='admin_controlled'))
@@ -63,6 +68,11 @@ BEGIN
    AND NOT EXISTS(SELECT 1 FROM public.tenant_release_rollout_jobs active_job
     WHERE active_job.tenant_id=r.tenant_id AND active_job.environment=p_stage
       AND active_job.status IN ('pending','scheduled','deferred','running'))
+   AND (p_stage<>'uat' OR NOT EXISTS(
+     SELECT 1 FROM public.tenant_release_rollout_jobs live_job
+     WHERE live_job.tenant_id=r.tenant_id AND live_job.environment='live'
+       AND live_job.build_sha=r.source_build_sha
+       AND live_job.status IN ('pending','scheduled','deferred','running')))
    AND (p_stage<>'live' OR EXISTS(
     SELECT 1 FROM public.tenant_release_upgrade_holds h
     WHERE h.tenant_id=r.tenant_id AND h.active))
@@ -179,6 +189,14 @@ BEGIN
   WHERE tenant_id=r.tenant_id AND environment='uat'
     AND build_sha=r.source_build_sha
     AND state IN ('uat_testing','uat_accepted','active');
+  -- A rejected UAT build must not remain eligible for a future customer
+  -- Production promotion. Already installed Production remains unchanged.
+  UPDATE public.tenant_runtime_update_offers SET
+    state='blocked',updated_at=now(),
+    last_gate_reason='Previous UAT build restored. Promotion of this rejected UAT build is no longer authorised.'
+  WHERE tenant_id=r.tenant_id AND environment='live'
+    AND build_sha=r.source_build_sha
+    AND state IN ('offered','scheduled');
  END IF;
  UPDATE public.platform_release_rollback_jobs SET
   state='verified',completed_at=now(),lease_token=NULL,
