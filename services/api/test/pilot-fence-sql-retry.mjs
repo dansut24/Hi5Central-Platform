@@ -94,7 +94,7 @@ test('verified pre-gateway SQL failure can safely retry after public old-SHA pro
   assert.ok(h.calls.some(x=>x.sql.includes('platform_release_single_live_pilot_permits')
       &&x.sql.includes("state='revoked'")))
   assert.equal(h.audits.length,1)
-  assert.equal(h.audits[0][4].preWritePilotRecovery,true)
+  assert.equal(h.audits[0][5].preWritePilotRecovery,true)
  }finally{h.restoreFetch()}
 })
 test('wrong served sha, stale attestation or unrecognised failed work cannot be retried',async()=>{
