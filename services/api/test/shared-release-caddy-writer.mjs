@@ -70,7 +70,7 @@ test('Customer Test/UAT cutovers require isolated runtime databases',()=>{
  assert.match(script,/async function assertIsolatedStageApi/)
  assert.match(script,/candidateEnv\.DATABASE_URL===productionEnv\.DATABASE_URL/)
  assert.match(script,/candidateEnv\.RUNTIME_ENVIRONMENT!==environment/)
- assert.match(script,/if\(mode==='--apply'\)await assertIsolatedStageApi\(plan\.api\)/)
+ assert.match(script,/if\(environment!=='live'\)await assertIsolatedStageApi\(plan\.api\)/)
 })
 test('Central fanout and preview refuse an unprovisioned sandbox',()=>{
  const fanout=readFileSync(new URL('../src/certifiedReleaseFanout.js',import.meta.url),'utf8')
@@ -86,4 +86,13 @@ test('Preflight refuses Caddy source missing an already active tenant route',()=
  assert.match(script,/const runtimeHosts=new Set/)
  assert.match(script,/Gateway source drift: active tenant route/)
  assert.match(script,/Reconcile before any reload/)
+})
+
+test('Stage pool deployment must override Live runtime credentials and secrets',()=>{
+ const script=readFileSync(new URL('../../../deployment/release/host-deploy.mjs',import.meta.url),'utf8')
+ assert.match(script,/function stageApiEnvironment\(\)/)
+ assert.match(script,/environment\+'_app.url'/)
+ assert.match(script,/environment\+'_api_keys.env'/)
+ assert.match(script,/Existing non-Live pool retains unsafe or stale runtime credentials/)
+ assert.match(script,/key==='HI5_API_SAME_ORIGIN'/)
 })
