@@ -10,6 +10,7 @@
  */
 import pg from 'pg'
 import {fanoutCertifiedRelease} from './certifiedReleaseFanout.js'
+import {reconcileChangedTenantMaintenanceWindows} from './tenantMaintenanceReschedule.js'
 import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
 
 const once=process.argv.includes('--once')
@@ -49,12 +50,15 @@ async function cycle(){
     await client.query('BEGIN')
     await client.query("SET LOCAL lock_timeout='5s'")
     await client.query("SET LOCAL statement_timeout='50s'")
+    const maintenance=await reconcileChangedTenantMaintenanceWindows(client)
     const result=await fanoutCertifiedRelease(client,{
       sha:found.rows[0].build_sha,scope:'generic',
       deliveryMode:'direct_customer_release',limit:100,
     })
     await client.query('COMMIT')
-    console.log(JSON.stringify({type:'direct_customer_release_planned',...result}))
+    console.log(JSON.stringify({type:'direct_customer_release_planned',...result,
+      maintenanceRescheduled:maintenance.rescheduledJobs.length,
+      maintenanceScannedTenants:maintenance.scannedTenants}))
   }catch(error){
     await client.query('ROLLBACK').catch(()=>{})
     throw error
