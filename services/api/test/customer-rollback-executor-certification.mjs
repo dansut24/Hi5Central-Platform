@@ -86,14 +86,15 @@ test('migration is unseeded and no nonstaff identity can approve a worker by def
  assert.doesNotMatch(sql,/\bINSERT INTO\b|\bGRANT\s+(INSERT|UPDATE|ALL)\b/)
 })
 
-test('Live user API checks both certified revision and its feature switch',()=>{
+test('retired customer Production route cannot be re-enabled; customer UAT uses the existing stage executor',()=>{
  const api=readFileSync(new URL('../src/tenantRelease.js',import.meta.url),'utf8')
  const core=readFileSync(new URL('../src/customerProductionRollback.js',import.meta.url),'utf8')
- assert.match(api,/process\.env\.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY==='true'/)
- assert.match(api,/process\.env\.H5C_CUSTOMER_ROLLBACK_EXECUTOR_SHA\|\|null/)
+ assert.match(api,/process\.env\.H5C_STAGE_ROLLBACK_QUEUE_READY==='true'/)
+ assert.match(api,/ROLLBACK_MY_CUSTOM_UAT/)
+ assert.doesNotMatch(api,/ROLLBACK_MY_CUSTOM_PRODUCTION/)
  assert.match(core,/executorReady:admitted/)
  assert.match(core,/certifiedRollbackExecutorReady\(db/)
  assert.match(core,/executorRevisionSha/)
  assert.match(core,/upgrade hold is active/)
- assert.match(api,/Global hard-off until the independent host executor/)
+ assert.match(api,/H5C_STAGE_ROLLBACK_QUEUE_READY!=='true'/)
 })
