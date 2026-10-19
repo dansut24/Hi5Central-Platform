@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pool } from './db.js'
-import { assertHistoricalMigrationLedgerSafe } from './migrationLedgerSafety.js'
+import { assertHistoricalMigrationLedgerSafe, assertMigrationHistoryPrefixSafe } from './migrationLedgerSafety.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const migrationsDir = path.resolve(here, '../migrations')
@@ -70,6 +70,10 @@ async function migrate() {
     }
 
     files.sort((left, right) => left.version.localeCompare(right.version))
+    assertMigrationHistoryPrefixSafe({
+      appliedVersions:[...applied],
+      sourceVersions:files.map(file=>file.version),
+    })
 
     for (const file of files) {
       if (applied.has(file.version)) continue
