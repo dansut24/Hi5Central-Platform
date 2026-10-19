@@ -9,7 +9,10 @@
  */
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const gatewayNames=new Set(['test','uat','live'])
-// All stage executors edit ONE Caddyfile. A stage-specific lock allowed Live and\n// UAT to overwrite each other's source during concurrent maintenance windows.\nconst LOCK_NAMESPACE='hi5central-release-gateway'\nconst SHARED_CADDY_SOURCE='hi5central-gateway-1:/etc/caddy/Caddyfile'
+// All stage executors edit ONE Caddyfile. A stage-specific lock allowed Live and
+// UAT to overwrite each other's source during concurrent maintenance windows.
+const LOCK_NAMESPACE='hi5central-release-gateway'
+const SHARED_CADDY_SOURCE='hi5central-gateway-1:/etc/caddy/Caddyfile'
 const invalid=reason=>Object.assign(new Error(reason),{code:'GATEWAY_LEASE_GUARD'})
 function assertArguments(opts){
   if(!gatewayNames.has(opts?.gateway)
@@ -20,7 +23,8 @@ const acquireSql='SELECT pg_try_advisory_lock(hashtext($1),hashtext($2)) AS acqu
 const releaseSql='SELECT pg_advisory_unlock(hashtext($1),hashtext($2)) AS released'
 
 /**
- * Acquire the physical shared Caddy gateway mutex BEFORE claiming a pending rollout.\n * Test, UAT and Live MUST contend on the same advisory-lock key.
+ * Acquire the physical shared Caddy gateway mutex BEFORE claiming a pending rollout.
+ * Test, UAT and Live MUST contend on the same advisory-lock key.
  *
  * The callback claims a job under its ordinary SKIP LOCKED transaction,
  * then calls registerClaim(job) with jobId/tenantId/leaseToken/leaseFence.
