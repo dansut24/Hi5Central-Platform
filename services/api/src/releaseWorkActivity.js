@@ -6,6 +6,7 @@
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {readFleetResumeReadiness,reviewedFleetResumeRequest} from './releaseFleetResume.js'
 import {reviewedRollbackCompatibilityRequest,reviewedRollbackExecutorRequest,reviewedRollbackRevocation,reviewRollbackCompatibility,reviewRollbackExecutor} from './reviewedCustomerRollbackApprovals.js'
+import {staffRollbackSelection,listStaffRollbackCandidates,queueRollback} from './stageRollbackControl.js'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SHA=/^[a-f0-9]{40}$/
 const STAGES=new Set(['test','uat','live'])
@@ -100,6 +101,74 @@ async function staffAuthority(c,{requireAdmin,WRITE_ROLES,pool,deployment},write
 }
 export function registerReleaseWorkActivityRoutes(app,deps){
   const {pool,withTransaction,audit}=deps
+  // Operator request only. No endpoint performs a host cutover.
+  // Fleet request expands into individually fenced and audited tenant jobs.
+  app.get('/api/platform/v1/releases/rollback/candidates',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    const stage=String(c.req.query('environment')||'live')
+    try{
+      const candidates=await listStaffRollbackCandidates(pool,{environment:stage})
+      const history=await pool.query([
+        'SELECT r.id,r.batch_id,r.environment,r.state,r.source_build_sha,r.target_build_sha,',
+        'r.created_at,r.completed_at,r.last_error,t.slug AS tenant_slug',
+        'FROM platform_release_rollback_jobs r JOIN tenants t ON t.id=r.tenant_id',
+        'ORDER BY r.created_at DESC,r.id DESC LIMIT 100',
+      ].join(' '))
+      c.header('Cache-Control','no-store')
+      return c.json({candidates,history:history.rows,
+        queueEnabled:process.env.H5C_STAGE_ROLLBACK_QUEUE_READY==='true',
+        customerProductionRollbackAllowed:false})
+    }catch(error){return c.json({error:String(error.message||error).slice(0,400)},error.status||409)}
+  })
+  app.post('/api/platform/v1/releases/rollback/request',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    if(process.env.H5C_STAGE_ROLLBACK_QUEUE_READY!=='true')
+      return c.json({error:'Rollback host executor is not activated; no customer changes were made.'},409)
+    try{
+      const intent=staffRollbackSelection(await c.req.json().catch(()=>null))
+      const candidates=await listStaffRollbackCandidates(pool,{environment:intent.environment})
+      const selected=intent.scope==='one'
+        ?candidates.filter(x=>x.tenantSlug===intent.tenantSlug):candidates
+      if(!selected.length)throw refuse('No customer has a verified previous build in this scope.')
+      // One fleet batch UUID represents ONE admin action, but each customer
+      // is independently admitted, completed and audited. A blocked tenant
+      // never causes another tenant to change or lose its queue state.
+      const batch=intent.scope==='all'
+        ?(await pool.query('SELECT gen_random_uuid() AS id')).rows[0].id:null
+      const queued=[],skipped=[]
+      for(const row of selected){
+        try{
+          const job=await withTransaction(async db=>{
+            const request=await queueRollback(db,{
+              tenantId:row.tenantId,userId:auth.session.user_id,
+              actor:'platform_admin',batchId:batch,body:{
+                environment:intent.environment,fromBuildSha:row.fromBuildSha,
+                toBuildSha:row.toBuildSha,routeGeneration:row.routeGeneration,
+                reason:intent.reason,confirm:'HI5CENTRAL_ROLLBACK_CONFIRMED',
+              },
+            })
+            await audit(c,auth.session,'release.platform_rollback_queued',
+              'rollback_request',request.id,{
+                tenantSlug:row.tenantSlug,environment:intent.environment,
+                fromBuildSha:row.fromBuildSha,toBuildSha:row.toBuildSha,
+                scope:intent.scope,batchId:batch,reason:intent.reason,
+                productionChanged:false},db)
+            return request
+          })
+          queued.push(job)
+        }catch(error){
+          skipped.push({tenantSlug:row.tenantSlug,
+            reason:String(error.message||error).slice(0,250)})
+        }
+      }
+      if(!queued.length)
+        return c.json({error:'No rollback jobs could be admitted.',skipped},409)
+      return c.json({batchId:batch,scope:intent.scope,
+        queued,skipped,productionChanged:false},202)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,400)},error.status||409)}
+  })
   // Central staff review only: these endpoints sign exact rollback evidence,
   // never fabricate a customer request or touch a gateway or Docker image.
   app.post('/api/platform/v1/releases/customer-rollback/review-compatibility',async c=>{
