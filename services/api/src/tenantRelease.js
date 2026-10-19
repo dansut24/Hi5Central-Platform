@@ -166,7 +166,8 @@ export function registerTenantReleaseRoutes(app) {
       return c.json({error:'Open your Production release centre to manage UAT rollback.'},403)
     try{
       const result=await rollbackReadiness(pool,{
-        tenantId:auth.session.tenant_id,environment:'uat',actor:'customer'})
+        tenantId:auth.session.tenant_id,environment:'uat',actor:'customer',
+        executorReady:process.env.H5C_STAGE_ROLLBACK_QUEUE_READY==='true'})
       return c.json({...result,customerCanRollbackProduction:false,
         rollbackEnvironment:'uat'})
     }catch(error){
