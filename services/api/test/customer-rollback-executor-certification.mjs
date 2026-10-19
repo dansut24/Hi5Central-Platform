@@ -40,8 +40,13 @@ test('exact approved worker revision requires six independent proofs and a curre
 
 test('a deployment env switch cannot certify an unreviewed executor or unpinned revision',async()=>{
  const history=[]
+ const worker={
+  gateway:'live',state:'idle',version_sha:SHA,
+  last_poll_at:'2026-10-19T15:29:30Z',last_error:'',
+ }
  const pool={query:async(query,args)=>{
   history.push({query,args})
+  if(query.includes('platform_release_worker_heartbeats'))return {rows:[worker]}
   return {rows:[base]}
  }}
  assert.equal(await certifiedRollbackExecutorReady(pool,{enabled:false,revisionSha:SHA,now}),false)
@@ -49,13 +54,25 @@ test('a deployment env switch cannot certify an unreviewed executor or unpinned 
  assert.equal(await certifiedRollbackExecutorReady(pool,{enabled:true,now}),false)
  assert.equal(history.length,0)
  assert.equal(await certifiedRollbackExecutorReady(pool,{enabled:true,revisionSha:SHA,now}),true)
- assert.equal(history.length,1)
+ assert.equal(history.length,2)
  assert.deepEqual(history[0].args,[SHA])
+ assert.deepEqual(history[1].args,['customer-rollback-live'])
  assert.match(history[0].query,/platform_release_customer_rollback_executor_certifications/)
+ assert.match(history[1].query,/platform_release_worker_heartbeats/)
  const missing={query:async()=>({rows:[]})}
  assert.equal(await certifiedRollbackExecutorReady(missing,{enabled:true,revisionSha:SHA,now}),false)
  const revoked={query:async()=>({rows:[{...base,state:'revoked'}]})}
  assert.equal(await certifiedRollbackExecutorReady(revoked,{enabled:true,revisionSha:SHA,now}),false)
+ const noWorker={query:async(query)=>({rows:query.includes('heartbeats')?[]:[base]})}
+ assert.equal(await certifiedRollbackExecutorReady(noWorker,{enabled:true,revisionSha:SHA,now}),false)
+ for(const bad of [
+  {state:'error'},{gateway:'uat'},{version_sha:'a'.repeat(40)},
+  {last_error:'worker rejected fence'},{last_poll_at:'2026-10-19T15:20:00Z'},
+  {last_poll_at:'2026-10-19T15:35:00Z'},
+ ]){
+  const poolBad={query:async query=>({rows:[query.includes('heartbeats')?{...worker,...bad}:base]})}
+  assert.equal(await certifiedRollbackExecutorReady(poolBad,{enabled:true,revisionSha:SHA,now}),false,JSON.stringify(bad))
+ }
 })
 
 test('migration is unseeded and no nonstaff identity can approve a worker by default',()=>{
