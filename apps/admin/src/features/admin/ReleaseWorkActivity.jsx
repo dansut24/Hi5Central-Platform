@@ -14,10 +14,22 @@ export function ReleaseWorkActivity({api,canApprove}){
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
   const [filter,setFilter]=useState('all')
+  const [rollbackData,setRollbackData]=useState(null)
+  const [rollbackScope,setRollbackScope]=useState('one')
+  const [rollbackEnvironment,setRollbackEnvironment]=useState('live')
+  const [rollbackTenant,setRollbackTenant]=useState('')
+  const [rollbackReason,setRollbackReason]=useState('')
+  const [rollbackBusy,setRollbackBusy]=useState(false)
   async function refresh(){
     try{
       const response=await api('/releases/rollout-jobs/activity')
       setData(response)
+      if(canApprove){
+        try{
+          const rollbackResult=await api('/releases/rollback/candidates?environment='+rollbackEnvironment)
+          setRollbackData(rollbackResult)
+        }catch{setRollbackData(null)}
+      }
       setError('')
     }catch(err){setError(err.message)}
     finally{setLoading(false)}
@@ -37,6 +49,34 @@ export function ReleaseWorkActivity({api,canApprove}){
       await refresh()
     }catch(err){setError(err.message)}
     finally{setBusy('')}
+  }
+  async function requestStageRollback(){
+    if(!canApprove||!rollbackData?.queueEnabled){
+      setError('Stage rollback executor is not enabled. No changes were made.');return
+    }
+    if(rollbackScope==='one'&&!rollbackTenant){
+      setError('Select a customer to roll back.');return
+    }
+    if(rollbackReason.trim().length<20){
+      setError('Provide at least 20 characters for the rollback audit.');return
+    }
+    const chosen=rollbackScope==='all'?'ALL eligible Production customers':rollbackTenant
+    const confirmed=rollbackScope==='all'?'ROLLBACK ALL PRODUCTION CUSTOMERS':'ROLLBACK ONE CUSTOMER'
+    if(!window.confirm(confirmed+'? '+chosen+
+      ' / '+rollbackEnvironment.toUpperCase()+
+      '. Each customer must be independently verified. This queues recovery work; it does not immediately switch the gateway.'))return
+    setRollbackBusy(true);setError('');setNotice('')
+    try{
+      const result=await api('/releases/rollback/request',{method:'POST',body:JSON.stringify({
+        scope:rollbackScope,environment:rollbackEnvironment,
+        tenantSlug:rollbackScope==='one'?rollbackTenant:undefined,
+        reason:rollbackReason.trim(),confirm:'HI5CENTRAL_ROLLBACK_CONFIRMED',
+      })})
+      setNotice(result.queued.length+' customer rollback job(s) queued; '+
+        (result.skipped?.length||0)+' blocked. Each host route requires separate verification.')
+      setRollbackReason('')
+      await refresh()
+    }catch(e){setError(e.message)}finally{setRollbackBusy(false)}
   }
   async function pause(){
     const reason=window.prompt('Reason for pausing all release rollouts (20 characters minimum)','')
@@ -156,6 +196,62 @@ export function ReleaseWorkActivity({api,canApprove}){
     </div>
     {error?<p className="h5a-release-work-error" role="alert">{error}</p>:null}
     {notice?<p className="h5a-release-work-success" role="status"><CheckCircle2 size={15}/>{notice}</p>:null}
+    {canApprove?<div className="h5a-release-work-state" data-hi5-admin-rollbacks>
+      <div className="h5a-release-work-controls">
+        <strong><RotateCcw size={16}/> Customer rollback</strong>
+        <small>Hi5Central controls Production rollback. Custom customers may roll back their own UAT only.</small>
+      </div>
+      <div className="h5a-release-work-controls">
+        <label>Scope <select value={rollbackScope} onChange={e=>{
+          const value=e.target.value
+          setRollbackScope(value)
+          if(value==='all')setRollbackEnvironment('live')
+        }}>
+          <option value="one">One customer</option>
+          <option value="all">All Production customers</option>
+        </select></label>
+        <label>Environment <select value={rollbackEnvironment}
+          disabled={rollbackScope==='all'}
+          onChange={async e=>{
+            const stage=e.target.value
+            setRollbackEnvironment(stage);setRollbackTenant('')
+            try{setRollbackData(await api('/releases/rollback/candidates?environment='+stage))}
+            catch(err){setError(err.message)}
+          }}>
+          <option value="live">Production</option>
+          <option value="uat">Custom UAT</option>
+          <option value="test">Test</option>
+        </select></label>
+        {rollbackScope==='one'?<label>Customer <select value={rollbackTenant}
+          onChange={e=>setRollbackTenant(e.target.value)}>
+          <option value="">Select a verified customer</option>
+          {(rollbackData?.candidates||[]).map(x=><option key={x.tenantId} value={x.tenantSlug}>
+            {x.tenantSlug} · {short(x.fromBuildSha)} → {short(x.toBuildSha)}
+          </option>)}
+        </select></label>:<small>
+          Eligible fleet: {rollbackData?.candidates?.length||0} customers; independently queued and verified
+        </small>}
+      </div>
+      <label>Reason for rollback <textarea value={rollbackReason} rows={2}
+        maxLength={1000} onChange={e=>setRollbackReason(e.target.value)}
+        placeholder="Reason for restoring the previous verified version." /></label>
+      <div className="h5a-release-work-controls">
+        <button className="rmm-secondary compact" type="button"
+          disabled={rollbackBusy||!rollbackData?.queueEnabled||
+            rollbackReason.trim().length<20||(rollbackScope==='one'&&!rollbackTenant)}
+          onClick={requestStageRollback}>
+          <RotateCcw size={14}/> {rollbackScope==='all'?'Queue fleet rollback':'Queue customer rollback'}
+        </button>
+        {!rollbackData?.queueEnabled?<small>
+          Executor not activated — request controls stay locked until verified.
+        </small>:null}
+      </div>
+      {rollbackData?.history?.length?<p className="h5a-release-work-note" role="status">
+        Latest recovery: {rollbackData.history[0].tenant_slug} ·
+        {rollbackData.history[0].environment.toUpperCase()} ·
+        {rollbackData.history[0].state.replaceAll('_',' ')}
+      </p>:null}
+    </div>:null}
     <div className="h5a-release-work-overview">
       {['scheduled','deferred','running','succeeded','failed','cancelled'].map(status=>
         <button type="button" key={status} className={filter===status?'is-active':''}
