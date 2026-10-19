@@ -174,6 +174,13 @@ export async function customerRollbackReadiness(db,{
    "WHERE tenant_id=$1 AND state IN ('requested','approved','running')",
    'ORDER BY requested_at DESC LIMIT 1',
  ].join(' '),[tenantId])
+ const latest=await db.query([
+   'SELECT id,state,source_build_sha,target_build_sha,requested_at,',
+   'completed_at,host_verified_at,last_error,',
+   "coalesce(host_proof->>'restorationMode','') AS restoration_mode",
+   'FROM tenant_release_customer_rollback_requests',
+   'WHERE tenant_id=$1 ORDER BY requested_at DESC LIMIT 1',
+ ].join(' '),[tenantId])
  const holds=await db.query(
    'SELECT active FROM tenant_release_upgrade_holds WHERE tenant_id=$1 AND active=true',[tenantId])
  const queued=await db.query([
@@ -194,7 +201,10 @@ export async function customerRollbackReadiness(db,{
    activeRequest:active.rows[0],activeHold:holds.rows[0],
    activeRolloutCount:queued.rows[0]?.total,executorReady:admitted,now,
  })
- return {...status,activeRequest:active.rows[0]||null}
+ return {...status,activeRequest:active.rows[0]||null,
+   latestRequest:latest.rows[0]||null,
+   upgradeHoldActive:Boolean(holds.rows[0]),
+ }
 }
 
 /** Caller owns transaction, and must hold global queue claim advisory lock.
