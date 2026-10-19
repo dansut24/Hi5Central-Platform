@@ -78,7 +78,7 @@ test('rollback completion requires public API+frontend plus customer isolation, 
   'publicApiSha','publicWebSha','otherCustomersUnchanged',
   'uatUnchanged','gatewaySourceAndMountMatch',
   'previousSnapshotSha256','restoredRouteSha256',
-  'sourceRouteGeneration','priorImagesHealthy',
+  'sourceRouteGeneration','routeGeneration','observedBuildSha','priorImagesHealthy',
   'hi5_customer_rollback_assert_fence','customer_self_service_live_rollback_verified',
  ]){
   assert.ok(sql.includes(evidence),evidence)
@@ -104,6 +104,7 @@ test('host worker fail-closed, gateway-fenced, backup-isolated, with crash watch
  ]){
   assert.ok(worker.includes(evidence),evidence)
  }
+ assert.match(worker,/routeGeneration:claim.generation,observedBuildSha:claim.targetSha/)
  assert.match(worker,/if\(MODE==='--preflight'\)/)
  assert.match(worker,/CUSTOMER_ROLLBACK_RESTRICTED_WORKER_PREFLIGHT_PASS_NO_WRITES/)
  assert.doesNotMatch(worker,/ROLLBACK_WORKER_ACTIVE\s*=\s*true|CREATE ROLE|ALTER ROLE/)
