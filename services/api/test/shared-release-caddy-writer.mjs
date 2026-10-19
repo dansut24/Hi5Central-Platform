@@ -96,3 +96,14 @@ test('Stage pool deployment must override Live runtime credentials and secrets',
  assert.match(script,/Existing non-Live pool retains unsafe or stale runtime credentials/)
  assert.match(script,/key==='HI5_API_SAME_ORIGIN'/)
 })
+
+test('Managed never receives a UAT sandbox or UAT access',async()=>{
+ const {tenantSandboxStages}=await import('../src/tenantEnvironmentProvisioner.js')
+ assert.deepEqual(tenantSandboxStages('hi5_managed'),['test'])
+ assert.deepEqual(tenantSandboxStages('admin_controlled'),['test','uat'])
+ const access=readFileSync(new URL('../src/tenantEnvironmentAccess.js',import.meta.url),'utf8')
+ const settings=readFileSync(new URL('../src/tenantRelease.js',import.meta.url),'utf8')
+ assert.match(access,/rp.update_mode='admin_controlled'/)
+ assert.match(access,/Managed customers have Test and Production; UAT is Custom only/)
+ assert.match(settings,/row.environment!=='uat'/)
+})
