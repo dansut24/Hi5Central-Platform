@@ -70,7 +70,7 @@ test('the new dedicated role has no LOGIN or customer table write privilege',()=
  assert.match(sql,/EXCEPTION/)
  assert.match(sql,/GRANT EXECUTE ON FUNCTION/)
  assert.doesNotMatch(sql,/GRANT\s+(ALL|INSERT|UPDATE|DELETE)\s+ON\s+TABLE/i)
- assert.doesNotMatch(sql,/BYPASSRLS|SUPERUSER|CREATE ROLE .*LOGIN/i)
+ assert.doesNotMatch(sql,/\bBYPASSRLS\b|\bSUPERUSER\b|CREATE ROLE[^\n]*\sLOGIN(?:\s|;)/i)
 })
 test('rollback completion requires public API+frontend plus customer isolation, retains tenant hold',()=>{
  const sql=migration('180_restricted_customer_rollback_completion.sql')
