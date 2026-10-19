@@ -167,6 +167,7 @@ export function registerTenantReleaseRoutes(app) {
       const result=await customerRollbackReadiness(pool,{
         tenantId:auth.session.tenant_id,
         executorReady:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_READY==='true',
+        executorRevisionSha:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_SHA||null,
       })
       return c.json(result)
     }catch(error){
@@ -189,6 +190,7 @@ export function registerTenantReleaseRoutes(app) {
         const request=await requestCustomerRollback(db,{
           tenantId:auth.session.tenant_id,userId:auth.session.user_id,
           body,executorReady:true,
+          executorRevisionSha:process.env.H5C_CUSTOMER_ROLLBACK_EXECUTOR_SHA||null,
         })
         await recordSecurityEvent({
           db,tenantId:auth.session.tenant_id,actorUserId:auth.session.user_id,
