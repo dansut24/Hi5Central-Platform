@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import {
  rollbackPermission,rollbackIntent,staffRollbackSelection,
- RELEASE_ROLLBACK_STAGE,
+ rollbackReadiness,RELEASE_ROLLBACK_STAGE,
 } from '../src/stageRollbackControl.js'
 import {
  validateStageRollbackLease,assertTenantOnlyGatewayMutation,
@@ -126,4 +126,49 @@ test('stage worker and host use existing physical lock, per-stage DB lease and p
  assert.match(sql,/hi5_stage_rollback_session_ok/)
  assert.match(sql,/GRANT EXECUTE ON FUNCTION/)
  assert.doesNotMatch(sql,/GRANT\s+(?:ALL|UPDATE|INSERT|DELETE)\s+ON\s+(?:TABLE)/)
+})
+
+test('customer UAT readiness is read-only and disabled until the real executor is ready',async()=>{
+ const tenantId='22222222-2222-4222-8222-222222222222'
+ const queries=[]
+ const db={query:async(sql)=>{
+   queries.push(sql)
+   if(sql.includes('SELECT t.status,p.update_mode'))
+     return {rows:[{status:'active',update_mode:'admin_controlled'}]}
+   if(sql.includes('SELECT id,state,source_build_sha'))
+     return {rows:[]}
+   if(sql.includes('SELECT a.build_sha,a.generation'))
+     return {rows:[{build_sha:from,generation:1792412068014,pool_id:'h5pool-uat-'+from.slice(0,12),slug:'companycustom'}]}
+   if(sql.includes('SELECT j.previous_build_sha'))
+     return {rows:[{previous_build_sha:to}]}
+   throw Error('Unexpected query '+sql)
+ }}
+ const r=await rollbackReadiness(db,{tenantId,environment:'uat',actor:'customer',executorReady:false})
+ assert.equal(r.canRequest,false)
+ assert.match(r.reasons.join(' '),/executor is disabled/)
+ assert.equal(r.environment,'uat')
+ assert.equal(r.installedBuildSha,from)
+ assert.equal(r.previousBuildSha,to)
+ assert.ok(queries.every(sql=>/^SELECT/.test(sql.trim())))
+ assert.ok(queries.every(sql=>!sql.includes('FOR UPDATE')))
+})
+test('Managed customer is never shown a UAT rollback even if an executor is enabled',async()=>{
+ const db={query:async(sql)=>{
+  if(sql.includes('SELECT t.status,p.update_mode'))
+   return {rows:[{status:'active',update_mode:'hi5_managed'}]}
+  throw Error('Managed customer readiness must stop before querying tenant private rollback state')
+ }}
+ const result=await rollbackReadiness(db,{
+  tenantId:'22222222-2222-4222-8222-222222222222',
+  actor:'customer',environment:'uat',executorReady:true,
+ })
+ assert.equal(result.canRequest,false)
+})
+test('staff Production rollback establishes tenant upgrade hold; UAT never holds Live upgrades',()=>{
+ const source=readFileSync(new URL('../src/stageRollbackControl.js',import.meta.url),'utf8')
+ assert.match(source,/if\(intent.environment==='live'\)\{/)
+ assert.match(source,/INSERT INTO tenant_release_upgrade_holds/)
+ assert.match(source,/tenant_release_upgrade_holds.active=false/)
+ assert.match(source,/An existing Production upgrade hold/)
+ assert.match(source,/return \{\.\.\.job,tenantSlug/)
 })
