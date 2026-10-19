@@ -260,6 +260,50 @@ async function writeGateway(contents){
     'cat >/tmp/h5c-release-executor.Caddyfile && caddy reload --config /tmp/h5c-release-executor.Caddyfile --adapter caddyfile'],contents)
 }
 async function assertCurrentFencedHostLease(){
+  // Rollback has a DIFFERENT durable lease table from ordinary upgrades.
+  // The stage worker must hold the same physical gateway lock, and the host
+  // independently rechecks the requested exact stage, tenant and build pair.
+  if(process.env.H5C_STAGE_ROLLBACK_WORKER==='true'){
+    const id=process.env.H5C_RELEASE_JOB_ID
+    const token=process.env.H5C_RELEASE_LEASE_TOKEN
+    const fence=Number(process.env.H5C_RELEASE_LEASE_FENCE)
+    if(!/^[a-f0-9-]{36}$/.test(String(id||''))
+      ||!/^[a-f0-9-]{36}$/.test(String(token||''))
+      ||!Number.isSafeInteger(fence)||fence<1
+      ||process.env.H5C_ROLLBACK_REQUEST_ID!==id)
+      throw Error('A matching fenced rollback worker lease is mandatory.')
+    const query=[
+      'SELECT CASE WHEN EXISTS(SELECT 1 FROM platform_release_rollback_jobs r',
+      'JOIN tenants t ON t.id=r.tenant_id',
+      'JOIN tenant_release_preferences p ON p.tenant_id=r.tenant_id',
+      'JOIN tenant_runtime_assignments a ON a.tenant_id=r.tenant_id',
+      ' AND a.environment=r.environment',
+      'JOIN tenant_release_rollout_jobs j ON j.id=r.original_release_job_id',
+      "WHERE r.id='"+id+"' AND r.lease_token='"+token+"'",
+      "AND r.lease_fence="+fence+" AND r.state='running'",
+      'AND r.lease_expires_at>now()',
+      "AND r.environment='"+environment+"'",
+      "AND r.target_build_sha='"+sha+"' AND t.slug='"+slug+"'",
+      "AND t.status='active' AND a.build_sha=r.source_build_sha",
+      'AND a.generation=r.source_route_generation',
+      "AND j.tenant_id=r.tenant_id AND j.environment=r.environment",
+      "AND j.build_sha=r.source_build_sha",
+      "AND j.previous_build_sha=r.target_build_sha AND j.status='succeeded'",
+      "AND (r.requested_via='hi5central_admin'",
+      " OR (r.requested_via='custom_customer' AND r.environment='uat'",
+      " AND p.update_mode='admin_controlled'))",
+      "AND (r.environment<>'uat' OR p.update_mode='admin_controlled')",
+      "AND (r.environment<>'live' OR EXISTS(",
+      ' SELECT 1 FROM tenant_release_upgrade_holds h',
+      ' WHERE h.tenant_id=r.tenant_id AND h.active))',
+      ") THEN 'ALLOW' ELSE 'DENY' END",
+    ].join(' ')
+    const decision=await docker('exec','hi5central-db-1','sh','-c',
+      'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1 -c "'+query+'"')
+    if(decision.trim()!=='ALLOW')
+      throw Error('Stage rollback request is missing, expired or no longer matches the current tenant.')
+    return
+  }
   const id=process.env.H5C_RELEASE_JOB_ID
   const token=process.env.H5C_RELEASE_LEASE_TOKEN
   const fence=Number(process.env.H5C_RELEASE_LEASE_FENCE)
@@ -353,7 +397,7 @@ try{
     // Never interpret a pilot as global resume. The same exact scoped, expiring
     // permit is rechecked under the fenced host lease immediately before
     // writing Caddy. No lease, no Production route mutation.
-    if(environment!=='live')throw Error('Global customer rollout is paused.')
+    if(environment!=='live'&&process.env.H5C_STAGE_ROLLBACK_WORKER!=='true')throw Error('Global customer rollout is paused.')
     await assertCurrentFencedHostLease()
   }
   if(mode==='--apply'){
