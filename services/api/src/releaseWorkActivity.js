@@ -206,9 +206,15 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           'INSERT INTO platform_release_single_live_pilot_permits',
           '(job_id,tenant_id,build_sha,environment,state,not_before,expires_at,approved_by,reason)',
           "VALUES($1,$2,$3,'live','armed',$4,$5,$6,$7)",
+          'ON CONFLICT (job_id) DO UPDATE SET',
+          "state='armed',closed_at=NULL,not_before=excluded.not_before,",
+          'expires_at=excluded.expires_at,approved_by=excluded.approved_by,',
+          'reason=excluded.reason,armed_at=now()',
+          "WHERE platform_release_single_live_pilot_permits.state IN ('revoked','completed')",
           'RETURNING job_id,tenant_id,build_sha,not_before,expires_at',
         ].join(' '),[job.id,job.tenant_id,job.build_sha,now,end,
           auth.session.user_id,request.reason])
+        if(entry.rowCount!==1)throw refuse('Existing pilot must first be revoked before re-arming.')
         await audit(c,auth.session,'release.managed_production_pilot_armed',
           'rollout_job',job.id,{
             tenantSlug:job.slug,environment:'live',buildSha:job.build_sha,
@@ -257,6 +263,8 @@ export function registerReleaseWorkActivityRoutes(app,deps){
       const result=await withTransaction(async db=>{
         await pausedTransaction(db)
         const job=await lockJob(db,request)
+        let retryPriorBuild=job.previous_build_sha||null
+        let retryPreWrite=false
         if(action==='cancel'){
           if(!jobSafeToCancel(job))throw refuse('Only an unclaimed, unrouted pending/scheduled/deferred job can be cancelled.')
           const changed=await db.query([
@@ -287,30 +295,74 @@ export function registerReleaseWorkActivityRoutes(app,deps){
           // A failed worker may have attempted routing. Refuse every retry
           // without independent, fresh host evidence that the customer's
           // exact previous build is still active at the correct stage.
-          if(!SHA.test(String(job.previous_build_sha||'')))
-            throw refuse('Retry blocked: the previous deployed build has not been recorded for independent route verification.')
+          // Ordinary failures still require the previously recorded SHA.
+          // An exact, known pre-gateway SQL rejection cannot record it.
+          // Only this one proven pre-write failure can recover from the
+          // independently host-attested, actually served customer baseline.
+          retryPreWrite=job.environment==='live'
+            &&typeof job.last_error==='string'
+            &&job.last_error.includes('missing FROM-clause entry for table "j"')
+            &&job.routed_generation==null
+          let priorBuild=job.previous_build_sha
+          if(!SHA.test(String(priorBuild||''))){
+            if(!retryPreWrite)
+              throw refuse('Retry blocked: previous deployed build was not recorded; independent host recovery required.')
+            const assigned=await db.query([
+              'SELECT a.build_sha FROM tenant_runtime_assignments a',
+              'JOIN tenant_release_preferences p ON p.tenant_id=a.tenant_id',
+              "WHERE a.tenant_id=$1 AND a.environment='live'",
+              "AND p.update_mode='hi5_managed' AND p.live_auto_promote=true",
+              'AND a.build_sha<>$2 LIMIT 1',
+            ].join(' '),[job.tenant_id,job.build_sha])
+            priorBuild=assigned.rows[0]?.build_sha
+            if(!SHA.test(String(priorBuild||'')))
+              throw refuse('No verified prior Managed Production assignment exists.')
+          }
           const restored=await db.query([
             'SELECT 1 FROM tenant_runtime_route_attestations',
             "WHERE tenant_id=$1 AND environment=$2 AND state='active'",
-            'AND build_sha=$3 AND checked_at>=now()-interval \'15 minutes\' LIMIT 1',
-          ].join(' '),[job.tenant_id,job.environment,job.previous_build_sha])
+            "AND build_sha=$3 AND checked_at>=now()-interval '15 minutes'",
+            'AND public_host=$4 LIMIT 1',
+          ].join(' '),[job.tenant_id,job.environment,priorBuild,
+            job.slug+(job.environment==='live'?'':'-'+job.environment)+'.hi5central.com'])
           if(restored.rowCount!==1)
-            throw refuse('Retry blocked: current host-attested route does not confirm the prior build is active.')
+            throw refuse('Retry blocked: a fresh independent host-attested route of the old customer build is required.')
+          if(retryPreWrite){
+            // Public HTTPS proof in addition to current 15-minute worker attestation.
+            // Host is based on a validated tenant slug and fixed application domain.
+            const response=await fetch('https://'+job.slug+'.hi5central.com/api/v1/updates/version',{
+              signal:AbortSignal.timeout(8000),headers:{accept:'application/json'},
+            })
+            const version=await response.json().catch(()=>null)
+            if(!response.ok||version?.sha!==priorBuild||version?.environment!=='live')
+              throw refuse('The actual public Managed Production site does not serve the attested prior SHA.')
+          }
+          retryPriorBuild=priorBuild
+          // A failed one-customer pilot must be explicitly rearmed by staff
+          // only after this separately authorised retry; no stale permit
+          // is allowed to authorise the second attempt.
+          await db.query([
+            'UPDATE platform_release_single_live_pilot_permits',
+            "SET state='revoked',closed_at=now()",
+            "WHERE job_id=$1 AND state='armed'",
+          ].join(' '),[job.id])
           // This only schedules. Global rollout remains paused and the claim
           // worker must independently apply all stage/maintenance/route gates.
           const changed=await db.query([
             "UPDATE tenant_release_rollout_jobs SET status='scheduled',",
             "scheduled_at=now()+interval '5 minutes',attempt_count=0,",
             'lease_token=NULL,lease_expires_at=NULL,completed_at=NULL,',
-            'last_error=NULL,updated_at=now()',
+            "last_error='',previous_build_sha=$2,updated_at=now()",
             "WHERE id=$1 AND status='failed' AND lease_token IS NULL",
             'AND lease_expires_at IS NULL AND routed_generation IS NULL RETURNING id',
-          ].join(' '),[job.id])
+          ].join(' '),[job.id,priorBuild])
           if(changed.rowCount!==1)throw refuse('Concurrent retry modification prevented scheduling.')
         }
         const details={reason:request.reason,staffActorId:auth.session.user_id,
           previousStatus:job.status,previousAttempts:job.attempt_count,
-          previousError:job.last_error,retryRequested:action==='retry',priorBuild:job.previous_build_sha||null,globalPausePreserved:true,routeChanges:0}
+          previousError:job.last_error,retryRequested:action==='retry',priorBuild:retryPriorBuild,
+          preWritePilotRecovery:retryPreWrite,
+          globalPausePreserved:true,routeChanges:0}
         await db.query([
           'INSERT INTO tenant_release_rollout_events',
           '(job_id,tenant_id,environment,build_sha,event_type,fence,details)',
