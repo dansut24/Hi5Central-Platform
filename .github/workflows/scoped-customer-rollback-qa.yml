@@ -1,0 +1,71 @@
+name: Scoped Customer UAT and Platform Rollback QA
+
+on:
+  pull_request:
+    paths:
+      - 'services/api/migrations/platform-admin/181_stage_scoped_rollback_queue.sql'
+      - 'services/api/migrations/platform-admin/182_stage_rollback_worker_fences.sql'
+      - 'services/api/src/stageRollbackControl.js'
+      - 'services/api/src/stageRollbackExecution.mjs'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'deployment/release/host-deploy.mjs'
+      - 'services/api/test/stage-rollback-permissions-and-fleet.mjs'
+      - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
+      - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
+      - '.github/workflows/scoped-customer-rollback-qa.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/src/stageRollbackControl.js'
+      - 'services/api/src/stageRollbackExecution.mjs'
+      - 'services/api/migrations/platform-admin/181_stage_scoped_rollback_queue.sql'
+      - 'services/api/migrations/platform-admin/182_stage_rollback_worker_fences.sql'
+      - '.github/workflows/scoped-customer-rollback-qa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage-rollback-permissions:
+    runs-on: ubuntu-latest
+    name: Customer UAT only, staff fleet and shared gateway recovery
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - name: Install API dependencies
+        working-directory: services/api
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate UAT and administrator rollback contracts
+        run: |
+          set -euo pipefail
+          node --check services/api/src/stageRollbackControl.js
+          node --check services/api/src/stageRollbackExecution.mjs
+          node --check services/api/src/tenantRelease.js
+          node --check services/api/src/tenantReleaseExecutor.mjs
+          node --check services/api/src/releaseWorkActivity.js
+          node --check deployment/release/host-deploy.mjs
+          node --test \
+            services/api/test/stage-rollback-permissions-and-fleet.mjs \
+            services/api/test/customer-production-route-rollback-plan.mjs \
+            services/api/test/customer-production-rollback-worker.mjs
+      - name: Build release API
+        working-directory: services/api
+        run: npm run build:runtime
+      - name: Require default-off and no customer Production request
+        run: |
+          set -euo pipefail
+          grep -q "ROLLBACK_MY_CUSTOM_UAT" services/api/src/tenantRelease.js
+          if grep -q "ROLLBACK_MY_CUSTOM_PRODUCTION" services/api/src/tenantRelease.js; then
+            echo 'Customer Production rollback is forbidden'
+            exit 1
+          fi
+          grep -q "H5C_STAGE_ROLLBACK_QUEUE_READY!=='true'" services/api/src/tenantRelease.js
+          grep -q "H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED==='true'" services/api/src/tenantReleaseExecutor.mjs
+          grep -q "session_user=('hi5_release_executor_'||p_stage)" services/api/migrations/platform-admin/182_stage_rollback_worker_fences.sql
+          echo 'New customer and fleet rollback execution remains disabled by default'
