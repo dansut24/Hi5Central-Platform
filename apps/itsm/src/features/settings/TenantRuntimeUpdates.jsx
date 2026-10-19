@@ -38,7 +38,7 @@ export function TenantRuntimeUpdates({updateMode}){
   try{
    const r=await request('')
    setData(r);setUnsupported(false);setError('')
-   if(r.mode==='admin_controlled'&&r.updateOffers?.some(x=>x.environment==='live'&&x.state==='active')){
+   if(r.mode==='admin_controlled'){
      try{
        const result=await fetch(BASE+'/api/v1/release-management/rollback',{
          credentials:'include',cache:'no-store',
@@ -163,6 +163,19 @@ export function TenantRuntimeUpdates({updateMode}){
      </div>
      {rollback.activeRequest?<p role="status">
        Rollback request {rollback.activeRequest.state.replaceAll('_',' ')}. This organisation's upgrade hold protects Production while recovery is processed.
+     </p>:null}
+     {rollback.latestRequest?<div className="hi5-runtime-update-pending" role="status" data-hi5-rollback-history>
+       <strong>Most recent rollback: {rollback.latestRequest.state.replaceAll('_',' ')}</strong>
+       <small>From {short(rollback.latestRequest.source_build_sha)} to {short(rollback.latestRequest.target_build_sha)}
+         {rollback.latestRequest.completed_at?' · completed '+when(rollback.latestRequest.completed_at):''}
+         {rollback.latestRequest.host_verified_at?' · Production host verified':''}</small>
+       {rollback.latestRequest.state==='verified'?<p>
+         The previous Production build was verified. Automatic Production upgrades remain held until an authorised release administrator explicitly lifts the hold.
+       </p>:null}
+       {rollback.latestRequest.last_error?<small>{rollback.latestRequest.last_error}</small>:null}
+     </div>:null}
+     {rollback.upgradeHoldActive&&!rollback.activeRequest?<p className="hi5-runtime-update-pending">
+       Production upgrades for this organisation are on hold following rollback processing.
      </p>:null}
      {!rollback.canRequest?<p className="hi5-runtime-update-pending">
        Rollback is locked until an independently verified previous build, compatibility approval, recovery evidence and the trusted executor are ready.
