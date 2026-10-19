@@ -4,6 +4,9 @@ on:
     paths:
       - 'services/api/migrations/**'
       - 'services/api/test/recovered-rollout-migrations.mjs'
+      - 'services/api/test/migration-empty-ledger-guard.mjs'
+      - 'services/api/src/migrate.js'
+      - 'services/api/src/migrationLedgerSafety.js'
       - 'deployment/qa26/recovered-rollout-migration-provenance.json'
       - '.github/workflows/recovered-rollout-migrations.yml'
   workflow_dispatch:
@@ -18,6 +21,6 @@ jobs:
         with:
           node-version: '22'
       - name: Exact historical SQL checksums, identities and no duplicate filenames
-        run: node --test services/api/test/recovered-rollout-migrations.mjs
+        run: node --test services/api/test/recovered-rollout-migrations.mjs services/api/test/migration-empty-ledger-guard.mjs
       - name: Check runtime migration runner grammar
         run: node --check services/api/src/migrate.js

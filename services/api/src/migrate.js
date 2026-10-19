@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { pool } from './db.js'
+import { assertHistoricalMigrationLedgerSafe, assertMigrationHistoryPrefixSafe } from './migrationLedgerSafety.js'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const migrationsDir = path.resolve(here, '../migrations')
@@ -42,6 +43,19 @@ async function migrate() {
 
     const appliedResult = await client.query('SELECT version FROM schema_migrations')
     const applied = new Set(appliedResult.rows.map((row) => row.version))
+    // A restored non-empty Production/Dev/Test/UAT schema may have an empty
+    // historical ledger. Never interpret it as a fresh installation and
+    // replay all original DDL against live tenant data.
+    const baseline = await client.query([
+      'SELECT count(*)::int AS public_table_count FROM pg_class c',
+      "JOIN pg_namespace n ON n.oid=c.relnamespace",
+      "WHERE n.nspname='public' AND c.relkind IN ('r','p')",
+      "AND c.relname<>'schema_migrations'",
+    ].join(' '))
+    assertHistoricalMigrationLedgerSafe({
+      appliedCount:applied.size,
+      publicTableCount:Number(baseline.rows[0]?.public_table_count),
+    })
 
     const files = await migrationFiles()
     const seenVersions = new Map()
@@ -56,6 +70,10 @@ async function migrate() {
     }
 
     files.sort((left, right) => left.version.localeCompare(right.version))
+    assertMigrationHistoryPrefixSafe({
+      appliedVersions:[...applied],
+      sourceVersions:files.map(file=>file.version),
+    })
 
     for (const file of files) {
       if (applied.has(file.version)) continue
