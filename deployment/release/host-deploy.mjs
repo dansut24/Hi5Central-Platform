@@ -275,7 +275,7 @@ async function assertCurrentFencedHostLease(){
     "AND EXISTS (SELECT 1 FROM platform_release_generic_stage_approvals a",
     " WHERE a.build_sha=j.build_sha AND a.environment=j.environment",
     " AND a.planning_enabled=true AND a.execution_enabled=true",
-    " AND a.approved_by IS NOT NULL AND a.expires_at>now()))",
+    " AND a.approved_by IS NOT NULL AND a.expires_at>now())",
     // Even after a fenced claim, independently check that the fleet is
     // unpaused OR this exact Managed Production job owns the short permit.
     'AND ((SELECT paused=false FROM platform_release_rollout_control WHERE singleton=true)',
