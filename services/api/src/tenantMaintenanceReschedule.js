@@ -141,7 +141,7 @@ export async function rescheduleUnclaimedTenantReleaseJobs(db,{
    await db.query([
      'INSERT INTO tenant_release_rollout_events',
      '(job_id,tenant_id,environment,build_sha,event_type,details)',
-     "VALUES($1,$2,$3,$4,'rescheduled',$5::jsonb)",
+     "VALUES($1,$2,$3,$4,'scheduled',$5::jsonb)",
    ].join(' '),[row.id,tenantId,row.environment,row.build_sha,JSON.stringify(detail)])
    changes.push({jobId:row.id,environment:row.environment,buildSha:row.build_sha,
      previousScheduledAt:row.scheduled_at,scheduledAt:plan.scheduledAt})
