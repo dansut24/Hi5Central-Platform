@@ -72,6 +72,6 @@ test('Host preflight, apply and compensating restore explicitly recognise undepl
  assert.match(script,/currentRevisionOrUnassigned\(old\)/)
  assert.match(script,/const baseline=await currentRevisionOrUnassigned\(previous\)/)
  assert.match(script,/restoredUnassigned:baseline\.unassigned/)
- assert.match(script,/body:raw\.slice\(0,separator\),status:raw\.slice\(separator\+1\)/)
+ assert.match(script,/body:raw\.slice\(0,separator\),status:raw\.slice\(separator\+'__H5C_STATUS__'\.length\)/)
  assert.match(script,/assertCurrentFencedHostLease\(\)/)
 })
