@@ -21,15 +21,17 @@ const BACKUP=/^release-live-[0-9]{10,18}-[a-z0-9-]+$/
 const SRC='/opt/hi5central/runtime/caddy/Caddyfile'
 const GATEWAY='hi5central-gateway-1'
 const VOLUME='hi5central_release_backups'
+const IS_MAIN=Boolean(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href)
 const MODE=process.argv[2]||'--loop'
-if(!['--preflight','--once','--loop'].includes(MODE)||process.argv.length>3)
+if(IS_MAIN&&(!['--preflight','--once','--loop'].includes(MODE)||process.argv.length>3))
   throw Error('Usage: customerProductionRollbackWorker.mjs [--preflight|--once|--loop]')
 const REVISION=process.env.ROLLBACK_WORKER_REVISION_SHA
-if(!SHA.test(String(REVISION||'')))throw Error('Pin the reviewed immutable rollback worker SHA.')
+if(IS_MAIN&&!SHA.test(String(REVISION||'')))
+  throw Error('Pin the reviewed immutable rollback worker SHA.')
 const active=process.env.ROLLBACK_WORKER_ACTIVE==='true'
-if(MODE!=='--preflight'&&!active)
+if(IS_MAIN&&MODE!=='--preflight'&&!active)
   throw Error('Rollback worker is disabled; explicit reviewed activation is required.')
-if(!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
+if(IS_MAIN&&!/^postgres(?:ql)?:\/\//.test(process.env.DATABASE_URL||''))
   throw Error('Dedicated rollback worker PostgreSQL identity is required.')
 const digest=value=>createHash('sha256').update(value).digest('hex')
 const exec=(program,args=[],stdin=null,timeout=16000)=>{
@@ -329,7 +331,7 @@ async function executeOnce(){
   await client.end().catch(()=>{})
  }
 }
-if(import.meta.url===new URL('file://'+process.argv[1]).href){
+if(IS_MAIN){
  try{
   // Operationally isolated: --loop should be run under a dedicated systemd
   // unit with restart policy; no release queue worker shares this process.
