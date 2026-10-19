@@ -6,6 +6,7 @@
  * snapshots and an independent watchdog before a gateway is modified.
  */
 import {spawn} from 'node:child_process'
+import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {prepareSharedTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
@@ -81,14 +82,75 @@ async function assertLiveGatewaySource(){
   const mounted=await docker('exec',c.gateway,'cat','/etc/caddy/Caddyfile')
   if(hash(disk)!==hash(mounted)||!disk.includes('  # H5C_RELEASE_ROUTE_INSERT'))
     throw Error('Shared gateway revision or route anchor changed; refusing cutover.')
+  // The active Caddy admin API may have routes that an earlier watchdog
+  // removed from the mounted source. Reloading that source would silently
+  // remove a working customer's route. Refuse until an operator reconciles it.
+  const live=JSON.parse(await gatewayRuntime())
+  const runtimeHosts=new Set()
+  const visit=value=>{
+    if(Array.isArray(value)){for(const item of value)visit(item);return}
+    if(value&&typeof value==='object'){
+      if(Array.isArray(value.host))for(const host of value.host)runtimeHosts.add(host)
+      for(const child of Object.values(value))visit(child)
+    }
+  }
+  visit(live.apps?.http?.servers||{})
+  const sourceHosts=new Set([...disk.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\.hi5central\.com)/g)]
+    .map(match=>match[1]))
+  const infrastructure=new Set(['api','admin','dev','dev-api','test','uat','rmm','www']
+    .map(slug=>slug+'.hi5central.com'))
+  for(const host of runtimeHosts){
+    if(typeof host!=='string'||!host.endsWith('.hi5central.com')
+       ||host.includes('*')||infrastructure.has(host))continue
+    if(!sourceHosts.has(host))
+      throw Error('Gateway source drift: active tenant route '+host+
+        ' is missing from saved Caddyfile. Reconcile before any reload.')
+  }
+}
+function stageApiEnvironment(){
+  if(environment==='live')return null
+  const base='/opt/hi5central/runtime/isolated-stage-dbs/'
+  const url=readFileSync(base+environment+'_app.url','utf8').trim()
+  const parsed=new URL(url)
+  if(parsed.protocol!=='postgresql:'||parsed.hostname!=='db'
+      ||parsed.username!=='hi5central_'+environment+'_app'
+      ||parsed.pathname!=='/hi5central_'+environment
+      ||!parsed.password)throw Error('Stage API credentials have an invalid isolated database identity.')
+  const keys=Object.fromEntries(readFileSync(base+environment+'_api_keys.env','utf8')
+    .trim().split('\n').map(line=>line.split('=',2)))
+  for(const name of ['MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY',
+    'TENANT_SECRET_ENCRYPTION_KEY','RMM_RECOVERY_KEY_ENCRYPTION_KEY']){
+    if(!/^[0-9a-f]{64}$/.test(keys[name]||''))
+      throw Error('Stage '+environment+' API has no independent '+name+'.')
+  }
+  return {
+    DATABASE_URL:url,RUNTIME_ENVIRONMENT:environment,
+    REDIS_URL:'redis://redis:6379/'+(environment==='test'?'1':'2'),
+    BACKGROUND_WORKERS_ENABLED:'false',
+    FEATURE_MODE:environment==='test'?'all_enabled':'controlled',
+    COOKIE_DOMAIN:'.hi5central.com',
+    ...keys,
+  }
+}
+function containerEnvironment(container){
+  return Object.fromEntries((container?.Config?.Env||[]).map(pair=>{
+    const at=pair.indexOf('=')
+    return at<0?[pair,'']:[pair.slice(0,at),pair.slice(at+1)]
+  }))
 }
 async function clone(source,name,image,isWeb){
   const old=await dockerInspect(source)
   if(!old?.State?.Running)throw Error('Existing base environment container is not running.')
+  const intended=!isWeb?stageApiEnvironment():null
   const existing=await dockerInspect(name)
   if(existing){
     if(existing.Config.Image!==image||existing.State?.Health?.Status!=='healthy')
       throw Error('Existing version pool differs from target or is unhealthy.')
+    if(intended){
+      const environmentNow=containerEnvironment(existing)
+      if(Object.entries(intended).some(([key,value])=>environmentNow[key]!==value))
+        throw Error('Existing non-Live pool retains unsafe or stale runtime credentials. Rebuild the unrouted pool before use.')
+    }
     return
   }
   const network=Object.keys(old.NetworkSettings?.Networks||{})[0]
@@ -99,13 +161,32 @@ async function clone(source,name,image,isWeb){
     '--log-opt','max-size=10m','--log-opt','max-file=3']
   if(old.Config.User)args.push('--user',old.Config.User)
   if(old.Config.WorkingDir)args.push('--workdir',old.Config.WorkingDir)
+  const denyForStage=new Set([
+    'DATABASE_URL','RUNTIME_ENVIRONMENT','REDIS_URL','BACKGROUND_WORKERS_ENABLED',
+    'FEATURE_MODE','COOKIE_DOMAIN','MFA_ENCRYPTION_KEY','CONNECT_CODE_HMAC_KEY',
+    'TENANT_SECRET_ENCRYPTION_KEY','RMM_RECOVERY_KEY_ENCRYPTION_KEY',
+    'SMTP_PASSWORD','SMTP_USER','SMTP_HOST','SMTP_PORT','SMTP_FROM',
+    'TENANT_TEST_DATABASE_URL','TENANT_UAT_DATABASE_URL',
+    'TENANT_TEST_DATABASE_URL_FILE','TENANT_UAT_DATABASE_URL_FILE',
+    'ENV_IDENTITY_SHARED_SECRET','ENV_IDENTITY_SHARED_SECRET_FILE',
+    'API_URL','APP_URL','ADMIN_URL','PORTAL_URL','MARKETING_URL','RMM_URL'
+  ])
   for(const item of old.Config.Env||[]){
-    if(isWeb&&(item.startsWith('API_URL=')||item.startsWith('HI5_API_SAME_ORIGIN=')))continue
-    if(!isWeb&&item.startsWith('BACKGROUND_WORKERS_ENABLED='))continue
+    const key=item.slice(0,item.indexOf('='))
+    if(isWeb&&(key==='API_URL'||key==='HI5_API_SAME_ORIGIN'||
+      (environment!=='live'&&['RUNTIME_ENVIRONMENT','FEATURE_MODE'].includes(key))))continue
+    if(intended&&denyForStage.has(key))continue
+    if(!isWeb&&key==='BACKGROUND_WORKERS_ENABLED')continue
     args.push('--env',item)
   }
-  if(isWeb)args.push('--env','API_URL=','--env','HI5_API_SAME_ORIGIN=true')
-  else args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
+  if(isWeb){
+    args.push('--env','API_URL=','--env','HI5_API_SAME_ORIGIN=true')
+    if(environment!=='live')args.push('--env','RUNTIME_ENVIRONMENT='+environment,
+      '--env','FEATURE_MODE='+(environment==='test'?'all_enabled':'controlled'))
+  }
+  else if(intended){
+    for(const [key,value] of Object.entries(intended))args.push('--env',key+'='+value)
+  }else args.push('--env','BACKGROUND_WORKERS_ENABLED=false')
   for(const mount of old.Mounts||[]){
     if(!['volume','bind'].includes(mount.Type))throw Error('Unrecognised base container mount.')
     args.push('--mount','type='+mount.Type+',source='+
@@ -113,6 +194,22 @@ async function clone(source,name,image,isWeb){
       (mount.RW?'':',readonly'))
   }
   await docker(...args,image)
+}
+// Never publish a Test/UAT API backed by the Production database, even if
+// its image and container health checks pass. A stage-specific, isolated API
+// must be provisioned before a non-Live Caddy route can be switched.
+async function assertIsolatedStageApi(name){
+  if(environment==='live')return
+  const [candidate,production]=await Promise.all([dockerInspect(name),dockerInspect(c.api)])
+  const envOf=container=>Object.fromEntries((container?.Config?.Env||[]).map(pair=>{
+    const at=pair.indexOf('=')
+    return at<0?[pair,'']:[pair.slice(0,at),pair.slice(at+1)]
+  }))
+  const candidateEnv=envOf(candidate),productionEnv=envOf(production)
+  if(!candidateEnv.DATABASE_URL||!productionEnv.DATABASE_URL||
+    candidateEnv.DATABASE_URL===productionEnv.DATABASE_URL||
+    candidateEnv.RUNTIME_ENVIRONMENT!==environment)
+    throw Error('Isolated '+environment.toUpperCase()+' API database/runtime not provisioned; refusing customer route cutover.')
 }
 async function healthy(name){
   for(let i=0;i<110;i++){
@@ -194,12 +291,14 @@ if(mode==='--restore'){
   console.log(JSON.stringify({status:'rolled_back',host,environment,previousSha:served}))
   process.exit(0)
 }
-let prior='',liveJson='',active=false,watcher='',backupKey=''
+let prior='',liveJson='',active=false,watcher='',backupKey='',oldSource='',plannedHash=''
 try{
   if(mode==='--preflight'||mode==='--apply')await assertLiveGatewaySource()
   const old=await fileHost()
+  oldSource=old
   const plan=prepareSharedTenantCaddyRoute({config:old,tenantSlug:slug,
     environment,buildSha:sha})
+  plannedHash=hash(plan.config)
   await validate(plan.config)
   if(mode==='--preflight'){
     console.log(JSON.stringify({status:'preflight_pass',environment,host,
@@ -224,6 +323,7 @@ try{
       type==='itsm')
   }
   await Promise.all([healthy(plan.api),healthy(plan.web)])
+  if(environment!=='live')await assertIsolatedStageApi(plan.api)
   if(mode==='--stage'){
     console.log(JSON.stringify({status:'pool_verified',environment,buildSha:sha,
       api:plan.api,web:plan.web}))
@@ -234,8 +334,14 @@ try{
   backupKey='release-'+environment+'-'+Date.now()+'-'+plan.host.replaceAll('.','-')
   await save(backupKey+'.caddy',old)
   if(liveJson)await save(backupKey+'.json',liveJson)
-  // Independent host process recovers the pre-cutover config if the caller dies.
-  // Watchdog never deletes the snapshot, and checks the '.done' marker.
+  // Validate source and fenced job identity BEFORE creating any watchdog.
+  // A stale read must never trigger a restore that overwrites another writer.
+  const actual=await fileHost()
+  if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
+  await assertCurrentFencedHostLease()
+  // Independent crash recovery may restore only if the on-disk source is
+  // STILL exactly this job's planned revision. This prevents a delayed
+  // watchdog from reverting another tenant's successful deployment.
   const restorePart='cat /backup/'+backupKey+'.caddy > /gateway/Caddyfile; '+
     "docker exec -i "+c.gateway+" sh -c 'cat >/tmp/h5c-rescue.json && caddy reload --config /tmp/h5c-rescue.json' "+
     '</backup/'+backupKey+'.json >/dev/null 2>&1 || true;'
@@ -245,15 +351,12 @@ try{
     '--mount','type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock',
   ]
   const watch='sleep 360; if [ ! -e /backup/'+backupKey+'.done ]; then '+
-    restorePart+' fi'
+    'current=$(sha256sum /gateway/Caddyfile | cut -c1-64); '+
+    'if [ "$current" = "'+plannedHash+'" ]; then '+restorePart+' fi; fi'
   watcher='h5c-release-watch-'+environment+'-'+Date.now()
   await docker('run','-d','--rm','--name',watcher,'--network','none',
     ...mounts,'docker:27-cli','sh','-c',watch)
   active=true
-  // Source CAS before modifying a shared Caddy configuration.
-  const actual=await fileHost()
-  if(hash(actual)!==hash(old))throw Error('Another gateway writer changed the Caddy source.')
-  await assertCurrentFencedHostLease()
   await writeGateway(plan.config)
   let verified=false
   for(let i=0;i<16;i++){
@@ -276,10 +379,25 @@ try{
     buildSha:sha,previousSha:prior,backup:backupKey}))
 }catch(error){
   console.error('TENANT_RELEASE_DEPLOYMENT_FAILED',error.message)
-  if(active)try{await restore(await fileHost().then(async()=>await docker('run','--rm','--network','none',
-    '--mount','type=volume,source='+c.backup+',target=/backup,readonly',
-    'busybox:1.36','cat','/backup/'+backupKey+'.caddy')),liveJson)
-    console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
-  }catch(e){console.error('RELEASE_WATCHDOG_REMAINS_ARMED',e.message)}
+  if(active){
+    try{
+      const current=await fileHost()
+      if(hash(current)!==hash(oldSource)&&hash(current)!==plannedHash)
+        throw Error('Gateway changed after this cutover; refusing unsafe rollback.')
+      await restore(oldSource,liveJson)
+      console.error('TENANT_RELEASE_ROLLED_BACK',host,prior)
+    }catch(e){
+      console.error('TENANT_RELEASE_ROLLBACK_UNCONFIRMED',e.message)
+    }finally{
+      // A failed CAS or a completed compensation must never leave a delayed
+      // watchdog that later replaces another stage's live gateway routes.
+      try{
+        await docker('run','--rm','--network','none','--mount',
+          'type=volume,source='+c.backup+',target=/backup',
+          'busybox:1.36','touch','/backup/'+backupKey+'.done')
+        await docker('stop','-t','1',watcher)
+      }catch(e){console.error('TENANT_RELEASE_ROLLBACK_UNCONFIRMED','Watchdog disarm failed: '+e.message)}
+    }
+  }
   process.exitCode=1
 }

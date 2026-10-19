@@ -344,7 +344,7 @@ async function step(){
           console.error('DURABLE_RELEASE_ROLLBACK_FAILED',restoreError.message)
         }
       }
-      if(activated&&!compensated){
+      if((activated&&!compensated)||/TENANT_RELEASE_ROLLBACK_UNCONFIRMED/.test(String(e.message||''))){
         // Restricted workers have no global UPDATE permission. The existing
         // audited SECURITY DEFINER can only set paused=true, never resume.
         await pool.query('SELECT public.hi5_release_emergency_pause($1,$2)',[

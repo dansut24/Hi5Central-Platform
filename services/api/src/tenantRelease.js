@@ -129,7 +129,9 @@ export async function tenantReleaseState(tenantId, slug = '') {
   ])
   return {
     preference: preferencePayload(preference.rows[0]),
-    environments: environments.rows.map(row => environmentPayload(row, slug)),
+    environments: environments.rows
+      .filter(row => row.environment!=='uat'||preference.rows[0]?.update_mode==='admin_controlled')
+      .map(row => environmentPayload(row, slug)),
   }
 }
 

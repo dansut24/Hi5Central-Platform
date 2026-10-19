@@ -225,7 +225,9 @@ export async function fanoutCertifiedRelease(db,{
     'SELECT t.id,t.slug,t.status,p.update_mode AS mode,',
     'p.test_auto_sync,p.uat_auto_stage,p.live_auto_promote,',
     'p.live_delay_hours,p.maintenance_window,p.blackout_periods,',
-    "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm",
+    "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm,",
+    "(SELECT e.status FROM tenant_environment_state e WHERE e.tenant_id=t.id AND e.environment='uat') AS uat_environment_status,",
+    "(SELECT e.status FROM tenant_environment_state e WHERE e.tenant_id=t.id AND e.environment='test') AS test_environment_status",
     'FROM tenants t JOIN tenant_release_preferences p ON p.tenant_id=t.id',
     'JOIN tenant_settings ts ON ts.tenant_id=t.id',
     "WHERE t.status='active' AND ts.onboarding_completed_at IS NOT NULL",
@@ -303,6 +305,15 @@ export async function fanoutCertifiedRelease(db,{
        deliveryMode,
     })
     const plan=scheduledCustomerRelease({decision,tenant,sha,now})
+    // An onboarding preference is not proof that Test/UAT was provisioned.
+    // Fail closed before enqueuing releases for a missing isolated sandbox.
+    if(plan.status==='scheduled'&&['uat','test'].includes(plan.stage)
+      &&row[plan.stage+'_environment_status']!=='ready'){
+      report.blocked++
+      if(report.reasons.length<20)report.reasons.push({slug:row.slug,
+        reason:plan.stage.toUpperCase()+' sandbox is not ready; provision the isolated environment before release staging.'})
+      continue
+    }
     if(plan.status==='scheduled'&&scope==='generic'
       &&!genericStagePermissions[plan.stage]?.allowed){
       report.blocked++
