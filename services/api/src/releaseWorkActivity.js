@@ -4,6 +4,7 @@
  * claim, deploy, approve a stage, or change a tenant route here.
  */
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
+import {readFleetResumeReadiness,reviewedFleetResumeRequest} from './releaseFleetResume.js'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SHA=/^[a-f0-9]{40}$/
 const STAGES=new Set(['test','uat','live'])
@@ -101,7 +102,7 @@ export function registerReleaseWorkActivityRoutes(app,deps){
   app.get('/api/platform/v1/releases/rollout-jobs/activity',async c=>{
     const auth=await staffAuthority(c,deps)
     if(auth.error)return auth.error
-    const [control,jobs,pilot]=await Promise.all([
+    const [control,jobs,pilot,resume]=await Promise.all([
       pool.query('SELECT paused,reason,updated_at FROM platform_release_rollout_control WHERE singleton=true'),
       pool.query([
         'SELECT j.id,t.slug AS tenant_slug,j.environment,j.build_sha,j.status,',
@@ -119,8 +120,9 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         'SELECT p.job_id,p.tenant_id,p.build_sha,p.state,p.not_before,p.expires_at,',
         't.slug AS tenant_slug FROM platform_release_single_live_pilot_permits p',
         'JOIN tenants t ON t.id=p.tenant_id',
-        "WHERE p.state='armed' ORDER BY p.armed_at DESC LIMIT 1",
+        "WHERE p.state='armed' AND p.expires_at>now() ORDER BY p.armed_at DESC LIMIT 1",
       ].join(' ')),
+      readFleetResumeReadiness(pool),
     ])
     c.header('Cache-Control','no-store')
     return c.json({control:{paused:control.rows[0]?.paused!==false,
@@ -137,7 +139,68 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         buildSha:pilot.rows[0].build_sha,state:pilot.rows[0].state,
         notBefore:pilot.rows[0].not_before,expiresAt:pilot.rows[0].expires_at,
       }:null,
-      canResume:false,resumeBlockedReason:'Fleet resume remains locked until real customer pilot and rollback are verified.'})
+      canResume:resume.canResume,
+      resumeReadiness:resume,
+      resumeBlockedReason:resume.canResume?'':resume.reasons.join(' ')})
+  })
+  app.post('/api/platform/v1/releases/rollout-jobs/resume',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    const body=await c.req.json().catch(()=>null)
+    let request
+    try{request=reviewedFleetResumeRequest(body)}
+    catch(err){return c.json({error:err.message},err.status||400)}
+    try{
+      const result=await withTransaction(async db=>{
+        // Exclude concurrent claims and preference rescheduling, then lock the
+        // global pause row. All readiness checks and the audit are in this
+        // transaction; no direct route or Docker mutation occurs.
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
+        await pausedTransaction(db)
+        const ready=await readFleetResumeReadiness(db)
+        if(!ready.canResume)throw refuse('Fleet resume prerequisites failed: '+ready.reasons.join(' ').slice(0,300))
+        if(ready.buildSha!==request.buildSha
+          ||JSON.stringify(ready.jobIds)!==JSON.stringify(request.expectedJobIds))
+          throw refuse('The exact active job cohort or certified SHA changed; refresh and reconfirm.')
+        const previous=await db.query([
+          'UPDATE platform_release_rollout_control',
+          "SET paused=false,reason=$1,updated_at=now()",
+          'WHERE singleton=true AND paused=true',
+          'RETURNING singleton',
+        ].join(' '),['Staff-authorised certified fleet rollout after verified Managed Production rollback: '+request.reason])
+        if(previous.rowCount!==1)throw refuse('Global release control changed during authorisation.')
+        for(const job of ready.jobs){
+          await db.query([
+            'INSERT INTO tenant_release_rollout_events',
+            '(job_id,tenant_id,environment,build_sha,event_type,details)',
+            "SELECT j.id,j.tenant_id,j.environment,j.build_sha,'resumed',$2::jsonb",
+            'FROM tenant_release_rollout_jobs j',
+            "WHERE j.id=$1 AND j.status IN ('scheduled','deferred')",
+          ].join(' '),[job.id,JSON.stringify({
+            reason:request.reason,staffActorId:auth.session.user_id,
+            certifiedBuildSha:ready.buildSha,
+            provedRollbackJobId:ready.rollbackJobId,
+            approvedFleetResume:true,jobScheduleUnchanged:true,
+            explicitMaintenanceWindowRequired:true,
+          })])
+        }
+        await audit(c,auth.session,'release.fleet_resumed_after_managed_rollback',
+          'release_control',ready.buildSha,{
+            reason:request.reason,
+            provedRollbackJobId:ready.rollbackJobId,
+            provedPreviousSha:ready.rollbackPreviousSha,
+            certifiedReleaseSha:ready.buildSha,
+            exactApprovedJobs:ready.jobs,
+            totalJobs:ready.jobs.length,
+            globalPauseCleared:true,actualDeploymentsStartedByAction:0,
+            maintenanceAndStageGatesRemainRequired:true,
+          },db)
+        return {paused:false,approvedBuildSha:ready.buildSha,
+          scheduledJobs:ready.jobs,rollbackJobId:ready.rollbackJobId,
+          releasesDeployedNow:0}
+      })
+      return c.json(result)
+    }catch(err){return c.json({error:String(err.message||err).slice(0,500)},err.status||409)}
   })
   app.post('/api/platform/v1/releases/rollout-jobs/pilot/arm',async c=>{
     const auth=await staffAuthority(c,deps)
