@@ -80,3 +80,10 @@ test('Central fanout and preview refuse an unprovisioned sandbox',()=>{
  assert.match(preview,/sandboxNotReady/)
  assert.match(preview,/status:allowed\?'eligible':sandboxNotReady\?'blocked'/)
 })
+
+test('Preflight refuses Caddy source missing an already active tenant route',()=>{
+ const script=readFileSync(new URL('../../../deployment/release/host-deploy.mjs',import.meta.url),'utf8')
+ assert.match(script,/const runtimeHosts=new Set/)
+ assert.match(script,/Gateway source drift: active tenant route/)
+ assert.match(script,/Reconcile before any reload/)
+})
