@@ -90,7 +90,7 @@ function volumeWrite(name,text){
   throw Error('Invalid backup journal key.')
  exec('docker',['run','--rm','-i','--network','none',
   '--mount','type=volume,source='+VOLUME+',target=/backup',
-  'busybox:1.36','sh','-c','umask 077; test ! -e /backup/$1; cat > /backup/$1','--',name],text)
+  'busybox:1.36','sh','-c','set -e; umask 077; test ! -e "/backup/$1"; cat > "/backup/$1"','--',name],text)
 }
 function writeLiveCaddy(content){
  exec('docker',['run','--rm','-i','--network','none',
@@ -175,14 +175,25 @@ async function ensureServing(host,sha){
  }
  throw Error('Customer Production API and frontend did not serve the restored exact build.')
 }
-function startWatchdog(name,currentHash,candidateHash){
+function startWatchdog(name,requestId,candidateHash){
  const label='h5c-'+name
+ // A crash after database COMMIT but before the done marker must NOT restore
+ // a successful customer rollback. Read the durable request state, then only
+ // compensate an UNVERIFIED running operation and ONLY if gateway source
+ // still equals this rollback's candidate checksum. If PostgreSQL is
+ // unreachable, leave route/hold untouched and require human reconciliation.
+ const query="SELECT state FROM public.tenant_release_customer_rollback_requests WHERE id='"+requestId+"'"
+ const pg='docker exec hi5central-db-1 sh -c '+
+  "'exec psql -X -At -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\" -c \"$1\"'"+
+  ' -- "'+query+'"'
  const watch='sleep 210; if [ ! -e /backup/'+name+'.done ]; then '+
+  'state=$('+pg+' 2>/dev/null) || state=unknown; '+
+  'if [ "$state" = "running" ]; then '+
   'h=$(sha256sum /gateway/Caddyfile | cut -c1-64); '+
   'if [ "$h" = "'+candidateHash+'" ]; then '+
   'cat /backup/'+name+'.before >/gateway/Caddyfile; '+
   'docker exec '+GATEWAY+' caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1 || true; '+
-  'fi; fi'
+  'fi; fi; fi'
  const id=docker('run','-d','--rm','--name',label,'--network','none',
   '--mount','type=volume,source='+VOLUME+',target=/backup',
   '--mount','type=bind,source='+SRC+',target=/gateway/Caddyfile',
@@ -222,7 +233,7 @@ async function processClaim(client,claim){
   // Preserve the exact source and candidate so a process crash can recover.
   volumeWrite(name+'.before',original)
   volumeWrite(name+'.after',rollbackPlan.restoredSource)
-  watchdog=startWatchdog(name,rollbackPlan.currentSourceSha256,rollbackPlan.restoredSourceSha256)
+  watchdog=startWatchdog(name,claim.requestId,rollbackPlan.restoredSourceSha256)
   if(digest(snapshotCurrentSource())!==rollbackPlan.currentSourceSha256)
    throw Error('Concurrent gateway update detected before guarded write.')
   await fenced()
