@@ -47,6 +47,30 @@ export function ReleaseWorkActivity({api,canApprove}){
       confirm:'PAUSE_RELEASE_ROLLOUTS',reason,
     })}))
   }
+  async function armPilot(job){
+    const reason=window.prompt(
+      'Authorise ONE Managed Production pilot for '+job.tenantSlug+' / LIVE / '+short(job.buildSha)+
+      '? Specify your verification and rollback reason (20–500 characters).','')
+    if(reason===null)return
+    if(reason.trim().length<20){setError('Enter a specific staff audit reason (at least 20 characters).');return}
+    if(!window.confirm(
+      'Arm ONLY this exact Managed Production job for 30 minutes? The other tenants stay PAUSED. '+
+      'The worker must still pass all maintenance, lease, version, gateway and rollback gates.'))return
+    setBusy('pilot-'+job.id);setError('');setNotice('')
+    try{
+      const result=await api('/releases/rollout-jobs/pilot/arm',{
+        method:'POST',body:JSON.stringify({
+          jobId:job.id,tenantSlug:job.tenantSlug,environment:job.environment,
+          buildSha:job.buildSha,reason,confirm:'ARM_SINGLE_MANAGED_PRODUCTION_PILOT',
+        }),
+      })
+      if(!result.pilotArmed)throw Error('The control service did not confirm a pilot permit.')
+      setNotice('One Managed Production job armed until '+dt(result.expiresAt)+
+        '. Global rollout remains paused; verify the exact customer and rollback before fleet activation.')
+      await refresh()
+    }catch(err){setError(err.message)}
+    finally{setBusy('')}
+  }
   async function act(job,action){
     const title=action==='cancel'?'Cancel permanently':'Request guarded retry for'
     const reason=window.prompt(title+' '+job.tenantSlug+' / '+job.environment.toUpperCase()+
@@ -80,6 +104,11 @@ export function ReleaseWorkActivity({api,canApprove}){
         <span><strong>{data?.control?.paused?'Globally paused':'New claims permitted'}</strong>
           <small>{data?.control?.reason||'No global pause description recorded.'}</small></span>
       </div>
+      {data?.activeLivePilot?<p className="h5a-release-work-note" role="status">
+        Exact Managed pilot armed for <strong>{data.activeLivePilot.tenantSlug}</strong>
+        {' '}until {dt(data.activeLivePilot.expiresAt)}.
+        All other customer release jobs remain globally paused.
+      </p>:null}
       <div className="h5a-release-work-controls">
         {canApprove?<button type="button" className="rmm-secondary compact"
           disabled={Boolean(busy)||data?.control?.paused} onClick={pause}>
@@ -118,6 +147,12 @@ export function ReleaseWorkActivity({api,canApprove}){
           <td>{job.attemptCount} / {job.maxAttempts}</td>
           <td>{duration(job.durationSeconds)}</td>
           <td><div className="h5a-release-work-row-actions">
+            {canApprove&&data?.control?.paused&&!data?.activeLivePilot
+              &&job.environment==='live'&&job.updateMode==='hi5_managed'
+              &&job.managedAutoPromote&&job.status==='scheduled'&&job.attemptCount===0
+              ?<button type="button" className="rmm-secondary compact" disabled={Boolean(busy)}
+                onClick={()=>armPilot(job)} title="Staff-approved single Managed Production pilot, 30-minute expiry; fleet stays paused">
+                <ShieldAlert size={13}/> Arm one pilot</button>:null}
             {canApprove&&['pending','scheduled','deferred'].includes(job.status)&&job.attemptCount===0
               ?<button type="button" className="rmm-secondary compact danger" disabled={Boolean(busy)||!data?.control?.paused}
                 onClick={()=>act(job,'cancel')} title="Cancel this exact unclaimed job while globally paused">
@@ -133,6 +168,6 @@ export function ReleaseWorkActivity({api,canApprove}){
         {!shown.length?<tr><td colSpan={7} className="h5a-release-work-empty">No matching jobs recorded.</td></tr>:null}</tbody>
       </table>
     </div>
-    <p className="h5a-release-work-footnote">Resume is deliberately locked until the four restricted database identities, gateway, rollback and controlled customer pilot are verified. Cancel does not stop a running Docker deployment. Retrying never executes while the global pause is active.</p>
+    <p className="h5a-release-work-footnote">Fleet Resume remains locked. An authorised platform admin may arm exactly one unclaimed Managed Production pilot for 30 minutes inside its maintenance window; the globally paused state and all other jobs remain unchanged. Real customer rollback and host validation are still required before full rollout. Cancel does not stop a running deployment.</p>
   </section>
 }
