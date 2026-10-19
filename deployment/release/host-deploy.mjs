@@ -287,7 +287,7 @@ async function assertCurrentFencedHostLease(){
     " WHERE pilot.state='armed' AND pilot.environment='live'",
     ' AND pilot.job_id=j.id AND pilot.tenant_id=j.tenant_id',
     ' AND pilot.build_sha=j.build_sha AND pilot.not_before<=now()',
-    ' AND pilot.expires_at>now())))',
+    ' AND pilot.expires_at>now()))))',
     "THEN 'ALLOW' ELSE 'DENY' END",
   ].join(' ')
   const decision=await docker('exec','hi5central-db-1','sh','-c',
