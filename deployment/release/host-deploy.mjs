@@ -149,6 +149,10 @@ function stageApiEnvironment(){
     BACKGROUND_WORKERS_ENABLED:'false',
     FEATURE_MODE:environment==='test'?'all_enabled':'controlled',
     COOKIE_DOMAIN:'.hi5central.com',
+    // The isolated UAT/Test login API delegates credentials and MFA to the
+    // Central Live identity authority, never its sandbox database. A missing
+    // value makes every sandbox login fail with HTTP 503 despite healthy pools.
+    ENV_IDENTITY_API_URL:'https://api.hi5central.com/',
     ...keys,
   }
 }
@@ -188,6 +192,7 @@ async function clone(source,name,image,isWeb){
     'SMTP_PASSWORD','SMTP_USER','SMTP_HOST','SMTP_PORT','SMTP_FROM',
     'TENANT_TEST_DATABASE_URL','TENANT_UAT_DATABASE_URL',
     'TENANT_TEST_DATABASE_URL_FILE','TENANT_UAT_DATABASE_URL_FILE',
+    'ENV_IDENTITY_API_URL',
     'ENV_IDENTITY_SHARED_SECRET','ENV_IDENTITY_SHARED_SECRET_FILE',
     'API_URL','APP_URL','ADMIN_URL','PORTAL_URL','MARKETING_URL','RMM_URL'
   ])
