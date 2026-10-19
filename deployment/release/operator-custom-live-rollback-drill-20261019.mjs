@@ -182,7 +182,7 @@ try{
   }
  }
  visit(runtime.apps?.http?.servers||{})
- const inSource=new Set([...current.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\\.hi5central\\.com)/g)]
+ const inSource=new Set([...current.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\.hi5central\.com)/g)]
   .map(m=>m[1]))
  const infrastructure=new Set(['api','admin','dev','dev-api','test','uat','rmm','www']
   .map(x=>x+'.hi5central.com'))
