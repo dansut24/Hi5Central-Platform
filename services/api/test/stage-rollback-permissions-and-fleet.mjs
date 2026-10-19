@@ -137,7 +137,7 @@ test('customer UAT readiness is read-only and disabled until the real executor i
      return {rows:[{status:'active',update_mode:'admin_controlled'}]}
    if(sql.includes('SELECT id,state,source_build_sha'))
      return {rows:[]}
-   if(sql.includes('SELECT a.build_sha,a.generation'))
+   if(sql.includes('SELECT a.build_sha,a.generation,a.pool_id'))
      return {rows:[{build_sha:from,generation:1792412068014,pool_id:'h5pool-uat-'+from.slice(0,12),slug:'companycustom'}]}
    if(sql.includes('SELECT j.previous_build_sha'))
      return {rows:[{previous_build_sha:to}]}
