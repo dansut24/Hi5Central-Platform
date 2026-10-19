@@ -63,7 +63,7 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
  const assignment=await db.query([
   'SELECT environment,pool_id,build_sha,generation',
   'FROM tenant_runtime_assignments WHERE tenant_id=$1 AND environment=$2',
- ],[tenantId,environment])
+ ].join(' '),[tenantId,environment])
  const a=assignment.rows[0]
  if(!a||!SHA.test(String(a.build_sha||''))
    ||!Number.isSafeInteger(Number(a.generation))||Number(a.generation)<1)
@@ -73,7 +73,7 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
   'SELECT pool_id,build_sha,public_host,state,checked_at',
   'FROM tenant_runtime_route_attestations',
   'WHERE tenant_id=$1 AND environment=$2',
- ],[tenantId,environment])
+ ].join(' '),[tenantId,environment])
  const observed=attestation.rows[0]
  const checked=Date.parse(String(observed?.checked_at||''))
  if(observed?.state!=='active'||observed.build_sha!==a.build_sha
@@ -99,7 +99,7 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
  const running=await db.query([
   'SELECT 1 FROM tenant_release_rollout_jobs',
   "WHERE tenant_id=$1 AND environment=$2 AND status IN ('pending','scheduled','deferred','running') LIMIT 1",
- ],[tenantId,environment])
+ ].join(' '),[tenantId,environment])
  if(running.rowCount)throw fail('A customer release is pending or running in this environment.')
  if(environment==='uat'){
    const production=await db.query([
@@ -113,7 +113,7 @@ async function readEligible(db,{tenantId,environment,lockTenant=true}){
  const concurrent=await db.query([
   'SELECT 1 FROM platform_release_rollback_jobs',
   "WHERE tenant_id=$1 AND environment=$2 AND state IN ('requested','running') LIMIT 1",
- ],[tenantId,environment])
+ ].join(' '),[tenantId,environment])
  if(concurrent.rowCount)throw fail('A rollback is already pending for this customer and environment.')
  return {tenant:t,assignment:a,original:j,host}
 }
@@ -141,7 +141,7 @@ export async function rollbackReadiness(db,{tenantId,environment,actor,executorR
   'SELECT a.build_sha,a.generation,a.pool_id,t.slug',
   'FROM tenant_runtime_assignments a JOIN tenants t ON t.id=a.tenant_id',
   'WHERE a.tenant_id=$1 AND a.environment=$2',
- ],[tenantId,environment])
+ ].join(' '),[tenantId,environment])
  const cur=active.rows[0]
  const previous=cur?await db.query([
   'SELECT j.previous_build_sha FROM tenant_release_rollout_jobs j',
