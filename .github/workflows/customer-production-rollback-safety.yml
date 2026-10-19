@@ -1,0 +1,67 @@
+name: Customer Production Rollback Safety
+
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/customerProductionRollback*'
+      - 'services/api/src/reviewedCustomerRollbackApprovals.js'
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/src/tenantRelease.js'
+      - 'services/api/migrations/platform-admin/17[89]*'
+      - 'services/api/migrations/platform-admin/180_*'
+      - 'services/api/test/customer*rollback*'
+      - 'deployment/release/customer-route-rollback-plan.mjs'
+      - 'deployment/release/CUSTOMER_PRODUCTION_ROLLBACK_ACTIVATION.md'
+      - 'deployment/qa26/Dockerfile.customer-rollback-executor'
+      - '.github/workflows/customer-production-rollback-safety.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'services/api/src/customerProductionRollback*'
+      - 'services/api/src/reviewedCustomerRollbackApprovals.js'
+      - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/migrations/platform-admin/17[89]*'
+      - 'services/api/migrations/platform-admin/180_*'
+      - 'deployment/qa26/Dockerfile.customer-rollback-executor'
+      - '.github/workflows/customer-production-rollback-safety.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  customer-rollback-safety:
+    name: Exact tenant, stage and rollback evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - name: Install production API dependencies
+        working-directory: services/api
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate worker and admin safety contracts
+        run: |
+          set -euo pipefail
+          node --check services/api/src/customerProductionRollbackWorker.mjs
+          node --check services/api/src/reviewedCustomerRollbackApprovals.js
+          node --check services/api/src/releaseWorkActivity.js
+          node --test \
+            services/api/test/customer-production-rollback-worker.mjs \
+            services/api/test/customer-rollback-reviewed-staff-approvals.mjs \
+            services/api/test/customer-rollback-executor-certification.mjs \
+            services/api/test/customer-production-rollback-request.mjs \
+            services/api/test/customer-production-route-rollback-plan.mjs \
+            services/api/test/operator-custom-rollback-drill-20261019.mjs
+      - name: Only publish worker images, never activate Production routes
+        run: |
+          set -euo pipefail
+          test -s services/api/migrations/platform-admin/178_independent_customer_rollback_executor_certification.sql
+          test -s services/api/migrations/platform-admin/179_restricted_customer_rollback_worker_claim.sql
+          test -s services/api/migrations/platform-admin/180_restricted_customer_rollback_completion.sql
+          grep -q 'NOLOGIN NOINHERIT' services/api/migrations/platform-admin/179_restricted_customer_rollback_worker_claim.sql
+          grep -q "ROLLBACK_WORKER_ACTIVE==='true'" services/api/src/customerProductionRollbackWorker.mjs
+          test -s deployment/release/CUSTOMER_PRODUCTION_ROLLBACK_ACTIVATION.md
+          echo 'Default disabled: separate staff reviews and signed tenant request remain mandatory.'

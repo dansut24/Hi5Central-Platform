@@ -1,0 +1,14 @@
+# Dedicated Custom Production rollback executor. NOT the generic release
+# scheduler or stage deploy worker. Never starts on the VPS automatically.
+# Must be pinned to the reviewed CI revision, given a separately provisioned
+# hi5_release_rollback_executor credential and explicitly enabled by staff.
+FROM node:22-alpine
+RUN apk add --no-cache docker-cli curl ca-certificates coreutils
+WORKDIR /opt/hi5central
+COPY services/api/package.json services/api/package-lock.json services/api/
+RUN cd services/api && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY services/api/src/ services/api/src/
+COPY deployment/release/customer-route-rollback-plan.mjs deployment/release/
+ENV NODE_ENV=production
+ENTRYPOINT ["node","services/api/src/customerProductionRollbackWorker.mjs"]
+CMD ["--loop"]

@@ -5,6 +5,7 @@
  */
 import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {readFleetResumeReadiness,reviewedFleetResumeRequest} from './releaseFleetResume.js'
+import {reviewedRollbackCompatibilityRequest,reviewedRollbackExecutorRequest,reviewedRollbackRevocation,reviewRollbackCompatibility,reviewRollbackExecutor} from './reviewedCustomerRollbackApprovals.js'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SHA=/^[a-f0-9]{40}$/
 const STAGES=new Set(['test','uat','live'])
@@ -99,6 +100,75 @@ async function staffAuthority(c,{requireAdmin,WRITE_ROLES,pool,deployment},write
 }
 export function registerReleaseWorkActivityRoutes(app,deps){
   const {pool,withTransaction,audit}=deps
+  // Central staff review only: these endpoints sign exact rollback evidence,
+  // never fabricate a customer request or touch a gateway or Docker image.
+  app.post('/api/platform/v1/releases/customer-rollback/review-compatibility',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    try{
+      const request=reviewedRollbackCompatibilityRequest(await c.req.json().catch(()=>null))
+      const result=await withTransaction(async db=>{
+        await db.query("SELECT pg_advisory_xact_lock(hashtext('hi5central-release-claim'),hashtext('shared-gateway'))")
+        const review=await reviewRollbackCompatibility(db,request,auth.session.user_id)
+        await audit(c,auth.session,'release.customer_rollback_compatibility_reviewed',
+          'rollback_compatibility',request.sourceSha+'-'+request.targetSha,
+          {tenantSlug:review.tenantSlug,sourceSha:request.sourceSha,
+           targetSha:request.targetSha,expiresAt:review.expires_at,
+           originalReleaseJobId:review.originalReleaseJobId,
+           evidence:request.evidence,reason:request.reason,
+           customerRequestCreated:false,productionChanged:false},db)
+        return review
+      })
+      return c.json({review:result,productionChanged:false},201)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},error.status||409)}
+  })
+  app.post('/api/platform/v1/releases/customer-rollback/certify-worker',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    try{
+      const request=reviewedRollbackExecutorRequest(await c.req.json().catch(()=>null))
+      const result=await withTransaction(async db=>{
+        const review=await reviewRollbackExecutor(db,request,auth.session.user_id)
+        await audit(c,auth.session,'release.customer_rollback_executor_certified',
+          'rollback_executor',request.revisionSha,
+          {revisionSha:request.revisionSha,expiresAt:review.expires_at,
+           evidence:request.evidence,reason:request.reason,
+           customerRequestCreated:false,productionChanged:false,
+           workerActivationChanged:false},db)
+        return review
+      })
+      return c.json({review:result,workerActivated:false,productionChanged:false},201)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},error.status||409)}
+  })
+  app.post('/api/platform/v1/releases/customer-rollback/revoke-review',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    try{
+      const request=reviewedRollbackRevocation(await c.req.json().catch(()=>null))
+      const result=await withTransaction(async db=>{
+        const record=request.type==='compatibility'
+          ?await db.query([
+             'UPDATE platform_release_rollback_compatibility',
+             "SET state='revoked' WHERE from_build_sha=$1 AND to_build_sha=$2",
+             "AND state='approved' RETURNING from_build_sha",
+           ].join(' '),[request.sourceSha,request.targetSha])
+          :await db.query([
+             'UPDATE platform_release_customer_rollback_executor_certifications',
+             "SET state='revoked' WHERE revision_sha=$1 AND state='approved'",
+             'RETURNING revision_sha',
+           ].join(' '),[request.revisionSha])
+        if(record.rowCount!==1)throw refuse('Exact current approved rollback review not found.')
+        await audit(c,auth.session,'release.customer_rollback_review_revoked',
+          'rollback_review',request.type==='compatibility'
+            ?request.sourceSha+'-'+request.targetSha:request.revisionSha,
+          {type:request.type,reason:request.reason,sourceSha:request.sourceSha||null,
+           targetSha:request.targetSha||null,revisionSha:request.revisionSha||null,
+           productionChanged:false},db)
+        return {revoked:true,type:request.type}
+      })
+      return c.json({...result,productionChanged:false})
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},error.status||409)}
+  })
   app.get('/api/platform/v1/releases/rollout-jobs/activity',async c=>{
     const auth=await staffAuthority(c,deps)
     if(auth.error)return auth.error
