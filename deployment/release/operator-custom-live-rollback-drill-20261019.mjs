@@ -124,7 +124,7 @@ async function gate(){
  const requests=await client.query([
   'SELECT count(*)::int n FROM tenant_release_customer_rollback_requests',
   "WHERE tenant_id=$1 AND state IN ('requested','approved','running')",
- ],[tid])
+ ].join(' '),[tid])
  expect(requests.rows[0].n===0,'An actual customer rollback request is already pending.')
  const holds=await client.query(
   'SELECT count(*)::int n FROM tenant_release_upgrade_holds WHERE tenant_id=$1 AND active=true',[tid])
