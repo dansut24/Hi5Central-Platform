@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS platform_release_rollback_jobs (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  batch_id uuid,
  tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
- environment text NOT NULL CHECK(environment IN ('uat','live','test')),
+ environment text NOT NULL CHECK(environment IN ('uat','live')),
  source_build_sha text NOT NULL CHECK(source_build_sha ~ '^[a-f0-9]{40}$'),
  target_build_sha text NOT NULL CHECK(target_build_sha ~ '^[a-f0-9]{40}$'),
  source_route_generation bigint NOT NULL CHECK(source_route_generation>0),
