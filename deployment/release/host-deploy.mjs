@@ -293,6 +293,13 @@ async function assertCurrentFencedHostLease(){
       " OR (r.requested_via='custom_customer' AND r.environment='uat'",
       " AND p.update_mode='admin_controlled'))",
       "AND (r.environment<>'uat' OR p.update_mode='admin_controlled')",
+      // Host-side independent check: no UAT route may regress below
+      // the currently assigned Production revision.
+      "AND (r.environment<>'uat' OR EXISTS(",
+      " SELECT 1 FROM tenant_runtime_assignments production",
+      " WHERE production.tenant_id=r.tenant_id",
+      " AND production.environment='live'",
+      " AND production.build_sha=r.target_build_sha))",
       "AND (r.environment<>'live' OR EXISTS(",
       ' SELECT 1 FROM tenant_release_upgrade_holds h',
       ' WHERE h.tenant_id=r.tenant_id AND h.active))',
