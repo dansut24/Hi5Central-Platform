@@ -12,6 +12,7 @@ on:
       - 'services/api/src/releaseSimpleWorker.mjs'
       - 'services/api/src/stageRollbackActivationPolicy.js'
       - 'services/api/test/stage-rollback-activation-policy.mjs'
+      - 'services/api/test/rollback-production-precedence.mjs'
       - 'services/api/src/uatRuntimeOfferSupersession.js'
       - 'services/api/test/uat-offer-supersession.mjs'
       - 'services/api/src/releaseWorkActivity.js'
@@ -58,6 +59,7 @@ jobs:
           node --test \
             services/api/test/stage-rollback-permissions-and-fleet.mjs \
             services/api/test/stage-rollback-activation-policy.mjs \
+            services/api/test/rollback-production-precedence.mjs \
             services/api/test/uat-offer-supersession.mjs \
             services/api/test/customer-production-route-rollback-plan.mjs \
             services/api/test/customer-production-rollback-worker.mjs
