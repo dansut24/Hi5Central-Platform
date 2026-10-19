@@ -18,7 +18,9 @@ export const genericReleaseTenantQuery=[
  'SELECT t.id,t.slug,t.status,p.update_mode AS mode,',
  'p.test_auto_sync,p.uat_auto_stage,p.live_auto_promote,',
  'p.live_delay_hours,p.maintenance_window,p.blackout_periods,',
- "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm",
+ "COALESCE((ts.modules->>'itsm')::boolean,false) AS itsm,",
+ "(SELECT e.status FROM tenant_environment_state e WHERE e.tenant_id=t.id AND e.environment='uat') AS uat_environment_status,",
+ "(SELECT e.status FROM tenant_environment_state e WHERE e.tenant_id=t.id AND e.environment='test') AS test_environment_status",
  'FROM tenants t',
  'JOIN tenant_release_preferences p ON p.tenant_id=t.id',
  'JOIN tenant_settings ts ON ts.tenant_id=t.id',
@@ -89,16 +91,20 @@ export async function previewGenericCertifiedRelease(db,{
    })
    const schedule=scheduledCustomerRelease({decision,tenant,sha,now})
    const approval=decision.stage?report.stageApprovals[decision.stage]:null
-   const allowed=schedule.status==='scheduled'&&approval?.allowed===true
+   const sandboxNotReady=schedule.status==='scheduled'
+     &&['uat','test'].includes(schedule.stage)
+     &&row[schedule.stage+'_environment_status']!=='ready'
+   const allowed=schedule.status==='scheduled'&&!sandboxNotReady&&approval?.allowed===true
    if(allowed)report.eligible++
+   else if(sandboxNotReady)report.policyBlocked++
    else if(schedule.status==='scheduled')report.approvalBlocked++
    else report.policyBlocked++
    report.tenants.push({slug:row.slug,tenantId:row.id,mode:row.mode,
     proposedStage:decision.stage,notBefore:decision.notBefore||null,
     proposedAt:schedule.scheduledAt||null,
-    status:allowed?'eligible':schedule.status==='scheduled'?'approval_required':'blocked',
-    reason:allowed?schedule.reason:
-      schedule.status==='scheduled'?approval.reason:schedule.reason})
+    status:allowed?'eligible':sandboxNotReady?'blocked':schedule.status==='scheduled'?'approval_required':'blocked',
+    reason:sandboxNotReady?'Isolated '+schedule.stage.toUpperCase()+' sandbox is not provisioned.':
+      allowed?schedule.reason:schedule.status==='scheduled'?approval.reason:schedule.reason})
    report.scanned++
   }
   cursor=batch.rows[batch.rows.length-1].id
