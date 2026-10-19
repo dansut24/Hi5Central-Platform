@@ -13,6 +13,7 @@ import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {releasePair} from './tenantCaddyVersionRoutes.js'
 import {parsePinnedQaReleaseSha} from './releasePlannerScope.js'
 import {processQueuedStageRollback} from './stageRollbackExecution.mjs'
+import {retireSupersededUatOffers} from './uatRuntimeOfferSupersession.js'
 
 // One generic worker is for all enrolled ITSM tenants, never a QA allowlist.
 if(process.env.RELEASE_DELIVERY_MODE!=='direct_customer_release')
@@ -173,6 +174,13 @@ async function persistVerified(job,ctx,result){
         "public_host=excluded.public_host,state='active',checked_at=now()",
       ].join(' '),[job.tenantId,gateway,poolId,job.buildSha,result.host])
       if(gateway==='uat'){
+        // The host has already verified the new UAT SHA. Close older
+        // UAT offers inside THIS finalisation transaction before inserting
+        // the new one, or the stage's partial unique index rejects it.
+        // Historical acceptance evidence remains on the blocked offer.
+        await retireSupersededUatOffers(tx,{
+          tenantId:job.tenantId,buildSha:job.buildSha,
+        })
         // SECURITY DEFINER performs the one tightly checked cross-stage
         // UAT-to-Live offer transition. UAT's DB identity has no direct
         // INSERT/UPDATE access to Live rows, even through compromised code.
