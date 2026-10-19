@@ -305,6 +305,7 @@ try{
 }catch(e){
  console.error('CUSTOM_CUSTOMER_PRODUCTION_ROLLBACK_DENIED_OR_FAILED',e.message)
  if(tx){await client.query('ROLLBACK').catch(()=>{});tx=false}
+ let compensated=false
  if(!committed&&routeApplied){
   try{
    const now=run('cat',[CADDY])
@@ -312,11 +313,13 @@ try{
     writeGateway(backupContent(KEY+'.before'));execCaddyReload()
     expect(version(EXPECT.host)===EXPECT.current,
      'Recovery did not return to original customer Production build.')
+    compensated=true
     console.error('PRODUCTION_CUTOVER_COMPENSATED_TO_ORIGINAL_RELEASE')
    }else console.error('RECOVERY_BLOCKED_BY_GATEWAY_DRIFT_REVIEW_REQUIRED')
   }catch(error){console.error('CRITICAL_RECOVERY_UNCONFIRMED',error.message)}
  }
- cancelWatch()
+ if(!routeApplied||compensated)cancelWatch()
+ else console.error('CRITICAL_GATEWAY_RESCUE_WATCHDOG_RETAINED_TO_RECOVER_UNVERIFIED_CUTOVER')
  process.exitCode=1
 }finally{
  if(held){
