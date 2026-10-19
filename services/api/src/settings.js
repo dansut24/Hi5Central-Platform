@@ -18,6 +18,7 @@ import {
   requestUserAgent,
 } from './securityAudit.js'
 import { resolveSession, sessionPayload } from './session.js'
+import {validOrganisationTimezone} from './tenantOrganisationTimezone.js'
 import { registerUserPreferenceRoutes } from './userPreferences.js'
 import { registerWorkflowRoutes } from './itsmWorkflows.js'
 
@@ -95,6 +96,17 @@ export function registerSettingsRoutes(app) {
     await withTransaction(async (client) => {
       let newlyEnforcedMfa = false
       let previousSecurity = null
+      if (area === 'company') {
+        // Company/Organisation is the authoritative timezone, including after
+        // onboarding. Never store an invalid timezone that can block releases.
+        const canonical=validOrganisationTimezone(data.timezone)
+        if(!canonical){
+          const error=new Error('Select a valid organisation time zone.')
+          error.status=400
+          throw error
+        }
+        data={...data,timezone:canonical}
+      }
       if (area === 'security') {
         const currentResult = await client.query(
           `SELECT onboarding_data,configuration FROM tenant_settings WHERE tenant_id=$1 LIMIT 1 FOR UPDATE`,
@@ -114,6 +126,28 @@ export function registerSettingsRoutes(app) {
       )
 
       if (area === 'company') {
+        // Synchronise the release policy timezone when an organisation admin
+        // changes it. The trusted central control API detects this preference
+        // revision and safely reschedules unclaimed jobs; none deploy here.
+        const sync=await client.query([
+          'UPDATE tenant_release_preferences SET',
+          "maintenance_window=jsonb_set(maintenance_window,'{timezone}'::text[],$2::jsonb,true),",
+          'updated_at=now(),updated_by=$3',
+          'WHERE tenant_id=$1 AND maintenance_window->>\'timezone\' IS DISTINCT FROM $4',
+          'RETURNING tenant_id',
+        ].join(' '),[auth.session.tenant_id,JSON.stringify(data.timezone),
+          auth.session.user_id,data.timezone])
+        if(sync.rowCount){
+          await recordSecurityEvent({
+            db:client,tenantId:auth.session.tenant_id,
+            actorUserId:auth.session.user_id,sessionId:auth.session.session_id||null,
+            eventType:'release.maintenance_timezone_inherited',
+            ipAddress:requestIp(c),userAgent:requestUserAgent(c),
+            metadata:{organisationTimezone:data.timezone,
+              pendingReleaseJobsReconciledByControl:true,
+              customerDeploymentStarted:false},
+          })
+        }
         const displayName = String(data.displayName || '').trim()
         if (displayName.length >= 2 && displayName.length <= 120) {
           await client.query('UPDATE tenants SET company_name=$2,updated_at=now() WHERE id=$1', [auth.session.tenant_id, displayName])
