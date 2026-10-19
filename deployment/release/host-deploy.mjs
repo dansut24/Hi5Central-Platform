@@ -114,6 +114,22 @@ async function clone(source,name,image,isWeb){
   }
   await docker(...args,image)
 }
+// Never publish a Test/UAT API backed by the Production database, even if
+// its image and container health checks pass. A stage-specific, isolated API
+// must be provisioned before a non-Live Caddy route can be switched.
+async function assertIsolatedStageApi(name){
+  if(environment==='live')return
+  const [candidate,production]=await Promise.all([dockerInspect(name),dockerInspect(c.api)])
+  const envOf=container=>Object.fromEntries((container?.Config?.Env||[]).map(pair=>{
+    const at=pair.indexOf('=')
+    return at<0?[pair,'']:[pair.slice(0,at),pair.slice(at+1)]
+  }))
+  const candidateEnv=envOf(candidate),productionEnv=envOf(production)
+  if(!candidateEnv.DATABASE_URL||!productionEnv.DATABASE_URL||
+    candidateEnv.DATABASE_URL===productionEnv.DATABASE_URL||
+    candidateEnv.RUNTIME_ENVIRONMENT!==environment)
+    throw Error('Isolated '+environment.toUpperCase()+' API database/runtime not provisioned; refusing customer route cutover.')
+}
 async function healthy(name){
   for(let i=0;i<110;i++){
     const t=await dockerInspect(name)
@@ -226,6 +242,7 @@ try{
       type==='itsm')
   }
   await Promise.all([healthy(plan.api),healthy(plan.web)])
+  if(mode==='--apply')await assertIsolatedStageApi(plan.api)
   if(mode==='--stage'){
     console.log(JSON.stringify({status:'pool_verified',environment,buildSha:sha,
       api:plan.api,web:plan.web}))
