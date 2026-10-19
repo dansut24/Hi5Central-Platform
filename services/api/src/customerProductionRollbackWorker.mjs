@@ -135,13 +135,12 @@ function checkContainer(name,sha){
   ||!record.Config.Image.endsWith(':sha-'+sha))
   throw Error('Previous application container unhealthy or image revision differs: '+name)
 }
-function recordLocalBaseline(customerHost){
- // All live customer routes can share the same gateway. The worker snapshots
- // the known pilot customers as an independent additional public isolation
- // gate; the generic Caddy route planner checks every unrelated route.
- const hosts=new Set([customerHost,
-  'company.hi5central.com','companymanaged.hi5central.com',
-  'companycustom-uat.hi5central.com'])
+function recordLocalBaseline(customerHost,source){
+ // Independently verify every versioned route in the ACTUAL gateway snapshot,
+ // rather than relying on a small static QA tenant allowlist.
+ const hosts=new Set([customerHost,customerHost.replace('.hi5central.com','-uat.hi5central.com')])
+ for(const match of source.matchAll(/# H5C_RELEASE_ROUTE_BEGIN ([a-z0-9-]+\.hi5central\.com)/g))
+   hosts.add(match[1])
  return Object.fromEntries([...hosts].map(h=>[h,originalPair(h)]))
 }
 function ensureOldBuildHealthy(claim,mode){
@@ -214,7 +213,7 @@ async function processClaim(client,claim){
   })
   validateCandidate(rollbackPlan.restoredSource)
   ensureOldBuildHealthy(claim,rollbackPlan.mode)
-  baseline=recordLocalBaseline(claim.host)
+  baseline=recordLocalBaseline(claim.host,original)
   if(baseline[claim.host].api!==claim.sourceSha||baseline[claim.host].web!==claim.sourceSha)
    throw Error('Public customer Production source version changed before rollback.')
   await fenced()
@@ -229,7 +228,7 @@ async function processClaim(client,claim){
   mutated=true
   gatewayReload()
   await ensureServing(claim.host,claim.targetSha)
-  const after=recordLocalBaseline(claim.host)
+  const after=recordLocalBaseline(claim.host,original)
   assertOtherTenantVersions(baseline,after,claim.host)
   if(digest(snapshotCurrentSource())!==rollbackPlan.restoredSourceSha256)
    throw Error('Shared gateway changed during host verification.')
@@ -267,7 +266,7 @@ async function processClaim(client,claim){
     if(digest(readFileSync(SRC,'utf8'))===rollbackPlan.restoredSourceSha256){
      writeLiveCaddy(original);gatewayReload()
      await ensureServing(claim.host,claim.sourceSha)
-     assertOtherTenantVersions(baseline,recordLocalBaseline(claim.host),claim.host)
+     assertOtherTenantVersions(baseline,recordLocalBaseline(claim.host,original),claim.host)
      restored=true
     }
    }catch(recoveryError){
@@ -283,9 +282,9 @@ async function processClaim(client,claim){
   if(!restored)throw Error('URGENT: Production gateway recovery not verified; tenant upgrade hold remains active.')
  }
 }
-const client=new pg.Client({connectionString:process.env.DATABASE_URL,
- connectionTimeoutMillis:5500,statement_timeout:30000})
 async function executeOnce(){
+ const client=new pg.Client({connectionString:process.env.DATABASE_URL,
+   connectionTimeoutMillis:5500,statement_timeout:30000})
  await client.connect()
  let held=false
  try{
@@ -301,9 +300,10 @@ async function executeOnce(){
   }
   held=true
   if(MODE==='--preflight'){
-   await client.query('SELECT public.hi5_customer_rollback_worker_heartbeat($1,$2,$3)',
-    [REVISION,'paused',''])
-   console.log('CUSTOMER_ROLLBACK_RESTRICTED_WORKER_PREFLIGHT_PASS')
+   const valid=await client.query('SELECT public.hi5_customer_rollback_worker_session_ok() AS valid')
+   if(valid.rows[0]?.valid!==true)
+     throw Error('Gateway session lock cannot be verified under dedicated worker role.')
+   console.log('CUSTOMER_ROLLBACK_RESTRICTED_WORKER_PREFLIGHT_PASS_NO_WRITES')
    return false
   }
   await client.query('SELECT public.hi5_customer_rollback_worker_heartbeat($1,$2,$3)',
