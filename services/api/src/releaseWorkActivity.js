@@ -164,7 +164,8 @@ export function registerReleaseWorkActivityRoutes(app,deps){
         }
       }
       if(!queued.length)
-        return c.json({error:'No rollback jobs could be admitted.',skipped},409)
+        return c.json({error:'No rollback jobs could be admitted: '+
+          skipped.map(x=>x.tenantSlug+' — '+x.reason).join('; '),skipped},409)
       return c.json({batchId:batch,scope:intent.scope,
         queued,skipped,productionChanged:false},202)
     }catch(error){return c.json({error:String(error.message||error).slice(0,400)},error.status||409)}
