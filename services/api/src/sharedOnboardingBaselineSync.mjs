@@ -41,7 +41,9 @@ async function assertHealthy(sha){
     if(data.Config.Image!==imageBase+type+':sha-'+sha
        ||data.State.Health?.Status!=='healthy')throw Error('Shared service '+svc+' is not healthy.')
    }
-   for(const host of ['hi5central.com','newtest.hi5central.com']){
+   // The shared public fallback is the marketing/signup origin; individual
+   // customer hosts may already be pinned to their own versions.
+   for(const host of ['hi5central.com']){
     if(await shaOnHost(host,'/api/v1/updates/version')!==sha
        ||await shaOnHost(host,'/release-manifest.json')!==sha)
       throw Error('Public onboarding version differs from certified release.')
@@ -65,10 +67,10 @@ async function queryEligible(pool){
  // Avoid Docker container restarts while the normal runner owns a customer
  // gateway or is mid-upgrade. These are SELECT-accessible to stage identity.
  const active=await pool.query([
-  '(SELECT count(*)::int FROM tenant_release_rollout_jobs',
+  'SELECT (SELECT count(*)::int FROM tenant_release_rollout_jobs',
   " WHERE status='running') AS running_upgrades,",
   '(SELECT count(*)::int FROM platform_release_gateway_owners) AS gateway_owners',
- ].join('SELECT '))
+ ].join(' '))
  if(Number(active.rows[0]?.running_upgrades)!==0
    ||Number(active.rows[0]?.gateway_owners)!==0)return null
  return sha
@@ -110,13 +112,14 @@ export async function synchroniseSharedOnboardingBaseline({databaseUrl}={}){
   if(!changed.changed)return {status:'current',sha}
   await fs.mkdir(backupDir,{recursive:true,mode:0o700})
   const backup=backupDir+'/compose.before-'+Date.now()+'-'+paired.api.slice(0,12)+'.yml'
-  const temp=composePath+'.shared-onboarding-next'
+  const temp=composePath+'.shared-onboarding-next-'+process.pid
+  const beforeStat=await fs.stat(composePath)
   const now=await fs.readFile(composePath,'utf8')
   if(now!==before)throw Error('Compose changed during approved image preparation.')
   await fs.writeFile(backup,before,{mode:0o600,flag:'wx'})
   let installed=false
   try{
-   await fs.writeFile(temp,changed.source,{mode:0o600,flag:'wx'})
+   await fs.writeFile(temp,changed.source,{mode:beforeStat.mode&0o777,flag:'wx'})
    await fs.rename(temp,composePath)
    installed=true
    await docker(...args,'config','--quiet')
