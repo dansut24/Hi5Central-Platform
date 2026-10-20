@@ -45,7 +45,7 @@ function fixture({liveRow=live,uatRow=uat,holdActive=true,
    return {rows:[{active:holdActive,held_at:new Date(held),held_at_exact:'2026-10-20 16:59:49.92684+00',requested_by:admin}],rowCount:1}
   if(sql.includes('FROM platform_release_rollback_jobs')&&sql.includes('id IN'))
    return {rows:[liveRow,uatRow].filter(Boolean),rowCount:Number(Boolean(liveRow))+Number(Boolean(uatRow))}
-  if(sql.includes("r.created_at=$2 AND r.requested_by=$3"))
+  if(sql.includes('r.created_at=h.held_at AND r.requested_by=h.requested_by'))
    return {rows:origin?[{one:1}]:[],rowCount:origin?1:0}
   if(sql.includes('FROM tenant_runtime_assignments a')){
    const rows=[['live',liveSha,'companycustom.hi5central.com'],['uat',uatSha,'companycustom-uat.hi5central.com']].map(([env,build,host])=>({
@@ -97,6 +97,11 @@ test('exact verified customer hold release is transactional and audit-identified
  assert.ok(x.statements.some(x=>x.sql.includes('pg_advisory_xact_lock')))
  assert.ok(x.statements.some(x=>x.sql.includes('WHERE slug=$1 FOR UPDATE')))
  assert.ok(x.statements.some(x=>x.sql.includes('WHERE tenant_id=$1 FOR UPDATE')))
+ const origin=x.statements.find(x=>x.sql.includes('r.created_at=h.held_at'))
+ assert.ok(origin)
+ assert.equal(origin.values.length,3)
+ assert.deepEqual(origin.values,[tenantId,fromSha,toSha])
+ assert.doesNotMatch(origin.sql,/r.created_at=\\$2/)
  assert.ok(x.statements.some(x=>x.sql.includes('SET active=false,released_at=now(),released_by=$2')))
  const fence=x.statements.find(x=>x.sql.startsWith('UPDATE tenant_release_upgrade_holds'))
  assert.equal(fence.values[2],'2026-10-20 16:59:49.92684+00')
