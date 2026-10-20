@@ -42,7 +42,7 @@ function fixture({liveRow=live,uatRow=uat,holdActive=true,
   if(sql.includes('pg_advisory_xact_lock'))return {rows:[],rowCount:1}
   if(sql.includes('FROM tenants WHERE slug='))return {rows:[{id:tenantId,status:'active'}],rowCount:1}
   if(sql.includes('FROM tenant_release_upgrade_holds')&&sql.includes('FOR UPDATE'))
-   return {rows:[{active:holdActive,held_at:new Date(held),requested_by:admin}],rowCount:1}
+   return {rows:[{active:holdActive,held_at:new Date(held),held_at_exact:'2026-10-20 16:59:49.92684+00',requested_by:admin}],rowCount:1}
   if(sql.includes('FROM platform_release_rollback_jobs')&&sql.includes('id IN'))
    return {rows:[liveRow,uatRow].filter(Boolean),rowCount:Number(Boolean(liveRow))+Number(Boolean(uatRow))}
   if(sql.includes("r.created_at=$2 AND r.requested_by=$3"))
@@ -98,6 +98,9 @@ test('exact verified customer hold release is transactional and audit-identified
  assert.ok(x.statements.some(x=>x.sql.includes('WHERE slug=$1 FOR UPDATE')))
  assert.ok(x.statements.some(x=>x.sql.includes('WHERE tenant_id=$1 FOR UPDATE')))
  assert.ok(x.statements.some(x=>x.sql.includes('SET active=false,released_at=now(),released_by=$2')))
+ const fence=x.statements.find(x=>x.sql.startsWith('UPDATE tenant_release_upgrade_holds'))
+ assert.equal(fence.values[2],'2026-10-20 16:59:49.92684+00')
+ assert.match(fence.sql,/held_at::text=\$3/)
  assert.ok(!x.statements.some(x=>x.sql.includes('UPDATE tenant_runtime_assignments')))
  assert.ok(!x.statements.some(x=>x.sql.includes('INSERT INTO tenant_release_rollout_jobs')))
 })
