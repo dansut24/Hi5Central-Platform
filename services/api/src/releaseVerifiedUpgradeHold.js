@@ -92,7 +92,7 @@ export async function releaseVerifiedUpgradeHold(db,request,userId,auditAction){
  if(!tenantId||tenant.rows[0].status!=='active')
   throw refuse('Target customer is not active.')
  const hold=await db.query([
-  'SELECT active,held_at,requested_by FROM tenant_release_upgrade_holds',
+  'SELECT active,held_at,held_at::text AS held_at_exact,requested_by FROM tenant_release_upgrade_holds',
   'WHERE tenant_id=$1 FOR UPDATE',
  ].join(' '),[tenantId])
  const original=hold.rows[0]
@@ -154,8 +154,8 @@ export async function releaseVerifiedUpgradeHold(db,request,userId,auditAction){
  const updated=await db.query([
   'UPDATE tenant_release_upgrade_holds',
   'SET active=false,released_at=now(),released_by=$2',
-  'WHERE tenant_id=$1 AND active=true AND held_at=$3 RETURNING released_at',
- ].join(' '),[tenantId,userId,original.held_at])
+  'WHERE tenant_id=$1 AND active=true AND held_at::text=$3 RETURNING released_at',
+ ].join(' '),[tenantId,userId,original.held_at_exact])
  if(updated.rowCount!==1)throw refuse('Upgrade hold changed during operator authorisation.')
  await auditAction({
   tenantId,reason:request.reason,
