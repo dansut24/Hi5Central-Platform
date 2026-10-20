@@ -176,6 +176,22 @@ export async function rollbackReadiness(db,{tenantId,environment,actor,executorR
   upgradeHoldActive:false,
   confirmationRequired:true}
 }
+/**
+ * A failed Production recovery must retain the existing upgrade hold.
+ * A new authenticated admin request may reuse it only for the exact SAME
+ * verified source/target and route generation as the most recent failed
+ * request that originally established this hold. Never reopen a running,
+ * unrelated, cancelled or verified request.
+ */
+export function canRetryFailedProductionRollbackWithHold({prior,intent,original}={}){
+ return prior?.state==='failed'
+   &&prior?.requested_via==='hi5central_admin'
+   &&prior?.matches_hold_origin===true
+   &&prior?.source_build_sha===intent?.fromSha
+   &&prior?.target_build_sha===intent?.toSha
+   &&Number(prior?.source_route_generation)===intent?.generation
+   &&prior?.original_release_job_id===original?.id
+}
 export async function queueRollback(db,{
  tenantId,userId,actor,body,batchId=null,
 }){
@@ -195,16 +211,40 @@ export async function queueRollback(db,{
  if(intent.environment==='live'){
    // Share the EXISTING Production upgrade hold/trigger with the normal
    // release worker so a rollback never races an automatic Live promotion.
-   const hold=await db.query([
-     'INSERT INTO tenant_release_upgrade_holds',
-     '(tenant_id,active,reason,requested_by,held_at,released_at,released_by)',
-     'VALUES($1,true,$2,$3,now(),NULL,NULL)',
-     'ON CONFLICT (tenant_id) DO UPDATE SET',
-     'active=true,reason=excluded.reason,requested_by=excluded.requested_by,',
-     'held_at=excluded.held_at,released_at=NULL,released_by=NULL',
-     'WHERE tenant_release_upgrade_holds.active=false RETURNING tenant_id',
-   ].join(' '),[tenantId,intent.reason,userId])
-   if(hold.rowCount!==1)throw fail('An existing Production upgrade hold prevents a duplicate rollback.')
+   const existing=await db.query([
+     'SELECT active FROM tenant_release_upgrade_holds',
+     'WHERE tenant_id=$1 FOR UPDATE',
+   ].join(' '),[tenantId])
+   if(existing.rows[0]?.active===true){
+     // Retain the SAME active hold after a failed but compensated cutover.
+     // Its exact origin is checked in SQL, preserving microsecond precision.
+     // The latest request must be the failed one that created this hold;
+     // the new request still gets its own UUID, audit and worker lease.
+     const last=await db.query([
+       'SELECT r.state,r.requested_via,r.source_build_sha,r.target_build_sha,',
+       'r.source_route_generation,r.original_release_job_id,',
+       '(r.created_at=h.held_at AND r.requested_by=h.requested_by',
+       ' AND h.active) AS matches_hold_origin',
+       'FROM platform_release_rollback_jobs r',
+       'JOIN tenant_release_upgrade_holds h ON h.tenant_id=r.tenant_id',
+       "WHERE r.tenant_id=$1 AND r.environment='live'",
+       'ORDER BY r.created_at DESC,r.id DESC LIMIT 1',
+     ].join(' '),[tenantId])
+     if(!canRetryFailedProductionRollbackWithHold({
+       prior:last.rows[0],intent,original:check.original,
+     }))throw fail('Existing Production hold does not match an exact failed rollback retry.')
+   }else{
+     const hold=await db.query([
+       'INSERT INTO tenant_release_upgrade_holds',
+       '(tenant_id,active,reason,requested_by,held_at,released_at,released_by)',
+       'VALUES($1,true,$2,$3,now(),NULL,NULL)',
+       'ON CONFLICT (tenant_id) DO UPDATE SET',
+       'active=true,reason=excluded.reason,requested_by=excluded.requested_by,',
+       'held_at=excluded.held_at,released_at=NULL,released_by=NULL',
+       'WHERE tenant_release_upgrade_holds.active=false RETURNING tenant_id',
+     ].join(' '),[tenantId,intent.reason,userId])
+     if(hold.rowCount!==1)throw fail('A concurrent Production hold prevents rollback.')
+   }
  }
  const result=await db.query([
   'INSERT INTO platform_release_rollback_jobs',

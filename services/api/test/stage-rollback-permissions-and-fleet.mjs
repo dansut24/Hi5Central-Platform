@@ -171,6 +171,7 @@ test('staff Production rollback establishes tenant upgrade hold; UAT never holds
  assert.match(source,/if\(intent.environment==='live'\)\{/)
  assert.match(source,/INSERT INTO tenant_release_upgrade_holds/)
  assert.match(source,/tenant_release_upgrade_holds.active=false/)
- assert.match(source,/An existing Production upgrade hold/)
+ assert.match(source,/canRetryFailedProductionRollbackWithHold/)
+ assert.match(source,/Existing Production hold does not match an exact failed rollback retry/)
  assert.match(source,/return \{\.\.\.job,tenantSlug/)
 })
