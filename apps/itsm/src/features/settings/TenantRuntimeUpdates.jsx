@@ -1,5 +1,6 @@
 import {useEffect,useState} from 'react'
 import {CheckCircle2,Clock3,ExternalLink,RefreshCw,ShieldCheck,RotateCcw} from 'lucide-react'
+import {publishedCustomerVersion,customerVersionOrUnpublished} from '../../lib/customerReleaseVersion.js'
 import './TenantRuntimeUpdates.css'
 
 const BASE=window.__HI5_API_BASE__||''
@@ -20,7 +21,6 @@ async function request(path,options={}){
 }
 const when=v=>v?new Date(v).toLocaleString('en-GB'):'Not scheduled'
 const displayState=v=>String(v||'pending').replaceAll('_',' ')
-const short=v=>String(v||'').slice(0,8)
 export function TenantRuntimeUpdates({updateMode}){
  const [data,setData]=useState(null)
  const [loading,setLoading]=useState(true)
@@ -34,10 +34,16 @@ export function TenantRuntimeUpdates({updateMode}){
  const [rollback,setRollback]=useState(null)
  const [rollbackReason,setRollbackReason]=useState('')
  const [rollbackBusy,setRollbackBusy]=useState(false)
+ const [published,setPublished]=useState([])
  async function load(){
   try{
    const r=await request('')
    setData(r);setUnsupported(false);setError('')
+   try{
+     const response=await fetch(BASE+'/api/v1/updates',{credentials:'include',cache:'no-store'})
+     const notes=response.ok?await response.json():{}
+     setPublished(Array.isArray(notes.releases)?notes.releases:[])
+   }catch{setPublished([])}
    if(r.mode==='admin_controlled'){
      try{
        const result=await fetch(BASE+'/api/v1/release-management/rollback',{
@@ -79,11 +85,11 @@ export function TenantRuntimeUpdates({updateMode}){
    if(!rollback?.canRequest||rollbackReason.trim().length<20){
      setError('An approved rollback and a reason of at least 20 characters are required.');return
    }
-   const expected=short(rollback.installedBuildSha)
-   const typed=window.prompt('This will restore your UAT application version from '+
-     expected+' to '+short(rollback.previousBuildSha)+
-     '. Type the current build prefix '+expected+' to request the UAT rollback:','')
-   if(typed!==expected)return
+   const from=customerVersionOrUnpublished(rollback.installedBuildSha,published)
+   const to=customerVersionOrUnpublished(rollback.previousBuildSha,published)
+   const typed=window.prompt('This will restore your UAT application from Hi5Central release '+
+     from+' to '+to+'. Type ROLLBACK UAT to confirm:','')
+   if(typed!=='ROLLBACK UAT')return
    if(!window.confirm('Confirm rollback of this organisation’s UAT to its previous verified build? Production will not be changed.'))return
    setRollbackBusy(true);setError('');setMessage('')
    try{
@@ -134,7 +140,7 @@ export function TenantRuntimeUpdates({updateMode}){
     <div className="hi5-runtime-update-header">
      <div><span>UAT · {displayState(offer.state)}</span>
       <strong>{offer.versionLabel||'Application release'} · {offer.title||'Hi5Central update'}</strong>
-      <small>Build {short(offer.buildSha)} · {displayState(offer.state)}</small></div>
+      <small>Hi5Central release {publishedCustomerVersion(offer.versionLabel)||customerVersionOrUnpublished(offer.buildSha,published)} · {displayState(offer.state)}</small></div>
      <a href={'https://'+window.location.hostname.split('.')[0]+'-uat.'+window.location.hostname.split('.').slice(1).join('.')}
       target="_blank" rel="noreferrer"><ExternalLink size={14}/> Open UAT</a>
     </div>
@@ -159,7 +165,7 @@ export function TenantRuntimeUpdates({updateMode}){
      <div className="hi5-runtime-update-header">
        <div><span>Custom UAT · Recovery</span>
          <strong>Restore this organisation's previous UAT version</strong>
-         <small>Current {short(rollback.installedBuildSha)} · previous {short(rollback.previousBuildSha)}</small>
+         <small>Current {customerVersionOrUnpublished(rollback.installedBuildSha,published)} · previous {customerVersionOrUnpublished(rollback.previousBuildSha,published)}</small>
        </div><RotateCcw size={18}/>
      </div>
      {rollback.activeRequest?<p role="status">
@@ -167,7 +173,7 @@ export function TenantRuntimeUpdates({updateMode}){
      </p>:null}
      {rollback.latestRequest?<div className="hi5-runtime-update-pending" role="status" data-hi5-rollback-history>
        <strong>Most recent rollback: {rollback.latestRequest.state.replaceAll('_',' ')}</strong>
-       <small>From {short(rollback.latestRequest.source_build_sha)} to {short(rollback.latestRequest.target_build_sha)}
+       <small>From {customerVersionOrUnpublished(rollback.latestRequest.source_build_sha,published)} to {customerVersionOrUnpublished(rollback.latestRequest.target_build_sha,published)}
          {rollback.latestRequest.completed_at?' · completed '+when(rollback.latestRequest.completed_at):''}
          {rollback.latestRequest.host_verified_at?' · UAT host verified':''}</small>
        {rollback.latestRequest.state==='verified'?<p>
@@ -197,7 +203,7 @@ export function TenantRuntimeUpdates({updateMode}){
      <div className="hi5-runtime-update-header">
       <div><span>Production · {displayState(offer.state)}</span>
        <strong>{offer.versionLabel||'Application release'} · {offer.title||'Hi5Central update'}</strong>
-       <small>Build {short(offer.buildSha)}</small>
+       <small>Hi5Central release {publishedCustomerVersion(offer.versionLabel)||customerVersionOrUnpublished(offer.buildSha,published)}</small>
       </div><Clock3 size={17}/>
      </div>
      {offer.state==='offered'&&data.mode==='admin_controlled'?<div className="hi5-runtime-update-actions">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CheckCircle2, CircleAlert, ClipboardCheck, GitBranch, Plus, RefreshCw, Rocket, Save, Send, ShieldCheck, Trash2, X } from 'lucide-react'
 import { deploymentConfig } from '../lib/deploymentConfig.js'
+import {publishedCustomerVersion} from '../lib/customerReleaseVersion.js'
 import './ProductionApplicationUpdates.css'
 
 const API_BASE=window.__HI5_API_BASE__||''
@@ -22,7 +23,7 @@ async function portalFrontendManifest(){
     return VALID_SHA.test(String(data?.sha||''))?{sha:data.sha}:null
   }catch{return null}
 }
-function displayVersion(value){return String(value||'').trim().replace(/\+[a-f0-9]{8,40}$/i,'')}
+function displayVersion(value){return publishedCustomerVersion(value)||''}
 async function api(path,options={}){
   const response=await fetch(API_BASE+path,{credentials:'include',cache:'no-store',...options,
     headers:{...(options.body?{'Content-Type':'application/json'}:{}),...options.headers}})
@@ -339,8 +340,8 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
     {data?<div className="hi5-updates-content">
       <div className="hi5-updates-versions">
         <article><span className="hi5-updates-kicker">Running portal version</span>
-          <strong>{displayVersion(installed?.versionLabel)||(unverified?'Unverified build':preview?'Preview build':'Uncatalogued build')}</strong>
-          <small>Frontend build {short(installedSha)} · {ENV.toUpperCase()}</small></article>
+          <strong>{displayVersion(installed?.versionLabel)||(unverified?'Version not verified':'Version not published')}</strong>
+          <small>{installed?'Published Hi5Central release':'No published Hi5Central release for this installation'} · {ENV.toUpperCase()}</small></article>
         <article><span className="hi5-updates-kicker">Latest published release</span>
           <strong>{displayVersion(latest?.versionLabel)||'No releases yet'}</strong>
           <small>{latest?dateLabel(latest.publishedAt)+' · Publication does not install an update':'No published release recorded'}</small></article>

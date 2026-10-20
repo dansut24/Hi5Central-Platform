@@ -130,8 +130,10 @@ export async function tenantReleaseState(tenantId, slug = '') {
       [tenantId],
     ),
     pool.query([
-      'SELECT j.id,j.environment,j.build_sha,j.status,j.scheduled_at',
+      'SELECT j.id,j.environment,j.build_sha,j.status,j.scheduled_at,',
+      'notes.version_label',
       'FROM tenant_release_rollout_jobs j',
+      'LEFT JOIN hi5central_published_release_notes notes ON notes.build_sha=j.build_sha',
       "WHERE j.tenant_id=$1 AND j.status IN ('pending','scheduled','deferred')",
       'ORDER BY j.scheduled_at,j.id LIMIT 25',
     ].join(' '),[tenantId]),
@@ -145,6 +147,7 @@ export async function tenantReleaseState(tenantId, slug = '') {
     organisationTimezone,
     pendingReleases:pendingReleases.rows.map(row=>({
       jobId:row.id,environment:row.environment,buildSha:row.build_sha,
+      versionLabel:row.version_label||null,
       status:row.status,scheduledAt:row.scheduled_at,
     })),
     preference: preferencePayload(ownedPreference),

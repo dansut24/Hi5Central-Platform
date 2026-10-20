@@ -24,6 +24,10 @@ on:
       - 'services/api/test/stage-rollback-permissions-and-fleet.mjs'
       - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
       - 'apps/itsm/src/features/settings/TenantRuntimeUpdates.jsx'
+      - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
+      - 'apps/itsm/src/production/ProductionApplicationUpdates.jsx'
+      - 'apps/itsm/src/lib/customerReleaseVersion.js'
+      - 'services/api/test/customer-release-version-labels.mjs'
       - '.github/workflows/scoped-customer-rollback-qa.yml'
   push:
     branches: [main]
@@ -68,6 +72,7 @@ jobs:
             services/api/test/stage-rollback-activation-policy.mjs \
             services/api/test/rollback-production-precedence.mjs \
             services/api/test/rollback-gateway-exactness.mjs \
+            services/api/test/customer-release-version-labels.mjs \
             services/api/test/rollback-retry-production-hold.mjs \
             services/api/test/release-verified-upgrade-hold.mjs \
             services/api/test/uat-offer-supersession.mjs \
