@@ -20,6 +20,9 @@ export function ReleaseWorkActivity({api,canApprove}){
   const [rollbackTenant,setRollbackTenant]=useState('')
   const [rollbackReason,setRollbackReason]=useState('')
   const [rollbackBusy,setRollbackBusy]=useState(false)
+  const [upgradeHolds,setUpgradeHolds]=useState(null)
+  const [selectedHold,setSelectedHold]=useState('')
+  const [holdBusy,setHoldBusy]=useState(false)
   async function refresh(){
     try{
       const response=await api('/releases/rollout-jobs/activity')
@@ -29,6 +32,8 @@ export function ReleaseWorkActivity({api,canApprove}){
           const rollbackResult=await api('/releases/rollback/candidates?environment='+rollbackEnvironment)
           setRollbackData(rollbackResult)
         }catch{setRollbackData(null)}
+        try{setUpgradeHolds(await api('/releases/rollback/upgrade-holds'))}
+        catch{setUpgradeHolds(null)}
       }
       setError('')
     }catch(err){setError(err.message)}
@@ -77,6 +82,37 @@ export function ReleaseWorkActivity({api,canApprove}){
       setRollbackReason('')
       await refresh()
     }catch(e){setError(e.message)}finally{setRollbackBusy(false)}
+  }
+  const holdChoice=(upgradeHolds?.holds||[]).find(h=>h.tenantSlug===selectedHold)
+  async function releaseHold(){
+    if(!canApprove||!holdChoice?.canRequest)return
+    const reason=window.prompt(
+      'Audit reason for resuming future Production releases for '+holdChoice.tenantSlug+
+      '. No release will be started by this action (20–500 characters):',
+      'Verified Production-first and customer UAT rollback acceptance completed; resume normal scheduled releases.')
+    if(reason===null)return
+    if(reason.trim().length<20||reason.trim().length>500){
+      setError('A 20–500 character audit reason is required.');return
+    }
+    if(!window.confirm('Release the Production upgrade hold for ONLY '+holdChoice.tenantSlug+
+      '? Both environments must remain on '+short(holdChoice.toBuildSha)+
+      '. Future releases still require normal certification, approval and maintenance windows.'))return
+    setHoldBusy(true);setError('');setNotice('')
+    try{
+      const result=await api('/releases/rollback/upgrade-holds/release',{
+        method:'POST',body:JSON.stringify({
+          tenantSlug:holdChoice.tenantSlug,
+          fromBuildSha:holdChoice.fromBuildSha,toBuildSha:holdChoice.toBuildSha,
+          productionRollbackId:holdChoice.productionRollbackId,
+          uatRollbackId:holdChoice.uatRollbackId,
+          holdStartedAt:holdChoice.holdStartedAt,
+          reason:reason.trim(),confirm:'RELEASE_VERIFIED_PRODUCTION_UPGRADE_HOLD',
+        }),
+      })
+      setNotice(result.tenantSlug+' Production upgrade hold released and audited. No deployment started.')
+      setSelectedHold('')
+      await refresh()
+    }catch(err){setError(err.message)}finally{setHoldBusy(false)}
   }
   async function pause(){
     const reason=window.prompt('Reason for pausing all release rollouts (20 characters minimum)','')
@@ -257,6 +293,30 @@ export function ReleaseWorkActivity({api,canApprove}){
         {rollbackData.history[0].environment.toUpperCase()} ·
         {rollbackData.history[0].state.replaceAll('_',' ')}
       </p>:null}
+    </div>:null}
+    {canApprove&&Boolean(upgradeHolds?.holds?.length)?<div className="h5a-release-work-state" data-hi5-admin-upgrade-holds>
+      <div className="h5a-release-work-controls">
+        <strong><ShieldAlert size={16}/> Production upgrade holds</strong>
+        <small>After independently verified Production-first and customer UAT rollbacks,
+          an administrator may release the customer's upgrade hold. This does not deploy anything.</small>
+      </div>
+      <div className="h5a-release-work-controls">
+        <label>Customer <select value={selectedHold} onChange={e=>setSelectedHold(e.target.value)}>
+          <option value="">Select held customer</option>
+          {(upgradeHolds.holds||[]).map(h=><option key={h.tenantSlug} value={h.tenantSlug}>
+            {h.tenantSlug} · {h.canRequest?'Verified and ready':'Verification required'}
+          </option>)}
+        </select></label>
+        <button type="button" className="rmm-secondary compact"
+          disabled={holdBusy||!holdChoice?.canRequest} onClick={releaseHold}>
+          <ShieldAlert size={14}/> Release verified hold
+        </button>
+      </div>
+      {holdChoice?<small className="h5a-release-work-note">
+        Production {short(holdChoice.productionBuildSha)} ·
+        UAT {short(holdChoice.uatBuildSha)} · Restore target {short(holdChoice.toBuildSha)}
+        {!holdChoice.canRequest?' — Awaiting exact verified rollback evidence':null}
+      </small>:null}
     </div>:null}
     <div className="h5a-release-work-overview">
       {['scheduled','deferred','running','succeeded','failed','cancelled'].map(status=>

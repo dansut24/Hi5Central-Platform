@@ -7,6 +7,7 @@ import {activeTenantMaintenanceWindow} from './releaseRolloutPlanner.js'
 import {readFleetResumeReadiness,reviewedFleetResumeRequest} from './releaseFleetResume.js'
 import {reviewedRollbackCompatibilityRequest,reviewedRollbackExecutorRequest,reviewedRollbackRevocation,reviewRollbackCompatibility,reviewRollbackExecutor} from './reviewedCustomerRollbackApprovals.js'
 import {staffRollbackSelection,listStaffRollbackCandidates,queueRollback} from './stageRollbackControl.js'
+import {reviewedUpgradeHoldRelease,listVerifiedUpgradeHolds,releaseVerifiedUpgradeHold} from './releaseVerifiedUpgradeHold.js'
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SHA=/^[a-f0-9]{40}$/
 const STAGES=new Set(['test','uat','live'])
@@ -238,6 +239,29 @@ export function registerReleaseWorkActivityRoutes(app,deps){
       })
       return c.json({...result,productionChanged:false})
     }catch(error){return c.json({error:String(error.message||error).slice(0,350)},error.status||409)}
+  })
+  app.get('/api/platform/v1/releases/rollback/upgrade-holds',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    try{
+      c.header('Cache-Control','no-store')
+      return c.json({holds:await listVerifiedUpgradeHolds(pool)})
+    }catch(error){return c.json({error:String(error.message||error).slice(0,350)},error.status||409)}
+  })
+  app.post('/api/platform/v1/releases/rollback/upgrade-holds/release',async c=>{
+    const auth=await staffAuthority(c,deps)
+    if(auth.error)return auth.error
+    try{
+      const request=reviewedUpgradeHoldRelease(await c.req.json().catch(()=>null))
+      const result=await withTransaction(async db=>releaseVerifiedUpgradeHold(
+        db,request,auth.session.user_id,async evidence=>{
+          await audit(c,auth.session,'release.customer_production_upgrade_hold_released',
+            'tenant',evidence.tenantId,evidence,db)
+        },
+      ))
+      c.header('Cache-Control','no-store')
+      return c.json(result)
+    }catch(error){return c.json({error:String(error.message||error).slice(0,450)},error.status||409)}
   })
   app.get('/api/platform/v1/releases/rollout-jobs/activity',async c=>{
     const auth=await staffAuthority(c,deps)
