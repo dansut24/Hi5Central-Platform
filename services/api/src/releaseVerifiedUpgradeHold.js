@@ -109,13 +109,15 @@ export async function releaseVerifiedUpgradeHold(db,request,userId,auditAction){
   throw refuse('Production-first and customer UAT rollback verification is incomplete or mismatched.')
  const origin=await db.query([
   'SELECT 1 FROM platform_release_rollback_jobs r',
+  'JOIN tenant_release_upgrade_holds h ON h.tenant_id=r.tenant_id',
   "WHERE r.tenant_id=$1 AND r.environment='live'",
-  'AND r.created_at=$2 AND r.requested_by=$3',
-  "AND r.requested_via='hi5central_admin'",
-  'AND r.source_build_sha=$4 AND r.target_build_sha=$5',
+  // Compare the two original DB timestamps INSIDE PostgreSQL: converting
+  // either to a JS Date truncates its microseconds and would fail valid holds.
+  'AND r.created_at=h.held_at AND r.requested_by=h.requested_by',
+  "AND h.active=true AND r.requested_via='hi5central_admin'",
+  'AND r.source_build_sha=$2 AND r.target_build_sha=$3',
   'LIMIT 1',
- ].join(' '),[tenantId,original.held_at,original.requested_by,
-  request.fromBuildSha,request.toBuildSha])
+ ].join(' '),[tenantId,request.fromBuildSha,request.toBuildSha])
  if(origin.rowCount!==1)throw refuse('Active hold does not originate from this verified recovery.')
  const observed=await db.query([
   'SELECT a.environment,a.build_sha,a.pool_id,a.generation,',
