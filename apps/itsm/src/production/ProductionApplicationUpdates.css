@@ -154,3 +154,23 @@
 .hi5-release-acceptance-checklist>label strong{font-size:11px;line-height:1.35}
 .hi5-release-acceptance-checklist>label small{font-size:10px;color:var(--muted,#667083);line-height:1.4}
 @media(max-width:700px){.hi5-release-readiness-items{grid-template-columns:1fr}}
+
+/* Customer previews are editorial, not releases, approval, or schedules. */
+.hi5-updates-draft-visibility{display:grid;gap:15px;margin:16px 0;padding:16px;
+  border:1px solid var(--hi5-border,#d7dce2);border-radius:12px}
+.hi5-updates-preview-toggle{display:flex;align-items:flex-start;gap:12px;cursor:pointer}
+.hi5-updates-preview-toggle input{margin-top:3px;accent-color:var(--hi5-primary,#2563eb)}
+.hi5-updates-preview-toggle span,.hi5-updates-internal-notes{display:grid;gap:5px}
+.hi5-updates-draft-visibility small{font-size:12px;line-height:1.5;opacity:.78}
+.hi5-updates-internal-notes textarea{width:100%;box-sizing:border-box;min-width:0;resize:vertical;
+  border:1px solid var(--hi5-border,#d7dce2);border-radius:8px;padding:10px;
+  background:var(--hi5-input-bg,transparent);color:inherit;font:inherit}
+.hi5-updates-upcoming{margin:24px 0}
+.hi5-updates-upcoming-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
+.hi5-updates-upcoming-card{padding:16px;border:1px solid var(--hi5-border,#d7dce2);
+  border-radius:12px;min-width:0}
+.hi5-updates-upcoming-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.hi5-updates-upcoming-heading strong{min-width:0;overflow-wrap:anywhere}
+.hi5-updates-upcoming-card>p{font-size:13px;line-height:1.6;margin:10px 0}
+.hi5-updates-upcoming-changes{border-top:1px solid var(--hi5-border,#d7dce2);margin-top:13px;padding-top:11px}
+.hi5-updates-upcoming-changes .hi5-updates-note-entry{padding:8px 0}
