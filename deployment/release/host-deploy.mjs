@@ -10,7 +10,7 @@ import {readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {prepareSharedTenantCaddyRoute} from '../../services/api/src/tenantCaddyVersionRoutes.js'
 import {resolveTenantCurrentRevision} from '../../services/api/src/tenantLiveBaseline.js'
-import {assertUnassignedSandboxBaseline} from '../../services/api/src/tenantFirstStageBaseline.js'
+import {assertUnassignedSandboxBaseline,assertUnassignedLiveFallbackBaseline} from '../../services/api/src/tenantFirstStageBaseline.js'
 
 const [environment,slug,sha,mode,restoreKey]=process.argv.slice(2)
 const SHA=/^[a-f0-9]{40}$/
@@ -84,8 +84,16 @@ async function currentTenantRevision(){
  */
 async function currentRevisionOrUnassigned(snapshot){
   const marker='  # H5C_RELEASE_ROUTE_BEGIN '+host
-  if(environment==='live'||snapshot.includes(marker))
+  if(snapshot.includes(marker))
     return {...await currentTenantRevision(),unassigned:false}
+  // A first Production tenant route is NOT already deployed merely because
+  // its wildcard signup fallback serves the same approved SHA. Preserve a
+  // null prior build, so bootstrap cannot manufacture a rollback candidate.
+  if(environment==='live')return assertUnassignedLiveFallbackBaseline({
+    environment,host,source:snapshot,targetSha:sha,
+    apiSha:await shaPublic('https://'+host+'/api/v1/updates/version'),
+    webSha:await shaPublic('https://'+host+'/release-manifest.json'),
+  })
   const raw=await cmd('curl',[
     '-sS','--max-time','8','-w','__H5C_STATUS__%{http_code}',
     'https://'+host+'/api/v1/updates/version',
@@ -409,7 +417,7 @@ try{
   }
   if(mode==='--apply'){
     prior=(await currentRevisionOrUnassigned(old)).sha
-    if(prior===sha)throw Error('Exact tenant build is already active; reconcile its job.')
+    if(prior===sha)throw Error('Exact dedicated tenant build is already active; reconcile its job.')
   }
   for(const type of ['api','itsm']){
     const image='ghcr.io/dansut24/hi5central-platform-'+type+':sha-'+sha
