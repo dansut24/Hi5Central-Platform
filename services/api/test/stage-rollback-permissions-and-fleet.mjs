@@ -83,10 +83,12 @@ test('pure Caddy rollback routing cannot modify any other tenant',()=>{
  assert.equal(assertTenantOnlyGatewayMutation({
   before:second.config,after:after.config,
   host:'companycustom-uat.hi5central.com',
+  tenantSlug:'companycustom',stage:'uat',buildSha:to,
  }),true)
  assert.throws(()=>assertTenantOnlyGatewayMutation({
   before:second.config,after:after.config.replace('companymanaged','tampered'),
   host:'companycustom-uat.hi5central.com',
+  tenantSlug:'companycustom',stage:'uat',buildSha:to,
  }),/Another customer/)
 })
 test('customer API contains no Production rollback submission and preserves Live release centre auth',()=>{
