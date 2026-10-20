@@ -76,10 +76,17 @@ function SandboxReleaseOverview() {
         const catalogue=response.ok?await response.json():{}
         releases=Array.isArray(catalogue.releases)?catalogue.releases:[]
       }catch{}
+      let actualFrontendSha=null
+      try{
+        const response=await fetch('/release-manifest.json',{cache:'no-store'})
+        const manifest=response.ok?await response.json():{}
+        if(/^[a-f0-9]{40}$/.test(String(manifest.sha||'')))
+          actualFrontendSha=manifest.sha
+      }catch{}
       if(!active)return
       const matching=(payload.environments||[]).find(item=>item.environment===environment)
       setState({loading:false,error:'',
-        releaseLabel:customerVersionForBuild(matching?.activeReleaseRef,releases),
+        releaseLabel:customerVersionForBuild(actualFrontendSha,releases),
         lastDeployedAt:matching?.lastDeployedAt||null})
     }).catch(error=>{
       if(active)setState({loading:false,error:error.message,releaseLabel:null,lastDeployedAt:null})
