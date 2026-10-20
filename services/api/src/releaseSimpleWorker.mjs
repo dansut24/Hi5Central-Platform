@@ -15,6 +15,7 @@ if(process.argv.slice(2).some(v=>v!=='--preflight'))
   throw Error('Usage: releaseSimpleWorker.mjs [--preflight]')
 const standby=process.env.RELEASE_WORKER_ACTIVE!=='true'
 import {rollbackExecutorEnabledForStage} from './stageRollbackActivationPolicy.js'
+import {synchroniseSharedOnboardingBaseline} from './sharedOnboardingBaselineSync.mjs'
 const children=[]
 let closing=false
 let code=0
@@ -61,6 +62,37 @@ for(const stage of stages){
    }
  })
 }
+// One new task within the EXISTING supervisor, not another runner/service.
+// Reads only the latest published, certified, administrator-approved SHA;
+// changes the shared signup API/web image pair, never customer routes.
+const signupSyncEnabled=process.env.H5C_SHARED_ONBOARDING_BASELINE_SYNC_ENABLED==='true'
+let signupSyncBusy=false
+let signupSyncTimer=null
+let signupSyncStart=null
+async function reconcileSignupBaseline(){
+ if(closing||signupSyncBusy)return
+ signupSyncBusy=true
+ try{
+  const outcome=await synchroniseSharedOnboardingBaseline({
+   databaseUrl:urlFor('live'),
+  })
+  if(outcome.status==='upgraded')
+   console.log('CERTIFIED_SHARED_SIGNUP_BASELINE_UPDATED',outcome.sha)
+ }catch(error){
+  // A baseline failure must not terminate the stage-restricted rollout
+  // workers or silently update an unrelated customer.
+  console.error('SHARED_SIGNUP_BASELINE_RETRY',String(error.message||error).slice(0,280))
+ }finally{signupSyncBusy=false}
+}
+if(signupSyncEnabled&&!preflight){
+ signupSyncStart=setTimeout(reconcileSignupBaseline,12000)
+ signupSyncTimer=setInterval(reconcileSignupBaseline,60000)
+}
+for(const signal of ['SIGINT','SIGTERM'])
+ process.on(signal,()=>{
+  if(signupSyncStart)clearTimeout(signupSyncStart)
+  if(signupSyncTimer)clearInterval(signupSyncTimer)
+ })
 await Promise.all(children.map(child=>new Promise(resolve=>{
  if(child.exitCode!==null||child.signalCode!==null)return resolve()
  child.once('exit',resolve)
