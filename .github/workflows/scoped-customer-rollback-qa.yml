@@ -18,6 +18,8 @@ on:
       - 'services/api/src/uatRuntimeOfferSupersession.js'
       - 'services/api/test/uat-offer-supersession.mjs'
       - 'services/api/src/releaseWorkActivity.js'
+      - 'services/api/src/releaseVerifiedUpgradeHold.js'
+      - 'services/api/test/release-verified-upgrade-hold.mjs'
       - 'deployment/release/host-deploy.mjs'
       - 'services/api/test/stage-rollback-permissions-and-fleet.mjs'
       - 'apps/admin/src/features/admin/ReleaseWorkActivity.jsx'
@@ -28,6 +30,8 @@ on:
     paths:
       - 'services/api/src/stageRollbackControl.js'
       - 'services/api/src/stageRollbackExecution.mjs'
+      - 'services/api/src/releaseVerifiedUpgradeHold.js'
+      - 'services/api/test/release-verified-upgrade-hold.mjs'
       - 'services/api/migrations/platform-admin/181_stage_scoped_rollback_queue.sql'
       - 'services/api/migrations/platform-admin/182_stage_rollback_worker_fences.sql'
       - '.github/workflows/scoped-customer-rollback-qa.yml'
@@ -57,6 +61,7 @@ jobs:
           node --check services/api/src/tenantRelease.js
           node --check services/api/src/tenantReleaseExecutor.mjs
           node --check services/api/src/releaseWorkActivity.js
+          node --check services/api/src/releaseVerifiedUpgradeHold.js
           node --check deployment/release/host-deploy.mjs
           node --test \
             services/api/test/stage-rollback-permissions-and-fleet.mjs \
@@ -64,6 +69,7 @@ jobs:
             services/api/test/rollback-production-precedence.mjs \
             services/api/test/rollback-gateway-exactness.mjs \
             services/api/test/rollback-retry-production-hold.mjs \
+            services/api/test/release-verified-upgrade-hold.mjs \
             services/api/test/uat-offer-supersession.mjs \
             services/api/test/customer-production-route-rollback-plan.mjs \
             services/api/test/customer-production-rollback-worker.mjs
