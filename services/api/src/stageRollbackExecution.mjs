@@ -8,7 +8,7 @@
  * command is ever accepted here.
  */
 import {readFileSync} from 'node:fs'
-import {undoTenantCaddyRoute,releasePair} from './tenantCaddyVersionRoutes.js'
+import {prepareSharedTenantCaddyRoute,releasePair} from './tenantCaddyVersionRoutes.js'
 const SHA=/^[a-f0-9]{40}$/
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i
 const SLUG=/^[a-z0-9](?:[a-z0-9-]{0,43}[a-z0-9])?$/
@@ -27,12 +27,19 @@ export function validateStageRollbackLease(job,stage){
    throw Error('Stage rollback lease does not match a verified tenant and immutable build pair.')
  return {...job,generation:Number(job.generation),leaseFence:Number(job.leaseFence)}
 }
-export function assertTenantOnlyGatewayMutation({before,after,host}){
+export function assertTenantOnlyGatewayMutation({before,after,host,tenantSlug,stage,buildSha}={}){
  if(typeof before!=='string'||typeof after!=='string'
    ||!before.includes('# H5C_RELEASE_ROUTE_BEGIN '+host))
    throw Error('Original customer route marker missing before rollback.')
- const recovered=undoTenantCaddyRoute({current:after,original:before,host})
- if(recovered!==before)
+ // The trusted host deployer relocates the selected route to its standard
+ // insertion point. Undoing only its CONTENTS leaves that block in the new
+ // position and falsely reports unrelated gateway drift. Independently
+ // reconstruct the exact authorised full Caddyfile instead: any other
+ // customer, shared setting, route order or target is rejected.
+ const expected=prepareSharedTenantCaddyRoute({
+  config:before,tenantSlug,environment:stage,buildSha,
+ })
+ if(expected.host!==host||after!==expected.config)
    throw Error('Another customer or shared gateway setting changed during rollback.')
  return true
 }
@@ -128,7 +135,8 @@ export async function processQueuedStageRollback({pool,stage,shell,heartbeat}){
      throw Error('Host did not return a matching verified rollback and recovery snapshot.')
    await fenced()
    const after=await observedSource(shell)
-   assertTenantOnlyGatewayMutation({before,after,host:hostname})
+   assertTenantOnlyGatewayMutation({before,after,host:hostname,
+    tenantSlug:job.tenantSlug,stage,buildSha:job.toSha})
    sourceVerified=true
    const currentAfter=await publicVersion(shell,hostname)
    if(currentAfter.api!==job.toSha||currentAfter.web!==job.toSha)
