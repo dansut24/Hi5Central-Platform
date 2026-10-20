@@ -6,6 +6,9 @@ on:
       - 'services/api/src/releasePlannerScope.js'
       - 'services/api/test/release-planner-scope.mjs'
       - 'services/api/src/tenantReleaseExecutor.mjs'
+      - 'services/api/src/tenantFirstStageBaseline.js'
+      - 'services/api/test/first-live-tenant-bootstrap.mjs'
+      - 'deployment/release/host-deploy.mjs'
       - 'services/api/src/releaseSimpleWorker.mjs'
       - 'services/api/src/sharedOnboardingBaseline.js'
       - 'services/api/src/sharedOnboardingBaselineSync.mjs'
@@ -38,6 +41,10 @@ jobs:
           node --check services/api/src/releasePlannerScope.js
           node --test services/api/test/release-planner-scope.mjs
           node --check services/api/src/tenantReleaseExecutor.mjs
+          node --check services/api/src/tenantFirstStageBaseline.js
+          node --check deployment/release/host-deploy.mjs
+          node --test services/api/test/first-live-tenant-bootstrap.mjs \
+            services/api/test/first-sandbox-cutover.mjs
           node --check services/api/src/releaseSimpleWorker.mjs
           node --check services/api/src/sharedOnboardingBaseline.js
           node --check services/api/src/sharedOnboardingBaselineSync.mjs
