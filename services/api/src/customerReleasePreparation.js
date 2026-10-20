@@ -19,8 +19,17 @@ export function normaliseCustomerReleaseDraft({sha,notes}={}){
    throw rejected('Unsupported release note category.')
   return {category,title:trim(entry.title,160),description:trim(entry.description,950)}
  })
+ const upcomingVisible=notes.upcomingVisible===true
+ const internalNotes=trim(notes.internalNotes,4000)
+ // Preview is an explicit Dev author action. Reject incomplete public
+ // content rather than accidentally exposing an empty/unfinished placeholder.
+ if(upcomingVisible&&(trim(notes.title,180).length<3
+   ||trim(notes.summary,1200).length<12
+   ||entries.length===0||entries.some(e=>e.title.length<3)))
+  throw rejected('Add a customer title, a useful summary and complete public change titles before showing an upcoming release.')
  return {versionLabel:trim(notes.versionLabel,32),
-  title:trim(notes.title,180),summary:trim(notes.summary,1200),entries}
+  title:trim(notes.title,180),summary:trim(notes.summary,1200),entries,
+  upcomingVisible,internalNotes}
 }
 
 async function lockRevision(db,sha){

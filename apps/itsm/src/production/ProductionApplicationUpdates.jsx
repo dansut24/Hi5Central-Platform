@@ -44,7 +44,7 @@ function DevReleaseEditor({installed,onPublished}){
   const [candidates,setCandidates]=useState([])
   const [sha,setSha]=useState(installed||'')
   const [runUrl,setRunUrl]=useState('')
-  const [notes,setNotes]=useState({versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()]})
+  const [notes,setNotes]=useState({versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()],upcomingVisible:false,internalNotes:''})
   const [status,setStatus]=useState('draft')
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
@@ -65,7 +65,7 @@ function DevReleaseEditor({installed,onPublished}){
     api('/api/v1/updates/dev-release/'+sha).then(data=>{
       if(!active)return
       setStatus(data.submission?.status||'draft')
-      setNotes(data.submission?.notes||{versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()]})
+      setNotes(data.submission?.notes||{versionLabel:'',title:'',summary:'',entries:[EMPTY_ENTRY()],upcomingVisible:false,internalNotes:''})
       setRunUrl(data.submission?.ci_run_url||'')
     }).catch(e=>{if(active)setError(e.message)})
     return()=>{active=false}
@@ -141,6 +141,23 @@ function DevReleaseEditor({installed,onPublished}){
         <textarea disabled={!editable||busy} rows={2} value={entry.description||''}
           onChange={e=>change(i,'description',e.target.value)} placeholder="Customer-facing description"/>
       </div>)}
+    </div>
+    <div className="hi5-updates-draft-visibility">
+      <label className="hi5-updates-preview-toggle">
+        <input type="checkbox" checked={notes.upcomingVisible===true} disabled={!editable||busy}
+          onChange={e=>update('upcomingVisible',e.target.checked)}/>
+        <span><strong>Show as an upcoming release to customers</strong>
+          <small>Optional. Only the customer-facing title, summary and changes above will be shown as Planned.
+            This is not an approved release or an estimated installation date.</small></span>
+      </label>
+      <label className="hi5-updates-internal-notes">
+        <strong>Internal developer notes</strong>
+        <small>Private to Hi5Central Dev and Platform Admin. Never displayed in the customer portal,
+          upcoming previews or published release notes.</small>
+        <textarea rows={4} maxLength={4000} disabled={!editable||busy}
+          value={notes.internalNotes||''} onChange={e=>update('internalNotes',e.target.value)}
+          placeholder="QA observations, implementation details, unfinished work, handover notes…"/>
+      </label>
     </div>
     {editable?<div className="hi5-updates-approval-actions">
       <button type="button" disabled={busy||!candidate} onClick={()=>act(false)}><Save size={15}/> Save draft</button>
@@ -353,6 +370,24 @@ export function Hi5CentralUpdatesPanel({compact=false,visible=true,onClose=null}
             installed?'This portal matches the latest published frontend build.':
             'The installed build is not associated with a current published version.'}</small></article>
       </div>
+      {Array.isArray(data.upcoming)&&data.upcoming.length>0?<section className="hi5-updates-upcoming"
+        aria-label="Upcoming Hi5Central releases">
+        <div className="hi5-updates-change-header">
+          <div><h3>Upcoming releases</h3>
+            <p>Planned improvements shared by Hi5Central. Details may change before approval.</p></div>
+        </div>
+        <div className="hi5-updates-upcoming-grid">
+          {data.upcoming.map((item,i)=><article className="hi5-updates-upcoming-card" key={i}>
+            <div className="hi5-updates-upcoming-heading">
+              <strong>{item.title}</strong><span className="hi5-updates-status">Planned</span>
+            </div>
+            <p>{item.summary}</p>
+            {(item.entries||[]).length?<div className="hi5-updates-upcoming-changes">
+              {item.entries.map((entry,j)=>noteEntry(entry,j))}
+            </div>:null}
+          </article>)}
+        </div>
+      </section>:null}
       {ENV==='dev'?<DevReleaseReadiness data={data}/>:null}
       {ENV==='dev'?<>
         <DevReleaseEditor key={data.sha} installed={data.sha} onPublished={refresh}/>
