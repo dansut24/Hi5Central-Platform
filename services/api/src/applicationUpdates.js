@@ -4,6 +4,7 @@ import { pool } from './db.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 import {callCentralDevHandoff} from './devReleaseHandoff.js'
+import {publicUpcomingPreviews} from './customerUpcomingPreview.js'
 
 let manifest
 try {manifest=JSON.parse(readFileSync(resolve(process.cwd(),'release-manifest.json'),'utf8'))}
@@ -105,6 +106,38 @@ async function publishedReleases(){
     return Array.isArray(payload.releases)?payload.releases:[]
   }catch{return []}
 }
+async function centralUpcomingPreviews(){
+ const result=await pool.query([
+  'SELECT status,notes FROM platform_dev_release_submissions',
+  "WHERE status IN ('draft','submitted')",
+  "AND notes->>'upcomingVisible'='true'",
+  'ORDER BY edited_at DESC LIMIT 30',
+ ].join(' '))
+ return publicUpcomingPreviews(result.rows)
+}
+async function upcomingReleases(){
+ if(deployment.deploymentMode==='self_hosted')return []
+ // Always read the central public-only endpoint. This does not require
+ // sharing private Dev notes with tenant-specific customer API services.
+ try{
+  const response=await fetch('https://api.'+deployment.rootDomain+'/api/v1/updates/upcoming',{
+   headers:{Accept:'application/json'},
+   signal:AbortSignal.timeout(3500),
+  })
+  if(!response.ok)return []
+  const data=await response.json()
+  // Apply the same public envelope, never pass arbitrary central API data
+  // into a customer response if the upstream contract changes.
+  return Array.isArray(data.releases)?data.releases.map(item=>({
+   title:typeof item.title==='string'?item.title.slice(0,180):'',
+   summary:typeof item.summary==='string'?item.summary.slice(0,1200):'',
+   status:'planned',
+   entries:Array.isArray(item.entries)?item.entries.slice(0,35).map(entry=>({
+    category:entry.category,title:entry.title,description:entry.description,
+   })):[],
+  })).filter(item=>item.title&&item.summary).slice(0,6):[]
+ }catch{return []}
+}
 export function registerApplicationUpdatesRoutes(app){
   app.get('/api/v1/updates/version',c=>c.json({sha:manifest.sha,version:manifest.version,
     releaseName:manifest.releaseName||manifest.version,builtAt:manifest.builtAt,
@@ -117,14 +150,22 @@ export function registerApplicationUpdatesRoutes(app){
     c.header('Cache-Control','public,max-age=60')
     return c.json({releases:await centralPublished()})
   })
+  // Public customer previews: ONLY explicit Dev opt-ins. Never include
+  // Git commits, draft private notes, authors, version labels or CI metadata.
+  app.get('/api/v1/updates/upcoming',async c=>{
+    if(deployment.runtimeEnvironment!=='live'||deployment.deploymentMode==='self_hosted')
+      return c.json({error:'Central preview authority only.'},403)
+    c.header('Cache-Control','public,max-age=60')
+    return c.json({releases:await centralUpcomingPreviews()})
+  })
   app.get('/api/v1/updates',async c=>{
     const auth=await requireUser(c)
     if(auth.error)return auth.error
-    const releases=await publishedReleases()
+    const [releases,upcoming]=await Promise.all([publishedReleases(),upcomingReleases()])
     return c.json({sha:manifest.sha,version:manifest.version,
       releaseName:manifest.releaseName||manifest.version,builtAt:manifest.builtAt,
       environment:deployment.runtimeEnvironment,
-      releases,latestPublished:releases[0]||null,
+      releases,upcoming,latestPublished:releases[0]||null,
       availableReleases:releases.filter(item=>item.buildSha!==manifest.sha)})
   })
   // Dev prepares one central release record. This is an authenticated
