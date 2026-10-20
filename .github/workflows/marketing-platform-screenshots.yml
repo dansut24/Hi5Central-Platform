@@ -1,0 +1,84 @@
+name: Marketing — real Platform sample screenshots
+
+on:
+  push:
+    branches:
+      - feat/marketing-premium-website-20261017
+    paths:
+      - 'scripts/capture-platform-marketing-screens.cjs'
+      - '.github/workflows/marketing-platform-screenshots.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            apps/itsm/package-lock.json
+            apps/rmm/package-lock.json
+      - name: Build actual ITSM and RMM frontend code
+        run: |
+          npm ci --prefix apps/itsm --ignore-scripts --no-audit --no-fund
+          npm ci --prefix apps/rmm --ignore-scripts --no-audit --no-fund
+          npm run build --prefix apps/itsm
+          npm run build --prefix apps/rmm
+      - name: Inject local-only capture runtime without real API credentials
+        run: |
+          cat >apps/itsm/dist/runtime-config.js <<'JS'
+          window.__HI5_CONFIG__={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:'test',rootDomain:'hi5central.com',apiUrl:'http://showcase.hi5central.com:4173',marketingUrl:'http://hi5central.com:4173'};
+          window.__HI5_API_BASE__=window.__HI5_CONFIG__.apiUrl;
+          JS
+          cat >apps/rmm/dist/runtime-config.js <<'JS'
+          window.__HI5_CONFIG__={deploymentMode:'managed',tenancyMode:'multi',runtimeEnvironment:'test',rootDomain:'hi5central.com',apiUrl:'http://showcase-rmm.hi5central.com:4174',appUrl:'http://showcase.hi5central.com:4173',rmmUrl:'http://showcase-rmm.hi5central.com:4174'};
+          window.__HI5_API_BASE__=window.__HI5_CONFIG__.apiUrl;
+          JS
+      - name: Install isolated Chromium capture dependency
+        run: |
+          npm install --prefix /tmp/hi5-platform-capture --no-save --ignore-scripts --no-audit --no-fund playwright@1.56.1
+          /tmp/hi5-platform-capture/node_modules/.bin/playwright install --with-deps chromium
+      - name: Capture actual frontend with synthetic API data only
+        env:
+          NODE_PATH: /tmp/hi5-platform-capture/node_modules
+        run: |
+          __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=showcase.hi5central.com \
+          VITE_API_URL=http://showcase.hi5central.com:4173 \
+          npm run preview --prefix apps/itsm -- --host 0.0.0.0 --port 4173 >/tmp/itsm-marketing-capture.log 2>&1 &
+          itsm_pid=$!
+          __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=showcase-rmm.hi5central.com \
+          VITE_API_URL=http://showcase-rmm.hi5central.com:4174 \
+          npm run preview --prefix apps/rmm -- --host 0.0.0.0 --port 4174 >/tmp/rmm-marketing-capture.log 2>&1 &
+          rmm_pid=$!
+          trap 'kill "$itsm_pid" "$rmm_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 40); do
+            if curl -fsS -H 'Host: showcase.hi5central.com' http://127.0.0.1:4173/ >/dev/null &&
+               curl -fsS -H 'Host: showcase-rmm.hi5central.com' http://127.0.0.1:4174/ >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/capture-platform-marketing-screens.cjs
+          test -s apps/itsm/public/marketing/platform-itsm-sample.png
+          test -s apps/itsm/public/marketing/platform-rmm-sample.png
+      - name: Upload review screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hi5-platform-actual-ui-sample-screenshots
+          path: apps/itsm/public/marketing/platform-*-sample.png
+          if-no-files-found: ignore
+      - name: Commit only redacted/synthetic real-frontend screenshots to draft branch
+        run: |
+          git config user.name "hi5central-marketing-ci"
+          git config user.email "hi5central-marketing-ci@users.noreply.github.com"
+          git add apps/itsm/public/marketing/platform-itsm-sample.png apps/itsm/public/marketing/platform-rmm-sample.png
+          git diff --cached --quiet && exit 0
+          git commit -m "assets(marketing): actual Platform UI screenshots using isolated sample data"
+          git push origin HEAD:feat/marketing-premium-website-20261017
