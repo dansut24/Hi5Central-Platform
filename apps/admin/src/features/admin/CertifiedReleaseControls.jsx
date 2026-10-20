@@ -119,6 +119,14 @@ export function CertifiedReleaseControls({api,canApprove=false}){
     <strong>{entry.title}</strong> <small>· {categories[entry.category]||'Other'}</small>
     <p style={{fontSize:13,marginTop:5}}>{entry.description||'No description'}</p>
    </div>)}
+   {current.notes?.internalNotes?<section aria-label="Private developer notes" style={{
+    marginTop:14,padding:12,borderRadius:8,border:'1px solid var(--rmm-border,#d7dce2)'}}>
+    <strong>Internal Dev notes — Hi5Central staff only</strong>
+    <p style={{whiteSpace:'pre-wrap',fontSize:13,marginTop:8}}>{current.notes.internalNotes}</p>
+   </section>:null}
+   {current.status==='draft'||current.status==='submitted'?<p style={{marginTop:12,fontSize:12,opacity:.7}}>
+    Upcoming preview: {current.notes?.upcomingVisible===true?'Visible to customers as Planned':'Private'}
+   </p>:null}
    {current.status==='rejected'&&<p role="status">Rejection reason: {current.rejection_reason}</p>}
    {current.status==='submitted'&&canApprove?<div style={{display:'flex',gap:12,flexWrap:'wrap',marginTop:16}}>
     <button type="button" className="rmm-primary" disabled={Boolean(busy)} onClick={approve}>
