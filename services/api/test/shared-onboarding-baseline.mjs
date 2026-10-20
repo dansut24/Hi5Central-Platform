@@ -49,7 +49,7 @@ test('supervisor sync is optional and cannot change stage rollback entitlement',
  assert.match(worker,/if\(signupSyncEnabled&&!preflight\)/)
  assert.match(worker,/databaseUrl:urlFor\('live'\)/)
  assert.match(worker,/H5C_STAGE_ROLLBACK_EXECUTOR_ENABLED=rollbackExecutorEnabledForStage/)
- assert.match(sync,/identity\.session_user!=='hi5_release_executor_live'/)
+ assert.match(sync,/identity\?\.session_user!=='hi5_release_executor_live'/)
  assert.match(sync,/c\.status='approved'/)
  assert.match(sync,/c\.approved_by IS NOT NULL/)
  assert.match(sync,/ORDER BY n\.published_at DESC/)
