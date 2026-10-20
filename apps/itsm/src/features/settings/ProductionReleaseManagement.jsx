@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck, XCircle } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import {publishedCustomerVersion,customerVersionForBuild} from '../../lib/customerReleaseVersion.js'
 import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
 import './ProductionReleaseManagement.css'
 
@@ -60,7 +61,7 @@ function SandboxReleaseOverview() {
   const environment=config.runtimeEnvironment
   const slug=window.location.hostname.split('.')[0].replace(/-(uat|test)$/, '')
   const liveUrl=`https://${slug}.${config.rootDomain}/settings/platform/releases`
-  const [state,setState]=useState({loading:true,error:'',releaseRef:'',lastDeployedAt:null})
+  const [state,setState]=useState({loading:true,error:'',releaseLabel:null,lastDeployedAt:null})
   const [uatLiveChatEnabled,setUatLiveChatEnabled]=useState(null)
   useEffect(()=>{
     let active=true
@@ -68,12 +69,20 @@ function SandboxReleaseOverview() {
       .then(async response=>response.ok?response.json():null)
       .then(payload=>{if(active)setUatLiveChatEnabled(payload?.liveChatEnabled===true)})
       .catch(()=>{if(active)setUatLiveChatEnabled(null)})
-    tenantReleaseApi().then(payload=>{
+    tenantReleaseApi().then(async payload=>{
+      let releases=[]
+      try{
+        const response=await fetch(API_BASE+'/api/v1/updates',{credentials:'include',cache:'no-store'})
+        const catalogue=response.ok?await response.json():{}
+        releases=Array.isArray(catalogue.releases)?catalogue.releases:[]
+      }catch{}
       if(!active)return
       const matching=(payload.environments||[]).find(item=>item.environment===environment)
-      setState({loading:false,error:'',releaseRef:matching?.activeReleaseRef||'',lastDeployedAt:matching?.lastDeployedAt||null})
+      setState({loading:false,error:'',
+        releaseLabel:customerVersionForBuild(matching?.activeReleaseRef,releases),
+        lastDeployedAt:matching?.lastDeployedAt||null})
     }).catch(error=>{
-      if(active)setState({loading:false,error:error.message,releaseRef:'',lastDeployedAt:null})
+      if(active)setState({loading:false,error:error.message,releaseLabel:null,lastDeployedAt:null})
     })
     return ()=>{active=false}
   },[environment])
@@ -94,10 +103,10 @@ function SandboxReleaseOverview() {
             <small>Tenant: {window.location.hostname}</small>
           </article>
           <article className="hi5-release-env-card">
-            <header><div><span>DEPLOYED RELEASE</span><strong>{state.loading?'Checking…':state.releaseRef||'Not assigned'}</strong></div></header>
-            <p>{state.releaseRef
-              ? 'Latest tenant-specific release reference reported by this environment.'
-              : 'No tenant-specific release reference has been recorded here yet.'}</p>
+            <header><div><span>DEPLOYED RELEASE</span><strong>{state.loading?'Checking…':state.releaseLabel||'Version not published'}</strong></div></header>
+            <p>{state.releaseLabel
+              ? 'Published Hi5Central version associated with this environment.'
+              : 'No published Hi5Central version is recorded for this environment.'}</p>
             <small>{state.lastDeployedAt?'Last recorded deployment: '+new Date(state.lastDeployedAt).toLocaleString():'No deployment timestamp recorded'}</small>
           </article>
         </div>
@@ -389,7 +398,7 @@ function LiveProductionReleaseManagement() {
           {pendingReleaseJobs.length ? <div className="hi5-release-maintenance-pending" style={{gridColumn:'1 / -1'}}>
             <strong>Upcoming scheduled application releases</strong>
             {pendingReleaseJobs.map(job=><div key={job.jobId} style={{marginTop:6}}>
-              {job.environment.toUpperCase()} · {String(job.buildSha).slice(0,8)} · {job.status} · <time dateTime={job.scheduledAt}>
+              {job.environment.toUpperCase()} · {publishedCustomerVersion(job.versionLabel)||'Version not published'} · {job.status} · <time dateTime={job.scheduledAt}>
                 {new Date(job.scheduledAt).toLocaleString('en-GB',{timeZone:policy.maintenanceWindow?.timezone||'Europe/London',dateStyle:'medium',timeStyle:'short'})}
               </time>
             </div>)}
