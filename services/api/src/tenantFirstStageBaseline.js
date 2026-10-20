@@ -35,7 +35,7 @@ export function assertUnassignedLiveFallbackBaseline({
 }={}){
  const SHA=/^[a-f0-9]{40}$/
  if(environment!=='live'
-   ||!/^[a-z0-9](?:[a-z0-9-]{1,43}[a-z0-9])?\\.hi5central\\.com$/.test(String(host||''))
+   ||!/^[a-z0-9](?:[a-z0-9-]{1,43}[a-z0-9])?\.hi5central\.com$/.test(String(host||''))
    ||host.endsWith('-test.hi5central.com')||host.endsWith('-uat.hi5central.com'))
    throw Error('First Live installation must target one valid Production tenant hostname.')
  if(typeof source!=='string'
