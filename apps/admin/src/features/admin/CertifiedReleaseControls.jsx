@@ -23,19 +23,29 @@ export function CertifiedReleaseControls({api,canApprove=false}){
  const [versionEdit,setVersionEdit]=useState(null)
  const rows=useMemo(()=>new Map((data.certifications||[]).map(c=>[c.build_sha,c])),[data])
  const scan=new Map((data.fanout||[]).map(c=>[c.build_sha,c]))
+ const publishedBySha=new Map((data.published||[]).map(c=>[c.build_sha,c]))
  const current=submissions.find(item=>item.build_sha===selected)
+ const currentPublished=current?publishedBySha.get(current.build_sha):null
+ const currentCustomerVersion=current?.status==='approved'?currentPublished?.version_label||current?.notes?.versionLabel:current?.notes?.versionLabel
  async function refresh(){
   const [releases,proposals]=await Promise.allSettled([
    api('/releases/certifications'),api('/releases/dev-submissions'),
   ])
   if(releases.status==='fulfilled')setData(releases.value)
-  else setError(releases.reason?.message||'Release history unavailable.')
   if(proposals.status==='fulfilled'){
    const next=proposals.value.submissions||[]
    setSubmissions(next)
    setSelected(old=>next.some(item=>item.build_sha===old)?old:
      next.find(item=>item.status==='submitted')?.build_sha||'')
-  }else setError(proposals.reason?.message||'Dev submissions unavailable.')
+  }
+  // A successful subsequent poll must clear an earlier read error.
+  // Preserve real authentication errors when either endpoint still fails.
+  const readErrors=[]
+  if(releases.status==='rejected')
+   readErrors.push(releases.reason?.message||'Release history unavailable.')
+  if(proposals.status==='rejected')
+   readErrors.push(proposals.reason?.message||'Dev submissions unavailable.')
+  setError(readErrors.join(' '))
  }
  useEffect(()=>{
   let active=true
@@ -125,15 +135,20 @@ export function CertifiedReleaseControls({api,canApprove=false}){
    <select style={{width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'}} value={selected} disabled={Boolean(busy)} onChange={e=>{setSelected(e.target.value);setRejectReason('');setVersionEdit(null)}}>
     <option value="">Select a submitted release</option>
     {submissions.map(item=><option key={item.build_sha} value={item.build_sha}>
-      {short(item.build_sha)} · {item.notes?.versionLabel||'Draft'} · {item.notes?.title||'Untitled'} — {item.status}
+      {short(item.build_sha)} · {(item.status==='approved'?publishedBySha.get(item.build_sha)?.version_label:null)||item.notes?.versionLabel||'Draft'} · {item.notes?.title||'Untitled'} — {item.status}
     </option>)}
    </select>
   </label>:<p>No Dev releases have been submitted yet. Developers prepare them in dev.hi5central.com.</p>}
   {current?<div style={{padding:14,border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:10}}>
    <div style={{display:'flex',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
-    <strong>{current.notes?.versionLabel||'Unversioned'} · {current.notes?.title||'Untitled'}</strong>
+    <strong>{currentCustomerVersion||'Unversioned'} · {current.notes?.title||'Untitled'}</strong>
     <span>{current.status.toUpperCase()}</span>
    </div>
+   {current.status==='approved'&&currentPublished?.version_label
+      &&currentPublished.version_label!==current.notes?.versionLabel?
+     <small style={{display:'block',marginTop:8,opacity:.78}}>
+      Dev originally submitted as {current.notes?.versionLabel}; the audited published release number is {currentPublished.version_label}.
+     </small>:null}
    <p>{current.notes?.summary||''}</p>
    <small>GitHub SHA: {current.build_sha} · Submitted: {when(current.submitted_at)}</small>
    {current.ci_run_url?<p><a href={current.ci_run_url} target="_blank" rel="noreferrer">

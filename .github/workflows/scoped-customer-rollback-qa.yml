@@ -36,6 +36,7 @@ on:
       - 'apps/admin/src/features/admin/CertifiedReleaseControls.jsx'
       - 'apps/admin/src/features/admin/releaseVersionValidation.js'
       - 'services/api/test/mobile-release-version-correction.mjs'
+      - 'services/api/test/admin-published-version-label-refresh.mjs'
       - 'services/api/src/publishedReleaseVersionCorrection.js'
       - 'services/api/src/certifiedTenantReleaseRoutes.js'
       - 'services/api/test/published-release-version-correction.mjs'
@@ -93,6 +94,7 @@ jobs:
             services/api/test/customer-upcoming-preview-privacy.mjs \
             services/api/test/published-release-version-correction.mjs \
             services/api/test/mobile-release-version-correction.mjs \
+            services/api/test/admin-published-version-label-refresh.mjs \
             services/api/test/rollback-retry-production-hold.mjs \
             services/api/test/release-verified-upgrade-hold.mjs \
             services/api/test/uat-offer-supersession.mjs \
