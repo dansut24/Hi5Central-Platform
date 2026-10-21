@@ -1,5 +1,6 @@
 import {useEffect,useMemo,useState} from 'react'
 import {CheckCircle2,Clock3,RefreshCw,ShieldCheck,ShieldAlert} from 'lucide-react'
+import {validHi5CentralReleaseNumber} from './releaseVersionValidation.js'
 
 const short=sha=>sha?String(sha).slice(0,12):'—'
 const when=value=>value?new Date(value).toLocaleString('en-GB'):'—'
@@ -77,7 +78,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   if(!row||busy)return
   const desired=row.newVersionLabel.trim()
   const reason=row.reason.trim()
-  if(!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(desired)
+  if(!validHi5CentralReleaseNumber(desired)
       ||desired===row.expectedVersionLabel||reason.length<12)return
   if(!window.confirm('Correct the published Hi5Central version for '+short(row.buildSha)+
       ' from '+row.expectedVersionLabel+' to '+desired+
@@ -121,7 +122,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   </div>
   {submissions.length?<label style={{display:'block',margin:'12px 0'}}>
    Dev release submission
-   <select value={selected} disabled={Boolean(busy)} onChange={e=>{setSelected(e.target.value);setRejectReason('')}}>
+   <select style={{width:'100%',minWidth:0,maxWidth:'100%',boxSizing:'border-box'}} value={selected} disabled={Boolean(busy)} onChange={e=>{setSelected(e.target.value);setRejectReason('');setVersionEdit(null)}}>
     <option value="">Select a submitted release</option>
     {submissions.map(item=><option key={item.build_sha} value={item.build_sha}>
       {short(item.build_sha)} · {item.notes?.versionLabel||'Draft'} · {item.notes?.title||'Untitled'} — {item.status}
@@ -151,6 +152,19 @@ export function CertifiedReleaseControls({api,canApprove=false}){
    {current.status==='draft'||current.status==='submitted'?<p style={{marginTop:12,fontSize:12,opacity:.7}}>
     Upcoming preview: {current.notes?.upcomingVisible===true?'Visible to customers as Planned':'Private'}
    </p>:null}
+   {current.status==='approved'&&canApprove&&
+      (data.published||[]).some(r=>r.build_sha===current.build_sha)?
+     <div style={{marginTop:16,display:'flex',flexWrap:'wrap',gap:8}}>
+      <button className="rmm-secondary" type="button" disabled={Boolean(busy)}
+        onClick={()=>{
+          const published=(data.published||[]).find(r=>r.build_sha===current.build_sha)
+          setVersionEdit({buildSha:current.build_sha,
+            expectedVersionLabel:published.version_label,newVersionLabel:'',reason:''})
+        }}>
+        Correct release number
+      </button>
+      <small style={{alignSelf:'center',opacity:.75}}>Available to Hi5Central owners and administrators</small>
+     </div>:null}
    {current.status==='rejected'&&<p role="status">Rejection reason: {current.rejection_reason}</p>}
    {current.status==='submitted'&&canApprove?<div style={{display:'flex',gap:12,flexWrap:'wrap',marginTop:16}}>
     <button type="button" className="rmm-primary" disabled={Boolean(busy)} onClick={approve}>
@@ -163,6 +177,41 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       onClick={reject}>Reject submission</button>
    </div>:null}
   </div>:null}
+  {versionEdit?<section aria-label="Correct published Hi5Central release number"
+    style={{marginTop:16,padding:16,border:'1px solid var(--rmm-border,#d7dce2)',
+      borderRadius:10,display:'grid',gap:12,maxWidth:'100%',boxSizing:'border-box'}}>
+    <h3 style={{fontSize:16,margin:0}}>Correct release number</h3>
+    <p style={{fontSize:13,margin:0,overflowWrap:'anywhere'}}>
+      Current: <strong>{versionEdit.expectedVersionLabel}</strong> · Internal build {short(versionEdit.buildSha)}
+    </p>
+    <p style={{fontSize:12,margin:0,opacity:.8}}>Only the customer-visible release number changes.
+      No Git build, release notes, rollout or rollback job will be changed.</p>
+    <label style={{display:'grid',gap:5}}>
+      New Hi5Central release number
+      <input style={{width:'100%',minWidth:0,boxSizing:'border-box'}}
+        value={versionEdit.newVersionLabel} maxLength={32} disabled={Boolean(busy)}
+        placeholder="2026.10.21.1"
+        onChange={e=>setVersionEdit({...versionEdit,newVersionLabel:e.target.value})}/>
+    </label>
+    <label style={{display:'grid',gap:5}}>
+      Reason for audit (minimum 12 characters)
+      <textarea style={{width:'100%',minWidth:0,boxSizing:'border-box'}}
+        value={versionEdit.reason} rows={3} maxLength={500} disabled={Boolean(busy)}
+        placeholder="Correct duplicate published release number"
+        onChange={e=>setVersionEdit({...versionEdit,reason:e.target.value})}/>
+    </label>
+    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+      <button className="rmm-primary" type="button"
+        disabled={Boolean(busy)||versionEdit.reason.trim().length<12
+          ||versionEdit.newVersionLabel.trim()===versionEdit.expectedVersionLabel
+          ||!validHi5CentralReleaseNumber(versionEdit.newVersionLabel)}
+        onClick={submitVersionCorrection}>
+        {busy==='correct-version'?'Correcting…':'Confirm correction'}
+      </button>
+      <button className="rmm-secondary" type="button" disabled={Boolean(busy)}
+        onClick={()=>setVersionEdit(null)}>Cancel</button>
+    </div>
+  </section>:null}
   {error?<p role="alert" style={{color:'var(--rmm-danger,#c75050)'}}>
     <ShieldAlert size={16}/> {error}</p>:null}
   {message?<p role="status"><CheckCircle2 size={15}/> {message}</p>:null}
@@ -177,42 +226,14 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       <td>{status==='approved'?<><CheckCircle2 size={14}/> Approved</>:<><Clock3 size={14}/> {status}</>}</td>
       <td>{when(item?.last_scan_at)}</td><td>{item?.last_queued_count??'—'}</td>
       <td>{item?.last_blocked_count??'—'}</td>
-      <td>{canApprove&&status==='approved'?<div style={{display:'grid',gap:8}}>
-       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
-          onClick={()=>setVersionEdit({buildSha:r.build_sha,
-            expectedVersionLabel:r.version_label,newVersionLabel:'',reason:''})}>
-          Correct release number</button>
-        <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
-          onClick={()=>revoke(r.build_sha)}>Revoke</button>
-       </div>
-       {versionEdit?.buildSha===r.build_sha?<div style={{display:'grid',gap:8,
-         minWidth:235,maxWidth:330,padding:10,
-         border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:8}}>
-         <strong>Correct {r.version_label}</strong>
-         <small>The Git build, release notes and customer deployments will not change.</small>
-         <label>New Hi5Central version
-          <input value={versionEdit.newVersionLabel} maxLength={32}
-            disabled={Boolean(busy)} placeholder="2026.10.21.1"
-            onChange={e=>setVersionEdit({...versionEdit,newVersionLabel:e.target.value})}/>
-         </label>
-         <label>Reason for audit (minimum 12 characters)
-          <textarea value={versionEdit.reason} rows={3} maxLength={500}
-            disabled={Boolean(busy)} placeholder="Correct duplicate published customer version"
-            onChange={e=>setVersionEdit({...versionEdit,reason:e.target.value})}/>
-         </label>
-         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button className="rmm-primary compact" type="button"
-            disabled={Boolean(busy)||versionEdit.reason.trim().length<12
-              ||versionEdit.newVersionLabel.trim()===versionEdit.expectedVersionLabel
-              ||!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(versionEdit.newVersionLabel.trim())}
-            onClick={submitVersionCorrection}>
-            {busy==='correct-version'?'Correcting…':'Confirm correction'}</button>
-          <button type="button" className="rmm-secondary compact"
-            disabled={Boolean(busy)} onClick={()=>setVersionEdit(null)}>Cancel</button>
-         </div>
-        </div>:null}
-       </div>:'—'}</td>
+      <td>{canApprove&&status==='approved'?<div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+       <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
+         onClick={()=>setVersionEdit({buildSha:r.build_sha,
+           expectedVersionLabel:r.version_label,newVersionLabel:'',reason:''})}>
+         Correct release number</button>
+       <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
+         onClick={()=>revoke(r.build_sha)}>Revoke</button>
+      </div>:'—'}</td>
      </tr>
     })}</tbody>
    </table>
