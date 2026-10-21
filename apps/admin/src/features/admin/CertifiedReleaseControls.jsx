@@ -77,7 +77,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
   if(!row||busy)return
   const desired=row.newVersionLabel.trim()
   const reason=row.reason.trim()
-  if(!/^20[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[1-9][0-9]*$/.test(desired)
+  if(!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(desired)
       ||desired===row.expectedVersionLabel||reason.length<12)return
   if(!window.confirm('Correct the published Hi5Central version for '+short(row.buildSha)+
       ' from '+row.expectedVersionLabel+' to '+desired+
@@ -205,7 +205,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
           <button className="rmm-primary compact" type="button"
             disabled={Boolean(busy)||versionEdit.reason.trim().length<12
               ||versionEdit.newVersionLabel.trim()===versionEdit.expectedVersionLabel
-              ||!/^20[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}\\.[1-9][0-9]*$/.test(versionEdit.newVersionLabel.trim())}
+              ||!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(versionEdit.newVersionLabel.trim())}
             onClick={submitVersionCorrection}>
             {busy==='correct-version'?'Correcting…':'Confirm correction'}</button>
           <button type="button" className="rmm-secondary compact"
