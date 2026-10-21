@@ -19,6 +19,7 @@ export function CertifiedReleaseControls({api,canApprove=false}){
  const [busy,setBusy]=useState('')
  const [error,setError]=useState('')
  const [message,setMessage]=useState('')
+ const [versionEdit,setVersionEdit]=useState(null)
  const rows=useMemo(()=>new Map((data.certifications||[]).map(c=>[c.build_sha,c])),[data])
  const scan=new Map((data.fanout||[]).map(c=>[c.build_sha,c]))
  const current=submissions.find(item=>item.build_sha===selected)
@@ -69,6 +70,29 @@ export function CertifiedReleaseControls({api,canApprove=false}){
    setRejectReason('')
    await refresh()
   }catch(e){setError(e.message||'Could not reject release submission.')}
+  finally{setBusy('')}
+ }
+ async function submitVersionCorrection(){
+  const row=versionEdit
+  if(!row||busy)return
+  const desired=row.newVersionLabel.trim()
+  const reason=row.reason.trim()
+  if(!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(desired)
+      ||desired===row.expectedVersionLabel||reason.length<12)return
+  if(!window.confirm('Correct the published Hi5Central version for '+short(row.buildSha)+
+      ' from '+row.expectedVersionLabel+' to '+desired+
+      '? This updates only customer-visible release metadata. All deployments stay unchanged.'))return
+  setBusy('correct-version');setError('');setMessage('')
+  try{
+   const response=await api('/releases/published/'+row.buildSha+'/correct-version',{
+    method:'POST',body:JSON.stringify({expectedVersionLabel:row.expectedVersionLabel,
+      newVersionLabel:desired,reason,confirmation:'CORRECT_HI5CENTRAL_RELEASE_NUMBER'}),
+   })
+   setMessage('Customer release number corrected to '+response.release.versionLabel+
+     '. Change recorded in the administrator audit history; no deployment started.')
+   setVersionEdit(null)
+   await refresh()
+  }catch(e){setError(e.message||'Could not correct published release number.')}
   finally{setBusy('')}
  }
  async function revoke(sha){
@@ -153,13 +177,47 @@ export function CertifiedReleaseControls({api,canApprove=false}){
       <td>{status==='approved'?<><CheckCircle2 size={14}/> Approved</>:<><Clock3 size={14}/> {status}</>}</td>
       <td>{when(item?.last_scan_at)}</td><td>{item?.last_queued_count??'—'}</td>
       <td>{item?.last_blocked_count??'—'}</td>
-      <td>{canApprove&&status==='approved'?
-       <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
-         onClick={()=>revoke(r.build_sha)}>Revoke</button>:'—'}</td>
+      <td>{canApprove&&status==='approved'?<div style={{display:'grid',gap:8}}>
+       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
+          onClick={()=>setVersionEdit({buildSha:r.build_sha,
+            expectedVersionLabel:r.version_label,newVersionLabel:'',reason:''})}>
+          Correct release number</button>
+        <button className="rmm-secondary compact" type="button" disabled={Boolean(busy)}
+          onClick={()=>revoke(r.build_sha)}>Revoke</button>
+       </div>
+       {versionEdit?.buildSha===r.build_sha?<div style={{display:'grid',gap:8,
+         minWidth:235,maxWidth:330,padding:10,
+         border:'1px solid var(--rmm-border,#d7dce2)',borderRadius:8}}>
+         <strong>Correct {r.version_label}</strong>
+         <small>The Git build, release notes and customer deployments will not change.</small>
+         <label>New Hi5Central version
+          <input value={versionEdit.newVersionLabel} maxLength={32}
+            disabled={Boolean(busy)} placeholder="2026.10.21.1"
+            onChange={e=>setVersionEdit({...versionEdit,newVersionLabel:e.target.value})}/>
+         </label>
+         <label>Reason for audit (minimum 12 characters)
+          <textarea value={versionEdit.reason} rows={3} maxLength={500}
+            disabled={Boolean(busy)} placeholder="Correct duplicate published customer version"
+            onChange={e=>setVersionEdit({...versionEdit,reason:e.target.value})}/>
+         </label>
+         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="rmm-primary compact" type="button"
+            disabled={Boolean(busy)||versionEdit.reason.trim().length<12
+              ||versionEdit.newVersionLabel.trim()===versionEdit.expectedVersionLabel
+              ||!/^v?[0-9]+(?:\\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-]?[0-9]+)?)?$/i.test(versionEdit.newVersionLabel.trim())}
+            onClick={submitVersionCorrection}>
+            {busy==='correct-version'?'Correcting…':'Confirm correction'}</button>
+          <button type="button" className="rmm-secondary compact"
+            disabled={Boolean(busy)} onClick={()=>setVersionEdit(null)}>Cancel</button>
+         </div>
+        </div>:null}
+       </div>:'—'}</td>
      </tr>
     })}</tbody>
    </table>
   </div>
+  <p style={{fontSize:12,opacity:.78,marginTop:10}}>Only Hi5Central owner/admin accounts can correct a published version. Every correction requires a reason and is audited.</p>
   <p style={{fontSize:12,opacity:.78,marginTop:12}}>
    Managed releases automatically enter Production maintenance windows. Custom receives UAT first, then the customer approves Production. Both tracks use the same two release workers.
   </p>

@@ -34,6 +34,10 @@ on:
       - 'services/api/test/customer-upcoming-preview-privacy.mjs'
       - 'apps/itsm/src/production/ProductionApplicationUpdates.css'
       - 'apps/admin/src/features/admin/CertifiedReleaseControls.jsx'
+      - 'services/api/src/publishedReleaseVersionCorrection.js'
+      - 'services/api/src/certifiedTenantReleaseRoutes.js'
+      - 'services/api/test/published-release-version-correction.mjs'
+      - 'services/api/migrations/platform-admin/183_published_customer_version_label_guard.sql'
       - '.github/workflows/scoped-customer-rollback-qa.yml'
   push:
     branches: [main]
@@ -75,6 +79,8 @@ jobs:
           node --check services/api/src/customerUpcomingPreview.js
           node --check services/api/src/applicationUpdates.js
           node --check services/api/src/customerReleasePreparation.js
+          node --check services/api/src/publishedReleaseVersionCorrection.js
+          node --check services/api/src/certifiedTenantReleaseRoutes.js
           node --check deployment/release/host-deploy.mjs
           node --test \
             services/api/test/stage-rollback-permissions-and-fleet.mjs \
@@ -83,6 +89,7 @@ jobs:
             services/api/test/rollback-gateway-exactness.mjs \
             services/api/test/customer-release-version-labels.mjs \
             services/api/test/customer-upcoming-preview-privacy.mjs \
+            services/api/test/published-release-version-correction.mjs \
             services/api/test/rollback-retry-production-hold.mjs \
             services/api/test/release-verified-upgrade-hold.mjs \
             services/api/test/uat-offer-supersession.mjs \

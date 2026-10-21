@@ -6,6 +6,7 @@ import {saveCustomerReleaseDraft,readCustomerReleasePreparation,publishCustomerR
 import {readGenericReleaseApprovals} from './genericReleaseAuthorization.js'
 import {verifyDevHandoff,processDevHandoff} from './devReleaseHandoff.js'
 import {readGenericTenantScope} from './genericReleaseTenantScope.js'
+import {correctPublishedReleaseVersion} from './publishedReleaseVersionCorrection.js'
 import {approveGenericPlanningOnly,approveGenericExecutionOnly,revokeGenericStageApproval} from './genericReleaseAdminApproval.js'
 
 /**
@@ -118,6 +119,37 @@ export function registerCertifiedTenantReleaseRoutes(app,{
       pool.query('SELECT build_sha,version_label,title,published_at FROM hi5central_published_release_notes ORDER BY published_at DESC LIMIT 80'),
     ])
     return c.json({certifications:certified.rows,fanout:checkpoints.rows,published:published.rows})
+  })
+
+  // Editorial-only change of customer-visible version label. The immutable
+  // image/release ID and all live rollout/rollback jobs remain unchanged.
+  app.post('/api/platform/v1/releases/published/:sha/correct-version',async c=>{
+    if(deployment.runtimeEnvironment!=='live')
+      return c.json({error:'Central release authority only.'},403)
+    const auth=await requireAdmin(c,WRITE_ROLES)
+    if(auth.error)return auth.error
+    const membership=await pool.query([
+      'SELECT 1 FROM platform_admin_members',
+      "WHERE user_id=$1 AND status='active' AND role IN ('owner','admin') LIMIT 1",
+    ].join(' '),[auth.session.user_id])
+    if(membership.rowCount!==1)
+      return c.json({error:'Active Platform owner/admin membership required.'},403)
+    const body=await c.req.json().catch(()=>null)
+    if(!body||typeof body!=='object'||Array.isArray(body))
+      return c.json({error:'A valid correction request is required.'},400)
+    try{
+      const result=await withTransaction(db=>correctPublishedReleaseVersion(db,{
+        buildSha:c.req.param('sha'),expectedVersionLabel:body.expectedVersionLabel,
+        newVersionLabel:body.newVersionLabel,reason:body.reason,
+        confirmation:body.confirmation,actorId:auth.session.user_id,
+        sessionId:auth.session.session_id,
+      }))
+      c.header('Cache-Control','no-store')
+      return c.json({corrected:true,release:result})
+    }catch(error){
+      return c.json({error:String(error.message||error).slice(0,350)},
+        error.status===400||error.status===403||error.status===404?error.status:409)
+    }
   })
 
   // Read-only automatic all-onboarded ITSM tenant discovery.
