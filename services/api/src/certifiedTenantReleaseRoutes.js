@@ -142,7 +142,7 @@ export function registerCertifiedTenantReleaseRoutes(app,{
         buildSha:c.req.param('sha'),expectedVersionLabel:body.expectedVersionLabel,
         newVersionLabel:body.newVersionLabel,reason:body.reason,
         confirmation:body.confirmation,actorId:auth.session.user_id,
-        sessionId:auth.session.id,
+        sessionId:auth.session.session_id,
       }))
       c.header('Cache-Control','no-store')
       return c.json({corrected:true,release:result})
