@@ -50,3 +50,21 @@ test('reason and authenticated session are required',async()=>{
   assert.equal(sql.length,0)
  }
 })
+
+test('Admin controls require approved platform membership and keep edits off release workers',async()=>{
+ const {readFileSync}=await import('node:fs')
+ const routes=readFileSync(new URL('../src/certifiedTenantReleaseRoutes.js',import.meta.url),'utf8')
+ const ui=readFileSync(new URL('../../../apps/admin/src/features/admin/CertifiedReleaseControls.jsx',import.meta.url),'utf8')
+ const migration=readFileSync(new URL('../migrations/platform-admin/183_published_customer_version_label_guard.sql',import.meta.url),'utf8')
+ assert.match(routes,/published\/:sha\/correct-version/)
+ assert.match(routes,/requireAdmin\(c,WRITE_ROLES\)/)
+ assert.match(routes,/Active Platform owner\/admin membership required/)
+ assert.match(routes,/sessionId:auth\.session\.session_id/)
+ assert.match(ui,/Correct release number/)
+ assert.match(ui,/Reason for audit/)
+ assert.match(ui,/expectedVersionLabel/)
+ assert.match(ui,/CORRECT_HI5CENTRAL_RELEASE_NUMBER/)
+ assert.match(migration,/BEFORE INSERT OR UPDATE OF version_label/)
+ assert.match(migration,/pg_advisory_xact_lock/)
+ assert.match(migration,/23505/)
+})
