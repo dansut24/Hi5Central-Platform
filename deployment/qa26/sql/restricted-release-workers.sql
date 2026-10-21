@@ -86,6 +86,7 @@ GRANT SELECT,INSERT,UPDATE ON public.platform_release_worker_heartbeats TO
 GRANT EXECUTE ON FUNCTION public.hi5_release_emergency_pause(text,text) TO
   hi5_release_executor_test,hi5_release_executor_uat,hi5_release_executor_live;
 GRANT EXECUTE ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid) TO
+  hi5_release_planner,
   hi5_release_executor_test,hi5_release_executor_uat,hi5_release_executor_live;
 GRANT EXECUTE ON FUNCTION public.hi5_release_record_verified_test_gate(text,integer)
 TO hi5_release_planner;
