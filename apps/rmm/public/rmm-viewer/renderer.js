@@ -119,6 +119,9 @@ let inputDc = null;
 let inputControlDc = null;
 let mouseMoveDc = null;
 let mouseMoveSeq = 0;
+let codecRetryTimer = null;
+let codecRetryAttempts = 0;
+let failedVideoCodecs = [];
 
 let currentSession = null;
 let audioEnabled = false;
@@ -248,7 +251,16 @@ function resolvedMobileResolutionPref() {
 function mobileStreamProfilePayload() {
   const pref = resolvedMobileResolutionPref();
   const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 30, targetBitrateKbps: 8000 };
-  const base = { target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps, preference: pref };
+  // Quality is adaptive but not mathematically lossless. True lossless must
+  // only be signaled after a verified lossless encoder and decoder are added.
+  const qualityTarget = isMobileViewerSurface()
+    ? (mobileQualityState.current === 'excellent' && mobileAdaptiveState.tier === 0
+      ? 'sharp' : mobileQualityState.current === 'poor' ? 'bandwidth' : 'balanced')
+    : 'balanced';
+  const base = {
+    target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps,
+    preference: pref, quality_target: qualityTarget, lossless_supported: false
+  };
   if (pref === '720p') return { ...base, max_width: 1280, max_height: 720 };
   if (pref === '1080p') return { ...base, max_width: 1920, max_height: 1080 };
   return { ...base, max_width: 0, max_height: 0 };
@@ -1557,6 +1569,7 @@ function showStream() {
 }
 
 function markFrameRendered() {
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
   clearReconnectPoster();
   const firstRenderedFrame = !hasEverRenderedFrame;
   if (isMobileViewerSurface()) {
@@ -4030,6 +4043,33 @@ async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
 
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
+  const offeredCodec = extractSdpVideoCodecs(offerSdp)
+    .map((entry) => String(entry.codec || '').split('/')[0].toLowerCase())
+    .find((codec) => ['vp8', 'vp9', 'h264', 'av1'].includes(codec)) || '';
+  const expectedSessionId = currentSession?.sessionId;
+  // Verify actual decoded frames, not merely the ICE/input connection.
+  // If negotiated video stays black, request the next mutual codec without
+  // closing this authenticated session. Each codec is tried at most once.
+  if (expectedSessionId && offeredCodec && !hasEverRenderedFrame) {
+    codecRetryTimer = setTimeout(() => {
+      codecRetryTimer = null;
+      if (currentSession?.sessionId !== expectedSessionId || hasEverRenderedFrame) return;
+      if (codecRetryAttempts >= 3 || failedVideoCodecs.includes(offeredCodec)) return;
+      failedVideoCodecs.push(offeredCodec);
+      codecRetryAttempts += 1;
+      if (ws?.readyState === WebSocket.OPEN) {
+        console.warn('[codec] no decoded frame; trying next supported codec', {
+          codec: offeredCodec, attempt: codecRetryAttempts
+        });
+        ws.send(JSON.stringify({
+          type: 'codec_retry', session_id: expectedSessionId,
+          excluded_video_codecs: failedVideoCodecs
+        }));
+      }
+    }, 8000);
+  }
+
   if (pc) teardownPeerForReconnect();
   mobileEndpointRestartUntil = 0;
   logSdpCodecSummary("remote offer", offerSdp);
@@ -4905,6 +4945,9 @@ function startSession(params) {
   console.log("[viewer] starting authorised remote session");
 
   disconnect(undefined, { silent: true });
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
+  codecRetryAttempts = 0;
+  failedVideoCodecs = [];
 
   params = params || {};
 
