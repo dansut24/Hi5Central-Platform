@@ -253,13 +253,15 @@ function mobileStreamProfilePayload() {
   const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 30, targetBitrateKbps: 8000 };
   // Quality is adaptive but not mathematically lossless. True lossless must
   // only be signaled after a verified lossless encoder and decoder are added.
-  const qualityTarget = isMobileViewerSurface()
-    ? (mobileQualityState.current === 'excellent' && mobileAdaptiveState.tier === 0
-      ? 'sharp' : mobileQualityState.current === 'poor' ? 'bandwidth' : 'balanced')
-    : 'balanced';
+  const qualityTarget = mobileQualityState.current === 'excellent' &&
+    (!isMobileViewerSurface() || mobileAdaptiveState.tier === 0)
+      ? 'sharp' : mobileQualityState.current === 'poor' ? 'bandwidth' : 'balanced';
   const base = {
     target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps,
-    preference: pref, quality_target: qualityTarget, lossless_supported: false
+    preference: pref, quality_target: qualityTarget,
+    // VP9 profile-0 supports bit-exact I420 reconstruction. The Agent must
+    // independently confirm its SOFTWARE VP9 encoder before using this.
+    lossless_supported: supportedViewerVideoCodecs().includes('vp9')
   };
   if (pref === '720p') return { ...base, max_width: 1280, max_height: 720 };
   if (pref === '1080p') return { ...base, max_width: 1920, max_height: 1080 };
@@ -691,7 +693,8 @@ function median(values) {
 }
 
 function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate, packetCount = 0, packetsLostDelta = 0 }) {
-  if (!currentSession || !isMobileViewerSurface()) return;
+  if (!currentSession) return;
+  const precedingQuality = mobileQualityState.current;
   const sample = {
     at: Date.now(),
     rtt: Number.isFinite(rttMs) && rttMs > 0 ? rttMs : null,
@@ -744,8 +747,14 @@ function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate
   const detail = Math.round(rtt || 0) + 'ms · ' + (loss * 100).toFixed(1) + '% loss · 10s window';
   setMobileQualityUi(label, current, detail);
   if (current !== 'poor') mobileLastGoodStatsAt = Date.now();
+  if (current !== precedingQuality && pc?.connectionState === 'connected') {
+    // Update quality target even when FPS/bitrate tier has not changed.
+    // This is the signal that lets VP9 libvpx switch I420 losslessness
+    // without tearing down the existing WebRTC session.
+    sendViewerStreamProfile();
+  }
 
-  if (mobilePrefs.adaptive !== 'on') return;
+  if (!isMobileViewerSurface() || mobilePrefs.adaptive !== 'on') return;
   // Only sustained Poor quality can reduce the stream. "Good" is considered
   // healthy and must not lower bitrate/FPS due to ordinary Wi-Fi variance.
   if (current === 'poor') { mobileAdaptiveState.bad += 1; mobileAdaptiveState.good = 0; }
