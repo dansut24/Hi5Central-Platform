@@ -4198,7 +4198,9 @@ async function handleOffer(msg) {
   pc.onicegatheringstatechange = () => console.log("[rtc] iceGatheringState:", pc.iceGatheringState);
   pc.oniceconnectionstatechange = () => {
     console.log("[rtc] iceConnectionState:", pc.iceConnectionState);
-    if (pc.iceConnectionState === 'failed') scheduleMobileSessionReconnect('ice-failed');
+    // Avoid destroying a usable stream on a momentary network-path change.
+    // The health probe still restarts negotiation if ICE remains failed.
+    if (pc.iceConnectionState === 'failed') scheduleMobileTransportHealthProbe('ice-failed', 1200);
   };
   pc.onconnectionstatechange = () => {
     console.log("[rtc] connectionState:", pc.connectionState);
@@ -4225,8 +4227,7 @@ async function handleOffer(msg) {
         setStatus("", "Connected · waiting for video");
       }
     } else if (pc.connectionState === 'failed') {
-      clearMobileTransportProbe();
-      scheduleMobileSessionReconnect('peer-failed');
+      scheduleMobileTransportHealthProbe('peer-failed', 1200);
     } else if (pc.connectionState === 'disconnected' && isMobileViewerSurface()) {
       setMobileRecoveryStage('Network interrupted · checking path');
       scheduleMobileTransportHealthProbe('peer-disconnected', 3500);
@@ -4867,12 +4868,23 @@ function scheduleMobileSessionReconnect(reason = 'network-recovery', { closeSock
   setMobileQualityUi('Reconnecting', 'reconnecting', reason);
   const anchor = captureMobileViewportAnchor() || mobileViewportStableAnchor;
   if (anchor) mobileViewportResumeAnchor = { ...anchor };
-  teardownPeerForReconnect();
+  // Signaling can drop for a moment while the P2P video track is still
+  // streaming. Keep it alive until a new offer arrives, at which point
+  // handleOffer() performs the existing clean peer handover.
+  const preserveActivePeer =
+    (reason === 'signaling-closed' || reason === 'signaling-error') &&
+    pc?.connectionState === 'connected' &&
+    !!elVideo?.srcObject;
+  if (preserveActivePeer) clearMobileTransportProbe();
+  else teardownPeerForReconnect();
   if (closeSocket && ws) {
     const old = ws; ws = null;
     try { old.onclose = null; old.onerror = null; old.close(4002, 'Mobile reconnect'); } catch {}
   }
-  const delay = Math.min(2800, 350 + (mobileRecoveryAttempts - 1) * 550);
+  // Restore signaling promptly while avoiding rapid retries on repeated
+  // failures. Preserved video remains visible during the first attempt.
+  const firstDelay = preserveActivePeer ? 150 : 350;
+  const delay = Math.min(2800, firstDelay + (mobileRecoveryAttempts - 1) * 550);
   mobileReconnectTimer = setTimeout(() => {
     mobileReconnectTimer = null;
     if (!currentSession || document.hidden) {
