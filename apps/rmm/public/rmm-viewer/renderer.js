@@ -4771,6 +4771,20 @@ function teardownPeerForReconnect() {
   }
 }
 
+function supportedViewerVideoCodecs() {
+  // Report actual browser/WebRTC decoder support before the Agent sends its
+  // first offer. A codec absent from this list is never assumed supported.
+  try {
+    const caps = RTCRtpReceiver.getCapabilities?.('video');
+    const allowed = new Set(['vp8', 'vp9', 'h264', 'av1']);
+    return [...new Set((caps?.codecs || [])
+      .map((codec) => String(codec?.mimeType || '').toLowerCase().replace(/^video\//, ''))
+      .filter((codec) => allowed.has(codec)))];
+  } catch {
+    return [];
+  }
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -4779,7 +4793,8 @@ function connectViewerSignaling(reason = 'initial') {
     `${wssUrl}?session_id=${encodeURIComponent(sessionId)}` +
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
-    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '');
+    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
+    `&video_codecs=${encodeURIComponent(supportedViewerVideoCodecs().join(','))}`;
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: mobileRecoveryAttempts });
   const socket = new WebSocket(url);
   ws = socket;
