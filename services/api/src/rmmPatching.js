@@ -2400,20 +2400,13 @@ async function createAndDispatchSoftwarePatch(session, plan, context = {}) {
     return { job, deployment: deploymentResult.rows[0] }
   })
 
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs
-        SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued'
-      RETURNING status,claimed_at,updated_at`,
-    [created.job.id, session.tenant_id],
-  )
-  if (!claimed.rowCount) throw new Error('Patch job could not be claimed for immediate dispatch.')
-
+  // WebSocket delivery is not an execution acknowledgement. Leave the job queued
+  // for the tenant-authenticated Agent's normal job poll to claim.
   await withTransaction(async (client) => {
     await client.query(
       `UPDATE rmm_patch_deployments
           SET status='running',started_at=now(),updated_at=now()
-        WHERE id=$1 AND tenant_id=$2`,
+        WHERE id=$1 AND tenant_id=$2 AND status='eligible'`,
       [created.deployment.id, session.tenant_id],
     )
     await client.query(
@@ -2425,45 +2418,7 @@ async function createAndDispatchSoftwarePatch(session, plan, context = {}) {
     )
   })
 
-  const pushed = sendAgentMessage(plan.device.agent_device_id, {
-    type: 'job_execute',
-    job: {
-      id: created.job.id,
-      job_type: 'patch.software',
-      payload: plan.manifest,
-      created_at: created.job.created_at,
-    },
-  })
-
-  if (!pushed) {
-    await withTransaction(async (client) => {
-      await client.query(
-        `UPDATE rmm_agent_jobs
-            SET status='cancelled',claimed_at=NULL,completed_at=now(),
-                error_message='Device went offline before the patch could be dispatched. The job was not retained for reconnect.',
-                updated_at=now()
-          WHERE id=$1 AND tenant_id=$2 AND status='claimed'`,
-        [created.job.id, session.tenant_id],
-      )
-      await client.query(
-        `UPDATE rmm_patch_deployments
-            SET status='cancelled',completed_at=now(),updated_at=now(),
-                result=result || '{"reason":"device_offline_before_dispatch"}'::jsonb
-          WHERE id=$1 AND tenant_id=$2`,
-        [created.deployment.id, session.tenant_id],
-      )
-      await client.query(
-        `UPDATE rmm_vulnerability_exposures
-            SET remediation_state='available',last_seen_at=now()
-          WHERE tenant_id=$1 AND inventory_id=$2 AND catalogue_id=$3
-            AND status='open' AND remediation_state='in_progress'`,
-        [session.tenant_id, plan.device.inventory_id, plan.device.catalogue_id],
-      )
-    })
-    return { ...created, dispatched: false, offline: true }
-  }
-
-  const installIntent = plan.manifest.intent === 'install'
+    const installIntent = plan.manifest.intent === 'install'
   await recordRmmActivity({
     tenantId: session.tenant_id,
     agentDeviceId: plan.device.agent_device_id,
@@ -2823,15 +2778,15 @@ async function createAndDispatchBulkSoftwarePatch(session, plans, mode = 'select
     return { job, deployments }
   })
 
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING status,claimed_at,updated_at`,
-    [created.job.id, session.tenant_id],
-  )
-  if (!claimed.rowCount) throw new Error('Bulk patch job could not be claimed for immediate dispatch.')
-
+  // Keep the durable job queued; an actual Agent poll claims it atomically.
+  // No optimistic WebSocket 'job_execute' delivery or immediate claim here.
   await withTransaction(async (client) => {
-    await client.query(`UPDATE rmm_patch_deployments SET status='running',started_at=now(),updated_at=now() WHERE agent_job_id=$1 AND tenant_id=$2`, [created.job.id, session.tenant_id])
+    await client.query(
+      `UPDATE rmm_patch_deployments
+          SET status='running',started_at=now(),updated_at=now()
+        WHERE agent_job_id=$1 AND tenant_id=$2 AND status='eligible'`,
+      [created.job.id, session.tenant_id],
+    )
     if (linkedCatalogueIds.length) {
       await client.query(
         `UPDATE rmm_vulnerability_exposures SET remediation_state='in_progress',last_seen_at=now()
@@ -2842,22 +2797,7 @@ async function createAndDispatchBulkSoftwarePatch(session, plans, mode = 'select
     }
   })
 
-  const pushed = sendAgentMessage(first.device.agent_device_id, {
-    type: 'job_execute',
-    job: { id: created.job.id, job_type: 'patch.software.bulk', payload: { protocolVersion: 1, mode, items: plans.map((plan) => plan.manifest) }, created_at: created.job.created_at },
-  })
-  if (!pushed) {
-    await withTransaction(async (client) => {
-      await client.query(`UPDATE rmm_agent_jobs SET status='cancelled',claimed_at=NULL,completed_at=now(),error_message='Device went offline before the bulk patch could be dispatched. The job was not retained for reconnect.',updated_at=now() WHERE id=$1 AND tenant_id=$2 AND status='claimed'`, [created.job.id, session.tenant_id])
-      await client.query(`UPDATE rmm_patch_deployments SET status='cancelled',completed_at=now(),updated_at=now(),result=result || '{"reason":"device_offline_before_dispatch"}'::jsonb WHERE agent_job_id=$1 AND tenant_id=$2`, [created.job.id, session.tenant_id])
-      if (linkedCatalogueIds.length) {
-        await client.query(`UPDATE rmm_vulnerability_exposures SET remediation_state='available',last_seen_at=now() WHERE tenant_id=$1 AND inventory_id=$2 AND catalogue_id = ANY($3::uuid[]) AND status='open' AND remediation_state='in_progress'`, [session.tenant_id, first.device.inventory_id, linkedCatalogueIds])
-      }
-    })
-    return { ...created, dispatched: false, offline: true }
-  }
-
-  await recordRmmActivity({
+    await recordRmmActivity({
     tenantId: session.tenant_id, agentDeviceId: first.device.agent_device_id, inventoryId: first.device.inventory_id,
     actorUserId: session.user_id, actorType, actorLabel: label, eventType: 'patch.software.bulk.requested', category: 'patching',
     summary: label + ' started ' + plans.length + ' software patches', detail: plans.map((plan) => plan.manifest.applicationName + ' ' + plan.manifest.installedVersion + ' → ' + plan.manifest.targetVersion).join(' · '),
