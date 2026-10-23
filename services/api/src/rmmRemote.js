@@ -745,7 +745,7 @@ export function attachRmmViewerWebSocket(server) {
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
-      agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0,
+      agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0, viewerCandidateCount: 0,
     }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
@@ -915,6 +915,32 @@ export function attachRmmViewerWebSocket(server) {
       }
       payload.session_id = sessionId
       delete payload.sessionId
+      if (type === 'ice_candidate') {
+        // Browser and native Viewer send `mid`/`mline_index`, while the
+        // Windows Agent's libdatachannel adapter reads `sdpMid`.
+        // Omitting this translation previously caused every received ICE
+        // candidate to be attached to fallback MID "0" even when the
+        // actual offered media MID was "video".
+        const rawMid = payload.sdpMid ?? payload.mid ?? payload.candidate?.sdpMid ?? payload.candidate?.mid
+        if (typeof rawMid === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(rawMid)) {
+          payload.sdpMid = rawMid
+          payload.mid = rawMid
+        }
+        const rawIndex = payload.sdpMLineIndex ?? payload.mline_index ?? payload.candidate?.sdpMLineIndex
+        if (Number.isInteger(Number(rawIndex)) && Number(rawIndex) >= 0 && Number(rawIndex) <= 8) {
+          payload.sdpMLineIndex = Number(rawIndex)
+          payload.mline_index = Number(rawIndex)
+        }
+        if (++active.viewerCandidateCount <= 8) {
+          console.info('[rmm.media.ice]', JSON.stringify({
+            session_id: sessionId, client: remote.viewer_client, direction: 'viewer->agent',
+            mid_present: typeof payload.sdpMid === 'string',
+            mid_label: payload.sdpMid === 'video' ? 'video' : payload.sdpMid === '0' ? '0' : 'other',
+            index_present: Number.isInteger(payload.sdpMLineIndex),
+            candidate_count: active.viewerCandidateCount,
+          }))
+        }
+      }
       if (!safeSend(active.agentWs, payload)) {
         safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
       }
