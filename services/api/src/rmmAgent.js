@@ -2165,28 +2165,12 @@ export function registerRmmAgentRoutes(app) {
       ],
     )
     const job = inserted.rows[0]
-    const claimed = await pool.query(
-      `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-        WHERE id=$1 AND tenant_id=$2 AND status='queued'
-        RETURNING status,claimed_at,updated_at`,
-      [job.id, auth.session.tenant_id],
-    )
-    if (!claimed.rowCount) return c.json({ error: 'Unable to claim Agent upgrade job.' }, 409)
-    Object.assign(job, claimed.rows[0])
-    const pushed = sendAgentMessage(device.id, {
-      type: 'job_execute',
-      job: { id: job.id, job_type: 'custom.command', payload: { command, timeout_seconds: 180, run_as: portable ? 'root' : 'system' }, created_at: job.created_at },
-    })
-    if (!pushed) {
-      await pool.query(
-        `UPDATE rmm_agent_jobs
-            SET status='cancelled',claimed_at=NULL,completed_at=now(),
-                error_message='Device went offline before the Agent upgrade could be dispatched.',updated_at=now()
-          WHERE id=$1 AND tenant_id=$2 AND status='claimed'`,
-        [job.id, auth.session.tenant_id],
-      )
-      return c.json({ error: 'The device went offline before the Agent upgrade could start. No job was retained.', offline: true }, 409)
-    }
+    // Windows Agent 1.0.x processes custom.command via authenticated 5-second
+    // polling. WebSocket 'job_execute' is advisory and is not handled by that
+    // Agent. Claiming before delivery makes upgrades permanently invisible.
+    // Leave the job queued; the Agent's poll atomically claims it. An existing
+    // online socket is checked above before the job is admitted.
+
 
     recordRmmActivity({
       tenantId: auth.session.tenant_id,
