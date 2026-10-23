@@ -745,7 +745,7 @@ export function attachRmmViewerWebSocket(server) {
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
-      agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0, viewerCandidateCount: 0,
+      agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0, viewerCandidateCount: 0, agentCandidateCount: 0,
     }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
@@ -778,7 +778,18 @@ export function attachRmmViewerWebSocket(server) {
           }))
         }
       }
-      safeSend(viewerWs, text)
+      if (payload?.type === 'ice_candidate') {
+        if (typeof payload.sdpMid === 'string') payload.mid = payload.sdpMid
+        if (Number.isInteger(payload.sdpMLineIndex)) payload.mline_index = payload.sdpMLineIndex
+        if (++active.agentCandidateCount <= 8) console.info('[rmm.media.ice]', JSON.stringify({
+          session_id: sessionId, direction: 'agent-to-viewer',
+          mid_present: typeof payload.mid === 'string',
+          candidate_count: active.agentCandidateCount,
+        }))
+        safeSend(viewerWs, payload)
+      } else {
+        safeSend(viewerWs, text)
+      }
       if (payload?.type === 'webrtc_offer') {
         pool.query(
           `UPDATE rmm_remote_sessions
