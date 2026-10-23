@@ -37,7 +37,7 @@ const activeViewerSessions = new Map()
 let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
-  'webrtc_answer', 'answer', 'ice_candidate', 'codec_retry',
+  'webrtc_answer', 'answer', 'ice_candidate', 'codec_retry', 'viewer_media_diagnostic',
   'switch_monitor', 'input_event',
   'service_shortcut', 'system_shortcut', 'shortcut', 'service_command',
   'backstage_start', 'backstage_stop', 'console_start',
@@ -745,7 +745,7 @@ export function attachRmmViewerWebSocket(server) {
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
-      agentDisconnectedAt: 0, codecRetryCount: 0,
+      agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0,
     }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
@@ -767,6 +767,17 @@ export function attachRmmViewerWebSocket(server) {
       try { payload = JSON.parse(text) } catch { return }
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
+      if (payload?.type === 'webrtc_offer') {
+        active.signalOfferCount += 1
+        if (active.signalOfferCount <= 6) {
+          console.info('[rmm.media.signal]', JSON.stringify({
+            session_id: sessionId, client: remote.viewer_client,
+            direction: 'agent->viewer', type: 'webrtc_offer',
+            offer_number: active.signalOfferCount,
+            video_sdp: /m=video/.test(clean(payload.sdp)),
+          }))
+        }
+      }
       safeSend(viewerWs, text)
       if (payload?.type === 'webrtc_offer') {
         pool.query(
@@ -848,6 +859,30 @@ export function attachRmmViewerWebSocket(server) {
       try { payload = JSON.parse(text) } catch { return }
       const type = clean(payload?.type)
       if (!VIEWER_MESSAGE_TYPES.has(type)) return
+      if (type === 'viewer_media_diagnostic') {
+        // Authenticated viewer only. Log bounded, enumerated *states* without
+        // raw SDP, ICE addresses, device secrets, names or credential material.
+        const stage = clean(payload.stage).toLowerCase()
+        const state = clean(payload.state).toLowerCase()
+        if (++active.mediaDiagnosticCount <= 40 &&
+            ['ice','peer','track','frame','candidate_error','codec','answer'].includes(stage) &&
+            /^[a-z0-9_-]{1,36}$/.test(state)) {
+          console.info('[rmm.media.diagnostic]', JSON.stringify({
+            session_id: sessionId, client: remote.viewer_client, stage, state,
+            offer_count: active.signalOfferCount, answer_count: active.signalAnswerCount,
+          }))
+        }
+        return
+      }
+      if (type === 'webrtc_answer' || type === 'answer') {
+        active.signalAnswerCount += 1
+        if (active.signalAnswerCount <= 6) {
+          console.info('[rmm.media.signal]', JSON.stringify({
+            session_id: sessionId, client: remote.viewer_client,
+            direction: 'viewer->agent', type, answer_number: active.signalAnswerCount,
+          }))
+        }
+      }
       if (type === 'codec_retry') {
         // Same authenticated viewer, same device and same authorised session.
         // Bound attempts to prevent runaway offers from unstable clients.
