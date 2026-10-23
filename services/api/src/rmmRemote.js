@@ -682,6 +682,11 @@ export function attachRmmViewerWebSocket(server) {
     ).catch(() => null)
     if (viewerSession) {
       viewerSession.viewer_version = clean(url.searchParams.get('viewer_version'))
+      const permittedCodecs = new Set(['vp8', 'vp9', 'h264', 'av1'])
+      viewerSession.viewer_video_codecs = [...new Set(
+        clean(url.searchParams.get('video_codecs'))
+          .toLowerCase().split(',').filter((codec) => permittedCodecs.has(codec)),
+      )]
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -829,6 +834,7 @@ export function attachRmmViewerWebSocket(server) {
         technician_name: active.technicianName,
         chat_available: remote.mode === 'console',
         iceServers: active.iceAgent,
+        viewer_video_codecs: remote.viewer_video_codecs || [],
         wayland_persistence: remote.wayland_persistence === true,
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })
