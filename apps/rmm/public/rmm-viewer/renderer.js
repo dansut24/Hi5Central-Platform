@@ -119,6 +119,9 @@ let inputDc = null;
 let inputControlDc = null;
 let mouseMoveDc = null;
 let mouseMoveSeq = 0;
+let codecRetryTimer = null;
+let codecRetryAttempts = 0;
+let failedVideoCodecs = [];
 
 let currentSession = null;
 let audioEnabled = false;
@@ -248,7 +251,18 @@ function resolvedMobileResolutionPref() {
 function mobileStreamProfilePayload() {
   const pref = resolvedMobileResolutionPref();
   const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 30, targetBitrateKbps: 8000 };
-  const base = { target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps, preference: pref };
+  // Quality is adaptive but not mathematically lossless. True lossless must
+  // only be signaled after a verified lossless encoder and decoder are added.
+  const qualityTarget = mobileQualityState.current === 'excellent' &&
+    (!isMobileViewerSurface() || mobileAdaptiveState.tier === 0)
+      ? 'sharp' : mobileQualityState.current === 'poor' ? 'bandwidth' : 'balanced';
+  const base = {
+    target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps,
+    preference: pref, quality_target: qualityTarget,
+    // VP9 profile-0 supports bit-exact I420 reconstruction. The Agent must
+    // independently confirm its SOFTWARE VP9 encoder before using this.
+    lossless_supported: supportedViewerVideoCodecs().includes('vp9')
+  };
   if (pref === '720p') return { ...base, max_width: 1280, max_height: 720 };
   if (pref === '1080p') return { ...base, max_width: 1920, max_height: 1080 };
   return { ...base, max_width: 0, max_height: 0 };
@@ -679,7 +693,8 @@ function median(values) {
 }
 
 function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate, packetCount = 0, packetsLostDelta = 0 }) {
-  if (!currentSession || !isMobileViewerSurface()) return;
+  if (!currentSession) return;
+  const precedingQuality = mobileQualityState.current;
   const sample = {
     at: Date.now(),
     rtt: Number.isFinite(rttMs) && rttMs > 0 ? rttMs : null,
@@ -732,8 +747,14 @@ function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate
   const detail = Math.round(rtt || 0) + 'ms · ' + (loss * 100).toFixed(1) + '% loss · 10s window';
   setMobileQualityUi(label, current, detail);
   if (current !== 'poor') mobileLastGoodStatsAt = Date.now();
+  if (current !== precedingQuality && pc?.connectionState === 'connected') {
+    // Update quality target even when FPS/bitrate tier has not changed.
+    // This is the signal that lets VP9 libvpx switch I420 losslessness
+    // without tearing down the existing WebRTC session.
+    sendViewerStreamProfile();
+  }
 
-  if (mobilePrefs.adaptive !== 'on') return;
+  if (!isMobileViewerSurface() || mobilePrefs.adaptive !== 'on') return;
   // Only sustained Poor quality can reduce the stream. "Good" is considered
   // healthy and must not lower bitrate/FPS due to ordinary Wi-Fi variance.
   if (current === 'poor') { mobileAdaptiveState.bad += 1; mobileAdaptiveState.good = 0; }
@@ -1557,6 +1578,8 @@ function showStream() {
 }
 
 function markFrameRendered() {
+  if (!hasEverRenderedFrame) reportViewerMediaStage('frame', 'decoded_first');
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
   clearReconnectPoster();
   const firstRenderedFrame = !hasEverRenderedFrame;
   if (isMobileViewerSurface()) {
@@ -4030,7 +4053,44 @@ async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
 
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
+  const offeredCodec = extractSdpVideoCodecs(offerSdp)
+    .map((entry) => String(entry.codec || '').split('/')[0].toLowerCase())
+    .find((codec) => ['vp8', 'vp9', 'h264', 'av1'].includes(codec)) || '';
+  const expectedSessionId = currentSession?.sessionId;
+  // Verify actual decoded frames, not merely the ICE/input connection.
+  // If negotiated video stays black, request the next mutual codec without
+  // closing this authenticated session. Each codec is tried at most once.
+  if (expectedSessionId && offeredCodec && !hasEverRenderedFrame) {
+    codecRetryTimer = setTimeout(() => {
+      codecRetryTimer = null;
+      if (currentSession?.sessionId !== expectedSessionId || hasEverRenderedFrame) return;
+      // Codec decoding cannot be evaluated before ICE/DTLS is connected.
+      // The previous eight-second blind codec retry caused endless streamer
+      // teardown even when no RTP transport was available yet.
+      if (pc?.connectionState !== 'connected') {
+        reportViewerMediaStage('codec', 'waiting_for_ice');
+        setStatus('', 'Negotiating secure video transport…');
+        return;
+      }
+      if (codecRetryAttempts >= 3 || failedVideoCodecs.includes(offeredCodec)) return;
+      failedVideoCodecs.push(offeredCodec);
+      codecRetryAttempts += 1;
+      if (ws?.readyState === WebSocket.OPEN) {
+        reportViewerMediaStage('codec', 'no_decoded_frame');
+        console.warn('[codec] connected but no decoded frame; trying next supported codec', {
+          codec: offeredCodec, attempt: codecRetryAttempts
+        });
+        ws.send(JSON.stringify({
+          type: 'codec_retry', session_id: expectedSessionId,
+          excluded_video_codecs: failedVideoCodecs
+        }));
+      }
+    }, 8000);
+  }
+
   if (pc) teardownPeerForReconnect();
+  reportViewerMediaStage('codec', 'offer_received');
   mobileEndpointRestartUntil = 0;
   logSdpCodecSummary("remote offer", offerSdp);
 
@@ -4107,6 +4167,7 @@ async function handleOffer(msg) {
   };
 
   pc.ontrack = async (ev) => {
+    reportViewerMediaStage('track', ev.track?.kind === 'video' ? 'video_received' : 'other');
     console.log("[rtc] ontrack", { trackKind: ev.track?.kind, streams: ev.streams?.length || 0 });
     setTimeout(updateSelectedCodecFromStats, 500);
     setTimeout(updateSelectedCodecFromStats, 1500);
@@ -4197,10 +4258,12 @@ async function handleOffer(msg) {
 
   pc.onicegatheringstatechange = () => console.log("[rtc] iceGatheringState:", pc.iceGatheringState);
   pc.oniceconnectionstatechange = () => {
+    reportViewerMediaStage('ice', pc.iceConnectionState || 'unknown');
     console.log("[rtc] iceConnectionState:", pc.iceConnectionState);
     if (pc.iceConnectionState === 'failed') scheduleMobileSessionReconnect('ice-failed');
   };
   pc.onconnectionstatechange = () => {
+    reportViewerMediaStage('peer', pc.connectionState || 'unknown');
     console.log("[rtc] connectionState:", pc.connectionState);
 
     if (pc.connectionState === "connected") {
@@ -4233,11 +4296,15 @@ async function handleOffer(msg) {
     }
   };
   pc.onsignalingstatechange = () => console.log("[rtc] signalingState:", pc.signalingState);
+  pc.onicecandidateerror = (ev) => {
+    reportViewerMediaStage('candidate_error', 'code_' + String(ev?.errorCode || 'unknown'));
+  };
 
   pc.onicecandidate = (ev) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     if (ev.candidate) {
+      reportViewerMediaStage('ice', String(ev.candidate.type || 'candidate'));
       ws.send(JSON.stringify({
         type: "ice_candidate",
         session_id: currentSession.sessionId,
@@ -4771,6 +4838,31 @@ function teardownPeerForReconnect() {
   }
 }
 
+function reportViewerMediaStage(stage, state) {
+  if (ws?.readyState !== WebSocket.OPEN || !currentSession?.sessionId) return;
+  if (!/^[a-z0-9_-]{1,36}$/.test(String(state || ''))) return;
+  try {
+    ws.send(JSON.stringify({
+      type: 'viewer_media_diagnostic', session_id: currentSession.sessionId,
+      stage, state
+    }));
+  } catch {}
+}
+
+function supportedViewerVideoCodecs() {
+  // Report actual browser/WebRTC decoder support before the Agent sends its
+  // first offer. A codec absent from this list is never assumed supported.
+  try {
+    const caps = RTCRtpReceiver.getCapabilities?.('video');
+    const allowed = new Set(['vp8', 'vp9', 'h264', 'av1']);
+    return [...new Set((caps?.codecs || [])
+      .map((codec) => String(codec?.mimeType || '').toLowerCase().replace(/^video\//, ''))
+      .filter((codec) => allowed.has(codec)))];
+  } catch {
+    return [];
+  }
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -4779,7 +4871,8 @@ function connectViewerSignaling(reason = 'initial') {
     `${wssUrl}?session_id=${encodeURIComponent(sessionId)}` +
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
-    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '');
+    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
+    `&video_codecs=${encodeURIComponent(supportedViewerVideoCodecs().join(','))}`;
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: mobileRecoveryAttempts });
   const socket = new WebSocket(url);
   ws = socket;
@@ -4798,8 +4891,9 @@ function connectViewerSignaling(reason = 'initial') {
           disconnect('Connection lost');
           return;
         }
+        reportViewerMediaStage('ice', 'negotiation_timeout');
         scheduleMobileSessionReconnect('media-negotiation-timeout');
-      }, 8000);
+      }, 20000);
     }
   };
   socket.onmessage = onSignalMessage;
@@ -4890,6 +4984,9 @@ function startSession(params) {
   console.log("[viewer] starting authorised remote session");
 
   disconnect(undefined, { silent: true });
+  if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
+  codecRetryAttempts = 0;
+  failedVideoCodecs = [];
 
   params = params || {};
 
