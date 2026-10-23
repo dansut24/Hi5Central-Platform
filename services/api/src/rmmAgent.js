@@ -920,7 +920,11 @@ async function requireRmmDeviceControl(c) {
   return { session }
 }
 
-function agentUpgradeScript(release) {
+function agentUpgradeScript(release, tenantSlug) {
+  const slug = clean(tenantSlug).toLowerCase()
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(slug)) throw new Error('Invalid tenant for Agent upgrade.')
+  const apiBase = 'https://' + slug + '-rmm.' + deployment.rootDomain
+  const wsBase = 'wss://' + slug + '-rmm.' + deployment.rootDomain + '/agent/ws'
   const url = psSingleQuote(release.installer_url)
   const expected = psSingleQuote(clean(release.installer_sha256).toLowerCase())
   const version = clean(release.version).replace(/[^0-9A-Za-z._-]/g, '').slice(0, 48)
@@ -946,7 +950,7 @@ function agentUpgradeScript(release) {
     "if ($actualSha256 -ne $expectedSha256) { Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue; throw ('Installer SHA-256 mismatch. Expected ' + $expectedSha256 + ' but got ' + $actualSha256) }",
     "$taskName = '" + psSingleQuote(taskName) + "'",
     "Get-ScheduledTask -TaskName 'Hi5CentralAgentUpgrade-*' -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne $taskName -and [string]$_.State -ne 'Running' } | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue",
-    "$installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /INSTALL_SOURCE=agent-upgrade /LOG=' + [char]34 + $logPath + [char]34",
+    "$installerArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /INSTALL_SOURCE=agent-upgrade /API_BASE_URL=" + apiBase + " /AGENT_WS_BASE_URL=" + wsBase + " /LOG=' + [char]34 + $logPath + [char]34",
     "$runner = Join-Path $upgradeDir 'run-upgrade-" + version + ".ps1'",
     "$resultPath = Join-Path $upgradeDir 'result-" + version + ".json'",
     "$runnerScript = '$ErrorActionPreference = ''Stop''' + [Environment]::NewLine + '$installer = ''' + $installer + '''' + [Environment]::NewLine + '$installerArgs = ''' + $installerArgs + '''' + [Environment]::NewLine + '$resultPath = ''' + $resultPath + '''' + [Environment]::NewLine + '$started = Get-Date' + [Environment]::NewLine + 'try { Stop-Service -Name Hi5CentralAgent -Force -ErrorAction SilentlyContinue; $deadline=(Get-Date).AddSeconds(30); do { $p=Get-Process Hi5CentralAgent -ErrorAction SilentlyContinue; if (-not $p) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Start-Sleep -Seconds 2 }; @(''Hi5CentralAppPortal'',''Hi5CentralUser'',''Hi5CentralRemoteHost'',''Hi5CentralMediaHost'',''Hi5CentralPatchHost'') | ForEach-Object { Get-Process -Name $_ -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 750; $proc=Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru; $code=$proc.ExitCode; if ($code -ne 0) { throw (''Installer exited with code '' + $code) }; Start-Service -Name Hi5CentralAgent -ErrorAction Stop; [pscustomobject]@{status=''succeeded'';started=$started;completed=(Get-Date);installer_exit_code=$code} | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encoding UTF8; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch { $message=$_.Exception.Message; Start-Service -Name Hi5CentralAgent -ErrorAction SilentlyContinue; [pscustomobject]@{status=''failed'';started=$started;completed=(Get-Date);error=$message} | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encoding UTF8; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue; exit 1 }'",
@@ -2132,7 +2136,7 @@ export function registerRmmAgentRoutes(app) {
     try {
       command = portable
         ? portableAgentUpgradeScript(release, platform, correlationId)
-        : agentUpgradeScript(release)
+        : agentUpgradeScript(release, auth.session.slug)
     } catch (error) {
       return c.json({ error: error?.message || 'Unable to prepare the Agent upgrade.' }, 409)
     }
