@@ -1578,6 +1578,7 @@ function showStream() {
 }
 
 function markFrameRendered() {
+  if (!hasEverRenderedFrame) reportViewerMediaStage('frame', 'decoded_first');
   if (codecRetryTimer) { clearTimeout(codecRetryTimer); codecRetryTimer = null; }
   clearReconnectPoster();
   const firstRenderedFrame = !hasEverRenderedFrame;
@@ -4064,11 +4065,20 @@ async function handleOffer(msg) {
     codecRetryTimer = setTimeout(() => {
       codecRetryTimer = null;
       if (currentSession?.sessionId !== expectedSessionId || hasEverRenderedFrame) return;
+      // Codec decoding cannot be evaluated before ICE/DTLS is connected.
+      // The previous eight-second blind codec retry caused endless streamer
+      // teardown even when no RTP transport was available yet.
+      if (pc?.connectionState !== 'connected') {
+        reportViewerMediaStage('codec', 'waiting_for_ice');
+        setStatus('', 'Negotiating secure video transport…');
+        return;
+      }
       if (codecRetryAttempts >= 3 || failedVideoCodecs.includes(offeredCodec)) return;
       failedVideoCodecs.push(offeredCodec);
       codecRetryAttempts += 1;
       if (ws?.readyState === WebSocket.OPEN) {
-        console.warn('[codec] no decoded frame; trying next supported codec', {
+        reportViewerMediaStage('codec', 'no_decoded_frame');
+        console.warn('[codec] connected but no decoded frame; trying next supported codec', {
           codec: offeredCodec, attempt: codecRetryAttempts
         });
         ws.send(JSON.stringify({
@@ -4080,6 +4090,7 @@ async function handleOffer(msg) {
   }
 
   if (pc) teardownPeerForReconnect();
+  reportViewerMediaStage('codec', 'offer_received');
   mobileEndpointRestartUntil = 0;
   logSdpCodecSummary("remote offer", offerSdp);
 
@@ -4156,6 +4167,7 @@ async function handleOffer(msg) {
   };
 
   pc.ontrack = async (ev) => {
+    reportViewerMediaStage('track', ev.track?.kind === 'video' ? 'video_received' : 'other');
     console.log("[rtc] ontrack", { trackKind: ev.track?.kind, streams: ev.streams?.length || 0 });
     setTimeout(updateSelectedCodecFromStats, 500);
     setTimeout(updateSelectedCodecFromStats, 1500);
@@ -4246,10 +4258,12 @@ async function handleOffer(msg) {
 
   pc.onicegatheringstatechange = () => console.log("[rtc] iceGatheringState:", pc.iceGatheringState);
   pc.oniceconnectionstatechange = () => {
+    reportViewerMediaStage('ice', pc.iceConnectionState || 'unknown');
     console.log("[rtc] iceConnectionState:", pc.iceConnectionState);
     if (pc.iceConnectionState === 'failed') scheduleMobileSessionReconnect('ice-failed');
   };
   pc.onconnectionstatechange = () => {
+    reportViewerMediaStage('peer', pc.connectionState || 'unknown');
     console.log("[rtc] connectionState:", pc.connectionState);
 
     if (pc.connectionState === "connected") {
@@ -4282,11 +4296,15 @@ async function handleOffer(msg) {
     }
   };
   pc.onsignalingstatechange = () => console.log("[rtc] signalingState:", pc.signalingState);
+  pc.onicecandidateerror = (ev) => {
+    reportViewerMediaStage('candidate_error', 'code_' + String(ev?.errorCode || 'unknown'));
+  };
 
   pc.onicecandidate = (ev) => {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     if (ev.candidate) {
+      reportViewerMediaStage('ice', String(ev.candidate.type || 'candidate'));
       ws.send(JSON.stringify({
         type: "ice_candidate",
         session_id: currentSession.sessionId,
@@ -4820,6 +4838,17 @@ function teardownPeerForReconnect() {
   }
 }
 
+function reportViewerMediaStage(stage, state) {
+  if (ws?.readyState !== WebSocket.OPEN || !currentSession?.sessionId) return;
+  if (!/^[a-z0-9_-]{1,36}$/.test(String(state || ''))) return;
+  try {
+    ws.send(JSON.stringify({
+      type: 'viewer_media_diagnostic', session_id: currentSession.sessionId,
+      stage, state
+    }));
+  } catch {}
+}
+
 function supportedViewerVideoCodecs() {
   // Report actual browser/WebRTC decoder support before the Agent sends its
   // first offer. A codec absent from this list is never assumed supported.
@@ -4862,8 +4891,9 @@ function connectViewerSignaling(reason = 'initial') {
           disconnect('Connection lost');
           return;
         }
+        reportViewerMediaStage('ice', 'negotiation_timeout');
         scheduleMobileSessionReconnect('media-negotiation-timeout');
-      }, 8000);
+      }, 20000);
     }
   };
   socket.onmessage = onSignalMessage;
