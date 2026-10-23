@@ -746,6 +746,8 @@ export function attachRmmViewerWebSocket(server) {
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
       agentDisconnectedAt: 0, codecRetryCount: 0, mediaDiagnosticCount: 0, signalOfferCount: 0, signalAnswerCount: 0, viewerCandidateCount: 0, agentCandidateCount: 0,
+      agentOfferSeen: false, agentOfferMids: [], pendingAgentIce: [],
+      viewerAnswerSeen: false, viewerAnswerMids: [], pendingViewerIce: [], viewerIceFlushTimer: null,
     }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
@@ -761,6 +763,43 @@ export function attachRmmViewerWebSocket(server) {
       }).catch(() => {})
     }
 
+    // libdatachannel can signal ICE *before* its SDP offer. Browser peers
+    // cannot apply candidates until their matching remote description exists.
+    // Derive candidate media line indices from SDP rather than the legacy
+    // Agent's hard-coded sdpMLineIndex=0 for every transport.
+    const mediaMids = (sdp) => {
+      const mids = []
+      let inMedia = false
+      for (const line of String(sdp || '').split(/\r?\n/)) {
+        if (line.startsWith('m=')) { inMedia = true; mids.push(null) }
+        else if (inMedia && line.startsWith('a=mid:')) {
+          const mid = line.slice(6).trim()
+          if (mid && mids.length) mids[mids.length - 1] = mid
+        }
+      }
+      return mids.slice(0, 8)
+    }
+    const prepareIceForViewer = (candidate) => {
+      const msg = { ...candidate }
+      const mid = clean(msg.sdpMid || msg.mid)
+      if (mid) { msg.sdpMid = mid; msg.mid = mid }
+      const index = active.agentOfferMids.indexOf(mid)
+      if (index >= 0) { msg.sdpMLineIndex = index; msg.mline_index = index }
+      else if (mid) { delete msg.sdpMLineIndex; delete msg.mline_index }
+      return msg
+    }
+    const prepareIceForAgent = (candidate) => {
+      const msg = { ...candidate }
+      const mid = clean(msg.sdpMid || msg.mid || msg.candidate?.sdpMid)
+      if (mid) { msg.sdpMid = mid; msg.mid = mid }
+      const index = active.viewerAnswerMids.indexOf(mid)
+      if (index >= 0) { msg.sdpMLineIndex = index; msg.mline_index = index }
+      else if (mid) { delete msg.sdpMLineIndex; delete msg.mline_index }
+      return msg
+    }
+    const iceType = (candidate) =>
+      /\\styp\\s+(host|srflx|relay)\\b/i.exec(clean(candidate?.candidate || ''))?.[1]?.toLowerCase() || 'unknown'
+
     const relayFromAgent = (buffer) => {
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)
       let payload
@@ -768,25 +807,37 @@ export function attachRmmViewerWebSocket(server) {
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
       if (payload?.type === 'webrtc_offer') {
+        active.agentOfferSeen = true
+        active.agentOfferMids = mediaMids(payload.sdp)
+        active.viewerAnswerSeen = false
+        active.viewerAnswerMids = []
+        active.pendingViewerIce = []
+        if (active.viewerIceFlushTimer) clearTimeout(active.viewerIceFlushTimer)
+        active.viewerIceFlushTimer = null
         active.signalOfferCount += 1
         if (active.signalOfferCount <= 6) {
           console.info('[rmm.media.signal]', JSON.stringify({
-            session_id: sessionId, client: remote.viewer_client,
-            direction: 'agent->viewer', type: 'webrtc_offer',
-            offer_number: active.signalOfferCount,
-            video_sdp: /m=video/.test(clean(payload.sdp)),
+            session_id: sessionId, client: remote.viewer_client, direction: 'agent->viewer',
+            type: 'webrtc_offer', offer_number: active.signalOfferCount,
+            video_sdp: /m=video/.test(clean(payload.sdp)), media_mids: active.agentOfferMids,
+            agent_ice_buffered: active.pendingAgentIce.length,
           }))
         }
-      }
-      if (payload?.type === 'ice_candidate') {
-        if (typeof payload.sdpMid === 'string') payload.mid = payload.sdpMid
-        if (Number.isInteger(payload.sdpMLineIndex)) payload.mline_index = payload.sdpMLineIndex
-        if (++active.agentCandidateCount <= 8) console.info('[rmm.media.ice]', JSON.stringify({
-          session_id: sessionId, direction: 'agent-to-viewer',
-          mid_present: typeof payload.mid === 'string',
-          candidate_count: active.agentCandidateCount,
-        }))
-        safeSend(viewerWs, payload)
+        safeSend(viewerWs, text)
+        for (const ice of active.pendingAgentIce.splice(0)) safeSend(viewerWs, prepareIceForViewer(ice))
+      } else if (payload?.type === 'ice_candidate') {
+        if (++active.agentCandidateCount <= 12) {
+          console.info('[rmm.media.ice]', JSON.stringify({
+            session_id: sessionId, direction: 'agent-to-viewer',
+            candidate_type: iceType(payload), media_mid: clean(payload.sdpMid || payload.mid) || 'missing',
+            before_offer: !active.agentOfferSeen, candidate_count: active.agentCandidateCount,
+          }))
+        }
+        if (!active.agentOfferSeen) {
+          if (active.pendingAgentIce.length < 48) active.pendingAgentIce.push(payload)
+          return
+        }
+        safeSend(viewerWs, prepareIceForViewer(payload))
       } else {
         safeSend(viewerWs, text)
       }
@@ -927,33 +978,42 @@ export function attachRmmViewerWebSocket(server) {
       payload.session_id = sessionId
       delete payload.sessionId
       if (type === 'ice_candidate') {
-        // Browser and native Viewer send `mid`/`mline_index`, while the
-        // Windows Agent's libdatachannel adapter reads `sdpMid`.
-        // Omitting this translation previously caused every received ICE
-        // candidate to be attached to fallback MID "0" even when the
-        // actual offered media MID was "video".
-        const rawMid = payload.sdpMid ?? payload.mid ?? payload.candidate?.sdpMid ?? payload.candidate?.mid
-        if (typeof rawMid === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(rawMid)) {
-          payload.sdpMid = rawMid
-          payload.mid = rawMid
-        }
-        const rawIndex = payload.sdpMLineIndex ?? payload.mline_index ?? payload.candidate?.sdpMLineIndex
-        if (Number.isInteger(Number(rawIndex)) && Number(rawIndex) >= 0 && Number(rawIndex) <= 8) {
-          payload.sdpMLineIndex = Number(rawIndex)
-          payload.mline_index = Number(rawIndex)
-        }
-        if (++active.viewerCandidateCount <= 8) {
+        if (++active.viewerCandidateCount <= 12) {
           console.info('[rmm.media.ice]', JSON.stringify({
-            session_id: sessionId, client: remote.viewer_client, direction: 'viewer->agent',
-            mid_present: typeof payload.sdpMid === 'string',
-            mid_label: payload.sdpMid === 'video' ? 'video' : payload.sdpMid === '0' ? '0' : 'other',
-            index_present: Number.isInteger(payload.sdpMLineIndex),
-            candidate_count: active.viewerCandidateCount,
+            session_id: sessionId, direction: 'viewer-to-agent',
+            candidate_type: iceType(payload), media_mid: clean(payload.sdpMid || payload.mid) || 'missing',
+            before_answer: !active.viewerAnswerSeen, candidate_count: active.viewerCandidateCount,
           }))
         }
+        if (!active.viewerAnswerSeen) {
+          if (active.pendingViewerIce.length < 48) active.pendingViewerIce.push(payload)
+          return
+        }
+        payload = prepareIceForAgent(payload)
+      }
+      if (type === 'webrtc_answer' || type === 'answer') {
+        active.viewerAnswerMids = mediaMids(payload.sdp)
+        active.viewerAnswerSeen = true
+        console.info('[rmm.media.signal]', JSON.stringify({
+          session_id: sessionId, client: remote.viewer_client,
+          type: 'answer_media_mids', media_mids: active.viewerAnswerMids,
+          viewer_ice_buffered: active.pendingViewerIce.length,
+        }))
       }
       if (!safeSend(active.agentWs, payload)) {
         safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
+      }
+      if ((type === 'webrtc_answer' || type === 'answer') && active.pendingViewerIce.length) {
+        // Agent must receive the answer before addRemoteCandidate. The
+        // WebSocket is ordered; a short defer also allows description setup.
+        if (active.viewerIceFlushTimer) clearTimeout(active.viewerIceFlushTimer)
+        active.viewerIceFlushTimer = setTimeout(() => {
+          active.viewerIceFlushTimer = null
+          if (active.finalized || activeViewerSessions.get(sessionId) !== active) return
+          for (const candidate of active.pendingViewerIce.splice(0)) {
+            safeSend(active.agentWs, prepareIceForAgent(candidate))
+          }
+        }, 150)
       }
       pool.query(`UPDATE rmm_remote_sessions SET last_activity_at=now(),expires_at=GREATEST(expires_at,now() + interval '8 hours'),updated_at=now() WHERE id=$1`, [remote.id]).catch(() => {})
     })
@@ -964,6 +1024,7 @@ export function attachRmmViewerWebSocket(server) {
       if (currentActive?.viewerWs && currentActive.viewerWs !== viewerWs) return
       const boundAgentWs = currentActive?.agentWs || agentWs
       if (currentActive?.cleanupTimer) clearTimeout(currentActive.cleanupTimer)
+      if (currentActive?.viewerIceFlushTimer) clearTimeout(currentActive.viewerIceFlushTimer)
       if (currentActive) {
         currentActive.finalized = true
         if (currentActive.agentRestartTimer) clearTimeout(currentActive.agentRestartTimer)
