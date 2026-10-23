@@ -37,7 +37,7 @@ const activeViewerSessions = new Map()
 let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
-  'webrtc_answer', 'answer', 'ice_candidate',
+  'webrtc_answer', 'answer', 'ice_candidate', 'codec_retry',
   'switch_monitor', 'input_event',
   'service_shortcut', 'system_shortcut', 'shortcut', 'service_command',
   'backstage_start', 'backstage_stop', 'console_start',
@@ -745,7 +745,7 @@ export function attachRmmViewerWebSocket(server) {
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
-      agentDisconnectedAt: 0,
+      agentDisconnectedAt: 0, codecRetryCount: 0,
     }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
@@ -848,6 +848,27 @@ export function attachRmmViewerWebSocket(server) {
       try { payload = JSON.parse(text) } catch { return }
       const type = clean(payload?.type)
       if (!VIEWER_MESSAGE_TYPES.has(type)) return
+      if (type === 'codec_retry') {
+        // Same authenticated viewer, same device and same authorised session.
+        // Bound attempts to prevent runaway offers from unstable clients.
+        if (++active.codecRetryCount > 3) return
+        const supported = new Set(remote.viewer_video_codecs || [])
+        const excluded = [...new Set((Array.isArray(payload.excluded_video_codecs)
+          ? payload.excluded_video_codecs : [])
+          .map((codec) => clean(codec).toLowerCase())
+          .filter((codec) => supported.has(codec)))].slice(0, 3)
+        safeSend(active.agentWs, {
+          type: 'start_webrtc', session_id: sessionId,
+          mode: remote.mode, session_type: 'unattended',
+          technician_name: active.technicianName,
+          chat_available: remote.mode === 'console',
+          iceServers: active.iceAgent,
+          viewer_video_codecs: remote.viewer_video_codecs || [],
+          excluded_video_codecs: excluded,
+          wayland_persistence: remote.wayland_persistence === true,
+        })
+        return
+      }
       if (['viewer_disconnected','viewer_closed','viewer_left','end_session','stop_webrtc'].includes(type)) explicitViewerClose = true
       if (remote.mode !== 'backstage' && (type === 'backstage_start' || type === 'backstage_stop')) {
         safeSend(viewerWs, { type: 'viewer_error', session_id: sessionId, error: 'Background mode is not authorised for this remote session.' })
