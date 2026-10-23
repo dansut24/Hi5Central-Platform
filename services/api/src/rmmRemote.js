@@ -798,7 +798,7 @@ export function attachRmmViewerWebSocket(server) {
       return msg
     }
     const iceType = (candidate) =>
-      /\\styp\\s+(host|srflx|relay)\\b/i.exec(clean(candidate?.candidate || ''))?.[1]?.toLowerCase() || 'unknown'
+      /\styp\s+(host|srflx|relay)\b/i.exec(clean(candidate?.candidate || ''))?.[1]?.toLowerCase() || 'unknown'
 
     const relayFromAgent = (buffer) => {
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)
@@ -899,6 +899,14 @@ export function attachRmmViewerWebSocket(server) {
       active.agentWs = nextAgentWs
       nextAgentWs.on('message', relayFromAgent)
       if (restarted) safeSend(active.viewerWs, { type: 'agent_reconnected', session_id: sessionId })
+      active.agentOfferSeen = false
+      active.agentOfferMids = []
+      active.pendingAgentIce = []
+      active.viewerAnswerSeen = false
+      active.viewerAnswerMids = []
+      active.pendingViewerIce = []
+      if (active.viewerIceFlushTimer) clearTimeout(active.viewerIceFlushTimer)
+      active.viewerIceFlushTimer = null
       const sent = safeSend(nextAgentWs, {
         type: 'start_webrtc',
         session_id: sessionId,
@@ -946,6 +954,15 @@ export function attachRmmViewerWebSocket(server) {
         }
       }
       if (type === 'codec_retry') {
+        // New offer generation invalidates previous ICE trickle context.
+        active.agentOfferSeen = false
+        active.agentOfferMids = []
+        active.pendingAgentIce = []
+        active.viewerAnswerSeen = false
+        active.viewerAnswerMids = []
+        active.pendingViewerIce = []
+        if (active.viewerIceFlushTimer) clearTimeout(active.viewerIceFlushTimer)
+        active.viewerIceFlushTimer = null
         // Same authenticated viewer, same device and same authorised session.
         // Bound attempts to prevent runaway offers from unstable clients.
         if (++active.codecRetryCount > 3) return
