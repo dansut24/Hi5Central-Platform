@@ -4096,7 +4096,16 @@ async function handleOffer(msg) {
 
   setStatus("", "Negotiating…");
 
-  pc = new RTCPeerConnection({ iceServers: activeIceServers() });
+  // Temporary newtest pilot: public TURN is reachable, but the browser's
+  // mixed host/srflx/relay ICE checks repeatedly fail across remote networks.
+  // Using relayed candidates only isolates TURN media connectivity without
+  // modifying agent enrollment, server authentication or private-peer bans.
+  // This pilot viewer is never served to other tenants.
+  pc = new RTCPeerConnection({
+    iceServers: activeIceServers(),
+    iceTransportPolicy: "relay",
+  });
+  reportViewerMediaStage('ice', 'relay_only');
 
   let transceiver = null;
   try {
