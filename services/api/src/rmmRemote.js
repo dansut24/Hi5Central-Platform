@@ -763,6 +763,7 @@ export function attachRmmViewerWebSocket(server) {
       }).catch(() => {})
     }
 
+    const legacyIceForward = process.env.RMM_PILOT_LEGACY_ICE_FORWARD === '1'
     // libdatachannel can signal ICE *before* its SDP offer. Browser peers
     // cannot apply candidates until their matching remote description exists.
     // Derive candidate media line indices from SDP rather than the legacy
@@ -807,6 +808,9 @@ export function attachRmmViewerWebSocket(server) {
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
       if (payload?.type === 'webrtc_offer') {
+        if (legacyIceForward) console.info('[rmm.media.legacy_ice]', JSON.stringify({
+          session_id: sessionId, mode: 'historical_direct_forward_20261005',
+        }))
         active.agentOfferSeen = true
         active.agentOfferMids = mediaMids(payload.sdp)
         active.viewerAnswerSeen = false
@@ -833,11 +837,13 @@ export function attachRmmViewerWebSocket(server) {
             before_offer: !active.agentOfferSeen, candidate_count: active.agentCandidateCount,
           }))
         }
-        if (!active.agentOfferSeen) {
+        if (!legacyIceForward && !active.agentOfferSeen) {
           if (active.pendingAgentIce.length < 48) active.pendingAgentIce.push(payload)
           return
         }
-        safeSend(viewerWs, prepareIceForViewer(payload))
+        // Restore the previously working October 5 candidate path on newtest.
+        // Do not relabel the Agent's video-line candidate as application index 1.
+        safeSend(viewerWs, legacyIceForward ? text : prepareIceForViewer(payload))
       } else {
         safeSend(viewerWs, text)
       }
@@ -1020,11 +1026,11 @@ export function attachRmmViewerWebSocket(server) {
             before_answer: !active.viewerAnswerSeen, candidate_count: active.viewerCandidateCount,
           }))
         }
-        if (!active.viewerAnswerSeen) {
+        if (!legacyIceForward && !active.viewerAnswerSeen) {
           if (active.pendingViewerIce.length < 48) active.pendingViewerIce.push(payload)
           return
         }
-        payload = prepareIceForAgent(payload)
+        if (!legacyIceForward) payload = prepareIceForAgent(payload)
       }
       if (type === 'webrtc_answer' || type === 'answer') {
         active.viewerAnswerMids = mediaMids(payload.sdp)
