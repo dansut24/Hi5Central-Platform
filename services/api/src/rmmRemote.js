@@ -919,6 +919,24 @@ export function attachRmmViewerWebSocket(server) {
         wayland_persistence: remote.wayland_persistence === true,
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })
+      // Pilot-only bridge while Windows Agent DXGI startup regression is
+      // investigated. The Agent already supports monitor -1 via GDI capture,
+      // but defaults to monitor 0 and its DXGI helper currently fast-fails.
+      // Only the isolated newtest API enables this opt-in environment flag.
+      if (sent && remote.mode === 'console' && process.env.RMM_PILOT_FORCE_GDI_CAPTURE === '1') {
+        setTimeout(() => {
+          if (active.finalized || activeViewerSessions.get(sessionId) !== active) return
+          if (safeSend(active.agentWs, {
+            type: 'switch_monitor',
+            session_id: sessionId,
+            monitor_index: -1,
+          })) {
+            console.info('[rmm.media.capture]', JSON.stringify({
+              session_id: sessionId, mode: 'gdi_all_monitors', reason: 'dxgi_streamer_fast_fail_pilot',
+            }))
+          }
+        }, 650)
+      }
       return sent
     }
 
