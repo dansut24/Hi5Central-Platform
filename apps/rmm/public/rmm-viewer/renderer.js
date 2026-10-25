@@ -3964,12 +3964,19 @@ function normalizeRemoteIce(msg) {
     mline = msg.candidate.sdpMLineIndex ?? msg.candidate.mline_index ?? null;
   }
 
-  mid = msg.mid ?? mid;
+  // Windows libdatachannel sends {sdpMid:"0",sdpMLineIndex:0}.
+  // Its offer uses a=mid:video at m-line 0 and a=mid:0 at m-line 1.
+  // The index is therefore stale; prefer the explicit MID and let the
+  // browser locate the correct remote media section from the offer SDP.
+  mid = msg.sdpMid ?? msg.mid ?? mid;
   mline = msg.mline_index ?? msg.sdpMLineIndex ?? mline;
 
   if (!candidateStr) return null;
 
-  return { candidate: candidateStr, mid: mid ?? null, mline_index: (mline != null ? Number(mline) : null) };
+  const normalizedMid = (typeof mid === "string" && mid.length > 0) ? mid : null;
+  const index = mline != null && Number.isInteger(Number(mline)) && Number(mline) >= 0
+    ? Number(mline) : null;
+  return { candidate: candidateStr, mid: normalizedMid, mline_index: normalizedMid == null ? index : null };
 }
 
 async function applyRemoteIce(msg) {
@@ -3989,7 +3996,8 @@ async function applyRemoteIce(msg) {
     };
     await pc.addIceCandidate(ice);
   } catch (e) {
-    console.warn("[rtc] addIceCandidate failed:", e?.message || e, msg);
+    console.warn("[rtc] addIceCandidate failed:", e?.message || e, { mid: iceMsg.mid, mline_index: iceMsg.mline_index });
+    reportViewerMediaStage('ice', 'remote_candidate_rejected');
   }
 }
 
