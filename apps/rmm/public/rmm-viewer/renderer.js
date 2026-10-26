@@ -3941,7 +3941,7 @@ function normalizeRemoteIce(msg) {
     mline = msg.candidate.sdpMLineIndex ?? msg.candidate.mline_index ?? null;
   }
 
-  mid = msg.mid ?? mid;
+  mid = msg.mid ?? msg.sdpMid ?? mid;
   mline = msg.mline_index ?? msg.sdpMLineIndex ?? mline;
 
   if (!candidateStr) return null;
