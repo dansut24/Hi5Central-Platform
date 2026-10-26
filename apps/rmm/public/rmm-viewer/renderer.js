@@ -4243,7 +4243,9 @@ async function handleOffer(msg) {
         session_id: currentSession.sessionId,
         candidate: ev.candidate.candidate,
         mid: ev.candidate.sdpMid ?? null,
-        mline_index: ev.candidate.sdpMLineIndex ?? null
+        sdpMid: ev.candidate.sdpMid ?? null,
+        mline_index: ev.candidate.sdpMLineIndex ?? null,
+        sdpMLineIndex: ev.candidate.sdpMLineIndex ?? null
       }));
     }
   };
