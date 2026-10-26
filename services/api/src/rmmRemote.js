@@ -742,6 +742,21 @@ export function attachRmmViewerWebSocket(server) {
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
       agentDisconnectedAt: 0,
     }
+    // Ensure remote candidates follow the matching SDP and retain the
+    // correct MID for Agent libdatachannel and browser RTCPeerConnection.
+    let offerForwarded = false
+    let answerForwarded = false
+    const pendingAgentIce = []
+    const pendingViewerIce = []
+    const normaliseIceMid = (payload) => {
+      const supplied = clean(payload?.sdpMid ?? payload?.mid)
+      const suppliedIndex = payload?.sdpMLineIndex ?? payload?.mline_index
+      const index = suppliedIndex == null ? NaN : Number(suppliedIndex)
+      const mid = supplied || (index === 0 ? 'video' : index === 1 ? '0' : '')
+      if (!mid) return payload
+      const correctIndex = mid === '0' ? 1 : mid === 'video' ? 0 : index
+      return { ...payload, mid, sdpMid: mid, mline_index: correctIndex, sdpMLineIndex: correctIndex }
+    }
     activeViewerSessions.set(sessionId, active)
     if (viewerInterruptedAt) {
       const interruptionSeconds = Math.max(0, Math.round((Date.now() - viewerInterruptedAt) / 1000))
@@ -762,8 +777,21 @@ export function attachRmmViewerWebSocket(server) {
       try { payload = JSON.parse(text) } catch { return }
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
+      if (payload?.type === 'ice_candidate') {
+        const iceCandidate = normaliseIceMid(payload)
+        if (!offerForwarded) {
+          if (pendingAgentIce.length < 96) pendingAgentIce.push(iceCandidate)
+        } else {
+          safeSend(viewerWs, iceCandidate)
+        }
+        return
+      }
       safeSend(viewerWs, text)
       if (payload?.type === 'webrtc_offer') {
+        offerForwarded = true
+        answerForwarded = false
+        pendingViewerIce.length = 0
+        for (const iceCandidate of pendingAgentIce.splice(0)) safeSend(viewerWs, iceCandidate)
         pool.query(
           `UPDATE rmm_remote_sessions
               SET status='active',started_at=now(),last_activity_at=now(),updated_at=now()
@@ -820,7 +848,13 @@ export function attachRmmViewerWebSocket(server) {
       if (active.agentRestartTimer) { clearTimeout(active.agentRestartTimer); active.agentRestartTimer = null }
       active.agentWs = nextAgentWs
       nextAgentWs.on('message', relayFromAgent)
-      if (restarted) safeSend(active.viewerWs, { type: 'agent_reconnected', session_id: sessionId })
+      if (restarted) {
+        offerForwarded = false
+        answerForwarded = false
+        pendingAgentIce.length = 0
+        pendingViewerIce.length = 0
+        safeSend(active.viewerWs, { type: 'agent_reconnected', session_id: sessionId })
+      }
       const sent = safeSend(nextAgentWs, {
         type: 'start_webrtc',
         session_id: sessionId,
@@ -853,8 +887,22 @@ export function attachRmmViewerWebSocket(server) {
       }
       payload.session_id = sessionId
       delete payload.sessionId
-      if (!safeSend(active.agentWs, payload)) {
-        safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
+      if (type === 'ice_candidate') {
+        const iceCandidate = normaliseIceMid(payload)
+        if (!answerForwarded) {
+          if (pendingViewerIce.length < 96) pendingViewerIce.push(iceCandidate)
+          return
+        }
+        if (!safeSend(active.agentWs, iceCandidate)) {
+          safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
+        }
+      } else {
+        if (!safeSend(active.agentWs, payload)) {
+          safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
+        } else if (type === 'webrtc_answer' || type === 'answer') {
+          answerForwarded = true
+          for (const iceCandidate of pendingViewerIce.splice(0)) safeSend(active.agentWs, iceCandidate)
+        }
       }
       pool.query(`UPDATE rmm_remote_sessions SET last_activity_at=now(),expires_at=GREATEST(expires_at,now() + interval '8 hours'),updated_at=now() WHERE id=$1`, [remote.id]).catch(() => {})
     })
