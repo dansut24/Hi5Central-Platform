@@ -1052,11 +1052,20 @@ function startTransitionWatchdog() {
     }
 
     if (secureDesktopActive || desktopHandoffActive) {
+      if (transitionEnteredAtMs && now - transitionEnteredAtMs >= 1500) {
+        requestRemoteKeyframe("desktop-transition-no-frame");
+      }
       return;
+    }
+
+    if (revealOnNextFrame && transitionReadyAtMs &&
+        now - transitionReadyAtMs > 1500) {
+      requestRemoteKeyframe("desktop-ready-awaiting-decoded-frame");
     }
 
     if (now - lastFrameAtMs > FRAME_STALL_MS) {
       secureDesktopLikely = true;
+      requestRemoteKeyframe("video-stall");
     }
   }, 250);
 }
