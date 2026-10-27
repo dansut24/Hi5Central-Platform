@@ -179,6 +179,10 @@ let secureDesktopLikely = false;
 let secureDesktopActive = false;
 let desktopHandoffActive = false;
 let revealOnNextFrame = false;
+let transitionEnteredAtMs = 0;
+let transitionReadyAtMs = 0;
+let transitionDecodedBaseline = -1;
+let lastKeyframeRequestAtMs = 0;
 let monitorSwitchUntilMs = 0;
 let overlayMode = "hard";
 
