@@ -1029,6 +1029,15 @@ function stopStatsPoll() {
   lastFramesDecoded = 0;
 }
 
+function requestRemoteKeyframe(reason = "frame-continuity") {
+  const now = Date.now();
+  if (!currentSession || now - lastKeyframeRequestAtMs < 1200) return false;
+  if (!sendControlObject({ kind: "request_keyframe", reason })) return false;
+  lastKeyframeRequestAtMs = now;
+  console.log("[video-recovery] keyframe requested", reason);
+  return true;
+}
+
 function startTransitionWatchdog() {
   if (transitionWatchdogTimer) return;
 
