@@ -183,6 +183,8 @@ let transitionEnteredAtMs = 0;
 let transitionReadyAtMs = 0;
 let transitionDecodedBaseline = -1;
 let lastKeyframeRequestAtMs = 0;
+let lastVisualActionAtMs = 0;
+let lastMediaPacketAtMs = 0;
 let monitorSwitchUntilMs = 0;
 let overlayMode = "hard";
 
@@ -213,7 +215,8 @@ function activeIceServers() {
   return normalizeIceServers(currentSession?.iceServers);
 }
 
-const FRAME_STALL_MS = 950;
+const FRAME_STALL_MS = 3000;
+const RECOVERY_KEYFRAME_BACKOFF_MS = 5000;
 const MONITOR_SWITCH_GRACE_MS = 1800;
 const NEGOTIATION_GRACE_MS = 2500;
 
@@ -1031,7 +1034,7 @@ function stopStatsPoll() {
 
 function requestRemoteKeyframe(reason = "frame-continuity") {
   const now = Date.now();
-  if (!currentSession || now - lastKeyframeRequestAtMs < 1200) return false;
+  if (!currentSession || now - lastKeyframeRequestAtMs < RECOVERY_KEYFRAME_BACKOFF_MS) return false;
   if (!sendControlObject({ kind: "request_keyframe", reason })) return false;
   lastKeyframeRequestAtMs = now;
   console.log("[video-recovery] keyframe requested", reason);
@@ -1063,9 +1066,14 @@ function startTransitionWatchdog() {
       requestRemoteKeyframe("desktop-ready-awaiting-decoded-frame");
     }
 
-    if (now - lastFrameAtMs > FRAME_STALL_MS) {
-      secureDesktopLikely = true;
-      requestRemoteKeyframe("video-stall");
+    const stalledFor = now - lastFrameAtMs;
+    const actionableStall = stalledFor > FRAME_STALL_MS &&
+      ((lastVisualActionAtMs > lastFrameAtMs && now - lastVisualActionAtMs < 2500) ||
+       (lastMediaPacketAtMs > lastFrameAtMs && now - lastMediaPacketAtMs < 1750));
+    if (actionableStall) {
+      // A static remote desktop sends fewer frames by design.
+      // Do not flag it as a secure desktop or repeatedly force expensive IDRs.
+      requestRemoteKeyframe("actionable-video-stall");
     }
   }, 250);
 }
@@ -1107,6 +1115,9 @@ function sendInput(kind, extra = {}, force = false) {
   if (!force && !controlActive) return;
   if (!force && (secureDesktopActive || desktopHandoffActive)) return;
 
+  if (!["mouse_move", "viewer_diagnostics", "viewer_stream_profile"].includes(kind)) {
+    lastVisualActionAtMs = Date.now();
+  }
   if (kind === "mouse_move" && sendFastMouseMove(extra)) return;
 
   const payload = JSON.stringify({ kind, ...extra });
@@ -1631,6 +1642,8 @@ function resetTransitionState() {
   transitionReadyAtMs = 0;
   transitionDecodedBaseline = -1;
   lastKeyframeRequestAtMs = 0;
+  lastVisualActionAtMs = 0;
+  lastMediaPacketAtMs = 0;
   monitorSwitchUntilMs = 0;
   overlayMode = "hard";
 }
@@ -1881,6 +1894,7 @@ async function pollStatsOnce() {
     framesDecoded = Number(inbound.framesDecoded || 0);
     packetsLost = Number(inbound.packetsLost || 0);
     packetsReceived = Number(inbound.packetsReceived || 0);
+    if (packetsReceived > lastStats.packetsReceived) lastMediaPacketAtMs = nowMs;
     jitterMs = Number.isFinite(Number(inbound.jitter)) ? Number(inbound.jitter) * 1000 : null;
     const jitterDelay = Number(inbound.jitterBufferDelay || 0);
     const jitterEmitted = Number(inbound.jitterBufferEmittedCount || 0);
