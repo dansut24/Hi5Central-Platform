@@ -1593,11 +1593,14 @@ function showLoginDesktopTransition() {
 
 function completeDesktopSourceTransition(reason = "desktop-source-ready") {
   clearSecureDesktopState();
-  showStream();
-  setStatus("online", "Streaming");
+  // An Agent source-ready message is not a newly decoded frame.
+  revealOnNextFrame = true;
+  desktopTransitionDecodedBaseline = lastFramesDecoded;
+  desktopTransitionReadyAtMs = Date.now();
   ensureRemoteVideoPlayback(reason);
   armDecodedFrameReveal();
   requestRemoteKeyframe(reason);
+  console.log("[video-recovery] awaiting decoded frame", { reason, baseline: desktopTransitionDecodedBaseline });
 }
 
 function hideOverlay() {
