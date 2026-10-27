@@ -2897,6 +2897,9 @@ function resetTransitionState() {
   loginDesktopInputActive = false;
   stopLoginDesktopWake();
   revealOnNextFrame = false;
+  desktopTransitionEnteredAtMs = 0;
+  desktopTransitionReadyAtMs = 0;
+  desktopTransitionDecodedBaseline = -1;
   monitorSwitchUntilMs = 0;
   lastKeyframeRequestAtMs = 0;
   overlayMode = "hard";
