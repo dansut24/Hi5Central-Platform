@@ -138,18 +138,18 @@ let viewerFatalTransportError = false;
 let statsTimer = null;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
-// Match the current Windows Agent's real VP9 ceiling. Automatic resolution
-// stays native on good links and reduces the encoder pixel load only when
-// sustained poor network quality justifies a lower profile.
+// Text clarity is more important than reacting to a jitter-buffer spike.
+// Ordinary adaptation changes bitrate/FPS, not desktop pixel resolution.
 const DESKTOP_ADAPTIVE_TIERS = [
-  { bitrate: 6000, fps: 20, resolution: 'native', label: 'Native · 6 Mbps · 20 fps' },
-  { bitrate: 5200, fps: 20, resolution: 'native', label: 'Native · 5.2 Mbps · 20 fps' },
-  { bitrate: 4200, fps: 20, resolution: '1080p', label: '1080p · 4.2 Mbps · 20 fps' },
-  { bitrate: 3000, fps: 18, resolution: '1080p', label: '1080p · 3 Mbps · 18 fps' },
-  { bitrate: 1900, fps: 15, resolution: '720p', label: '720p · 1.9 Mbps · 15 fps' }
+  { bitrate: 6000, fps: 20, label: 'Native · 6 Mbps · 20 fps' },
+  { bitrate: 5400, fps: 20, label: 'Native · 5.4 Mbps · 20 fps' },
+  { bitrate: 4800, fps: 20, label: 'Native · 4.8 Mbps · 20 fps' },
+  { bitrate: 4200, fps: 18, label: 'Native · 4.2 Mbps · 18 fps' },
+  { bitrate: 3600, fps: 15, label: 'Native · 3.6 Mbps · 15 fps' }
 ];
 let desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
 let desktopQualityState = { current: 'good', candidate: null, count: 0, changedAt: Date.now(), samples: [] };
+let desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 'stretch' : 'fit';
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
 
@@ -1108,12 +1108,10 @@ function sendControlObject(message) {
 function desktopResolutionProfile() {
   if (desktopResolutionPref === '720p') return { max_width: 1280, max_height: 720, preference: '720p' };
   if (desktopResolutionPref === '1080p') return { max_width: 1920, max_height: 1080, preference: '1080p' };
-  // Manual Native is pinned. Only Auto resolution can step down alongside
-  // measured network quality; it recovers progressively as quality improves.
+  // Keep Auto native until *real* severe network congestion is sustained.
+  // Never choose 720p automatically; 720p is available as a manual option.
   const automatic = desktopResolutionPref === 'auto'
-    ? DESKTOP_ADAPTIVE_TIERS[desktopAdaptiveState.tier]?.resolution
-    : 'native';
-  if (automatic === '720p') return { max_width: 1280, max_height: 720, preference: '720p' };
+    ? desktopResolutionGuard.preference : 'native';
   if (automatic === '1080p') return { max_width: 1920, max_height: 1080, preference: '1080p' };
   return { max_width: 0, max_height: 0, preference: 'native' };
 }
@@ -1151,9 +1149,37 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
   const packetTotal=samples.reduce((sum,x)=>sum+x.packetCount,0);
   const lostTotal=samples.reduce((sum,x)=>sum+x.packetsLost,0);
   const loss=packetTotal>=120?lostTotal/packetTotal:0;
-  const poor=rtt>=350||buffer>=240||jitter>=90||(packetTotal>=120&&loss>=0.04);
-  const excellent=rtt>0&&rtt<140&&buffer<90&&jitter<35&&(packetTotal<120||loss<0.008);
+  // Decoder/jitter-buffer delay isn't a network quality metric by itself.
+  // It can be elevated when a high-resolution software encoder supplies
+  // frames slowly even on LAN-quality 5ms RTT / zero-loss connections.
+  const lossEvidence=packetTotal>=120;
+  const poor=rtt>=350||(lossEvidence&&loss>=0.04)||
+    (jitter>=90&&(rtt>=180||(lossEvidence&&loss>=0.02)));
+  const excellent=rtt>0&&rtt<140&&jitter<90&&(!lossEvidence||loss<0.008);
   const observed=poor?'poor':(excellent?'excellent':'good');
+  const severe=(lossEvidence&&loss>=0.08&&(rtt>=220||jitter>=90))||
+    (packetTotal>=60&&rtt>=800);
+  const now=Date.now();
+  if(severe){
+    desktopResolutionGuard.healthySince=0;
+    if(!desktopResolutionGuard.severeSince)desktopResolutionGuard.severeSince=now;
+    if(desktopResolutionGuard.preference==='native'&&now-desktopResolutionGuard.severeSince>=45000){
+      desktopResolutionGuard.preference='1080p';
+      console.log('[adaptive] desktop 1080p after severe verified congestion');
+      sendDesktopStreamProfile();
+    }
+  }else{
+    desktopResolutionGuard.severeSince=0;
+    if(desktopResolutionGuard.preference!=='native'&&excellent){
+      if(!desktopResolutionGuard.healthySince)desktopResolutionGuard.healthySince=now;
+      if(now-desktopResolutionGuard.healthySince>=12000){
+        desktopResolutionGuard.preference='native';
+        desktopResolutionGuard.healthySince=0;
+        console.log('[adaptive] desktop native resolution restored');
+        sendDesktopStreamProfile();
+      }
+    }else if(!excellent){desktopResolutionGuard.healthySince=0;}
+  }
   if(observed===desktopQualityState.current){desktopQualityState.candidate=null;desktopQualityState.count=0;}
   else {
     if(desktopQualityState.candidate===observed) desktopQualityState.count+=1; else {desktopQualityState.candidate=observed;desktopQualityState.count=1;}
@@ -3328,6 +3354,7 @@ function startSession(params) {
 
   desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
   desktopQualityState = { current: 'good', candidate: null, count: 0, changedAt: Date.now(), samples: [] };
+  desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
   if (elDiagQuality) elDiagQuality.textContent = 'Measuring';
   if (elDiagProfile) elDiagProfile.textContent = DESKTOP_ADAPTIVE_TIERS[0].label;
 

@@ -141,6 +141,10 @@ let mobileReconnectCooldownUntil = 0;
 let mobileEndpointRestartUntil = 0;
 let mobileLastGoodStatsAt = 0;
 let mobileQualityState = { current: 'good', candidate: null, count: 0, changedAt: 0, samples: [] };
+// Capture/video decoder delays are NOT equivalent to network congestion.
+// Keep native text sharp. Allow at most 1080p automatically and only after
+// independently-confirmed sustained severe transport congestion.
+let mobileResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 20, targetBitrateKbps: 6000, label: 'Native · 6 Mbps · 20 fps' };
 let mobileFileTransfer = null;
 let connectFileAccessGranted = false;
@@ -243,11 +247,11 @@ function resolvedMobileResolutionPref() {
   // Auto prioritises text/image fidelity. 720p remains an explicit performance
   // option for constrained links, but is no longer forced on every phone.
   if (mobilePrefs.resolution !== 'auto') return mobilePrefs.resolution;
-  // Automatic mobile resolution follows verified network conditions, while
-  // explicit Native / 1080p / 720p choices always remain authoritative.
-  // Start sharp and downgrade only after sustained poor reception.
+  // Adaptive bitrate and FPS remain automatic, but resolution is independent
+  // of those tiers: false-positive "Poor" from decoder jitter must never
+  // soften text. Only a prolonged severe network problem may cap at 1080p.
   if (mobilePrefs.adaptive !== 'on') return 'native';
-  return MOBILE_ADAPTIVE_TIERS[mobileAdaptiveState.tier]?.resolution || 'native';
+  return mobileResolutionGuard.preference;
 }
 
 function mobileStreamProfilePayload() {
@@ -586,15 +590,16 @@ function wakeMobileToolbar() {
   scheduleMobileToolbarHide();
 }
 
-// Respect the Windows Agent's real 20fps/6Mbps VP9 ceilings. Do not request
-// 30fps/8Mbps and misleadingly show a higher quality than the sender can
-// produce. Auto resolution only steps down when network adaptation does.
+// Prioritise sharp remote desktop text and interface detail. All ordinary
+// adaptive tiers preserve native pixels, reducing network bitrate and frame
+// rate first. Explicit 720p/1080p controls still work. Separate and much
+// stricter sustained congestion detection may limit Auto to 1080p.
 const MOBILE_ADAPTIVE_TIERS = [
-  { bitrate: 6000, fps: 20, resolution: 'native', label: 'Native · 6 Mbps · 20 fps' },
-  { bitrate: 5200, fps: 20, resolution: 'native', label: 'Native · 5.2 Mbps · 20 fps' },
-  { bitrate: 4200, fps: 20, resolution: '1080p', label: '1080p · 4.2 Mbps · 20 fps' },
-  { bitrate: 3000, fps: 18, resolution: '1080p', label: '1080p · 3 Mbps · 18 fps' },
-  { bitrate: 1900, fps: 15, resolution: '720p', label: '720p · 1.9 Mbps · 15 fps' }
+  { bitrate: 6000, fps: 20, label: 'Native · 6 Mbps · 20 fps' },
+  { bitrate: 5400, fps: 20, label: 'Native · 5.4 Mbps · 20 fps' },
+  { bitrate: 4800, fps: 20, label: 'Native · 4.8 Mbps · 20 fps' },
+  { bitrate: 4200, fps: 18, label: 'Native · 4.2 Mbps · 18 fps' },
+  { bitrate: 3600, fps: 15, label: 'Native · 3.6 Mbps · 15 fps' }
 ];
 
 function setMobileRecoveryStage(stage) {
@@ -617,7 +622,13 @@ function updateMobileDiagnosticsUi() {
   elMobileDiagnosticsCard?.classList.toggle('visible', enabled);
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
-  if (elDiagMobileProfile) elDiagMobileProfile.textContent = mobileAdaptiveState.label;
+  if (elDiagMobileProfile) {
+    const resolution = resolvedMobileResolutionPref();
+    elDiagMobileProfile.textContent = (mobilePrefs.resolution === 'auto' && resolution === 'native'
+      ? 'Native sharpness' : resolution.toUpperCase()) +
+      ' · ' + (mobileAdaptiveState.targetBitrateKbps / 1000).toFixed(1) +
+      ' Mbps · ' + mobileAdaptiveState.targetFps + ' fps';
+  }
   if (elDiagMobileViewport) {
     const vv = window.visualViewport;
     elDiagMobileViewport.textContent = mobileViewZoom.toFixed(2) + '× · ' + Math.round(vv?.width || innerWidth) + '×' + Math.round(vv?.height || innerHeight);
@@ -659,6 +670,7 @@ async function releaseMobileWakeLock() {
 function resetMobileAdaptiveState() {
   mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 20, targetBitrateKbps: 6000, label: MOBILE_ADAPTIVE_TIERS[0].label };
   mobileQualityState = { current: 'good', candidate: null, count: 0, changedAt: Date.now(), samples: [] };
+  mobileResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
   updateMobileDiagnosticsUi();
 }
 
@@ -716,9 +728,49 @@ function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate
   // packet would otherwise create a meaningless double-digit percentage.
   const loss = packetTotal >= 120 ? lostTotal / packetTotal : 0;
 
-  const poor = rtt >= 350 || buffer >= 240 || jitter >= 90 || (packetTotal >= 120 && loss >= 0.04);
-  const excellent = rtt > 0 && rtt < 140 && buffer < 90 && jitter < 35 && (packetTotal < 120 || loss < 0.008);
+  // Jitter-buffer delay measures *playout/decoder waiting* as well as network
+  // delay. On iOS, a slow VP9/GDI source can have a large buffer despite 5ms
+  // RTT and zero packet loss. Never infer network congestion from buffer alone.
+  const lossEvidence = packetTotal >= 120;
+  const realLoss = lossEvidence && loss >= 0.04;
+  const networkJitter = jitter >= 90 && ((rtt > 180) || (lossEvidence && loss >= 0.02));
+  const poor = rtt >= 350 || realLoss || networkJitter;
+  const excellent = rtt > 0 && rtt < 140 && jitter < 90 && (!lossEvidence || loss < 0.008);
   const observed = poor ? 'poor' : (excellent ? 'excellent' : 'good');
+
+  // Resolution is a last resort, not a bitrate tier. Require 45 seconds of
+  // severe congestion supported by RTP packet loss + RTT/jitter, or a truly
+  // extreme RTT. Restore native after 12 seconds of healthy reception.
+  // Never auto-select 720p for desktop text; users can request it manually.
+  const severe = (lossEvidence && loss >= 0.08 && (rtt >= 220 || jitter >= 90)) ||
+    (packetTotal >= 60 && rtt >= 800);
+  const now = Date.now();
+  if (severe) {
+    mobileResolutionGuard.healthySince = 0;
+    if (!mobileResolutionGuard.severeSince) mobileResolutionGuard.severeSince = now;
+    if (mobileResolutionGuard.preference === 'native' &&
+        now - mobileResolutionGuard.severeSince >= 45000) {
+      mobileResolutionGuard.preference = '1080p';
+      console.log('[adaptive] resolution 1080p: sustained severe verified congestion', { rtt, jitter, loss, packetTotal });
+      sendViewerStreamProfile();
+      updateMobileDiagnosticsUi();
+    }
+  } else {
+    mobileResolutionGuard.severeSince = 0;
+    if (mobileResolutionGuard.preference !== 'native' &&
+        excellent) {
+      if (!mobileResolutionGuard.healthySince) mobileResolutionGuard.healthySince = now;
+      if (now - mobileResolutionGuard.healthySince >= 12000) {
+        mobileResolutionGuard.preference = 'native';
+        mobileResolutionGuard.healthySince = 0;
+        console.log('[adaptive] native resolution restored after recovery');
+        sendViewerStreamProfile();
+        updateMobileDiagnosticsUi();
+      }
+    } else if (!excellent) {
+      mobileResolutionGuard.healthySince = 0;
+    }
+  }
 
   if (observed === mobileQualityState.current) {
     mobileQualityState.candidate = null;
@@ -737,7 +789,9 @@ function observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate
 
   const current = mobileQualityState.current;
   const label = current === 'poor' ? 'Poor' : (current === 'excellent' ? 'Excellent' : 'Good');
-  const detail = Math.round(rtt || 0) + 'ms · ' + (loss * 100).toFixed(1) + '% loss · 10s window';
+  const detail = Math.round(rtt || 0) + 'ms · ' + (loss * 100).toFixed(1) +
+    '% loss · 10s window' +
+    (buffer >= 240 && !poor ? ' · elevated decoder buffer (not packet loss)' : '');
   setMobileQualityUi(label, current, detail);
   if (current !== 'poor') mobileLastGoodStatsAt = Date.now();
 
