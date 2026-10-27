@@ -4116,6 +4116,11 @@ async function handleOffer(msg) {
 
   pc.ontrack = async (ev) => {
     console.log("[rtc] ontrack", { trackKind: ev.track?.kind, streams: ev.streams?.length || 0 });
+    // Keep existing production mobile ICE/video telemetry during the
+    // adaptive-quality rollout so regressions remain diagnosable.
+    if (ws && ws.readyState === WebSocket.OPEN && currentSession?.sessionId) {
+      ws.send(JSON.stringify({ type:'viewer_media_diagnostic', session_id:currentSession.sessionId, stage:'track', state:ev.track?.kind === 'video' ? 'video_seen' : 'other_seen' }));
+    }
     setTimeout(updateSelectedCodecFromStats, 500);
     setTimeout(updateSelectedCodecFromStats, 1500);
     const stream = (ev.streams && ev.streams[0])
@@ -4203,13 +4208,48 @@ async function handleOffer(msg) {
     }
   };
 
+  // Preserve the existing production ICE diagnostic frames. These are
+  // read-only and transmitted through the already-authenticated websocket.
+  const observedPeer = pc;
+  const sendIceStage = (stage, state) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !currentSession?.sessionId) return;
+    ws.send(JSON.stringify({ type: 'viewer_media_diagnostic', session_id: currentSession.sessionId, stage, state }));
+  };
+  const reportIceStats = async (stage) => {
+    try {
+      if (pc !== observedPeer) return;
+      const stats = await observedPeer.getStats();
+      const pairs = [];
+      stats.forEach(v => { if (v.type === 'candidate-pair') pairs.push(v); });
+      const checks = pairs.reduce((a,v)=>a+(Number(v.requestsSent)||0),0);
+      const replies = pairs.reduce((a,v)=>a+(Number(v.responsesReceived)||0),0);
+      const successes = pairs.filter(v=>v.state === 'succeeded').length;
+      sendIceStage('stats', 'pairs_'+stage+'_'+pairs.length+'_'+successes);
+      sendIceStage('stats', 'checks_'+stage+'_'+checks+'_'+replies);
+      const selected = pairs.find(v=>v.selected || (v.nominated && v.state==='succeeded'));
+      if (selected) {
+        const l = stats.get(selected.localCandidateId);
+        const r = stats.get(selected.remoteCandidateId);
+        const types = (l?.candidateType || 'unknown')+'_'+(r?.candidateType || 'unknown');
+        sendIceStage('stats', 'selected_'+types);
+      }
+    } catch { sendIceStage('stats', 'unavailable'); }
+  };
   pc.onicegatheringstatechange = () => console.log("[rtc] iceGatheringState:", pc.iceGatheringState);
   pc.oniceconnectionstatechange = () => {
     console.log("[rtc] iceConnectionState:", pc.iceConnectionState);
+    sendIceStage('ice', pc.iceConnectionState || 'unknown');
+    if (pc.iceConnectionState === 'checking') setTimeout(() => {
+      if (pc === observedPeer && pc.iceConnectionState === 'checking') void reportIceStats('checking');
+    }, 7000);
+    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' || pc.iceConnectionState === 'failed') {
+      void reportIceStats(pc.iceConnectionState);
+    }
     if (pc.iceConnectionState === 'failed') scheduleMobileSessionReconnect('ice-failed');
   };
   pc.onconnectionstatechange = () => {
     console.log("[rtc] connectionState:", pc.connectionState);
+    sendIceStage('peer', pc.connectionState || 'unknown');
 
     if (pc.connectionState === "connected") {
       const recovered = mobileRecoveryAttempts > 0 || mobileRecoveryStage !== 'Idle' || mobileReconnectDeadline > 0;
