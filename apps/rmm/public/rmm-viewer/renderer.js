@@ -1335,6 +1335,9 @@ let revealOnNextFrame = false;
 let monitorSwitchUntilMs = 0;
 let lastKeyframeRequestAtMs = 0;
 let overlayMode = "hard";
+let desktopTransitionEnteredAtMs = 0;
+let desktopTransitionReadyAtMs = 0;
+let desktopTransitionDecodedBaseline = -1;
 
 /* -----------------------------------------
    TURN / ICE config
