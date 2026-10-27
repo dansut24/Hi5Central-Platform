@@ -345,8 +345,10 @@ function clearSecureDesktopState() {
 
 function completeDesktopSourceTransition() {
   clearSecureDesktopState();
-  showStream();
-  setStatus("online", "Streaming");
+  revealOnNextFrame = true;
+  transitionDecodedBaseline = lastFramesDecoded;
+  transitionReadyAtMs = Date.now();
+  requestRemoteKeyframe("desktop-source-ready");
   try {
     const playback = elVideo?.play?.();
     playback?.catch?.(() => {});
@@ -373,6 +375,10 @@ function markFrameRendered() {
   if (secureDesktopActive || desktopHandoffActive) {
     return;
   }
+  if (revealOnNextFrame && transitionDecodedBaseline >= 0 &&
+      lastFramesDecoded <= transitionDecodedBaseline) {
+    return;
+  }
 
   if (desktopModePending) {
     completeDesktopModeTransition(desktopModePending);
@@ -381,6 +387,9 @@ function markFrameRendered() {
 
   if (firstRenderedFrame || revealOnNextFrame) {
     revealOnNextFrame = false;
+    transitionDecodedBaseline = -1;
+    transitionReadyAtMs = 0;
+    transitionEnteredAtMs = 0;
     secureDesktopLikely = false;
     showStream();
     setStatus("online", "Streaming");
@@ -2815,7 +2824,6 @@ async function handleOffer(msg) {
     };
 
     elVideo.onplaying = () => {
-      clearSecureDesktopState();
       markFrameRendered();
       updateResolution();
       refreshRemoteCursorPosition();
