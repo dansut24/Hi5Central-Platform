@@ -138,12 +138,15 @@ let viewerFatalTransportError = false;
 let statsTimer = null;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+// Match the current Windows Agent's real VP9 ceiling. Automatic resolution
+// stays native on good links and reduces the encoder pixel load only when
+// sustained poor network quality justifies a lower profile.
 const DESKTOP_ADAPTIVE_TIERS = [
-  { bitrate: 8000, fps: 30, label: 'Native · 8 Mbps · 30 fps' },
-  { bitrate: 6000, fps: 30, label: 'Native · 6 Mbps · 30 fps' },
-  { bitrate: 4500, fps: 24, label: 'Native · 4.5 Mbps · 24 fps' },
-  { bitrate: 3200, fps: 20, label: 'Native · 3.2 Mbps · 20 fps' },
-  { bitrate: 2200, fps: 15, label: 'Native · 2.2 Mbps · 15 fps' }
+  { bitrate: 6000, fps: 20, resolution: 'native', label: 'Native · 6 Mbps · 20 fps' },
+  { bitrate: 5200, fps: 20, resolution: 'native', label: 'Native · 5.2 Mbps · 20 fps' },
+  { bitrate: 4200, fps: 20, resolution: '1080p', label: '1080p · 4.2 Mbps · 20 fps' },
+  { bitrate: 3000, fps: 18, resolution: '1080p', label: '1080p · 3 Mbps · 18 fps' },
+  { bitrate: 1900, fps: 15, resolution: '720p', label: '720p · 1.9 Mbps · 15 fps' }
 ];
 let desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
 let desktopQualityState = { current: 'good', candidate: null, count: 0, changedAt: Date.now(), samples: [] };
@@ -1105,7 +1108,14 @@ function sendControlObject(message) {
 function desktopResolutionProfile() {
   if (desktopResolutionPref === '720p') return { max_width: 1280, max_height: 720, preference: '720p' };
   if (desktopResolutionPref === '1080p') return { max_width: 1920, max_height: 1080, preference: '1080p' };
-  return { max_width: 0, max_height: 0, preference: desktopResolutionPref === 'native' ? 'native' : 'auto' };
+  // Manual Native is pinned. Only Auto resolution can step down alongside
+  // measured network quality; it recovers progressively as quality improves.
+  const automatic = desktopResolutionPref === 'auto'
+    ? DESKTOP_ADAPTIVE_TIERS[desktopAdaptiveState.tier]?.resolution
+    : 'native';
+  if (automatic === '720p') return { max_width: 1280, max_height: 720, preference: '720p' };
+  if (automatic === '1080p') return { max_width: 1920, max_height: 1080, preference: '1080p' };
+  return { max_width: 0, max_height: 0, preference: 'native' };
 }
 
 function applyDesktopScalePreference() {
