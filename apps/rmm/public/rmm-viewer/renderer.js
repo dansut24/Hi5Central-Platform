@@ -1335,6 +1335,9 @@ let revealOnNextFrame = false;
 let monitorSwitchUntilMs = 0;
 let lastKeyframeRequestAtMs = 0;
 let overlayMode = "hard";
+let desktopTransitionEnteredAtMs = 0;
+let desktopTransitionReadyAtMs = 0;
+let desktopTransitionDecodedBaseline = -1;
 
 /* -----------------------------------------
    TURN / ICE config
@@ -1590,11 +1593,14 @@ function showLoginDesktopTransition() {
 
 function completeDesktopSourceTransition(reason = "desktop-source-ready") {
   clearSecureDesktopState();
-  showStream();
-  setStatus("online", "Streaming");
+  // An Agent source-ready message is not a newly decoded frame.
+  revealOnNextFrame = true;
+  desktopTransitionDecodedBaseline = lastFramesDecoded;
+  desktopTransitionReadyAtMs = Date.now();
   ensureRemoteVideoPlayback(reason);
   armDecodedFrameReveal();
   requestRemoteKeyframe(reason);
+  console.log("[video-recovery] awaiting decoded frame", { reason, baseline: desktopTransitionDecodedBaseline });
 }
 
 function hideOverlay() {
@@ -1631,8 +1637,15 @@ function markFrameRendered() {
   if (secureDesktopActive || desktopHandoffActive) {
     return;
   }
+  if (revealOnNextFrame && desktopTransitionDecodedBaseline >= 0 &&
+      lastFramesDecoded <= desktopTransitionDecodedBaseline) {
+    return;
+  }
 
   if (firstRenderedFrame || revealOnNextFrame) {
+    desktopTransitionDecodedBaseline = -1;
+    desktopTransitionReadyAtMs = 0;
+    desktopTransitionEnteredAtMs = 0;
     revealOnNextFrame = false;
     secureDesktopLikely = false;
     showStream();
@@ -2460,7 +2473,17 @@ function startTransitionWatchdog() {
     }
 
     if (secureDesktopActive || desktopHandoffActive) {
+      if (desktopTransitionEnteredAtMs && now - desktopTransitionEnteredAtMs >= 1500) {
+        requestRemoteKeyframe("desktop-transition-no-video");
+        ensureRemoteVideoPlayback("desktop-transition-no-video");
+      }
       return;
+    }
+
+    if (revealOnNextFrame && desktopTransitionReadyAtMs &&
+        now - desktopTransitionReadyAtMs > 1500) {
+      requestRemoteKeyframe("desktop-ready-awaiting-decoded-frame");
+      ensureRemoteVideoPlayback("desktop-ready-awaiting-decoded-frame");
     }
 
     const stalledFor = now - lastFrameAtMs;
@@ -2874,6 +2897,9 @@ function resetTransitionState() {
   loginDesktopInputActive = false;
   stopLoginDesktopWake();
   revealOnNextFrame = false;
+  desktopTransitionEnteredAtMs = 0;
+  desktopTransitionReadyAtMs = 0;
+  desktopTransitionDecodedBaseline = -1;
   monitorSwitchUntilMs = 0;
   lastKeyframeRequestAtMs = 0;
   overlayMode = "hard";
@@ -4226,7 +4252,6 @@ async function handleOffer(msg) {
     };
 
     elVideo.onplaying = () => {
-      clearSecureDesktopState();
       markFrameRendered();
       updateResolution();
       refreshRemoteCursorPosition();
@@ -4759,6 +4784,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "login_desktop_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         loginDesktopInputActive = true;
@@ -4779,6 +4805,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "secure_desktop_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         loginDesktopInputActive = false;
@@ -4801,6 +4828,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "desktop_handoff_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         desktopHandoffActive = true;
         secureDesktopActive = false;
         revealOnNextFrame = false;

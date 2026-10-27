@@ -179,6 +179,10 @@ let secureDesktopLikely = false;
 let secureDesktopActive = false;
 let desktopHandoffActive = false;
 let revealOnNextFrame = false;
+let transitionEnteredAtMs = 0;
+let transitionReadyAtMs = 0;
+let transitionDecodedBaseline = -1;
+let lastKeyframeRequestAtMs = 0;
 let monitorSwitchUntilMs = 0;
 let overlayMode = "hard";
 
@@ -341,8 +345,10 @@ function clearSecureDesktopState() {
 
 function completeDesktopSourceTransition() {
   clearSecureDesktopState();
-  showStream();
-  setStatus("online", "Streaming");
+  revealOnNextFrame = true;
+  transitionDecodedBaseline = lastFramesDecoded;
+  transitionReadyAtMs = Date.now();
+  requestRemoteKeyframe("desktop-source-ready");
   try {
     const playback = elVideo?.play?.();
     playback?.catch?.(() => {});
@@ -369,6 +375,10 @@ function markFrameRendered() {
   if (secureDesktopActive || desktopHandoffActive) {
     return;
   }
+  if (revealOnNextFrame && transitionDecodedBaseline >= 0 &&
+      lastFramesDecoded <= transitionDecodedBaseline) {
+    return;
+  }
 
   if (desktopModePending) {
     completeDesktopModeTransition(desktopModePending);
@@ -377,6 +387,9 @@ function markFrameRendered() {
 
   if (firstRenderedFrame || revealOnNextFrame) {
     revealOnNextFrame = false;
+    transitionDecodedBaseline = -1;
+    transitionReadyAtMs = 0;
+    transitionEnteredAtMs = 0;
     secureDesktopLikely = false;
     showStream();
     setStatus("online", "Streaming");
@@ -1016,6 +1029,15 @@ function stopStatsPoll() {
   lastFramesDecoded = 0;
 }
 
+function requestRemoteKeyframe(reason = "frame-continuity") {
+  const now = Date.now();
+  if (!currentSession || now - lastKeyframeRequestAtMs < 1200) return false;
+  if (!sendControlObject({ kind: "request_keyframe", reason })) return false;
+  lastKeyframeRequestAtMs = now;
+  console.log("[video-recovery] keyframe requested", reason);
+  return true;
+}
+
 function startTransitionWatchdog() {
   if (transitionWatchdogTimer) return;
 
@@ -1030,11 +1052,20 @@ function startTransitionWatchdog() {
     }
 
     if (secureDesktopActive || desktopHandoffActive) {
+      if (transitionEnteredAtMs && now - transitionEnteredAtMs >= 1500) {
+        requestRemoteKeyframe("desktop-transition-no-frame");
+      }
       return;
+    }
+
+    if (revealOnNextFrame && transitionReadyAtMs &&
+        now - transitionReadyAtMs > 1500) {
+      requestRemoteKeyframe("desktop-ready-awaiting-decoded-frame");
     }
 
     if (now - lastFrameAtMs > FRAME_STALL_MS) {
       secureDesktopLikely = true;
+      requestRemoteKeyframe("video-stall");
     }
   }, 250);
 }
@@ -1596,6 +1627,10 @@ function resetTransitionState() {
   secureDesktopActive = false;
   desktopHandoffActive = false;
   revealOnNextFrame = false;
+  transitionEnteredAtMs = 0;
+  transitionReadyAtMs = 0;
+  transitionDecodedBaseline = -1;
+  lastKeyframeRequestAtMs = 0;
   monitorSwitchUntilMs = 0;
   overlayMode = "hard";
 }
@@ -2811,7 +2846,6 @@ async function handleOffer(msg) {
     };
 
     elVideo.onplaying = () => {
-      clearSecureDesktopState();
       markFrameRendered();
       updateResolution();
       refreshRemoteCursorPosition();
@@ -3167,6 +3201,7 @@ async function onSignalMessage(raw) {
       if (handleDesktopSessionState(state)) break;
 
       if (state === "secure_desktop_entering") {
+        transitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         revealOnNextFrame = false;
@@ -3186,6 +3221,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "desktop_handoff_entering") {
+        transitionEnteredAtMs = Date.now();
         desktopHandoffActive = true;
         secureDesktopActive = false;
         revealOnNextFrame = false;
