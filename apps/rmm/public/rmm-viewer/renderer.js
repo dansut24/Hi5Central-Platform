@@ -141,7 +141,7 @@ let mobileReconnectCooldownUntil = 0;
 let mobileEndpointRestartUntil = 0;
 let mobileLastGoodStatsAt = 0;
 let mobileQualityState = { current: 'good', candidate: null, count: 0, changedAt: 0, samples: [] };
-let mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 30, targetBitrateKbps: 8000, label: 'Native · 8 Mbps · 30 fps' };
+let mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 20, targetBitrateKbps: 6000, label: 'Native · 6 Mbps · 20 fps' };
 let mobileFileTransfer = null;
 let connectFileAccessGranted = false;
 let connectFilePermissionPending = false;
@@ -242,12 +242,17 @@ function resolvedMobileResolutionPref() {
   if (!isMobileViewerSurface()) return mobilePrefs.resolution;
   // Auto prioritises text/image fidelity. 720p remains an explicit performance
   // option for constrained links, but is no longer forced on every phone.
-  return mobilePrefs.resolution === 'auto' ? 'native' : mobilePrefs.resolution;
+  if (mobilePrefs.resolution !== 'auto') return mobilePrefs.resolution;
+  // Automatic mobile resolution follows verified network conditions, while
+  // explicit Native / 1080p / 720p choices always remain authoritative.
+  // Start sharp and downgrade only after sustained poor reception.
+  if (mobilePrefs.adaptive !== 'on') return 'native';
+  return MOBILE_ADAPTIVE_TIERS[mobileAdaptiveState.tier]?.resolution || 'native';
 }
 
 function mobileStreamProfilePayload() {
   const pref = resolvedMobileResolutionPref();
-  const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 30, targetBitrateKbps: 8000 };
+  const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 20, targetBitrateKbps: 6000 };
   const base = { target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps, preference: pref };
   if (pref === '720p') return { ...base, max_width: 1280, max_height: 720 };
   if (pref === '1080p') return { ...base, max_width: 1920, max_height: 1080 };
@@ -581,12 +586,15 @@ function wakeMobileToolbar() {
   scheduleMobileToolbarHide();
 }
 
+// Respect the Windows Agent's real 20fps/6Mbps VP9 ceilings. Do not request
+// 30fps/8Mbps and misleadingly show a higher quality than the sender can
+// produce. Auto resolution only steps down when network adaptation does.
 const MOBILE_ADAPTIVE_TIERS = [
-  { bitrate: 8000, fps: 30, label: 'Native · 8 Mbps · 30 fps' },
-  { bitrate: 6000, fps: 30, label: 'Native · 6 Mbps · 30 fps' },
-  { bitrate: 4500, fps: 24, label: 'Native · 4.5 Mbps · 24 fps' },
-  { bitrate: 3200, fps: 20, label: 'Native · 3.2 Mbps · 20 fps' },
-  { bitrate: 2200, fps: 15, label: 'Native · 2.2 Mbps · 15 fps' }
+  { bitrate: 6000, fps: 20, resolution: 'native', label: 'Native · 6 Mbps · 20 fps' },
+  { bitrate: 5200, fps: 20, resolution: 'native', label: 'Native · 5.2 Mbps · 20 fps' },
+  { bitrate: 4200, fps: 20, resolution: '1080p', label: '1080p · 4.2 Mbps · 20 fps' },
+  { bitrate: 3000, fps: 18, resolution: '1080p', label: '1080p · 3 Mbps · 18 fps' },
+  { bitrate: 1900, fps: 15, resolution: '720p', label: '720p · 1.9 Mbps · 15 fps' }
 ];
 
 function setMobileRecoveryStage(stage) {
@@ -649,7 +657,7 @@ async function releaseMobileWakeLock() {
 }
 
 function resetMobileAdaptiveState() {
-  mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 30, targetBitrateKbps: 8000, label: MOBILE_ADAPTIVE_TIERS[0].label };
+  mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 20, targetBitrateKbps: 6000, label: MOBILE_ADAPTIVE_TIERS[0].label };
   mobileQualityState = { current: 'good', candidate: null, count: 0, changedAt: Date.now(), samples: [] };
   updateMobileDiagnosticsUi();
 }
@@ -665,7 +673,7 @@ function applyMobileAdaptiveTier(nextTier, reason = '') {
   mobileAdaptiveState.lastChangeAt = Date.now();
   mobileAdaptiveState.bad = 0;
   mobileAdaptiveState.good = 0;
-  console.log('[adaptive] tier changed', { tier, reason, ...cfg });
+  console.log('[adaptive] tier changed', { tier, reason, ...cfg, effectiveResolution: resolvedMobileResolutionPref() });
   updateMobileDiagnosticsUi();
   sendViewerStreamProfile();
   return true;
@@ -4108,6 +4116,11 @@ async function handleOffer(msg) {
 
   pc.ontrack = async (ev) => {
     console.log("[rtc] ontrack", { trackKind: ev.track?.kind, streams: ev.streams?.length || 0 });
+    // Keep existing production mobile ICE/video telemetry during the
+    // adaptive-quality rollout so regressions remain diagnosable.
+    if (ws && ws.readyState === WebSocket.OPEN && currentSession?.sessionId) {
+      ws.send(JSON.stringify({ type:'viewer_media_diagnostic', session_id:currentSession.sessionId, stage:'track', state:ev.track?.kind === 'video' ? 'video_seen' : 'other_seen' }));
+    }
     setTimeout(updateSelectedCodecFromStats, 500);
     setTimeout(updateSelectedCodecFromStats, 1500);
     const stream = (ev.streams && ev.streams[0])
@@ -4195,13 +4208,48 @@ async function handleOffer(msg) {
     }
   };
 
+  // Preserve the existing production ICE diagnostic frames. These are
+  // read-only and transmitted through the already-authenticated websocket.
+  const observedPeer = pc;
+  const sendIceStage = (stage, state) => {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !currentSession?.sessionId) return;
+    ws.send(JSON.stringify({ type: 'viewer_media_diagnostic', session_id: currentSession.sessionId, stage, state }));
+  };
+  const reportIceStats = async (stage) => {
+    try {
+      if (pc !== observedPeer) return;
+      const stats = await observedPeer.getStats();
+      const pairs = [];
+      stats.forEach(v => { if (v.type === 'candidate-pair') pairs.push(v); });
+      const checks = pairs.reduce((a,v)=>a+(Number(v.requestsSent)||0),0);
+      const replies = pairs.reduce((a,v)=>a+(Number(v.responsesReceived)||0),0);
+      const successes = pairs.filter(v=>v.state === 'succeeded').length;
+      sendIceStage('stats', 'pairs_'+stage+'_'+pairs.length+'_'+successes);
+      sendIceStage('stats', 'checks_'+stage+'_'+checks+'_'+replies);
+      const selected = pairs.find(v=>v.selected || (v.nominated && v.state==='succeeded'));
+      if (selected) {
+        const l = stats.get(selected.localCandidateId);
+        const r = stats.get(selected.remoteCandidateId);
+        const types = (l?.candidateType || 'unknown')+'_'+(r?.candidateType || 'unknown');
+        sendIceStage('stats', 'selected_'+types);
+      }
+    } catch { sendIceStage('stats', 'unavailable'); }
+  };
   pc.onicegatheringstatechange = () => console.log("[rtc] iceGatheringState:", pc.iceGatheringState);
   pc.oniceconnectionstatechange = () => {
     console.log("[rtc] iceConnectionState:", pc.iceConnectionState);
+    sendIceStage('ice', pc.iceConnectionState || 'unknown');
+    if (pc.iceConnectionState === 'checking') setTimeout(() => {
+      if (pc === observedPeer && pc.iceConnectionState === 'checking') void reportIceStats('checking');
+    }, 7000);
+    if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed' || pc.iceConnectionState === 'failed') {
+      void reportIceStats(pc.iceConnectionState);
+    }
     if (pc.iceConnectionState === 'failed') scheduleMobileSessionReconnect('ice-failed');
   };
   pc.onconnectionstatechange = () => {
     console.log("[rtc] connectionState:", pc.connectionState);
+    sendIceStage('peer', pc.connectionState || 'unknown');
 
     if (pc.connectionState === "connected") {
       const recovered = mobileRecoveryAttempts > 0 || mobileRecoveryStage !== 'Idle' || mobileReconnectDeadline > 0;
