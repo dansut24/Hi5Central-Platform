@@ -1334,6 +1334,10 @@ let loginDesktopWakeAttempts = 0;
 let revealOnNextFrame = false;
 let monitorSwitchUntilMs = 0;
 let lastKeyframeRequestAtMs = 0;
+// A static desktop intentionally emits few frames. Do not infer a broken
+// encoder from elapsed time alone: use actual input or inbound RTP evidence.
+let lastVisualActionAtMs = 0;
+let lastMediaPacketAtMs = 0;
 let overlayMode = "hard";
 let desktopTransitionEnteredAtMs = 0;
 let desktopTransitionReadyAtMs = 0;
@@ -1366,7 +1370,8 @@ function activeIceServers() {
   return normalizeIceServers(currentSession?.iceServers);
 }
 
-const FRAME_STALL_MS = 950;
+const FRAME_STALL_MS = 3000;
+const RECOVERY_KEYFRAME_BACKOFF_MS = 5000;
 const MONITOR_SWITCH_GRACE_MS = 1800;
 const NEGOTIATION_GRACE_MS = 2500;
 
@@ -2461,7 +2466,8 @@ function startTransitionWatchdog() {
     const now = Date.now();
 
     if (!hasEverRenderedFrame) {
-      if (lastFrameAtMs && now >= lastFrameAtMs) {
+      // Allow the first WebRTC decode/IDR to complete before recovery.
+      if (lastFrameAtMs && now - lastFrameAtMs >= 2000) {
         requestRemoteKeyframe("initial-frame-timeout");
         ensureRemoteVideoPlayback("initial-frame-timeout");
       }
@@ -2487,15 +2493,15 @@ function startTransitionWatchdog() {
     }
 
     const stalledFor = now - lastFrameAtMs;
-    if (stalledFor > FRAME_STALL_MS) {
-      // The Agent intentionally skips unchanged desktop frames. A static screen
-      // can therefore have no decoded frames for an arbitrary period while the
-      // WebRTC transport is completely healthy. Never escalate frame age alone
-      // into a session reconnect; only ICE/signaling/network state may do that.
-      secureDesktopLikely = true;
-      requestRemoteKeyframe('decoded-frame-stall');
-      ensureRemoteVideoPlayback('decoded-frame-stall');
-      if (stalledFor > 2400) armDecodedFrameReveal();
+    const actionableStall = stalledFor > FRAME_STALL_MS &&
+      ((lastVisualActionAtMs > lastFrameAtMs && now - lastVisualActionAtMs < 2500) ||
+       (lastMediaPacketAtMs > lastFrameAtMs && now - lastMediaPacketAtMs < 1750));
+    if (actionableStall) {
+      // Unlike inactivity on a static screen, input without video or incoming
+      // RTP without decode indicates an actionable stalled picture. Never
+      // change desktop mode or cover the existing image on this signal alone.
+      requestRemoteKeyframe("actionable-decoded-frame-stall");
+      ensureRemoteVideoPlayback("actionable-decoded-frame-stall");
     }
   }, 250);
 }
@@ -2513,7 +2519,7 @@ function enterRemoteControlMode() {
 function requestRemoteKeyframe(reason = "viewer-recovery") {
   if (!currentSession || !inputDc || inputDc.readyState !== "open") return false;
   const now = Date.now();
-  if (now - lastKeyframeRequestAtMs < 1200) return false;
+  if (now - lastKeyframeRequestAtMs < RECOVERY_KEYFRAME_BACKOFF_MS) return false;
   lastKeyframeRequestAtMs = now;
   try {
     inputDc.send(JSON.stringify({ kind: "request_keyframe", reason }));
@@ -2567,6 +2573,11 @@ function sendInput(kind, extra = {}, force = false) {
   if (!force && !controlActive) return;
   if (!force && (secureDesktopActive || desktopHandoffActive) && !loginDesktopInputActive) return;
 
+  // Remote clicks/keys can change desktop pixels. Do not count pointer-only
+  // movement or internal diagnostic/profile requests as video activity.
+  if (!['mouse_move', 'viewer_diagnostics', 'viewer_stream_profile'].includes(kind)) {
+    lastVisualActionAtMs = Date.now();
+  }
   if (kind === 'mouse_move' && sendFastMouseMove(extra)) return;
 
   // Mobile Safari reliably carries the high-rate binary pointer channel, but
@@ -3135,6 +3146,7 @@ async function pollStatsOnce() {
     framesDecoded = Number(inbound.framesDecoded || 0);
     packetsLost = Number(inbound.packetsLost || 0);
     packetsReceived = Number(inbound.packetsReceived || 0);
+    if (packetsReceived > lastStats.packetsReceived) lastMediaPacketAtMs = nowMs;
     jitterMs = Number.isFinite(Number(inbound.jitter)) ? Number(inbound.jitter) * 1000 : null;
     const jitterDelay = Number(inbound.jitterBufferDelay || 0);
     const jitterEmitted = Number(inbound.jitterBufferEmittedCount || 0);
