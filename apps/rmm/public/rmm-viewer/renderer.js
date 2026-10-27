@@ -1637,8 +1637,15 @@ function markFrameRendered() {
   if (secureDesktopActive || desktopHandoffActive) {
     return;
   }
+  if (revealOnNextFrame && desktopTransitionDecodedBaseline >= 0 &&
+      lastFramesDecoded <= desktopTransitionDecodedBaseline) {
+    return;
+  }
 
   if (firstRenderedFrame || revealOnNextFrame) {
+    desktopTransitionDecodedBaseline = -1;
+    desktopTransitionReadyAtMs = 0;
+    desktopTransitionEnteredAtMs = 0;
     revealOnNextFrame = false;
     secureDesktopLikely = false;
     showStream();
@@ -2466,7 +2473,17 @@ function startTransitionWatchdog() {
     }
 
     if (secureDesktopActive || desktopHandoffActive) {
+      if (desktopTransitionEnteredAtMs && now - desktopTransitionEnteredAtMs >= 1500) {
+        requestRemoteKeyframe("desktop-transition-no-video");
+        ensureRemoteVideoPlayback("desktop-transition-no-video");
+      }
       return;
+    }
+
+    if (revealOnNextFrame && desktopTransitionReadyAtMs &&
+        now - desktopTransitionReadyAtMs > 1500) {
+      requestRemoteKeyframe("desktop-ready-awaiting-decoded-frame");
+      ensureRemoteVideoPlayback("desktop-ready-awaiting-decoded-frame");
     }
 
     const stalledFor = now - lastFrameAtMs;
@@ -4232,7 +4249,6 @@ async function handleOffer(msg) {
     };
 
     elVideo.onplaying = () => {
-      clearSecureDesktopState();
       markFrameRendered();
       updateResolution();
       refreshRemoteCursorPosition();
@@ -4765,6 +4781,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "login_desktop_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         loginDesktopInputActive = true;
@@ -4785,6 +4802,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "secure_desktop_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         loginDesktopInputActive = false;
@@ -4807,6 +4825,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "desktop_handoff_entering") {
+        desktopTransitionEnteredAtMs = Date.now();
         desktopHandoffActive = true;
         secureDesktopActive = false;
         revealOnNextFrame = false;
