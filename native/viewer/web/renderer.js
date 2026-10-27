@@ -1627,6 +1627,10 @@ function resetTransitionState() {
   secureDesktopActive = false;
   desktopHandoffActive = false;
   revealOnNextFrame = false;
+  transitionEnteredAtMs = 0;
+  transitionReadyAtMs = 0;
+  transitionDecodedBaseline = -1;
+  lastKeyframeRequestAtMs = 0;
   monitorSwitchUntilMs = 0;
   overlayMode = "hard";
 }
@@ -3197,6 +3201,7 @@ async function onSignalMessage(raw) {
       if (handleDesktopSessionState(state)) break;
 
       if (state === "secure_desktop_entering") {
+        transitionEnteredAtMs = Date.now();
         secureDesktopActive = true;
         desktopHandoffActive = false;
         revealOnNextFrame = false;
@@ -3216,6 +3221,7 @@ async function onSignalMessage(raw) {
       }
 
       if (state === "desktop_handoff_entering") {
+        transitionEnteredAtMs = Date.now();
         desktopHandoffActive = true;
         secureDesktopActive = false;
         revealOnNextFrame = false;
