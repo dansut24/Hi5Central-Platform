@@ -95,6 +95,7 @@ test('only one presented-frame callback is pending, and old callbacks cannot rev
     currentSession: { sessionId: 'session' },
     presentedFrameCallbackId: null,
     presentedFrameCallbackEpoch: 0,
+    presentedFrameCount: 0,
     hasEverRenderedFrame: true,
     revealOnNextFrame: false,
     secureDesktopLikely: false,
