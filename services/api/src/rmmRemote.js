@@ -826,6 +826,13 @@ export function attachRmmViewerWebSocket(server) {
         written_fps: sampleFps(written),
         capture_fps: sampleFps(captures),
         capture_resets_window: resets,
+        capture_avg_ms: bounded('capture_avg_ms'),
+        capture_max_ms: bounded('capture_max_ms'),
+        shared_write_avg_ms: bounded('shared_write_avg_ms'),
+        shared_write_max_ms: bounded('shared_write_max_ms'),
+        display_index: Number.isInteger(Number(payload.display_index)) &&
+          Number(payload.display_index) >= -1 && Number(payload.display_index) <= 64
+          ? Number(payload.display_index) : null,
         captured_window: captures,
         written_window: written,
         total_forwarded: forwarded
