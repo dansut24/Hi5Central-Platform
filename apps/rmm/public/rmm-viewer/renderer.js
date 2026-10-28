@@ -1339,6 +1339,8 @@ let lastKeyframeRequestAtMs = 0;
 let lastVisualActionAtMs = 0;
 let lastMediaPacketAtMs = 0;
 let lastVideoPlaybackAttemptAtMs = 0;
+let presentedFrameCallbackId = null;
+let presentedFrameCallbackEpoch = 0;
 let overlayMode = "hard";
 let desktopTransitionEnteredAtMs = 0;
 let desktopTransitionReadyAtMs = 0;
@@ -1420,15 +1422,37 @@ async function ensureRemoteVideoPlayback(reason = "") {
   }
 }
 
+function stopPresentedFrameWatch() {
+  ++presentedFrameCallbackEpoch;
+  if (presentedFrameCallbackId != null) {
+    try { elVideo?.cancelVideoFrameCallback?.(presentedFrameCallbackId); } catch {}
+  }
+  presentedFrameCallbackId = null;
+}
+
 function armDecodedFrameReveal() {
-  if (!elVideo || typeof elVideo.requestVideoFrameCallback !== "function") return;
+  if (!elVideo?.srcObject || typeof elVideo.requestVideoFrameCallback !== "function" ||
+      presentedFrameCallbackId != null) return;
+  const epoch = presentedFrameCallbackEpoch;
   try {
-    elVideo.requestVideoFrameCallback(() => {
+    presentedFrameCallbackId = elVideo.requestVideoFrameCallback(() => {
+      presentedFrameCallbackId = null;
+      if (epoch !== presentedFrameCallbackEpoch || !currentSession) return;
+      const needsReveal = !hasEverRenderedFrame || revealOnNextFrame ||
+        secureDesktopLikely || passiveOverlayActive;
+      // A newly presented frame is stronger evidence than 'playing' or
+      // framesDecoded. Keep observing continuously through Windows user/UAC
+      // transitions without waiting for the next 1-second stats sample.
       markFrameRendered();
-      updateResolution();
-      refreshRemoteCursorPosition();
+      if (needsReveal) {
+        updateResolution();
+        refreshRemoteCursorPosition();
+      }
+      armDecodedFrameReveal();
     });
-  } catch {}
+  } catch {
+    presentedFrameCallbackId = null;
+  }
 }
 
 function setOverlayMode(mode) {
@@ -2922,6 +2946,7 @@ function resetTransitionState() {
   lastVisualActionAtMs = 0;
   lastMediaPacketAtMs = 0;
   lastVideoPlaybackAttemptAtMs = 0;
+  stopPresentedFrameWatch();
   overlayMode = "hard";
 }
 
@@ -3172,7 +3197,10 @@ async function pollStatsOnce() {
 
     if (framesDecoded > lastFramesDecoded) {
       lastFramesDecoded = framesDecoded;
-      markFrameRendered();
+      // Safari can decode RTP while compositor presentation is frozen. When
+      // requestVideoFrameCallback is available, only a presented frame may
+      // clear the seamless desktop-transition hold. Otherwise use stats.
+      if (typeof elVideo?.requestVideoFrameCallback !== "function") markFrameRendered();
       if (monitorSwitchUntilMs && nowMs >= monitorSwitchUntilMs) {
         monitorSwitchUntilMs = 0;
       }
@@ -4379,10 +4407,10 @@ async function handleOffer(msg) {
       requestMobileWakeLock();
       ensureRemoteVideoPlayback("peer-connected");
       armDecodedFrameReveal();
-      if (hasEverRenderedFrame) {
+      if (hasEverRenderedFrame && !secureDesktopActive && !desktopHandoffActive && !revealOnNextFrame) {
         showStream();
         setStatus("online", "Streaming");
-      } else {
+      } else if (!hasEverRenderedFrame) {
         setStatus("", "Connected · waiting for video");
       }
     } else if (pc.connectionState === 'failed') {
@@ -4929,6 +4957,7 @@ function scheduleMobileTransportHealthProbe(reason = 'transport-probe', delayMs 
 function teardownPeerForReconnect() {
   clearMobileTransportProbe();
   stopStatsPoll();
+  stopPresentedFrameWatch();
   const frozen = captureReconnectPoster();
   remoteDescSet = false;
   pendingRemoteIce = [];
