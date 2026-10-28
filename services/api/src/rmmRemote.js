@@ -807,20 +807,30 @@ export function attachRmmViewerWebSocket(server) {
       const captures = bounded('capture_attempts')
       const resets = bounded('capture_resets')
       const elapsed = last ? (nowMs - last.at) / 1000 : 0
-      const rate = (current, previous) => elapsed > 0 && current >= previous
-        ? Number(((current - previous) / elapsed).toFixed(1)) : null
+      const reportedUnixMs = Number.isFinite(Number(payload.unix_ms))
+        ? Math.max(0, Number(payload.unix_ms)) : 0
+      const reportIntervalSec = last && reportedUnixMs > last.reportedUnixMs
+        ? (reportedUnixMs - last.reportedUnixMs) / 1000 : 5
+      // Only frames_forwarded_total is cumulative. The Windows helper resets
+      // captures/writes/resets every stats interval (normally five seconds).
+      // Subtracting these periodic counters yielded false 0 FPS readings.
+      const forwardedFps = elapsed > 0 && forwarded >= (last?.forwarded ?? forwarded)
+        ? Number(((forwarded - last.forwarded) / elapsed).toFixed(1)) : null
+      const sampleFps = (count) => Number((count / Math.max(1, reportIntervalSec)).toFixed(1))
       console.info('[rmm.stream.health]', JSON.stringify({
         session_id: sessionId,
         source,
         active_desktop: clean(payload.active_desktop).slice(0, 12),
         target_fps: bounded('target_fps'),
-        forwarded_fps: rate(forwarded, last?.forwarded ?? forwarded),
-        written_fps: rate(written, last?.written ?? written),
-        capture_fps: rate(captures, last?.captures ?? captures),
-        capture_resets_delta: last ? Math.max(0, resets - last.resets) : 0,
+        forwarded_fps: forwardedFps,
+        written_fps: sampleFps(written),
+        capture_fps: sampleFps(captures),
+        capture_resets_window: resets,
+        captured_window: captures,
+        written_window: written,
         total_forwarded: forwarded
       }))
-      lastStreamHealthBySource.set(source, { at: nowMs, forwarded, written, captures, resets })
+      lastStreamHealthBySource.set(source, { at: nowMs, forwarded, reportedUnixMs })
     }
     const relayFromAgent = (buffer) => {
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)

@@ -35,19 +35,20 @@ function harness() {
 }
 const diagnostic = (values = {}) => ({
   type: 'stream_diagnostics', source: 'normal', active_desktop: 'normal',
-  target_fps: 30, frames_forwarded_total: 100,
-  written_frames: 100, capture_attempts: 100, capture_resets: 0, ...values,
+  target_fps: 30, frames_forwarded_total: 100, unix_ms: 1770000000000,
+  written_frames: 60, capture_attempts: 100, capture_resets: 0, ...values,
 })
 
 test('forwarded, captured and written fps can be separated', () => {
   const h = harness()
   h.report(diagnostic())
   h.advance(5000)
-  h.report(diagnostic({ frames_forwarded_total: 200, written_frames: 175, capture_attempts: 250 }))
+  h.report(diagnostic({ frames_forwarded_total: 200, written_frames: 75, capture_attempts: 120, unix_ms: 1770000005000 }))
   assert.equal(h.logs.length, 2)
   assert.equal(h.logs[1].data.forwarded_fps, 20)
   assert.equal(h.logs[1].data.written_fps, 15)
-  assert.equal(h.logs[1].data.capture_fps, 30)
+  assert.equal(h.logs[1].data.capture_fps, 24)
+  assert.equal(h.logs[1].data.capture_resets_window, 0)
 })
 
 test('logs are bounded to one per five seconds per source', () => {
@@ -69,4 +70,14 @@ test('ignores stale sessions and unrelated Agent messages', () => {
   h.setFinalized()
   h.report(diagnostic())
   assert.equal(h.logs.length, 0)
+})
+
+test('identical successive 5-second capture windows are not misread as zero fps', () => {
+  const h = harness()
+  h.report(diagnostic({ written_frames: 29, capture_attempts: 30 }))
+  h.advance(5000)
+  h.report(diagnostic({ written_frames: 29, capture_attempts: 30, frames_forwarded_total: 129, unix_ms: 1770000005000 }))
+  assert.equal(h.logs[1].data.written_fps, 5.8)
+  assert.equal(h.logs[1].data.capture_fps, 6)
+  assert.equal(h.logs[1].data.forwarded_fps, 5.8)
 })
