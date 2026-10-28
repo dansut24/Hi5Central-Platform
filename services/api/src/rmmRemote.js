@@ -807,7 +807,8 @@ export function attachRmmViewerWebSocket(server) {
       const captures = bounded('capture_attempts')
       const resets = bounded('capture_resets')
       const elapsed = last ? (nowMs - last.at) / 1000 : 0
-      const reportedUnixMs = Number.isFinite(Number(payload.unix_ms))\n        ? Math.max(0, Number(payload.unix_ms)) : 0
+      const reportedUnixMs = Number.isFinite(Number(payload.unix_ms))
+        ? Math.max(0, Number(payload.unix_ms)) : 0
       const reportIntervalSec = last && reportedUnixMs > last.reportedUnixMs
         ? (reportedUnixMs - last.reportedUnixMs) / 1000 : 5
       // Only frames_forwarded_total is cumulative. The Windows helper resets
