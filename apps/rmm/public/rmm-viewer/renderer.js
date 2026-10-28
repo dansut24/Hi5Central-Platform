@@ -1338,6 +1338,7 @@ let lastKeyframeRequestAtMs = 0;
 // encoder from elapsed time alone: use actual input or inbound RTP evidence.
 let lastVisualActionAtMs = 0;
 let lastMediaPacketAtMs = 0;
+let lastVideoPlaybackAttemptAtMs = 0;
 let overlayMode = "hard";
 let desktopTransitionEnteredAtMs = 0;
 let desktopTransitionReadyAtMs = 0;
@@ -1372,6 +1373,7 @@ function activeIceServers() {
 
 const FRAME_STALL_MS = 3000;
 const RECOVERY_KEYFRAME_BACKOFF_MS = 5000;
+const VIDEO_PLAY_RETRY_MS = 1500;
 const MONITOR_SWITCH_GRACE_MS = 1800;
 const NEGOTIATION_GRACE_MS = 2500;
 
@@ -1402,6 +1404,13 @@ async function ensureRemoteVideoPlayback(reason = "") {
   elVideo.defaultMuted = true;
   elVideo.setAttribute("playsinline", "");
   elVideo.setAttribute("webkit-playsinline", "");
+  // On mobile Safari play() can remain pending until the first frame arrives.
+  // Never let a pending play promise block the initial-frame watchdog, and
+  // avoid issuing another play() every 250ms during a decoder stall.
+  if (!elVideo.paused && !elVideo.ended) return true;
+  const now = Date.now();
+  if (now - lastVideoPlaybackAttemptAtMs < VIDEO_PLAY_RETRY_MS) return false;
+  lastVideoPlaybackAttemptAtMs = now;
   try {
     await elVideo.play();
     return true;
@@ -2517,18 +2526,15 @@ function enterRemoteControlMode() {
 }
 
 function requestRemoteKeyframe(reason = "viewer-recovery") {
-  if (!currentSession || !inputDc || inputDc.readyState !== "open") return false;
+  if (!currentSession) return false;
   const now = Date.now();
   if (now - lastKeyframeRequestAtMs < RECOVERY_KEYFRAME_BACKOFF_MS) return false;
+  // Use whichever authenticated control data channel is open; some mobile
+  // peers establish input-control before the main input channel.
+  if (!sendControlObject({ kind: "request_keyframe", reason })) return false;
   lastKeyframeRequestAtMs = now;
-  try {
-    inputDc.send(JSON.stringify({ kind: "request_keyframe", reason }));
-    console.log("[video] requested remote keyframe", { reason });
-    return true;
-  } catch (err) {
-    console.warn("[video] keyframe request failed", err);
-    return false;
-  }
+  console.log("[video] requested remote keyframe", { reason });
+  return true;
 }
 
 function sendFastMouseMove(extra = {}) {
@@ -2913,6 +2919,9 @@ function resetTransitionState() {
   desktopTransitionDecodedBaseline = -1;
   monitorSwitchUntilMs = 0;
   lastKeyframeRequestAtMs = 0;
+  lastVisualActionAtMs = 0;
+  lastMediaPacketAtMs = 0;
+  lastVideoPlaybackAttemptAtMs = 0;
   overlayMode = "hard";
 }
 
@@ -4254,7 +4263,7 @@ async function handleOffer(msg) {
     };
 
     elVideo.onloadeddata = () => {
-      markFrameRendered();
+      // Media readiness does not prove the first frame was decoded/presented.
       armDecodedFrameReveal();
     };
 
@@ -4264,7 +4273,8 @@ async function handleOffer(msg) {
     };
 
     elVideo.onplaying = () => {
-      markFrameRendered();
+      // Safari may emit 'playing' before any decoded frame is visible.
+      // Only requestVideoFrameCallback and inbound framesDecoded may reveal it.
       updateResolution();
       refreshRemoteCursorPosition();
       armDecodedFrameReveal();
@@ -4287,16 +4297,17 @@ async function handleOffer(msg) {
     refreshRemoteCursorPosition();
     setStatus("", "Connected · waiting for video");
 
-    await ensureRemoteVideoPlayback("ontrack");
-    armDecodedFrameReveal();
-
-    try { window.hi5?.notifyConnected?.(currentSession?.deviceId); } catch {}
-
-    startStatsPoll();
-
+    // Start recovery independently of play(): on iOS the play promise can
+    // stay pending until an RTP keyframe arrives. Awaiting it here previously
+    // prevented stats and initial-frame recovery from ever starting.
     if (!hasEverRenderedFrame) {
       lastFrameAtMs = Date.now() + NEGOTIATION_GRACE_MS;
     }
+    startStatsPoll();
+    void ensureRemoteVideoPlayback("ontrack");
+    armDecodedFrameReveal();
+
+    try { window.hi5?.notifyConnected?.(currentSession?.deviceId); } catch {}
   };
 
   // Preserve the existing production ICE diagnostic frames. These are
