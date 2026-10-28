@@ -275,22 +275,44 @@ function nativeLaunchUrl(payload) {
 
 
 async function supersedePriorTechnicianRemoteSessions({ tenantId, agentDeviceId, userId, mode, liveAgentWs }) {
-  const prior = await pool.query(
-    `SELECT id
-       FROM rmm_remote_sessions
-      WHERE tenant_id=$1
-        AND agent_device_id::text=$2
-        AND created_by_user_id=$3
-        AND mode=$4
-        AND status IN ('created','viewer_connected','active')
-        AND ended_at IS NULL
-        AND expires_at>now()
-      ORDER BY created_at ASC`,
-    [tenantId, String(agentDeviceId), userId, mode],
-  )
+  // The Agent may retain a Windows capture/WebRTC context even after the DB
+  // and the previous browser report the session ended. Re-send cleanup for the
+  // two most recently ended sessions on this SAME device/technician/mode.
+  // Never touch another technician's sessions or other devices/modes.
+  const [activePrior, recentlyEnded] = await Promise.all([
+    pool.query(
+      `SELECT id
+         FROM rmm_remote_sessions
+        WHERE tenant_id=$1
+          AND agent_device_id::text=$2
+          AND created_by_user_id=$3
+          AND mode=$4
+          AND status IN ('created','viewer_connected','active')
+          AND ended_at IS NULL AND expires_at>now()
+        ORDER BY created_at ASC`,
+      [tenantId, String(agentDeviceId), userId, mode],
+    ),
+    pool.query(
+      `SELECT id
+         FROM rmm_remote_sessions
+        WHERE tenant_id=$1
+          AND agent_device_id::text=$2
+          AND created_by_user_id=$3
+          AND mode=$4
+          AND ended_at BETWEEN now() - interval '15 minutes' AND now()
+        ORDER BY ended_at DESC
+        LIMIT 2`,
+      [tenantId, String(agentDeviceId), userId, mode],
+    ),
+  ])
 
-  for (const row of prior.rows) {
-    const priorSessionId = String(row.id)
+  const activeIds = new Set(activePrior.rows.map((row) => String(row.id)))
+  const priorIds = [...new Set([
+    ...activePrior.rows.map((row) => String(row.id)),
+    ...recentlyEnded.rows.map((row) => String(row.id)),
+  ])]
+
+  for (const priorSessionId of priorIds) {
     const live = activeViewerSessions.get(priorSessionId)
     if (live?.viewerWs) {
       safeSend(live.viewerWs, {
@@ -302,7 +324,8 @@ async function supersedePriorTechnicianRemoteSessions({ tenantId, agentDeviceId,
     }
 
     if (live?.finalize) {
-      live.finalize('superseded_by_new_session')
+      // It already sends viewer_disconnected to the Agent and updates the DB.
+      await live.finalize('superseded_by_new_session')
       continue
     }
 
@@ -313,11 +336,17 @@ async function supersedePriorTechnicianRemoteSessions({ tenantId, agentDeviceId,
     }
     if (live) live.finalized = true
     activeViewerSessions.delete(priorSessionId)
-    safeSend(live?.agentWs || liveAgentWs, {
+
+    // This is intentionally an idempotent, session-scoped Agent command.
+    // It is sent even for a recently ended DB row because ending the record
+    // does not prove that the Windows capture helper has stopped.
+    safeSend(live?.agentWs?.readyState === 1 ? live.agentWs : liveAgentWs, {
       type: 'end_session',
       session_id: priorSessionId,
-      reason: 'superseded_by_new_session',
+      reason: activeIds.has(priorSessionId) ? 'superseded_by_new_session' : 'stale_agent_session_reclaim',
     })
+    if (!activeIds.has(priorSessionId)) continue
+
     await pool.query(
       `UPDATE rmm_remote_sessions
           SET status='ended',
@@ -837,6 +866,11 @@ export function attachRmmViewerWebSocket(server) {
 
     let explicitViewerClose = false
     viewerWs.on('message', (buffer) => {
+      // An older browser socket can still deliver buffered signalling or
+      // stop/input events after a replacement session has taken ownership.
+      // Never forward those obsolete messages to the Agent.
+      if (active.finalized || activeViewerSessions.get(sessionId) !== active ||
+          active.viewerWs !== viewerWs) return
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)
       let payload
       try { payload = JSON.parse(text) } catch { return }
@@ -872,7 +906,7 @@ export function attachRmmViewerWebSocket(server) {
       safeSend(boundAgentWs, { type: 'viewer_disconnected', session_id: sessionId })
       detachAgentSocket()
       activeViewerSessions.delete(sessionId)
-      pool.query(
+      return pool.query(
         `UPDATE rmm_remote_sessions
             SET status=CASE WHEN status IN ('ended','expired') THEN status ELSE 'ended' END,
                 ended_at=COALESCE(ended_at,now()),end_reason=COALESCE(end_reason,$2),updated_at=now()
