@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>Hi5Central · Remote codec compatibility</title>
+  <style>
+    :root{font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark}
+    body{margin:0;background:#101827;color:#eef3fb;padding:clamp(16px,4vw,40px)}
+    main{max-width:850px;margin:auto}
+    h1{font-size:clamp(1.4rem,3vw,2rem);margin:0 0 10px}
+    p{color:#b7c8dc;margin:8px 0 20px}
+    table{border-collapse:collapse;width:100%;font-size:.92rem}
+    th,td{text-align:left;padding:12px 9px;border-bottom:1px solid #354257}
+    th{color:#cbd8ed}
+    .yes{color:#71e5b1}.no{color:#f6c08b}
+    button{border:1px solid #89bafa;color:#fff;background:#185da3;border-radius:9px;padding:11px 16px;font:inherit;cursor:pointer}
+    button:focus-visible{outline:3px solid #91bbfb}
+    pre{overflow:auto;white-space:pre-wrap;background:#172337;border:1px solid #334763;border-radius:9px;padding:14px;font-size:.78rem;max-height:300px}
+    .actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px 0}
+    .note{font-size:.86rem;color:#b7c8dc}
+  </style>
+</head>
+<body>
+<main>
+  <h1>Remote codec compatibility</h1>
+  <p>Reports which WebRTC video codecs this browser advertises for receiving video. It does not start a session, request microphone/camera access, collect screen contents, or change any settings.</p>
+  <p id="agent"></p>
+  <table aria-label="Browser codec capability matrix">
+    <thead><tr><th>Codec</th><th>Receive advertised</th><th>Send advertised</th><th>Notes</th></tr></thead>
+    <tbody id="codecs"></tbody>
+  </table>
+  <p class="note">An advertised codec is only a prerequisite: actual remote streaming also requires a matching Agent encoder, SDP negotiation, correct RTP packetisation, and successful playback. HEVC/H.265 support can vary by browser, operating system and hardware.</p>
+  <div class="actions"><button id="copy" type="button">Copy codec report</button><span id="status" role="status" aria-live="polite"></span></div>
+  <details><summary>Technical report (no personal data)</summary><pre id="report"></pre></details>
+</main>
+<script>
+(() => {
+  'use strict';
+  const codecs = [
+    { name: 'VP8', aliases: ['video/vp8'], notes: 'Baseline WebRTC codec' },
+    { name: 'VP9', aliases: ['video/vp9'], notes: 'Variable support / profile' },
+    { name: 'H.264 / AVC', aliases: ['video/h264'], notes: 'Match profile-level-id and packetization-mode' },
+    { name: 'AV1', aliases: ['video/av1'], notes: 'Requires RFC 9364 RTP/OBU handling' },
+    { name: 'H.265 / HEVC', aliases: ['video/h265', 'video/hevc'], notes: 'Browser and licensing dependent' },
+  ];
+  const list = kind => {
+    try {
+      const api = kind === 'receive' ? window.RTCRtpReceiver : window.RTCRtpSender;
+      return (api?.getCapabilities?.('video')?.codecs || [])
+        .map(c => ({
+          mimeType: String(c.mimeType || '').toLowerCase(),
+          clockRate: Number(c.clockRate || 0),
+          sdpFmtpLine: String(c.sdpFmtpLine || '').slice(0, 256),
+        }));
+    } catch (_) { return []; }
+  };
+  const receive = list('receive'), send = list('send');
+  const report = {
+    schema: 'hi5central-browser-codec-compatibility-v1',
+    platform: navigator.platform || 'unknown',
+    receive,
+    send,
+  };
+  // Avoid sending this report anywhere; user explicitly chooses to copy it.
+  document.getElementById('agent').textContent =
+    'Browser capability check · ' + (window.RTCRtpReceiver?.getCapabilities ? 'WebRTC API available' : 'WebRTC API unavailable');
+  const tbody = document.getElementById('codecs');
+  for (const codec of codecs) {
+    const row = document.createElement('tr');
+    const canReceive = receive.some(c => codec.aliases.includes(c.mimeType));
+    const canSend = send.some(c => codec.aliases.includes(c.mimeType));
+    const cells = [codec.name, canReceive ? 'Yes' : 'Not advertised', canSend ? 'Yes' : 'Not advertised', codec.notes];
+    cells.forEach((value, index) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      if (index === 1 || index === 2) td.className = value === 'Yes' ? 'yes' : 'no';
+      row.appendChild(td);
+    });
+    tbody.appendChild(row);
+  }
+  const json = JSON.stringify(report, null, 2);
+  document.getElementById('report').textContent = json;
+  document.getElementById('copy').addEventListener('click', async () => {
+    const status = document.getElementById('status');
+    try {
+      await navigator.clipboard.writeText(json);
+      status.textContent = 'Report copied';
+    } catch (_) {
+      status.textContent = 'Copy unavailable; expand the technical report to select text';
+      document.querySelector('details').open = true;
+    }
+  });
+})();
+</script>
+</body>
+</html>
