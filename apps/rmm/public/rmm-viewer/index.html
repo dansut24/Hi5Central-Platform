@@ -300,6 +300,13 @@
     #overlay.secure-black,
     #overlay.secure-black-silent { background: #000; backdrop-filter: none; -webkit-backdrop-filter: none; }
     #overlay.transition-hold { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; transition: none; pointer-events: none; }
+    /* Preserve the existing remote picture without any connecting glyph or
+       spinner while Windows switches users, Winlogon or secure desktops. */
+    #overlay.transition-hold .overlay-icon,
+    #overlay.transition-hold .overlay-title,
+    #overlay.transition-hold .overlay-sub,
+    #overlay.transition-hold .spinner,
+    #overlay.transition-hold #error-detail { display: none !important; }
     #overlay.silent .overlay-icon,
     #overlay.silent .overlay-title,
     #overlay.silent .overlay-sub,
