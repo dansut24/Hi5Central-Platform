@@ -51,6 +51,22 @@ test('forwarded, captured and written fps can be separated', () => {
   assert.equal(h.logs[1].data.capture_resets_window, 0)
 })
 
+test('captures measured helper latency and display index without recording content', () => {
+  const h = harness()
+  h.report(diagnostic({
+    capture_avg_ms: 42.5, capture_max_ms: 125.2,
+    shared_write_avg_ms: 4.1, shared_write_max_ms: 7.5,
+    display_index: 0, screen_pixels: 'private-pixels', input_data: 'private-input'
+  }))
+  assert.equal(h.logs[0].data.capture_avg_ms, 42.5)
+  assert.equal(h.logs[0].data.capture_max_ms, 125.2)
+  assert.equal(h.logs[0].data.shared_write_avg_ms, 4.1)
+  assert.equal(h.logs[0].data.shared_write_max_ms, 7.5)
+  assert.equal(h.logs[0].data.display_index, 0)
+  assert.equal(JSON.stringify(h.logs).includes('private-pixels'), false)
+  assert.equal(JSON.stringify(h.logs).includes('private-input'), false)
+})
+
 test('logs are bounded to one per five seconds per source', () => {
   const h = harness()
   h.report(diagnostic())
