@@ -25,9 +25,9 @@ function harness() {
     console: { info(tag, message) { log.push({ tag, data: JSON.parse(message) }) } },
   }
   vm.createContext(context)
-  vm.runInContext(source.slice(start, end), context)
+  vm.runInContext(source.slice(start, end) + '\nthis.__report = logAgentStreamHealth', context)
   return {
-    report: (payload) => context.logAgentStreamHealth(payload),
+    report: (payload) => context.__report(payload),
     advance: (milliseconds) => { now += milliseconds },
     logs: log,
     setFinalized: () => { active.finalized = true },
