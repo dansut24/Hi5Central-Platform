@@ -832,6 +832,35 @@ export function attachRmmViewerWebSocket(server) {
       }))
       lastStreamHealthBySource.set(source, { at: nowMs, forwarded, reportedUnixMs })
     }
+    const lastEncoderHealthAt = new Map()
+    const logAgentEncoderHealth = (payload) => {
+      if (payload?.type !== 'stream_encoder_diagnostics' || active.finalized ||
+          activeViewerSessions.get(sessionId) !== active) return
+      const codec = clean(payload.codec).toUpperCase()
+      if (!['VP8', 'VP9', 'H264'].includes(codec)) return
+      const now = Date.now()
+      const last = lastEncoderHealthAt.get(codec) || 0
+      if (now - last < 4500) return
+      const number = (key, max = 1e7) => {
+        const n = Number(payload[key])
+        return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0
+      }
+      console.info('[rmm.encoder.health]', JSON.stringify({
+        session_id: sessionId,
+        codec,
+        encoded_frames: number('encoded_frames', 1000),
+        sent_frames: number('sent_frames', 1000),
+        encode_avg_ms: number('encode_avg_ms', 60000),
+        encode_max_ms: number('encode_max_ms', 60000),
+        rtp_enqueue_avg_ms: number('send_avg_ms', 60000),
+        rtp_enqueue_max_ms: number('send_max_ms', 60000),
+        target_fps: number('target_fps', 120),
+        bitrate_kbps: number('bitrate_kbps', 50000),
+        width: number('width', 7680),
+        height: number('height', 4320)
+      }))
+      lastEncoderHealthAt.set(codec, now)
+    }
     const relayFromAgent = (buffer) => {
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)
       let payload
@@ -839,6 +868,7 @@ export function attachRmmViewerWebSocket(server) {
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
       logAgentStreamHealth(payload)
+      logAgentEncoderHealth(payload)
       safeSend(viewerWs, text)
       if (payload?.type === 'webrtc_offer') {
         pool.query(
