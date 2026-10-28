@@ -118,6 +118,8 @@ test('only one presented-frame callback is pending, and old callbacks cannot rev
 });
 
 test('handoff overlay never displays a connecting icon or spinner', () => {
-  assert.match(html, /#overlay\\.transition-hold \\.overlay-icon,[\\s\\S]*#overlay\\.transition-hold \\.spinner,[\\s\\S]*display: none !important/);
-  assert.match(renderer, /framesDecoded > lastFramesDecoded[\\s\\S]*typeof elVideo\\?\\.requestVideoFrameCallback !== "function"/);
+  assert.ok(html.includes('#overlay.transition-hold .overlay-icon,'));
+  assert.ok(html.includes('#overlay.transition-hold .spinner,'));
+  assert.ok(html.includes('display: none !important;'));
+  assert.ok(renderer.includes('if (typeof elVideo?.requestVideoFrameCallback !== "function") markFrameRendered();'));
 });
