@@ -1341,6 +1341,8 @@ let lastMediaPacketAtMs = 0;
 let lastVideoPlaybackAttemptAtMs = 0;
 let presentedFrameCallbackId = null;
 let presentedFrameCallbackEpoch = 0;
+let presentedFrameCount = 0;
+let lastVideoTelemetryAtMs = 0;
 let overlayMode = "hard";
 let desktopTransitionEnteredAtMs = 0;
 let desktopTransitionReadyAtMs = 0;
@@ -1443,6 +1445,7 @@ function armDecodedFrameReveal() {
       // A newly presented frame is stronger evidence than 'playing' or
       // framesDecoded. Keep observing continuously through Windows user/UAC
       // transitions without waiting for the next 1-second stats sample.
+      ++presentedFrameCount;
       markFrameRendered();
       if (needsReveal) {
         updateResolution();
@@ -2947,6 +2950,8 @@ function resetTransitionState() {
   lastMediaPacketAtMs = 0;
   lastVideoPlaybackAttemptAtMs = 0;
   stopPresentedFrameWatch();
+  presentedFrameCount = 0;
+  lastVideoTelemetryAtMs = 0;
   overlayMode = "hard";
 }
 
@@ -3183,6 +3188,30 @@ async function pollStatsOnce() {
   if (inbound) {
     const bytesReceived = Number(inbound.bytesReceived || 0);
     framesDecoded = Number(inbound.framesDecoded || 0);
+    // Bounded read-only diagnostics distinguish an Agent sending no RTP,
+    // decode failure, and Safari failing to present decoded frames. Report
+    // only during initial startup/reveal, never on every stats poll.
+    if ((!hasEverRenderedFrame || revealOnNextFrame) &&
+        nowMs - lastVideoTelemetryAtMs >= 5000 &&
+        ws?.readyState === WebSocket.OPEN && currentSession?.sessionId) {
+      lastVideoTelemetryAtMs = nowMs;
+      const videoState = [
+        'video',
+        Math.round(bytesReceived / 1024) + 'kb',
+        framesDecoded + 'decoded',
+        presentedFrameCount + 'presented',
+        'ready' + Number(elVideo?.readyState || 0),
+        elVideo?.classList?.contains('visible') ? 'visible' : 'hidden'
+      ].join('_');
+      try {
+        ws.send(JSON.stringify({
+          type: 'viewer_media_diagnostic',
+          session_id: currentSession.sessionId,
+          stage: 'stats',
+          state: videoState.slice(0, 90)
+        }));
+      } catch {}
+    }
     packetsLost = Number(inbound.packetsLost || 0);
     packetsReceived = Number(inbound.packetsReceived || 0);
     if (packetsReceived > lastStats.packetsReceived) lastMediaPacketAtMs = nowMs;
@@ -4323,7 +4352,13 @@ async function handleOffer(msg) {
       console.error("[video] error", elVideo.error);
     };
 
+    // Safari cannot present video frames while the HTML video element is
+    // display:none. Keep the video surface attached and rendered *beneath*
+    // the opaque Connecting overlay; showStream() still controls the actual
+    // user-visible reveal after a real presented frame arrives.
+    elVideo.classList.add("visible");
     if (elVideo.srcObject !== stream) {
+      stopPresentedFrameWatch();
       elVideo.srcObject = stream;
     }
 
