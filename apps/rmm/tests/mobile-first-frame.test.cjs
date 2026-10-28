@@ -30,7 +30,9 @@ test('playback lifecycle events cannot claim that a frame was decoded', () => {
   const playing = between('    elVideo.onplaying = () => {', '    elVideo.onerror = () => {');
   assert.ok(!data.includes('markFrameRendered()'));
   assert.ok(!playing.includes('markFrameRendered()'));
-  assert.match(between('  if (inbound) {', '  const rttMs = selectedPair'), /framesDecoded > lastFramesDecoded[\\s\\S]*markFrameRendered\(\)/);
+  const inboundStats = between('  if (inbound) {', '  const rttMs = selectedPair');
+  assert.ok(inboundStats.includes('if (framesDecoded > lastFramesDecoded) {'));
+  assert.ok(inboundStats.indexOf('markFrameRendered();') > inboundStats.indexOf('if (framesDecoded > lastFramesDecoded) {'));
 });
 
 test('keyframe recovery uses open input-control channel and limits requests to 5 seconds', () => {
