@@ -785,12 +785,50 @@ export function attachRmmViewerWebSocket(server) {
       }).catch(() => {})
     }
 
+    // The Agent already reports capture counters every second, but those
+    // reports were only relayed to the browser. Surface a bounded 5-second
+    // server-side summary so intermittent video freezes can be correlated with
+    // transport events without changing the working Viewer or Agent.
+    const lastStreamHealthBySource = new Map()
+    const logAgentStreamHealth = (payload) => {
+      if (payload?.type !== 'stream_diagnostics' || active.finalized ||
+          activeViewerSessions.get(sessionId) !== active) return
+      const source = clean(payload.source).toLowerCase()
+      if (source !== 'normal' && source !== 'secure') return
+      const bounded = (key) => {
+        const n = Number(payload[key])
+        return Number.isFinite(n) ? Math.max(0, Math.min(1e9, n)) : 0
+      }
+      const nowMs = Date.now()
+      const last = lastStreamHealthBySource.get(source)
+      if (last && nowMs - last.at < 5000) return
+      const forwarded = bounded('frames_forwarded_total')
+      const written = bounded('written_frames')
+      const captures = bounded('capture_attempts')
+      const resets = bounded('capture_resets')
+      const elapsed = last ? (nowMs - last.at) / 1000 : 0
+      const rate = (current, previous) => elapsed > 0 && current >= previous
+        ? Number(((current - previous) / elapsed).toFixed(1)) : null
+      console.info('[rmm.stream.health]', JSON.stringify({
+        session_id: sessionId,
+        source,
+        active_desktop: clean(payload.active_desktop).slice(0, 12),
+        target_fps: bounded('target_fps'),
+        forwarded_fps: rate(forwarded, last?.forwarded ?? forwarded),
+        written_fps: rate(written, last?.written ?? written),
+        capture_fps: rate(captures, last?.captures ?? captures),
+        capture_resets_delta: last ? Math.max(0, resets - last.resets) : 0,
+        total_forwarded: forwarded
+      }))
+      lastStreamHealthBySource.set(source, { at: nowMs, forwarded, written, captures, resets })
+    }
     const relayFromAgent = (buffer) => {
       const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer)
       let payload
       try { payload = JSON.parse(text) } catch { return }
       const payloadSessionId = clean(payload?.session_id || payload?.sessionId)
       if (payloadSessionId !== sessionId) return
+      logAgentStreamHealth(payload)
       safeSend(viewerWs, text)
       if (payload?.type === 'webrtc_offer') {
         pool.query(
