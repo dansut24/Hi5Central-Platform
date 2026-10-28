@@ -1339,6 +1339,8 @@ let lastKeyframeRequestAtMs = 0;
 let lastVisualActionAtMs = 0;
 let lastMediaPacketAtMs = 0;
 let lastVideoPlaybackAttemptAtMs = 0;
+let presentedFrameCallbackId = null;
+let presentedFrameCallbackEpoch = 0;
 let overlayMode = "hard";
 let desktopTransitionEnteredAtMs = 0;
 let desktopTransitionReadyAtMs = 0;
@@ -1420,15 +1422,37 @@ async function ensureRemoteVideoPlayback(reason = "") {
   }
 }
 
+function stopPresentedFrameWatch() {
+  ++presentedFrameCallbackEpoch;
+  if (presentedFrameCallbackId != null) {
+    try { elVideo?.cancelVideoFrameCallback?.(presentedFrameCallbackId); } catch {}
+  }
+  presentedFrameCallbackId = null;
+}
+
 function armDecodedFrameReveal() {
-  if (!elVideo || typeof elVideo.requestVideoFrameCallback !== "function") return;
+  if (!elVideo?.srcObject || typeof elVideo.requestVideoFrameCallback !== "function" ||
+      presentedFrameCallbackId != null) return;
+  const epoch = presentedFrameCallbackEpoch;
   try {
-    elVideo.requestVideoFrameCallback(() => {
+    presentedFrameCallbackId = elVideo.requestVideoFrameCallback(() => {
+      presentedFrameCallbackId = null;
+      if (epoch !== presentedFrameCallbackEpoch || !currentSession) return;
+      const needsReveal = !hasEverRenderedFrame || revealOnNextFrame ||
+        secureDesktopLikely || passiveOverlayActive;
+      // A newly presented frame is stronger evidence than 'playing' or
+      // framesDecoded. Keep observing continuously through Windows user/UAC
+      // transitions without waiting for the next 1-second stats sample.
       markFrameRendered();
-      updateResolution();
-      refreshRemoteCursorPosition();
+      if (needsReveal) {
+        updateResolution();
+        refreshRemoteCursorPosition();
+      }
+      armDecodedFrameReveal();
     });
-  } catch {}
+  } catch {
+    presentedFrameCallbackId = null;
+  }
 }
 
 function setOverlayMode(mode) {
@@ -2922,6 +2946,7 @@ function resetTransitionState() {
   lastVisualActionAtMs = 0;
   lastMediaPacketAtMs = 0;
   lastVideoPlaybackAttemptAtMs = 0;
+  stopPresentedFrameWatch();
   overlayMode = "hard";
 }
 
@@ -2979,15 +3004,20 @@ function disconnect(reason, options = {}) {
   setRemoteAudioEnabled(false);
   updateSessionToggleButtons();
 
-  if (!silent && ws && ws.readyState === WebSocket.OPEN && currentSession) {
-    try {
-      ws.send(JSON.stringify({
-        type: "chat_close",
-        session_id: currentSession.sessionId,
-        close_remote: true,
-        reason: reason || "viewer_disconnect"
-      }));
-    } catch {}
+  if ((!silent || options.notifyRemote === true) && ws && ws.readyState === WebSocket.OPEN && currentSession) {
+    // A navigation must release the Agent even if the UI closes silently.
+    // Do not emit chat_close for an attended Connect session just because the
+    // technician's browser navigated away.
+    if (!silent) {
+      try {
+        ws.send(JSON.stringify({
+          type: "chat_close",
+          session_id: currentSession.sessionId,
+          close_remote: true,
+          reason: reason || "viewer_disconnect"
+        }));
+      } catch {}
+    }
     try {
       ws.send(JSON.stringify({
         type: "viewer_disconnected",
@@ -3167,7 +3197,10 @@ async function pollStatsOnce() {
 
     if (framesDecoded > lastFramesDecoded) {
       lastFramesDecoded = framesDecoded;
-      markFrameRendered();
+      // Safari can decode RTP while compositor presentation is frozen. When
+      // requestVideoFrameCallback is available, only a presented frame may
+      // clear the seamless desktop-transition hold. Otherwise use stats.
+      if (typeof elVideo?.requestVideoFrameCallback !== "function") markFrameRendered();
       if (monitorSwitchUntilMs && nowMs >= monitorSwitchUntilMs) {
         monitorSwitchUntilMs = 0;
       }
@@ -3828,6 +3861,12 @@ function bindRemoteInput() {
     mobileViewportResumeAnchor = captureMobileViewportAnchor() || mobileViewportResumeAnchor;
     if (mobileViewportResumeAnchor) mobileViewportStableAnchor = { ...mobileViewportResumeAnchor };
     resetMobileGestureForLifecycle();
+    // pagehide means a real navigation, not an ordinary iOS app switch
+    // (visibilitychange). Explicitly release the remote session rather than
+    // leaving it held in the 90-second reconnect grace window.
+    if (currentSession?.viewerClient === 'browser') {
+      disconnect('Browser navigation', { silent: true, notifyRemote: true });
+    }
   });
 
   window.addEventListener('popstate', () => {
@@ -3836,12 +3875,12 @@ function bindRemoteInput() {
       return;
     }
     if (!currentSession || !isMobileViewerSurface() || !mobileHistoryGuardActive) return;
-    recoverMobileViewerFromBrowserGesture('history-pop-recovery');
-    // Re-arm the same-page guard so a completed Safari swipe cannot leave the
-    // live session. This does not affect normal navigation after disconnect.
-    try {
-      history.pushState({ ...(history.state || {}), hi5ViewerGuard: mobileHistoryGuardId }, '', location.href);
-    } catch {}
+    // The user intentionally navigated Back from the guard history entry.
+    // End the active browser session and continue to the prior page; never
+    // trap the user in the viewer or leave a WebRTC session running behind it.
+    mobileHistoryGuardActive = false;
+    disconnect('Browser back navigation', { silent: true, notifyRemote: true });
+    try { history.back(); } catch {}
   });
 
   document.addEventListener("pointerdown", () => {
@@ -4368,10 +4407,10 @@ async function handleOffer(msg) {
       requestMobileWakeLock();
       ensureRemoteVideoPlayback("peer-connected");
       armDecodedFrameReveal();
-      if (hasEverRenderedFrame) {
+      if (hasEverRenderedFrame && !secureDesktopActive && !desktopHandoffActive && !revealOnNextFrame) {
         showStream();
         setStatus("online", "Streaming");
-      } else {
+      } else if (!hasEverRenderedFrame) {
         setStatus("", "Connected · waiting for video");
       }
     } else if (pc.connectionState === 'failed') {
@@ -4873,6 +4912,12 @@ async function onSignalMessage(raw) {
       disconnect("Disconnected by user");
       break;
 
+    case "session_terminated":
+      // The server replaces an older remote session when a new one starts.
+      // Stop the old mobile page immediately, even before socket code 4000.
+      disconnect('Viewer opened elsewhere', { silent: true });
+      break;
+
     default:
       break;
   }
@@ -4912,6 +4957,7 @@ function scheduleMobileTransportHealthProbe(reason = 'transport-probe', delayMs 
 function teardownPeerForReconnect() {
   clearMobileTransportProbe();
   stopStatsPoll();
+  stopPresentedFrameWatch();
   const frozen = captureReconnectPoster();
   remoteDescSet = false;
   pendingRemoteIce = [];
@@ -4973,9 +5019,10 @@ function connectViewerSignaling(reason = 'initial') {
     if (ws === socket) ws = null;
     if (!currentSession) return;
 
-    // A newer Viewer has deliberately taken ownership of this Connect session.
-    // The superseded mobile tab must not reconnect and steal it back.
-    if (event?.code === 4001) {
+    // 4000: unattended session superseded; 4001: Connect Viewer superseded.
+    // Neither is a network interruption. An obsolete tab must NEVER retry
+    // with its expired token or interfere with the replacement session.
+    if (event?.code === 4000 || event?.code === 4001) {
       disconnect('Viewer opened elsewhere', { silent: true });
       return;
     }
