@@ -1673,6 +1673,7 @@ function markFrameRendered() {
     if (mobileRecoveryStage !== 'Idle') setMobileRecoveryStage('Idle');
   }
   hasEverRenderedFrame = true;
+  document.body.classList.add('viewer-has-video');
   lastFrameAtMs = Date.now();
 
   if (secureDesktopActive || desktopHandoffActive) {
@@ -2933,6 +2934,7 @@ function leaveRemoteControlMode() {
 }
 
 function resetTransitionState() {
+  document.body.classList.remove('viewer-has-video');
   hasEverRenderedFrame = false;
   lastFrameAtMs = 0;
   lastFramesDecoded = 0;
