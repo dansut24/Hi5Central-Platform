@@ -56,6 +56,7 @@ import {
   rmmDevices,
 } from '../../data/rmmData.js'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import { describeInventoryAge } from '../../lib/inventoryFreshness.js'
 import { resolveTenantSurface, rmmDevicePath, rmmPath, rmmRouteFromLocation } from '../../lib/tenantSurface.js'
 import { loadRmmScope } from '../../lib/rmmScopeApi.js'
 import { deploySoftwarePatch, deploySoftwarePatches, loadDevicePatchPolicyResolution, loadRmmPatching, rejectDeviceSoftwarePatch, restoreDeviceSoftwarePatch } from '../../lib/rmmPatchingApi.js'
@@ -661,6 +662,8 @@ function DeviceOverview({ device, deviceAlerts, monitoringResolution, patchPolic
             <DeviceProperty label="Processor" value={device.processor} />
             <DeviceProperty label="Memory" value={device.ramGb == null ? null : `${device.ramGb} GB`} detail={device.memoryUsedBytes && device.memoryTotalBytes ? `${(device.memoryUsedBytes / (1024 ** 3)).toFixed(1)} GB used · ${device.memory == null ? 'usage not reported' : device.memory + '%'}` : (device.memory == null ? '' : device.memory + '% used')} />
             <DeviceProperty label="Storage" value={device.storageGb == null ? null : `${device.storageGb} GB`} detail={device.storageFreeGb == null ? '' : `${device.storageFreeGb} GB free`} />
+            <DeviceProperty label="Inventory scanned" value={describeInventoryAge(device.inventoryCollectedAt).label} detail={device.inventoryCollectedAt ? new Date(device.inventoryCollectedAt).toLocaleString() : 'Awaiting first Agent snapshot'} />
+            <DeviceProperty label="Installed applications" value={device.inventoryCollectedAt ? String(device.inventoryReportedSoftwareCount ?? device.installedSoftware?.length ?? 0) : null} detail={device.inventoryCollectorStatus === 'collected' ? 'Reported by Hi5Central Agent' : 'Latest inventory snapshot'} />
             <DeviceProperty label="Site" value={device.site} />
             <DeviceProperty label="Device group" value={device.group} detail={device.policy} />
           </div>
@@ -1892,6 +1895,7 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   const hasLiveAgent = Boolean(device.agentDeviceId)
   const deviceOnline = deviceIsOnline(device)
   const deviceOffline = hasLiveAgent && !deviceOnline
+  const inventoryAge = describeInventoryAge(device.inventoryCollectedAt)
   const [tool, setTool] = useState(initialTool || '')
   const subnavRef = useRef(null)
   const [remoteState, setRemoteState] = useState('')
@@ -1906,6 +1910,10 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   const [forgetWaylandBusy, setForgetWaylandBusy] = useState(false)
   const [viewerInstallPrompt, setViewerInstallPrompt] = useState(null)
   const [powerBusy, setPowerBusy] = useState(false)
+  const [inventoryRefreshBusy, setInventoryRefreshBusy] = useState(false)
+  const [inventoryRefreshMessage, setInventoryRefreshMessage] = useState('')
+  const inventoryRefreshEpoch = useRef(0)
+  useEffect(() => () => { inventoryRefreshEpoch.current += 1 }, [])
   const [automationOpen, setAutomationOpen] = useState(false)
   const [monitoringResolution, setMonitoringResolution] = useState(null)
   const [patchPolicyResolution, setPatchPolicyResolution] = useState(null)
@@ -2282,6 +2290,48 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
     }
   }
 
+  async function refreshInventory() {
+    if (!hasLiveAgent || !deviceOnline || inventoryRefreshBusy) return
+    const epoch = ++inventoryRefreshEpoch.current
+    setInventoryRefreshBusy(true)
+    setInventoryRefreshMessage('Requesting a new inventory snapshot…')
+    try {
+      const response = await fetch(apiBase + '/api/v1/rmm/devices/' + encodeURIComponent(device.agentDeviceId) + '/actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'inventory.scan' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.job?.id) throw new Error(payload.error || 'The Agent did not accept the inventory scan.')
+      setInventoryRefreshMessage('Agent is collecting inventory…')
+      // The existing 15-second estate refresh loads the resulting snapshot.
+      // Poll only the authenticated job status, never duplicate the scan.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        if (inventoryRefreshEpoch.current !== epoch) return
+        const check = await fetch(apiBase + '/api/v1/rmm/device-actions/' + encodeURIComponent(payload.job.id), {
+          credentials: 'include', cache: 'no-store',
+        })
+        if (!check.ok) throw new Error('Unable to verify the inventory scan result.')
+        const result = await check.json().catch(() => ({}))
+        const status = result.job?.status || ''
+        if (status === 'completed') {
+          setInventoryRefreshMessage('Snapshot uploaded. Device details will update automatically.')
+          return
+        }
+        if (['failed', 'cancelled'].includes(status)) {
+          throw new Error(result.job?.error_message || 'Inventory scan did not complete.')
+        }
+      }
+      setInventoryRefreshMessage('Scan is still processing. Inventory will update when the Agent reports.')
+    } catch (error) {
+      if (inventoryRefreshEpoch.current === epoch) setInventoryRefreshMessage(error?.message || 'Inventory refresh failed.')
+    } finally {
+      if (inventoryRefreshEpoch.current === epoch) setInventoryRefreshBusy(false)
+    }
+  }
+
   async function restartDevice() {
     if (!hasLiveAgent || !deviceOnline || powerBusy) return
     if (!window.confirm(`Restart ${device.name}? The device will restart in 15 seconds and unsaved user work may be lost.`)) return
@@ -2355,8 +2405,11 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
           <p>{device.user} · {device.site || 'No site'} · {device.group || 'No group'}</p>
           <div><StatusPill>{device.status}</StatusPill><StatusPill>{device.health}</StatusPill><span>{device.os}</span><span>Agent {device.agent}</span></div>
           {remoteState && <small className="rmm-device-action-message">{remoteState}</small>}
+          <small className="rmm-device-action-message" title={device.inventoryCollectedAt ? new Date(device.inventoryCollectedAt).toLocaleString() : 'No inventory snapshot reported'}>Inventory: {inventoryAge.label}{inventoryAge.older ? ' · older snapshot' : ''}</small>
+          {inventoryRefreshMessage && <small className="rmm-device-action-message" role="status">{inventoryRefreshMessage}</small>}
         </div>
         <div className="rmm-device-actions">
+          <button disabled={!hasLiveAgent || !deviceOnline || inventoryRefreshBusy} onClick={refreshInventory} title={!hasLiveAgent ? 'Install the Hi5Central Agent to collect inventory' : !deviceOnline ? 'Device must be online to refresh inventory' : 'Request a fresh Agent inventory scan'} type="button"><RefreshCw size={16} />{inventoryRefreshBusy ? 'Scanning…' : 'Refresh inventory'}</button>
           <button className="rmm-primary compact" disabled={remoteBusy || !hasLiveAgent || !canRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canRemote ? 'Start unattended console remote session' : 'Your role does not include unattended remote access'} onClick={() => startRemote('console')} type="button"><Monitor size={16} /> {remoteBusy && remoteBusyMode === 'console' ? 'Starting…' : 'Remote desktop'}</button>
           <button disabled={remoteBusy || !hasLiveAgent || !canBackstageRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canBackstageRemote ? 'Start an isolated Background remote session' : 'Your role does not include Background remote access'} onClick={() => startRemote('backstage')} type="button"><Code2 size={16} /> {remoteBusy && remoteBusyMode === 'backstage' ? 'Starting…' : 'Background'}</button>
           <button disabled={!hasLiveAgent} title={!hasLiveAgent ? 'Hi5Central Agent required' : 'Open the full device tools workspace'} onClick={() => selectSection('tools')} type="button"><TerminalSquare size={16} /> Tools</button>
