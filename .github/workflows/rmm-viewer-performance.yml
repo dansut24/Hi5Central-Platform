@@ -1,0 +1,33 @@
+name: RMM Viewer Performance and Quality Guard
+on:
+  pull_request:
+    paths:
+      - 'apps/rmm/public/rmm-viewer/index.html'
+      - 'apps/rmm/public/rmm-viewer/renderer.js'
+      - 'apps/rmm/tests/viewer-performance-quality.test.cjs'
+      - '.github/workflows/rmm-viewer-performance.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  viewer-performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/rmm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate viewer syntax and streaming-quality behavior
+        run: |
+          node --check public/rmm-viewer/renderer.js
+          node --test tests/viewer-performance-quality.test.cjs
+      - name: Build the RMM web application
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
