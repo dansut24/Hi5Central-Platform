@@ -1191,16 +1191,21 @@ function desktopResolutionProfile() {
 function applyDesktopScalePreference() {
   if (elVideo) elVideo.style.objectFit = desktopScaleMode === 'stretch' ? 'fill' : 'contain';
   if (elViewerScaleMode) elViewerScaleMode.value = desktopScaleMode;
-  if (elRemoteResolutionPref) elRemoteResolutionPref.value = desktopResolutionPref;
+  if (elRemoteResolutionPref) { elRemoteResolutionPref.value = desktopResolutionPref; elRemoteResolutionPref.disabled = desktopQualityPreset !== 'automatic'; }
+  if (elQualityPreset) elQualityPreset.value = desktopQualityPreset;
+  if (elPerformanceToggle) elPerformanceToggle.value = performanceOverlayEnabled ? 'on' : 'off';
+  syncPerformanceOverlay();
 }
 
 function sendDesktopStreamProfile() {
   const cfg = DESKTOP_ADAPTIVE_TIERS[Math.max(0, Math.min(DESKTOP_ADAPTIVE_TIERS.length - 1, desktopAdaptiveState.tier))];
-  const resolution = desktopResolutionProfile();
-  desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
-  const resolutionLabel = resolution.preference === 'auto' ? 'Native' : resolution.preference;
-  if (elDiagProfile) elDiagProfile.textContent = resolutionLabel + ' · ' + (cfg.bitrate / 1000) + ' Mbps · ' + cfg.fps + ' fps';
-  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: cfg.fps, target_bitrate_kbps: cfg.bitrate });
+  const override = DESKTOP_QUALITY_PRESETS[desktopQualityPreset];
+  const resolution = override || desktopResolutionProfile();
+  if (!override) desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
+  const fps = override?.target_fps || cfg.fps;
+  const bitrate = override?.target_bitrate_kbps || cfg.bitrate;
+  if (elDiagProfile) elDiagProfile.textContent = (override ? desktopQualityPreset : resolution.preference) + ' · ' + (bitrate / 1000) + ' Mbps · ' + fps + ' fps';
+  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: fps, target_bitrate_kbps: bitrate });
 }
 function desktopMedian(values) {
   const nums = values.filter(Number.isFinite).sort((a,b) => a-b);
@@ -1232,7 +1237,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
   const severe=(lossEvidence&&loss>=0.08&&(rtt>=220||jitter>=90))||
     (packetTotal>=60&&rtt>=800);
   const now=Date.now();
-  if(severe){
+  if(desktopQualityPreset === 'automatic' && severe){
     desktopResolutionGuard.healthySince=0;
     if(!desktopResolutionGuard.severeSince)desktopResolutionGuard.severeSince=now;
     if(desktopResolutionGuard.preference==='native'&&now-desktopResolutionGuard.severeSince>=45000){
@@ -1240,7 +1245,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
       console.log('[adaptive] desktop 1080p after severe verified congestion');
       sendDesktopStreamProfile();
     }
-  }else{
+  }else if(desktopQualityPreset === 'automatic'){
     desktopResolutionGuard.severeSince=0;
     if(desktopResolutionGuard.preference!=='native'&&excellent){
       if(!desktopResolutionGuard.healthySince)desktopResolutionGuard.healthySince=now;
@@ -1263,6 +1268,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
   const qualityDetail=qualityLabel+' · '+Math.round(rtt||0)+'ms · '+(loss*100).toFixed(1)+'% loss';
   if(elDiagQuality) elDiagQuality.textContent=qualityDetail;
   if(elDesktopQualityIndicator){ elDesktopQualityIndicator.textContent=qualityLabel; elDesktopQualityIndicator.dataset.quality=current; elDesktopQualityIndicator.title=qualityDetail; }
+  if(desktopQualityPreset !== 'automatic') return;
   if(current==='poor'){desktopAdaptiveState.bad+=1;desktopAdaptiveState.good=0;}
   else if(current==='excellent'){desktopAdaptiveState.good+=1;desktopAdaptiveState.bad=0;}
   else {desktopAdaptiveState.bad=Math.max(0,desktopAdaptiveState.bad-1);desktopAdaptiveState.good=Math.max(0,desktopAdaptiveState.good-1);}
@@ -3512,6 +3518,20 @@ if (elViewerScaleMode) elViewerScaleMode.addEventListener('change', () => {
   desktopScaleMode = elViewerScaleMode.value === 'stretch' ? 'stretch' : 'fit';
   localStorage.setItem('hi5.viewer.scale', desktopScaleMode);
   applyDesktopScalePreference();
+});
+if (elQualityPreset) elQualityPreset.addEventListener('change', () => {
+  desktopQualityPreset = DESKTOP_QUALITY_PRESETS[elQualityPreset.value] ? elQualityPreset.value : 'automatic';
+  localStorage.setItem('hi5.viewer.quality', desktopQualityPreset);
+  if (desktopQualityPreset === 'automatic') {
+    desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
+  }
+  applyDesktopScalePreference();
+  sendDesktopStreamProfile();
+});
+if (elPerformanceToggle) elPerformanceToggle.addEventListener('change', () => {
+  performanceOverlayEnabled = elPerformanceToggle.value === 'on';
+  localStorage.setItem('hi5.viewer.performance', performanceOverlayEnabled ? 'on' : 'off');
+  syncPerformanceOverlay();
 });
 if (elRemoteResolutionPref) elRemoteResolutionPref.addEventListener('change', () => {
   desktopResolutionPref = ['native','1080p','720p'].includes(elRemoteResolutionPref.value) ? elRemoteResolutionPref.value : 'auto';
