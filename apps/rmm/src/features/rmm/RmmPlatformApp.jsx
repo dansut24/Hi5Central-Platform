@@ -2316,11 +2316,17 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
         const result = await check.json().catch(() => ({}))
         const job = result.job || {}
         if (job.status === 'completed') {
-          if (deep && (job.result?.deep_inventory_status !== 'collected' || job.result?.deep_inventory_included !== true)) {
-            throw new Error('Deep inventory was not confirmed complete. Review the job details.')
+          const deepStatus = job.result?.deep_inventory_status
+          if (deep && (!['collected', 'partial'].includes(deepStatus) || job.result?.deep_inventory_included !== true)) {
+            throw new Error('Deep inventory was not confirmed complete: ' + (job.result?.deep_inventory_error || 'review the job details.'))
           }
+          const incomplete = Object.entries(job.result?.deep_inventory_sections || {})
+            .filter(([, info]) => info?.status === 'failed' || info?.status === 'unsupported')
+            .map(([name]) => name.replaceAll('_', ' '))
           setInventoryRefreshMessage(deep
-            ? 'Deep inventory collected. Device details will update automatically.'
+            ? (incomplete.length
+                ? 'Deep inventory collected. Unavailable sections: ' + incomplete.join(', ') + '. Device details will update automatically.'
+                : 'Deep inventory collected. Device details will update automatically.')
             : 'Basic inventory uploaded. Device details will update automatically.')
           return
         }
