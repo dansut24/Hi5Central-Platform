@@ -65,3 +65,30 @@ test('viewer statistics distinguish decode time and presentation from network qu
   ]) assert.ok(js.includes(token), token);
   assert.ok(html.includes('Maximum clarity is still lossy.'));
 });
+
+test('native desktop viewer exposes the same quality choices and statistics', () => {
+  const nativeRoot = path.resolve(root, '../../native/viewer/web');
+  const nativeHtml = fs.readFileSync(path.join(nativeRoot, 'index.html'), 'utf8');
+  const nativeJs = fs.readFileSync(path.join(nativeRoot, 'renderer.js'), 'utf8');
+  for (const id of [
+    'viewer-quality-preset', 'viewer-performance-toggle', 'session-performance-panel',
+    'perf-codec', 'perf-presented-fps', 'perf-bitrate', 'perf-rtt', 'perf-loss', 'perf-decode',
+    'diag-presented-fps', 'diag-frames-dropped', 'diag-jitter', 'diag-jitter-buffer',
+    'diag-decode-ms', 'diag-loss-rate'
+  ]) {
+    assert.ok(nativeHtml.includes('id="' + id + '"'), id);
+    assert.ok(nativeJs.includes('getElementById("' + id + '")'), id);
+  }
+  const start = nativeJs.indexOf('const DESKTOP_QUALITY_PRESETS =');
+  const end = nativeJs.indexOf('function syncPerformanceOverlay()', start);
+  assert.ok(start >= 0 && end > start, 'native preset policy');
+  const preset = vm.runInNewContext(nativeJs.slice(start,end) + '\\nDESKTOP_QUALITY_PRESETS', {});
+  assert.equal(preset.speed.max_height, 720);
+  assert.equal(preset.clarity.target_bitrate_kbps, 8000);
+  assert.equal(preset.maximum.target_bitrate_kbps, 12000);
+  assert.match(nativeJs, /if\\(desktopQualityPreset !== 'automatic'\\) return;/);
+  assert.match(nativeJs, /const override = DESKTOP_QUALITY_PRESETS\\[desktopQualityPreset\\];/);
+  assert.ok(nativeJs.includes('elVideo?.getVideoPlaybackQuality?.()'));
+  assert.ok(nativeJs.includes('inbound.totalDecodeTime'));
+  assert.ok(nativeHtml.includes('Maximum clarity is still lossy.'));
+});
