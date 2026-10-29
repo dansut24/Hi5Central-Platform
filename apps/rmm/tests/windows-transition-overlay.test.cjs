@@ -58,6 +58,8 @@ test('fallback stats path still waits for a real decoded frame after handoff', (
 test('transition overlay hides icon and does not block touch or keyboard', () => {
   assert.match(html, /#overlay\.transition-hold\s*\{[^}]*pointer-events:\s*none/s);
   assert.ok(html.includes('#overlay.transition-hold .overlay-icon,'));
-  assert.ok(html.includes('#overlay .overlay-icon { display: none !important; }'));
+  assert.ok(html.includes('body.viewer-has-video #overlay .overlay-icon { display: none !important; }'));
   assert.ok(html.includes('#overlay.transition-hold .spinner,'));
 });
+
+test('viewer icon only on initial connection',()=>{assert.ok(renderer.includes("document.body.classList.add('viewer-has-video')")); assert.ok(renderer.includes("document.body.classList.remove('viewer-has-video')"));});
