@@ -1680,7 +1680,8 @@ function markFrameRendered() {
     return;
   }
   if (revealOnNextFrame && desktopTransitionDecodedBaseline >= 0 &&
-      lastFramesDecoded <= desktopTransitionDecodedBaseline) {
+      lastFramesDecoded <= desktopTransitionDecodedBaseline &&
+      typeof elVideo?.requestVideoFrameCallback !== "function") {
     return;
   }
 
