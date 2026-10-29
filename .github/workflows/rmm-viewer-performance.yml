@@ -2,6 +2,8 @@ name: RMM Viewer Performance and Quality Guard
 on:
   pull_request:
     paths:
+      - 'native/viewer/web/index.html'
+      - 'native/viewer/web/renderer.js'
       - 'apps/rmm/public/rmm-viewer/index.html'
       - 'apps/rmm/public/rmm-viewer/renderer.js'
       - 'apps/rmm/tests/viewer-performance-quality.test.cjs'
@@ -26,6 +28,7 @@ jobs:
       - name: Validate viewer syntax and streaming-quality behavior
         run: |
           node --check public/rmm-viewer/renderer.js
+          node --check ../../native/viewer/web/renderer.js
           node --test tests/viewer-performance-quality.test.cjs
       - name: Build the RMM web application
         run: |
