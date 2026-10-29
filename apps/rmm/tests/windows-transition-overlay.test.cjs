@@ -58,5 +58,6 @@ test('fallback stats path still waits for a real decoded frame after handoff', (
 test('transition overlay hides icon and does not block touch or keyboard', () => {
   assert.match(html, /#overlay\.transition-hold\s*\{[^}]*pointer-events:\s*none/s);
   assert.ok(html.includes('#overlay.transition-hold .overlay-icon,'));
+  assert.ok(html.includes('#overlay .overlay-icon { display: none !important; }'));
   assert.ok(html.includes('#overlay.transition-hold .spinner,'));
 });
