@@ -1676,6 +1676,7 @@ function markFrameRendered() {
   lastFrameAtMs = Date.now();
 
   if (secureDesktopActive || desktopHandoffActive) {
+    if (elOverlay?.classList.contains("transition-hold")) hideOverlay();
     return;
   }
   if (revealOnNextFrame && desktopTransitionDecodedBaseline >= 0 &&
