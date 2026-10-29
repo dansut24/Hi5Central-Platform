@@ -3247,8 +3247,19 @@ async function pollStatsOnce() {
   let packetsLostDelta = 0;
   let jitterMs = null;
   let jitterBufferMs = null;
+  let decodeMs = null;
+  let presentedFps = null;
+  let droppedFramesDelta = null;
+  let codecName = '—';
+  let videoSize = '';
 
   if (inbound) {
+    const codec = inbound.codecId ? stats.get(inbound.codecId) : null;
+    if (codec?.mimeType) codecName = codec.mimeType.replace(/^video\//i, '').toUpperCase();
+    if (inbound.frameWidth > 0 && inbound.frameHeight > 0) {
+      videoSize = inbound.frameWidth + '×' + inbound.frameHeight;
+    }
+    if (elStatCodec && codecName !== '—') elStatCodec.textContent = codecName;
     const bytesReceived = Number(inbound.bytesReceived || 0);
     framesDecoded = Number(inbound.framesDecoded || 0);
     // Bounded read-only diagnostics distinguish an Agent sending no RTP,
@@ -3304,8 +3315,18 @@ async function pollStatsOnce() {
         const dBytes = bytesReceived - lastStats.bytes;
         bitrateKbps = (dBytes * 8) / dt / 1000;
 
-        const dFrames = framesDecoded - lastStats.frames;
+        const dFrames = Math.max(0, framesDecoded - lastStats.frames);
         fps = dFrames / dt;
+        const decodedTime = Number(inbound.totalDecodeTime);
+        if (dFrames > 0 && Number.isFinite(decodedTime) && decodedTime >= lastStats.totalDecodeTime) {
+          decodeMs = (decodedTime - lastStats.totalDecodeTime) * 1000 / dFrames;
+        }
+        if (typeof elVideo?.requestVideoFrameCallback === 'function') {
+          presentedFps = Math.max(0, presentedFrameCount - lastStats.presented) / dt;
+        }
+        if (Number.isFinite(Number(inbound.framesDropped))) {
+          droppedFramesDelta = Math.max(0, Number(inbound.framesDropped) - lastStats.framesDropped);
+        }
         const dLost = Math.max(0, packetsLost - lastStats.packetsLost);
         const dReceived = Math.max(0, packetsReceived - lastStats.packetsReceived);
         const dTotal = dLost + dReceived;
@@ -3322,6 +3343,13 @@ async function pollStatsOnce() {
     lastStats.packetsReceived = packetsReceived;
     lastStats.jitterDelay = jitterDelay;
     lastStats.jitterEmitted = jitterEmitted;
+    if (Number.isFinite(Number(inbound.totalDecodeTime))) {
+      lastStats.totalDecodeTime = Number(inbound.totalDecodeTime);
+    }
+    if (Number.isFinite(Number(inbound.framesDropped))) {
+      lastStats.framesDropped = Number(inbound.framesDropped);
+    }
+    lastStats.presented = presentedFrameCount;
   }
 
   const rttMs = selectedPair && isFinite(selectedPair.currentRoundTripTime)
@@ -3363,6 +3391,22 @@ async function pollStatsOnce() {
   if (elDiagFrames) elDiagFrames.textContent = String(framesDecoded ?? "—");
   if (elDiagPacketsLost) elDiagPacketsLost.textContent = String(packetsLost ?? "—");
   if (elDiagRtt) elDiagRtt.textContent = rttMs != null ? `${rttMs}ms` : "—";
+  const fmtMs = (value) => Number.isFinite(value) && value >= 0 ? value.toFixed(1) + ' ms' : '—';
+  const presentedText = Number.isFinite(presentedFps) ? Math.round(presentedFps) + ' fps' : '—';
+  const lossText = packetSampleCount > 0 ? (lossRate * 100).toFixed(1) + '%' : '—';
+  if (elDiagPresentedFps) elDiagPresentedFps.textContent = presentedText;
+  if (elDiagFramesDropped) elDiagFramesDropped.textContent = droppedFramesDelta != null ? String(droppedFramesDelta) + ' in last sample' : '—';
+  if (elDiagJitter) elDiagJitter.textContent = fmtMs(jitterMs);
+  if (elDiagJitterBuffer) elDiagJitterBuffer.textContent = fmtMs(jitterBufferMs);
+  if (elDiagDecodeMs) elDiagDecodeMs.textContent = fmtMs(decodeMs);
+  if (elDiagLossRate) elDiagLossRate.textContent = lossText;
+  if (elPerfCodec) elPerfCodec.textContent = codecName + (videoSize ? ' · ' + videoSize : '');
+  if (elPerfFps) elPerfFps.textContent = presentedText;
+  if (elPerfBitrate) elPerfBitrate.textContent = brStr;
+  if (elPerfRtt) elPerfRtt.textContent = rttMs != null ? rttMs + ' ms' : '—';
+  if (elPerfLoss) elPerfLoss.textContent = lossText;
+  if (elPerfDecode) elPerfDecode.textContent = fmtMs(decodeMs) + ' / ' + fmtMs(jitterBufferMs);
+  syncPerformanceOverlay();
   if (elDiagIceServers) elDiagIceServers.textContent = activeIceServers().map(s => Array.isArray(s.urls) ? s.urls.join(",") : s.urls).join(" | ");
 
   observeMobileNetworkQuality({ rttMs, jitterMs, jitterBufferMs, lossRate, packetCount: packetSampleCount, packetsLostDelta });
