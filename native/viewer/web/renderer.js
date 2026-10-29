@@ -81,6 +81,21 @@ const elSettingsPanel = document.getElementById("settings-panel");
 const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
+const elQualityPreset = document.getElementById("viewer-quality-preset");
+const elPerformanceToggle = document.getElementById("viewer-performance-toggle");
+const elPerformancePanel = document.getElementById("session-performance-panel");
+const elPerfCodec = document.getElementById("perf-codec");
+const elPerfFps = document.getElementById("perf-presented-fps");
+const elPerfBitrate = document.getElementById("perf-bitrate");
+const elPerfRtt = document.getElementById("perf-rtt");
+const elPerfLoss = document.getElementById("perf-loss");
+const elPerfDecode = document.getElementById("perf-decode");
+const elDiagPresentedFps = document.getElementById("diag-presented-fps");
+const elDiagFramesDropped = document.getElementById("diag-frames-dropped");
+const elDiagJitter = document.getElementById("diag-jitter");
+const elDiagJitterBuffer = document.getElementById("diag-jitter-buffer");
+const elDiagDecodeMs = document.getElementById("diag-decode-ms");
+const elDiagLossRate = document.getElementById("diag-loss-rate");
 const elDiagIceState = document.getElementById("diag-ice-state");
 const elDiagConnState = document.getElementById("diag-connection-state");
 const elDiagCandidatePair = document.getElementById("diag-candidate-pair");
@@ -137,7 +152,7 @@ let viewerFatalTransportError = false;
 
 let statsTimer = null;
 let transitionWatchdogTimer = null;
-let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0, totalDecodeTime: 0, framesDropped: 0, displayed: 0 };
 // Text clarity is more important than reacting to a jitter-buffer spike.
 // Ordinary adaptation changes bitrate/FPS, not desktop pixel resolution.
 const DESKTOP_ADAPTIVE_TIERS = [
@@ -152,6 +167,8 @@ let desktopQualityState = { current: 'good', candidate: null, count: 0, changedA
 let desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 'stretch' : 'fit';
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
+let desktopQualityPreset = ['speed','clarity','maximum'].includes(localStorage.getItem('hi5.viewer.quality')) ? localStorage.getItem('hi5.viewer.quality') : 'automatic';
+let performanceOverlayEnabled = localStorage.getItem('hi5.viewer.performance') === 'on';
 
 let inputBound = false;
 let controlActive = false;
@@ -1028,7 +1045,7 @@ function stopStatsPoll() {
     clearInterval(transitionWatchdogTimer);
     transitionWatchdogTimer = null;
   }
-  lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+  lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0, totalDecodeTime: 0, framesDropped: 0, displayed: 0 };
   lastFramesDecoded = 0;
 }
 
@@ -1145,6 +1162,19 @@ function sendControlObject(message) {
     try { channel.send(payload); return true; } catch {}
   }
   return false;
+}
+
+const DESKTOP_QUALITY_PRESETS = Object.freeze({
+  speed: Object.freeze({ preference: '720p', max_width: 1280, max_height: 720, target_fps: 24, target_bitrate_kbps: 3200 }),
+  clarity: Object.freeze({ preference: 'native', max_width: 0, max_height: 0, target_fps: 20, target_bitrate_kbps: 8000 }),
+  maximum: Object.freeze({ preference: 'native', max_width: 0, max_height: 0, target_fps: 20, target_bitrate_kbps: 12000 })
+});
+
+function syncPerformanceOverlay() {
+  if (!elPerformancePanel) return;
+  const show = performanceOverlayEnabled && Boolean(currentSession) && pc?.connectionState === 'connected';
+  elPerformancePanel.classList.toggle('visible', show);
+  elPerformancePanel.setAttribute('aria-hidden', show ? 'false' : 'true');
 }
 
 function desktopResolutionProfile() {
