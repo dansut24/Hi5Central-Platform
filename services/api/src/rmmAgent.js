@@ -1272,7 +1272,8 @@ const RETAINED_DEEP_INVENTORY_FIELDS = [
   'installed_hotfixes','windows_licensing','reboot_state','startup_items','scheduled_tasks',
   'local_groups','printers','usb_devices','optional_features','power_plan','network_profiles',
   'network_configurations','wifi_interfaces','default_routes','directory_join',
-  'machine_certificates','virtualization','deep_inventory_collected_at',
+  'machine_certificates','virtualization','local_users','deep_inventory_collected_at',
+  'deep_inventory_status','deep_inventory_sections',
 ]
 
 const DEEP_SECTION_FIELDS = {
@@ -1284,6 +1285,7 @@ const DEEP_SECTION_FIELDS = {
   windows_state: ['installed_hotfixes','windows_licensing','reboot_state','startup_items'],
   scheduled_tasks: ['scheduled_tasks'],
   local_groups: ['local_groups'],
+  local_users: ['local_users'],
   peripherals: ['printers','usb_devices'],
   features_power: ['optional_features','power_plan'],
   network: ['network_profiles','network_configurations','wifi_interfaces','default_routes'],

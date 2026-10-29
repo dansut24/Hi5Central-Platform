@@ -1404,7 +1404,7 @@ function DeviceWindows({ device }) {
       columns={[
         { label: 'User', value: (item) => item.name || 'Local user', detail: (item) => item.full_name || item.description || '' },
         { label: 'Enabled', width: '90px', value: (item) => item.enabled === true ? 'Yes' : item.enabled === false ? 'No' : 'Unknown' },
-        { label: 'Administrator', width: '110px', value: (item) => item.is_admin === true ? 'Yes' : 'No' },
+        { label: 'Administrator', width: '110px', value: (item) => item.is_admin === true ? 'Yes' : item.is_admin === false ? 'No' : 'Not reported' },
         { label: 'Last logon', width: '150px', value: (item) => item.last_logon ? new Date(item.last_logon).toLocaleString() : 'Not reported' },
         { label: 'Password last set', width: '150px', value: (item) => item.password_last_set ? new Date(item.password_last_set).toLocaleString() : 'Not reported' },
         { label: 'SID', value: (item) => item.sid || 'Not reported' },
@@ -2290,24 +2290,23 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
     }
   }
 
-  async function refreshInventory() {
+  async function refreshInventory(deep = false) {
     if (!hasLiveAgent || !deviceOnline || inventoryRefreshBusy) return
     const epoch = ++inventoryRefreshEpoch.current
     setInventoryRefreshBusy(true)
-    setInventoryRefreshMessage('Requesting a new inventory snapshot…')
+    setInventoryRefreshMessage(deep ? 'Requesting full Windows deep inventory…' : 'Requesting basic inventory…')
     try {
       const response = await fetch(apiBase + '/api/v1/rmm/devices/' + encodeURIComponent(device.agentDeviceId) + '/actions', {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'inventory.scan' }),
+        body: JSON.stringify({ type: deep ? 'inventory.deep.scan' : 'inventory.scan' }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.job?.id) throw new Error(payload.error || 'The Agent did not accept the inventory scan.')
-      setInventoryRefreshMessage('Agent is collecting inventory…')
-      // The existing 15-second estate refresh loads the resulting snapshot.
-      // Poll only the authenticated job status, never duplicate the scan.
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      setInventoryRefreshMessage(deep ? 'Agent is collecting deep hardware and Windows inventory…' : 'Agent is collecting basic inventory…')
+      const maxAttempts = deep ? 180 : 20
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500))
         if (inventoryRefreshEpoch.current !== epoch) return
         const check = await fetch(apiBase + '/api/v1/rmm/device-actions/' + encodeURIComponent(payload.job.id), {
@@ -2315,16 +2314,30 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
         })
         if (!check.ok) throw new Error('Unable to verify the inventory scan result.')
         const result = await check.json().catch(() => ({}))
-        const status = result.job?.status || ''
-        if (status === 'completed') {
-          setInventoryRefreshMessage('Snapshot uploaded. Device details will update automatically.')
+        const job = result.job || {}
+        if (job.status === 'completed') {
+          const deepStatus = job.result?.deep_inventory_status
+          if (deep && (!['collected', 'partial'].includes(deepStatus) || job.result?.deep_inventory_included !== true)) {
+            throw new Error('Deep inventory was not confirmed complete: ' + (job.result?.deep_inventory_error || 'review the job details.'))
+          }
+          const incomplete = Object.entries(job.result?.deep_inventory_sections || {})
+            .filter(([, info]) => info?.status === 'failed' || info?.status === 'unsupported')
+            .map(([name]) => name.replaceAll('_', ' '))
+          setInventoryRefreshMessage(deep
+            ? (incomplete.length
+                ? 'Deep inventory collected. Unavailable sections: ' + incomplete.join(', ') + '. Device details will update automatically.'
+                : 'Deep inventory collected. Device details will update automatically.')
+            : 'Basic inventory uploaded. Device details will update automatically.')
           return
         }
-        if (['failed', 'cancelled'].includes(status)) {
-          throw new Error(result.job?.error_message || 'Inventory scan did not complete.')
+        if (['failed', 'cancelled'].includes(job.status)) {
+          const failedSections = Object.entries(job.result?.deep_inventory_sections || {})
+            .filter(([, status]) => status?.status === 'failed')
+            .map(([name]) => name.replaceAll('_', ' '))
+          throw new Error([job.error_message || 'Inventory scan failed.', failedSections.length ? 'Failed sections: ' + failedSections.join(', ') : ''].filter(Boolean).join(' '))
         }
       }
-      setInventoryRefreshMessage('Scan is still processing. Inventory will update when the Agent reports.')
+      setInventoryRefreshMessage('Scan is still processing. Check Jobs for its final result.')
     } catch (error) {
       if (inventoryRefreshEpoch.current === epoch) setInventoryRefreshMessage(error?.message || 'Inventory refresh failed.')
     } finally {
@@ -2406,10 +2419,12 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
           <div><StatusPill>{device.status}</StatusPill><StatusPill>{device.health}</StatusPill><span>{device.os}</span><span>Agent {device.agent}</span></div>
           {remoteState && <small className="rmm-device-action-message">{remoteState}</small>}
           <small className="rmm-device-action-message" title={device.inventoryCollectedAt ? new Date(device.inventoryCollectedAt).toLocaleString() : 'No inventory snapshot reported'}>Inventory: {inventoryAge.label}{inventoryAge.older ? ' · older snapshot' : ''}</small>
+          {String(device.platform || device.os || '').toLowerCase().includes('windows') && <small className="rmm-device-action-message" title={device.deepInventoryCollectedAt ? new Date(device.deepInventoryCollectedAt).toLocaleString() : 'No deep inventory collected yet'}>Deep inventory: {device.deepInventoryCollectedAt ? new Date(device.deepInventoryCollectedAt).toLocaleString() : 'Not collected'}{device.deepInventoryStatus === 'partial' ? ' · partial scan' : ''} · automatic every 8 hours when online and idle</small>}
           {inventoryRefreshMessage && <small className="rmm-device-action-message" role="status">{inventoryRefreshMessage}</small>}
         </div>
         <div className="rmm-device-actions">
-          <button disabled={!hasLiveAgent || !deviceOnline || inventoryRefreshBusy} onClick={refreshInventory} title={!hasLiveAgent ? 'Install the Hi5Central Agent to collect inventory' : !deviceOnline ? 'Device must be online to refresh inventory' : 'Request a fresh Agent inventory scan'} type="button"><RefreshCw size={16} />{inventoryRefreshBusy ? 'Scanning…' : 'Refresh inventory'}</button>
+          <button disabled={!hasLiveAgent || !deviceOnline || inventoryRefreshBusy} onClick={() => refreshInventory(false)} title={!hasLiveAgent ? 'Install the Hi5Central Agent to collect inventory' : !deviceOnline ? 'Device must be online to refresh inventory' : 'Refresh lightweight inventory without running the deep hardware pass'} type="button"><RefreshCw size={16} />{inventoryRefreshBusy ? 'Scanning…' : 'Refresh inventory'}</button>
+          {String(device.platform || device.os || '').toLowerCase().includes('windows') && <button disabled={!hasLiveAgent || !deviceOnline || inventoryRefreshBusy} onClick={() => refreshInventory(true)} title={!deviceOnline ? 'Offline devices will collect scheduled deep inventory when they next reconnect and become idle' : 'Collect Windows hardware, drivers, accounts, network and system inventory now'} type="button"><Database size={16} />Collect deep inventory</button>}
           <button className="rmm-primary compact" disabled={remoteBusy || !hasLiveAgent || !canRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canRemote ? 'Start unattended console remote session' : 'Your role does not include unattended remote access'} onClick={() => startRemote('console')} type="button"><Monitor size={16} /> {remoteBusy && remoteBusyMode === 'console' ? 'Starting…' : 'Remote desktop'}</button>
           <button disabled={remoteBusy || !hasLiveAgent || !canBackstageRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canBackstageRemote ? 'Start an isolated Background remote session' : 'Your role does not include Background remote access'} onClick={() => startRemote('backstage')} type="button"><Code2 size={16} /> {remoteBusy && remoteBusyMode === 'backstage' ? 'Starting…' : 'Background'}</button>
           <button disabled={!hasLiveAgent} title={!hasLiveAgent ? 'Hi5Central Agent required' : 'Open the full device tools workspace'} onClick={() => selectSection('tools')} type="button"><TerminalSquare size={16} /> Tools</button>
