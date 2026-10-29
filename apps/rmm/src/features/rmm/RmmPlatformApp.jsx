@@ -1404,7 +1404,7 @@ function DeviceWindows({ device }) {
       columns={[
         { label: 'User', value: (item) => item.name || 'Local user', detail: (item) => item.full_name || item.description || '' },
         { label: 'Enabled', width: '90px', value: (item) => item.enabled === true ? 'Yes' : item.enabled === false ? 'No' : 'Unknown' },
-        { label: 'Administrator', width: '110px', value: (item) => item.is_admin === true ? 'Yes' : 'No' },
+        { label: 'Administrator', width: '110px', value: (item) => item.is_admin === true ? 'Yes' : item.is_admin === false ? 'No' : 'Not reported' },
         { label: 'Last logon', width: '150px', value: (item) => item.last_logon ? new Date(item.last_logon).toLocaleString() : 'Not reported' },
         { label: 'Password last set', width: '150px', value: (item) => item.password_last_set ? new Date(item.password_last_set).toLocaleString() : 'Not reported' },
         { label: 'SID', value: (item) => item.sid || 'Not reported' },
