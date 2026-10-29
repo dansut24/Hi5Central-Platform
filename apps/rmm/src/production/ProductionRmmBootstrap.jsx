@@ -50,6 +50,21 @@ function deviceToRmm(row) {
   const displayInfo = inventory.displays || {}
   const gpus = Array.isArray(inventory.gpu) ? inventory.gpu : (Array.isArray(displayInfo.gpus) ? displayInfo.gpus : [])
   const storageVolumes = Array.isArray(inventory.storage) ? inventory.storage : []
+  const networkConfigurations = Array.isArray(inventory.network_configurations) ? inventory.network_configurations : []
+  const nativeAdapters = Array.isArray(inventory.network?.adapters) ? inventory.network.adapters : []
+  // Certain Windows endpoints expose IP-enabled adapters through CIM even when
+  // the lighter native GetAdaptersAddresses pass returns no entries.
+  const networkAdapters = nativeAdapters.length ? nativeAdapters : networkConfigurations.map((adapter) => ({
+    name: adapter.description || 'Network adapter',
+    description: adapter.description || '',
+    mac: adapter.mac_address || '',
+    status: 'Unknown',
+    ipv4: (adapter.ip_addresses || []).filter((address) => /^\d{1,3}(?:\.\d{1,3}){3}$/.test(address)),
+    dns: adapter.dns_servers || [],
+    gateway: adapter.gateways || [],
+    connection_type: 'Network',
+  }))
+
   const warrantyIdentity = inventory.warranty_identity || {}
   const software = Array.isArray(inventory.software?.items) ? inventory.software.items : []
   const windowsPendingRaw = inventory.windows_updates?.pending_count
@@ -153,7 +168,7 @@ function deviceToRmm(row) {
     })),
     hiddenSoftwareComponents: Number(inventory.software?.hidden_system_components || 0),
     patches: Array.isArray(inventory.windows_updates?.updates) ? inventory.windows_updates.updates : [],
-    activity: [], networkAdapters: Array.isArray(inventory.network?.adapters) ? inventory.network.adapters : [], relatedRecordIds: [],
+    activity: [], networkAdapters, relatedRecordIds: [],
     ip: inventory.network?.primary_ipv4 || '', publicIp: inventory.network?.public_ip || '', gateway: inventory.network?.gateway || '', mac: inventory.network?.mac || '',
     bios: [inventory.hardware?.bios_vendor, inventory.hardware?.bios_version].filter(Boolean).join(' '), warranty: 'Not reported',
     timeZone: inventory.os?.timezone || 'Not reported', inventory,
