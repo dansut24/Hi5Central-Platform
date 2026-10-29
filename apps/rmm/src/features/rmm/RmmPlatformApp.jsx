@@ -1909,6 +1909,10 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   const [forgetWaylandBusy, setForgetWaylandBusy] = useState(false)
   const [viewerInstallPrompt, setViewerInstallPrompt] = useState(null)
   const [powerBusy, setPowerBusy] = useState(false)
+  const [inventoryRefreshBusy, setInventoryRefreshBusy] = useState(false)
+  const [inventoryRefreshMessage, setInventoryRefreshMessage] = useState('')
+  const inventoryRefreshEpoch = useRef(0)
+  useEffect(() => () => { inventoryRefreshEpoch.current += 1 }, [])
   const [automationOpen, setAutomationOpen] = useState(false)
   const [monitoringResolution, setMonitoringResolution] = useState(null)
   const [patchPolicyResolution, setPatchPolicyResolution] = useState(null)
@@ -2282,6 +2286,48 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
       setRemoteState(error?.message || 'Unable to forget remembered Wayland access.')
     } finally {
       setForgetWaylandBusy(false)
+    }
+  }
+
+  async function refreshInventory() {
+    if (!hasLiveAgent || !deviceOnline || inventoryRefreshBusy) return
+    const epoch = ++inventoryRefreshEpoch.current
+    setInventoryRefreshBusy(true)
+    setInventoryRefreshMessage('Requesting a new inventory snapshot…')
+    try {
+      const response = await fetch(apiBase + '/api/v1/rmm/devices/' + encodeURIComponent(device.agentDeviceId) + '/actions', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'inventory.scan' }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok || !payload.job?.id) throw new Error(payload.error || 'The Agent did not accept the inventory scan.')
+      setInventoryRefreshMessage('Agent is collecting inventory…')
+      // The existing 15-second estate refresh loads the resulting snapshot.
+      // Poll only the authenticated job status, never duplicate the scan.
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500))
+        if (inventoryRefreshEpoch.current !== epoch) return
+        const check = await fetch(apiBase + '/api/v1/rmm/device-actions/' + encodeURIComponent(payload.job.id), {
+          credentials: 'include', cache: 'no-store',
+        })
+        if (!check.ok) throw new Error('Unable to verify the inventory scan result.')
+        const result = await check.json().catch(() => ({}))
+        const status = result.job?.status || ''
+        if (status === 'completed') {
+          setInventoryRefreshMessage('Snapshot uploaded. Device details will update automatically.')
+          return
+        }
+        if (['failed', 'cancelled'].includes(status)) {
+          throw new Error(result.job?.error_message || 'Inventory scan did not complete.')
+        }
+      }
+      setInventoryRefreshMessage('Scan is still processing. Inventory will update when the Agent reports.')
+    } catch (error) {
+      if (inventoryRefreshEpoch.current === epoch) setInventoryRefreshMessage(error?.message || 'Inventory refresh failed.')
+    } finally {
+      if (inventoryRefreshEpoch.current === epoch) setInventoryRefreshBusy(false)
     }
   }
 
