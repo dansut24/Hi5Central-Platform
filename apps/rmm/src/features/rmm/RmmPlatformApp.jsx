@@ -56,6 +56,7 @@ import {
   rmmDevices,
 } from '../../data/rmmData.js'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
+import { describeInventoryAge } from '../../lib/inventoryFreshness.js'
 import { resolveTenantSurface, rmmDevicePath, rmmPath, rmmRouteFromLocation } from '../../lib/tenantSurface.js'
 import { loadRmmScope } from '../../lib/rmmScopeApi.js'
 import { deploySoftwarePatch, deploySoftwarePatches, loadDevicePatchPolicyResolution, loadRmmPatching, rejectDeviceSoftwarePatch, restoreDeviceSoftwarePatch } from '../../lib/rmmPatchingApi.js'
@@ -661,6 +662,8 @@ function DeviceOverview({ device, deviceAlerts, monitoringResolution, patchPolic
             <DeviceProperty label="Processor" value={device.processor} />
             <DeviceProperty label="Memory" value={device.ramGb == null ? null : `${device.ramGb} GB`} detail={device.memoryUsedBytes && device.memoryTotalBytes ? `${(device.memoryUsedBytes / (1024 ** 3)).toFixed(1)} GB used · ${device.memory == null ? 'usage not reported' : device.memory + '%'}` : (device.memory == null ? '' : device.memory + '% used')} />
             <DeviceProperty label="Storage" value={device.storageGb == null ? null : `${device.storageGb} GB`} detail={device.storageFreeGb == null ? '' : `${device.storageFreeGb} GB free`} />
+            <DeviceProperty label="Inventory scanned" value={describeInventoryAge(device.inventoryCollectedAt).label} detail={device.inventoryCollectedAt ? new Date(device.inventoryCollectedAt).toLocaleString() : 'Awaiting first Agent snapshot'} />
+            <DeviceProperty label="Installed applications" value={device.inventoryCollectedAt ? String(device.inventoryReportedSoftwareCount ?? device.installedSoftware?.length ?? 0) : null} detail={device.inventoryCollectorStatus === 'collected' ? 'Reported by Hi5Central Agent' : 'Latest inventory snapshot'} />
             <DeviceProperty label="Site" value={device.site} />
             <DeviceProperty label="Device group" value={device.group} detail={device.policy} />
           </div>
