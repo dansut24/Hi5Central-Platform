@@ -1047,6 +1047,7 @@ function stopStatsPoll() {
   }
   lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0, totalDecodeTime: 0, framesDropped: 0, displayed: 0 };
   lastFramesDecoded = 0;
+  if (elPerformancePanel) elPerformancePanel.classList.remove('visible');
 }
 
 function requestRemoteKeyframe(reason = "frame-continuity") {
@@ -1924,8 +1925,20 @@ async function pollStatsOnce() {
   let packetsLostDelta = 0;
   let jitterMs = null;
   let jitterBufferMs = null;
+  let decodeMs = null;
+  let displayedFps = null;
+  let droppedDelta = null;
+  let codecName = '—';
+  let resolutionLabel = '';
 
   if (inbound) {
+    const codec = inbound.codecId ? stats.get(inbound.codecId) : null;
+    if (codec?.mimeType) codecName = codec.mimeType.replace(/^video\//i, '').toUpperCase();
+    if (inbound.frameWidth > 0 && inbound.frameHeight > 0) resolutionLabel = inbound.frameWidth + '×' + inbound.frameHeight;
+    if (elStatCodec && codecName !== '—') elStatCodec.textContent = codecName;
+    const playback = elVideo?.getVideoPlaybackQuality?.();
+    const displayedTotal = Number(playback?.totalVideoFrames);
+    const hasDisplayedTotal = playback && Number.isFinite(displayedTotal);
     const bytesReceived = Number(inbound.bytesReceived || 0);
     framesDecoded = Number(inbound.framesDecoded || 0);
     packetsLost = Number(inbound.packetsLost || 0);
@@ -1956,8 +1969,14 @@ async function pollStatsOnce() {
         const dBytes = bytesReceived - lastStats.bytes;
         bitrateKbps = (dBytes * 8) / dt / 1000;
 
-        const dFrames = framesDecoded - lastStats.frames;
+        const dFrames = Math.max(0, framesDecoded - lastStats.frames);
         fps = dFrames / dt;
+        const totalDecode = Number(inbound.totalDecodeTime);
+        if (dFrames > 0 && Number.isFinite(totalDecode) && totalDecode >= lastStats.totalDecodeTime) {
+          decodeMs = (totalDecode - lastStats.totalDecodeTime) * 1000 / dFrames;
+        }
+        if (hasDisplayedTotal) displayedFps = Math.max(0, displayedTotal - lastStats.displayed) / dt;
+        if (Number.isFinite(Number(inbound.framesDropped))) droppedDelta = Math.max(0, Number(inbound.framesDropped) - lastStats.framesDropped);
         packetsLostDelta = Math.max(0, packetsLost - lastStats.packetsLost);
         const dReceived = Math.max(0, packetsReceived - lastStats.packetsReceived);
         packetSampleCount = packetsLostDelta + dReceived;
@@ -1971,6 +1990,9 @@ async function pollStatsOnce() {
     lastStats.packetsReceived = packetsReceived;
     lastStats.jitterDelay = jitterDelay;
     lastStats.jitterEmitted = jitterEmitted;
+    if (Number.isFinite(Number(inbound.totalDecodeTime))) lastStats.totalDecodeTime = Number(inbound.totalDecodeTime);
+    if (Number.isFinite(Number(inbound.framesDropped))) lastStats.framesDropped = Number(inbound.framesDropped);
+    if (hasDisplayedTotal) lastStats.displayed = displayedTotal;
   }
 
   const rttMs = selectedPair && isFinite(selectedPair.currentRoundTripTime)
@@ -2015,6 +2037,22 @@ async function pollStatsOnce() {
   if (elDiagFrames) elDiagFrames.textContent = String(framesDecoded ?? "—");
   if (elDiagPacketsLost) elDiagPacketsLost.textContent = String(packetsLost ?? "—");
   if (elDiagRtt) elDiagRtt.textContent = rttMs != null ? `${rttMs}ms` : "—";
+  const fmtMs = (v) => Number.isFinite(v) && v >= 0 ? v.toFixed(1) + ' ms' : '—';
+  const presentedText = Number.isFinite(displayedFps) ? Math.round(displayedFps) + ' fps' : '—';
+  const lossText = packetSampleCount > 0 ? (packetsLostDelta / packetSampleCount * 100).toFixed(1) + '%' : '—';
+  if (elDiagPresentedFps) elDiagPresentedFps.textContent = presentedText;
+  if (elDiagFramesDropped) elDiagFramesDropped.textContent = droppedDelta != null ? droppedDelta + ' in last sample' : '—';
+  if (elDiagJitter) elDiagJitter.textContent = fmtMs(jitterMs);
+  if (elDiagJitterBuffer) elDiagJitterBuffer.textContent = fmtMs(jitterBufferMs);
+  if (elDiagDecodeMs) elDiagDecodeMs.textContent = fmtMs(decodeMs);
+  if (elDiagLossRate) elDiagLossRate.textContent = lossText;
+  if (elPerfCodec) elPerfCodec.textContent = codecName + (resolutionLabel ? ' · ' + resolutionLabel : '');
+  if (elPerfFps) elPerfFps.textContent = presentedText;
+  if (elPerfBitrate) elPerfBitrate.textContent = brStr;
+  if (elPerfRtt) elPerfRtt.textContent = rttMs != null ? rttMs + ' ms' : '—';
+  if (elPerfLoss) elPerfLoss.textContent = lossText;
+  if (elPerfDecode) elPerfDecode.textContent = fmtMs(decodeMs) + ' / ' + fmtMs(jitterBufferMs);
+  syncPerformanceOverlay();
   if (elDiagIceServers) elDiagIceServers.textContent = activeIceServers().map(s => Array.isArray(s.urls) ? s.urls.join(",") : s.urls).join(" | ");
 
   updateSelectedCodecFromStats();
