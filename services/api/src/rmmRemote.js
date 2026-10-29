@@ -711,6 +711,17 @@ export function attachRmmViewerWebSocket(server) {
     ).catch(() => null)
     if (viewerSession) {
       viewerSession.viewer_version = clean(url.searchParams.get('viewer_version'))
+      // Only an authenticated Viewer can attach capabilities to its session.
+      // A missing/legacy query never changes the existing codec negotiation.
+      const protocolEnabled = url.searchParams.get('codec_caps_v1') === '1'
+      const declared = clean(url.searchParams.get('video_codecs')).toLowerCase()
+      const unique = [...new Set(declared.split(',').map(value => value.trim()))]
+      const codecs = unique.filter(value => ['vp8', 'vp9', 'h264'].includes(value))
+      viewerSession.codec_capabilities = protocolEnabled &&
+        declared.length <= 64 && unique.length <= 8 && codecs.length > 0
+        ? { codecs, h264_level4: codecs.includes('h264') &&
+            url.searchParams.get('h264_level4') === '1' }
+        : null
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -944,6 +955,12 @@ export function attachRmmViewerWebSocket(server) {
         chat_available: remote.mode === 'console',
         iceServers: active.iceAgent,
         wayland_persistence: remote.wayland_persistence === true,
+        // Connection-time receive capabilities are bounded and originate
+        // only from this authorised Viewer socket. The Agent must still
+        // validate every field and never trust these as encoder proof.
+        viewer_codecs: remote.codec_capabilities?.codecs || [],
+        viewer_h264_level4: remote.codec_capabilities?.h264_level4 === true,
+        viewer_caps_v1: Boolean(remote.codec_capabilities),
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })
       return sent
