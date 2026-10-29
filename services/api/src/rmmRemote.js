@@ -6,6 +6,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
+import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation } from './rmmCodecNegotiation.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -715,15 +716,7 @@ export function attachRmmViewerWebSocket(server) {
       viewerSession.viewer_version = clean(url.searchParams.get('viewer_version'))
       // Only an authenticated Viewer can attach capabilities to its session.
       // A missing/legacy query never changes the existing codec negotiation.
-      const protocolEnabled = url.searchParams.get('codec_caps_v1') === '1'
-      const declared = clean(url.searchParams.get('video_codecs')).toLowerCase()
-      const unique = [...new Set(declared.split(',').map(value => value.trim()))]
-      const codecs = unique.filter(value => ['vp8', 'vp9', 'h264'].includes(value))
-      viewerSession.codec_capabilities = protocolEnabled &&
-        declared.length <= 64 && unique.length <= 8 && codecs.length > 0
-        ? { codecs, h264_level4: codecs.includes('h264') &&
-            url.searchParams.get('h264_level4') === '1' }
-        : null
+      viewerSession.codec_capabilities = parseViewerCodecCapabilities(url.searchParams)
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -990,23 +983,10 @@ export function attachRmmViewerWebSocket(server) {
         return
       }
       if (type === 'viewer_codec_observation') {
-        // Bound untrusted Viewer counters before passing them to the Agent.
-        // Only the Agent can correlate these with its own encoder measurements.
-        const codec = clean(payload.codec).toLowerCase()
-        const int = (key, max) => {
-          const n = Number(payload[key])
-          return Number.isSafeInteger(n) && n >= 0 && n <= max ? n : 0
-        }
-        if (!['h264', 'vp9', 'vp8'].includes(codec)) return
-        payload = {
-          type, session_id: sessionId, codec,
-          frames_decoded: int('frames_decoded', 10000000),
-          keyframes_decoded: int('keyframes_decoded', 100000),
-          frames_dropped: int('frames_dropped', 10000000),
-          packets_received: int('packets_received', 100000000),
-          width: int('width', 7680),
-          height: int('height', 4320),
-        }
+        // Ignore malformed reports, never forward untrusted metadata.
+        // The relay stamps the server-authorised session ID itself.
+        payload = sanitizeViewerCodecObservation(payload, sessionId)
+        if (!payload) return
       }
       payload.session_id = sessionId
       delete payload.sessionId
