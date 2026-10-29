@@ -38,6 +38,8 @@ let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
   'webrtc_answer', 'answer', 'ice_candidate',
+  // Authenticated Viewer reports real decoded frames/keyframe recovery.
+  'viewer_codec_observation',
   'switch_monitor', 'input_event',
   'service_shortcut', 'system_shortcut', 'shortcut', 'service_command',
   'backstage_start', 'backstage_stop', 'console_start',
@@ -986,6 +988,25 @@ export function attachRmmViewerWebSocket(server) {
       if (remote.mode === 'backstage' && type === 'console_start') {
         safeSend(viewerWs, { type: 'viewer_error', session_id: sessionId, error: 'Console mode is not authorised for this Background remote session.' })
         return
+      }
+      if (type === 'viewer_codec_observation') {
+        // Bound untrusted Viewer counters before passing them to the Agent.
+        // Only the Agent can correlate these with its own encoder measurements.
+        const codec = clean(payload.codec).toLowerCase()
+        const int = (key, max) => {
+          const n = Number(payload[key])
+          return Number.isSafeInteger(n) && n >= 0 && n <= max ? n : 0
+        }
+        if (!['h264', 'vp9', 'vp8'].includes(codec)) return
+        payload = {
+          type, session_id: sessionId, codec,
+          frames_decoded: int('frames_decoded', 10000000),
+          keyframes_decoded: int('keyframes_decoded', 100000),
+          frames_dropped: int('frames_dropped', 10000000),
+          packets_received: int('packets_received', 100000000),
+          width: int('width', 7680),
+          height: int('height', 4320),
+        }
       }
       payload.session_id = sessionId
       delete payload.sessionId
