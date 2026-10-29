@@ -1895,6 +1895,7 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   const hasLiveAgent = Boolean(device.agentDeviceId)
   const deviceOnline = deviceIsOnline(device)
   const deviceOffline = hasLiveAgent && !deviceOnline
+  const inventoryAge = describeInventoryAge(device.inventoryCollectedAt)
   const [tool, setTool] = useState(initialTool || '')
   const subnavRef = useRef(null)
   const [remoteState, setRemoteState] = useState('')
@@ -2404,8 +2405,11 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
           <p>{device.user} · {device.site || 'No site'} · {device.group || 'No group'}</p>
           <div><StatusPill>{device.status}</StatusPill><StatusPill>{device.health}</StatusPill><span>{device.os}</span><span>Agent {device.agent}</span></div>
           {remoteState && <small className="rmm-device-action-message">{remoteState}</small>}
+          <small className="rmm-device-action-message" title={device.inventoryCollectedAt ? new Date(device.inventoryCollectedAt).toLocaleString() : 'No inventory snapshot reported'}>Inventory: {inventoryAge.label}{inventoryAge.older ? ' · older snapshot' : ''}</small>
+          {inventoryRefreshMessage && <small className="rmm-device-action-message" role="status">{inventoryRefreshMessage}</small>}
         </div>
         <div className="rmm-device-actions">
+          <button disabled={!hasLiveAgent || !deviceOnline || inventoryRefreshBusy} onClick={refreshInventory} title={!hasLiveAgent ? 'Install the Hi5Central Agent to collect inventory' : !deviceOnline ? 'Device must be online to refresh inventory' : 'Request a fresh Agent inventory scan'} type="button"><RefreshCw size={16} />{inventoryRefreshBusy ? 'Scanning…' : 'Refresh inventory'}</button>
           <button className="rmm-primary compact" disabled={remoteBusy || !hasLiveAgent || !canRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canRemote ? 'Start unattended console remote session' : 'Your role does not include unattended remote access'} onClick={() => startRemote('console')} type="button"><Monitor size={16} /> {remoteBusy && remoteBusyMode === 'console' ? 'Starting…' : 'Remote desktop'}</button>
           <button disabled={remoteBusy || !hasLiveAgent || !canBackstageRemote || !deviceOnline} title={!hasLiveAgent ? 'Hi5Central Agent required' : !deviceOnline ? 'Device is offline' : canBackstageRemote ? 'Start an isolated Background remote session' : 'Your role does not include Background remote access'} onClick={() => startRemote('backstage')} type="button"><Code2 size={16} /> {remoteBusy && remoteBusyMode === 'backstage' ? 'Starting…' : 'Background'}</button>
           <button disabled={!hasLiveAgent} title={!hasLiveAgent ? 'Hi5Central Agent required' : 'Open the full device tools workspace'} onClick={() => selectSection('tools')} type="button"><TerminalSquare size={16} /> Tools</button>
