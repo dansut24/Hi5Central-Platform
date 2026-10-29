@@ -551,6 +551,20 @@
       font-size: 12px;
     }
     .diag-row:last-child { border-bottom: 0; }
+    #session-performance-panel {
+      display:none;position:absolute;right:12px;top:12px;z-index:24;
+      width:min(255px,calc(100vw - 24px));padding:12px;
+      background:rgba(12,19,30,.93);color:var(--text);
+      border:1px solid rgba(255,255,255,.16);border-radius:14px;
+      box-shadow:0 12px 35px rgba(0,0,0,.36);backdrop-filter:blur(14px);
+      pointer-events:none;font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;
+    }
+    #session-performance-panel.visible { display:block; }
+    #session-performance-panel .perf-title { font-weight:800;margin-bottom:8px; }
+    #session-performance-panel .perf-row { display:flex;justify-content:space-between;gap:8px;padding:3px 0; }
+    #session-performance-panel .perf-row span:first-child { color:var(--muted); }
+    #session-performance-panel .perf-row strong { text-align:right; }
+    .perf-hint { margin-top:7px;color:var(--muted);font-size:11px;line-height:1.4; }
     #desktop-quality-indicator { display:inline-flex; align-items:center; min-height:24px; padding:0 8px; border:1px solid rgba(255,255,255,.14); border-radius:999px; font-size:10px; font-weight:800; color:var(--text); background:rgba(255,255,255,.04); }
     #desktop-quality-indicator[data-quality="excellent"] { border-color:rgba(52,211,153,.55); }
     #desktop-quality-indicator[data-quality="good"] { border-color:rgba(99,102,241,.55); }
@@ -726,6 +740,15 @@
   <video id="remote-video" autoplay playsinline></video>
   <audio id="remote-audio" autoplay></audio>
   <img id="remote-image" alt="Remote desktop stream" />
+  <section id="session-performance-panel" role="status" aria-label="Session performance" aria-live="off">
+    <div class="perf-title">Session performance</div>
+    <div class="perf-row"><span>Codec / resolution</span><strong id="perf-codec">—</strong></div>
+    <div class="perf-row"><span>Displayed FPS</span><strong id="perf-presented-fps">—</strong></div>
+    <div class="perf-row"><span>Receive bitrate</span><strong id="perf-bitrate">—</strong></div>
+    <div class="perf-row"><span>Round trip</span><strong id="perf-rtt">—</strong></div>
+    <div class="perf-row"><span>Packet loss</span><strong id="perf-loss">—</strong></div>
+    <div class="perf-row"><span>Decode / jitter</span><strong id="perf-decode">—</strong></div>
+  </section>
 
   <div id="files-panel" class="side-panel">
     <div class="panel-head">
@@ -778,6 +801,23 @@
             <option value="720p">720p</option>
           </select>
         </div>
+        <div class="settings-control">
+          <label for="viewer-quality-preset">Streaming quality</label>
+          <select id="viewer-quality-preset" class="settings-select">
+            <option value="automatic">Automatic (recommended)</option>
+            <option value="speed">Prioritise speed</option>
+            <option value="clarity">Prioritise clarity</option>
+            <option value="maximum">Maximum clarity (higher bandwidth)</option>
+          </select>
+        </div>
+        <p class="perf-hint">Presets adjust the existing WebRTC session. Maximum clarity is still lossy.</p>
+        <div class="settings-control">
+          <label for="viewer-performance-toggle">Performance overlay</label>
+          <select id="viewer-performance-toggle" class="settings-select">
+            <option value="off">Hidden</option>
+            <option value="on">Show while connected</option>
+          </select>
+        </div>
       </div>
       <div class="settings-card">
         <h3>Session</h3>
@@ -797,6 +837,12 @@
         <div class="diag-row"><span>Frames decoded</span><span id="diag-frames">—</span></div>
         <div class="diag-row"><span>Packets lost</span><span id="diag-packets-lost">—</span></div>
         <div class="diag-row"><span>RTT</span><span id="diag-rtt">—</span></div>
+        <div class="diag-row"><span>Displayed FPS</span><span id="diag-presented-fps">—</span></div>
+        <div class="diag-row"><span>Dropped frames</span><span id="diag-frames-dropped">—</span></div>
+        <div class="diag-row"><span>Network jitter</span><span id="diag-jitter">—</span></div>
+        <div class="diag-row"><span>Jitter buffer delay</span><span id="diag-jitter-buffer">—</span></div>
+        <div class="diag-row"><span>Decode time / frame</span><span id="diag-decode-ms">—</span></div>
+        <div class="diag-row"><span>Packet loss (sample)</span><span id="diag-loss-rate">—</span></div>
         <div class="diag-row"><span>ICE servers</span><span id="diag-ice-servers">—</span></div>
       </div>
       <div class="settings-card">
