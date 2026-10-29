@@ -82,13 +82,14 @@ test('native desktop viewer exposes the same quality choices and statistics', ()
   const start = nativeJs.indexOf('const DESKTOP_QUALITY_PRESETS =');
   const end = nativeJs.indexOf('function syncPerformanceOverlay()', start);
   assert.ok(start >= 0 && end > start, 'native preset policy');
-  const preset = vm.runInNewContext(nativeJs.slice(start,end) + '\\nDESKTOP_QUALITY_PRESETS', {});
+  const preset = vm.runInNewContext(nativeJs.slice(start, end) + '\nDESKTOP_QUALITY_PRESETS', {});
   assert.equal(preset.speed.max_height, 720);
   assert.equal(preset.clarity.target_bitrate_kbps, 8000);
   assert.equal(preset.maximum.target_bitrate_kbps, 12000);
-  assert.match(nativeJs, /if\\(desktopQualityPreset !== 'automatic'\\) return;/);
-  assert.match(nativeJs, /const override = DESKTOP_QUALITY_PRESETS\\[desktopQualityPreset\\];/);
+  assert.ok(nativeJs.includes("if(desktopQualityPreset !== 'automatic') return;"));
+  assert.ok(nativeJs.includes('const override = DESKTOP_QUALITY_PRESETS[desktopQualityPreset];'));
   assert.ok(nativeJs.includes('elVideo?.getVideoPlaybackQuality?.()'));
   assert.ok(nativeJs.includes('inbound.totalDecodeTime'));
   assert.ok(nativeHtml.includes('Maximum clarity is still lossy.'));
 });
+
