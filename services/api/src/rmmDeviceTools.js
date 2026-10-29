@@ -56,7 +56,7 @@ async function requireDeviceView(c) {
 
 function payloadForAction(type, body = {}) {
   const payload = body?.payload && typeof body.payload === 'object' && !Array.isArray(body.payload) ? body.payload : {}
-  if (['processes.list', 'services.list', 'inventory.scan', 'os.update.scan'].includes(type)) return {}
+  if (['processes.list', 'services.list', 'inventory.scan', 'inventory.deep.scan', 'os.update.scan'].includes(type)) return {}
   if (type === 'os.update.install') {
     const rawIds = payload.update_ids ?? payload.updateIds ?? []
     if (!Array.isArray(rawIds)) throw new Error('OS update IDs must be an array.')
@@ -332,6 +332,13 @@ export function registerRmmDeviceToolRoutes(app) {
 
     const platform = clean(device.platform || device.operating_system).toLowerCase()
     const isUnix = platform.includes('linux') || platform.includes('mac')
+    if (type === 'inventory.deep.scan') {
+      if (isUnix) return c.json({ error: 'This deep Windows collector is available for Windows devices only.' }, 400)
+      if (!versionAtLeast(device.agent_version, '1.0.135')) return c.json({
+        error: 'Windows Agent 1.0.135 or later is required for on-demand deep inventory.',
+        upgradeRequired: true, requiredAgentVersion: '1.0.135',
+      }, 426)
+    }
     if (['os.update.scan', 'os.update.install'].includes(type) && !isUnix) {
       return c.json({ error: 'Native OS update actions are currently available on managed Linux/macOS endpoints only.' }, 400)
     }
