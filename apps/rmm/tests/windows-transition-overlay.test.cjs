@@ -16,6 +16,7 @@ function runFrame({ handoff = false, ready = false, safari = true } = {}) {
   const classes = new Set(['transition-hold']);
   const state = {
     clearReconnectPoster() {},
+    document: { body: { classList: { add() {}, remove() {} } } },
     isMobileViewerSurface: () => false,
     hasEverRenderedFrame: true,
     mobileRecoveryAttempts: 0,
