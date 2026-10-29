@@ -1,0 +1,28 @@
+name: RMM Universal Codec Handshake
+on:
+  pull_request:
+    paths:
+      - 'services/api/src/rmmRemote.js'
+      - 'services/api/src/rmmCodecNegotiation.js'
+      - 'services/api/test/rmmCodecNegotiation.test.js'
+      - 'apps/rmm/public/rmm-viewer/renderer.js'
+      - 'apps/rmm/tests/browser-codec-handshake.test.cjs'
+      - '.github/workflows/rmm-universal-codec-handshake.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check syntax without bringing up live platform
+        run: |
+          node --check services/api/src/rmmRemote.js
+          node --check services/api/src/rmmCodecNegotiation.js
+          node --check apps/rmm/public/rmm-viewer/renderer.js
+      - name: Test authenticated Viewer codec protocol
+        run: node --test services/api/test/rmmCodecNegotiation.test.js apps/rmm/tests/browser-codec-handshake.test.cjs

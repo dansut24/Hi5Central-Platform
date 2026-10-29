@@ -127,6 +127,7 @@ let remoteDescSet = false;
 let pendingRemoteIce = [];
 
 let statsTimer = null;
+let lastUniversalDecoderProofMs = 0;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
 let wakeLockSentinel = null;
@@ -2938,6 +2939,7 @@ function resetTransitionState() {
   hasEverRenderedFrame = false;
   lastFrameAtMs = 0;
   lastFramesDecoded = 0;
+  lastUniversalDecoderProofMs = 0;
   passiveOverlayActive = false;
   secureDesktopLikely = false;
   secureDesktopActive = false;
@@ -3177,6 +3179,43 @@ async function pollStatsOnce() {
   });
 
   const nowMs = Date.now();
+
+  // Only proof of a *working decoded stream* is relevant. Browser capability
+  // enumeration alone never qualifies hardware. Agent correlates this report
+  // with measured RTP output and a later keyframe before saving a cache entry.
+  if (inbound && ws?.readyState === WebSocket.OPEN &&
+      currentSession?.sessionId && pc?.connectionState === 'connected' &&
+      nowMs - lastUniversalDecoderProofMs >= 6000) {
+    const codecInfo = inbound.codecId ? stats.get(inbound.codecId) : null;
+    const mime = String(codecInfo?.mimeType || '').toLowerCase();
+    const frames = Number(inbound.framesDecoded);
+    const keyframes = Number(inbound.keyFramesDecoded);
+    const dropped = Number(inbound.framesDropped || 0);
+    const packets = Number(inbound.packetsReceived);
+    const width = Number(inbound.frameWidth || elVideo?.videoWidth || 0);
+    const height = Number(inbound.frameHeight || elVideo?.videoHeight || 0);
+    if (['video/h264', 'video/vp8', 'video/vp9'].includes(mime) &&
+        Number.isSafeInteger(frames) && frames >= 30 && frames <= 10000000 &&
+        Number.isSafeInteger(keyframes) && keyframes >= 1 && keyframes <= 100000 &&
+        Number.isSafeInteger(dropped) && dropped >= 0 && dropped <= frames / 5 &&
+        Number.isSafeInteger(packets) && packets >= frames && packets <= 100000000 &&
+        Number.isSafeInteger(width) && width >= 320 && width <= 7680 &&
+        Number.isSafeInteger(height) && height >= 240 && height <= 4320) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'viewer_codec_observation',
+          session_id: currentSession.sessionId,
+          codec: mime.slice(6),
+          frames_decoded: frames,
+          keyframes_decoded: keyframes,
+          frames_dropped: dropped,
+          packets_received: packets,
+          width, height
+        }));
+        lastUniversalDecoderProofMs = nowMs;
+      } catch {}
+    }
+  }
 
   let bitrateKbps = NaN;
   let fps = NaN;
@@ -5011,6 +5050,31 @@ function teardownPeerForReconnect() {
   }
 }
 
+// Browser-reported decoding capabilities are attached only to our existing
+// authenticated Viewer signaling socket. No extra connection round-trip or
+// codec preference change. Legacy browsers simply omit the optional query.
+function universalBrowserCodecQuery() {
+  try {
+    if (typeof RTCRtpReceiver === 'undefined' ||
+        typeof RTCRtpReceiver.getCapabilities !== 'function') return '';
+    const offered = RTCRtpReceiver.getCapabilities('video')?.codecs || [];
+    const codecs = ['vp8', 'vp9', 'h264'].filter(codec =>
+      offered.some(c => String(c.mimeType || '').toLowerCase() === 'video/' + codec));
+    if (!codecs.length) return '';
+    const level4 = offered.some(c => {
+      if (String(c.mimeType || '').toLowerCase() !== 'video/h264') return false;
+      const match = String(c.sdpFmtpLine || '')
+        .match(/(?:^|;)\s*profile-level-id=([0-9a-f]{6})(?:;|$)/i);
+      return Boolean(match && parseInt(match[1].slice(4), 16) >= 0x28);
+    });
+    return '&codec_caps_v1=1&video_codecs=' +
+      encodeURIComponent(codecs.join(',')) +
+      '&h264_level4=' + (level4 ? '1' : '0');
+  } catch {
+    return '';
+  }
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -5019,7 +5083,8 @@ function connectViewerSignaling(reason = 'initial') {
     `${wssUrl}?session_id=${encodeURIComponent(sessionId)}` +
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
-    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '');
+    (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
+    universalBrowserCodecQuery();
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: mobileRecoveryAttempts });
   const socket = new WebSocket(url);
   ws = socket;

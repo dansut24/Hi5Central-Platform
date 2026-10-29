@@ -6,6 +6,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
+import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation } from './rmmCodecNegotiation.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -38,6 +39,8 @@ let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
   'webrtc_answer', 'answer', 'ice_candidate',
+  // Authenticated Viewer reports real decoded frames/keyframe recovery.
+  'viewer_codec_observation',
   'switch_monitor', 'input_event',
   'service_shortcut', 'system_shortcut', 'shortcut', 'service_command',
   'backstage_start', 'backstage_stop', 'console_start',
@@ -711,6 +714,9 @@ export function attachRmmViewerWebSocket(server) {
     ).catch(() => null)
     if (viewerSession) {
       viewerSession.viewer_version = clean(url.searchParams.get('viewer_version'))
+      // Only an authenticated Viewer can attach capabilities to its session.
+      // A missing/legacy query never changes the existing codec negotiation.
+      viewerSession.codec_capabilities = parseViewerCodecCapabilities(url.searchParams)
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -944,6 +950,12 @@ export function attachRmmViewerWebSocket(server) {
         chat_available: remote.mode === 'console',
         iceServers: active.iceAgent,
         wayland_persistence: remote.wayland_persistence === true,
+        // Connection-time receive capabilities are bounded and originate
+        // only from this authorised Viewer socket. The Agent must still
+        // validate every field and never trust these as encoder proof.
+        viewer_codecs: remote.codec_capabilities?.codecs || [],
+        viewer_h264_level4: remote.codec_capabilities?.h264_level4 === true,
+        viewer_caps_v1: Boolean(remote.codec_capabilities),
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })
       return sent
@@ -969,6 +981,12 @@ export function attachRmmViewerWebSocket(server) {
       if (remote.mode === 'backstage' && type === 'console_start') {
         safeSend(viewerWs, { type: 'viewer_error', session_id: sessionId, error: 'Console mode is not authorised for this Background remote session.' })
         return
+      }
+      if (type === 'viewer_codec_observation') {
+        // Ignore malformed reports, never forward untrusted metadata.
+        // The relay stamps the server-authorised session ID itself.
+        payload = sanitizeViewerCodecObservation(payload, sessionId)
+        if (!payload) return
       }
       payload.session_id = sessionId
       delete payload.sessionId
