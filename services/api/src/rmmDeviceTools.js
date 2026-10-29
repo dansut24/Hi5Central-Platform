@@ -400,6 +400,13 @@ export function registerRmmDeviceToolRoutes(app) {
     )
 
     const job = inserted.rows[0]
+    // The Windows Agent executes inventory jobs in its five-second HTTP poll
+    // loop. It does not handle the generic WebSocket "job_execute" message.
+    // Never mark inventory jobs claimed before the polling Agent receives them:
+    // doing so causes a five-minute lease delay before the job can be retried.
+    if (type === 'inventory.scan' || type === 'inventory.deep.scan') {
+      return c.json({ job, dispatched: 'poll' }, 202)
+    }
     if (versionAtLeast(device.agent_version, '0.1.63')) {
       const claimed = await pool.query(
         "UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now() " +
