@@ -1676,10 +1676,12 @@ function markFrameRendered() {
   lastFrameAtMs = Date.now();
 
   if (secureDesktopActive || desktopHandoffActive) {
+    if (elOverlay?.classList.contains("transition-hold")) hideOverlay();
     return;
   }
   if (revealOnNextFrame && desktopTransitionDecodedBaseline >= 0 &&
-      lastFramesDecoded <= desktopTransitionDecodedBaseline) {
+      lastFramesDecoded <= desktopTransitionDecodedBaseline &&
+      typeof elVideo?.requestVideoFrameCallback !== "function") {
     return;
   }
 
