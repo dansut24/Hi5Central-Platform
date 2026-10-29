@@ -114,6 +114,8 @@ function deviceToRmm(row) {
     firewallProfiles: Array.isArray(security.firewall_profiles) ? security.firewall_profiles : [],
     tpmDetail: security.tpm || {},
     deepInventoryCollectedAt: inventory.deep_inventory_collected_at || '',
+    deepInventoryStatus: inventory.deep_inventory_status || '',
+    deepInventorySections: inventory.deep_inventory_sections || {},
     inventoryCollectedAt: inventory.collected_at || row.source_last_sync_at || null,
     inventoryReceivedAt: row.last_imported_at || null,
     inventoryReportedSoftwareCount: software.length,
