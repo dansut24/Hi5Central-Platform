@@ -170,6 +170,7 @@ let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
 let desktopQualityPreset = ['speed','clarity','maximum'].includes(localStorage.getItem('hi5.viewer.quality')) ? localStorage.getItem('hi5.viewer.quality') : 'automatic';
 let desktopFpsLimit = ['15','30','45','60'].includes(localStorage.getItem('hi5.viewer.fpsLimit')) ? localStorage.getItem('hi5.viewer.fpsLimit') : 'auto';
+let autoFpsProof = { sessionId: '', qualifiedMaxFps: 20 };
 let performanceOverlayEnabled = localStorage.getItem('hi5.viewer.performance') === 'on';
 
 let inputBound = false;
@@ -1207,10 +1208,15 @@ function sendDesktopStreamProfile() {
   const resolution = override || desktopResolutionProfile();
   if (!override) desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
   const manualFps = Number(desktopFpsLimit);
-  const fps = [15,30,45,60].includes(manualFps) ? manualFps : (override?.target_fps || cfg.fps);
+  const automaticQualified = !override && desktopFpsLimit === 'auto' &&
+    autoFpsProof.sessionId === currentSession?.sessionId
+    ? autoFpsProof.qualifiedMaxFps : 20;
+  const networkTierMax = [60,45,30,20,15][Math.min(4,Math.max(0,desktopAdaptiveState.tier))];
+  const fps = [15,30,45,60].includes(manualFps) ? manualFps :
+    Math.max(override?.target_fps || cfg.fps, Math.min(automaticQualified, networkTierMax));
   const bitrate = override?.target_bitrate_kbps || cfg.bitrate;
   if (elDiagProfile) elDiagProfile.textContent = (override ? desktopQualityPreset : resolution.preference) + ' · ' + (bitrate / 1000) + ' Mbps · ' + fps + ' fps';
-  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: fps, target_bitrate_kbps: bitrate });
+  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', fps_mode: [15,30,45,60].includes(manualFps) ? 'development_override' : (desktopQualityPreset === 'automatic' ? 'auto' : 'quality_preset'), ...resolution, target_fps: fps, target_bitrate_kbps: bitrate });
 }
 function desktopMedian(values) {
   const nums = values.filter(Number.isFinite).sort((a,b) => a-b);
@@ -2702,6 +2708,21 @@ function handleAgentControlData(raw) {
   if (typeof raw !== "string") return;
   try {
     const msg = JSON.parse(raw);
+    if (msg?.type === "viewer_stream_profile_result") {
+      if (currentSession) {
+        const reported = Number(msg.qualified_max_fps);
+        const proven = msg.fps_qualified === true;
+        const ceiling = proven && Number.isFinite(reported) && reported > 20
+          ? Math.max(20, Math.min(60, Math.floor(reported))) : 20;
+        if (autoFpsProof.sessionId !== currentSession.sessionId ||
+            autoFpsProof.qualifiedMaxFps !== ceiling) {
+          autoFpsProof = { sessionId: currentSession.sessionId, qualifiedMaxFps: ceiling };
+          if (desktopFpsLimit === 'auto' && desktopQualityPreset === 'automatic')
+            sendDesktopStreamProfile();
+        }
+      }
+      return;
+    }
     if (msg?.type === "dev_codec_switch_result") {
       handleDevCodecSwitchResult(msg);
       return;

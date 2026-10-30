@@ -31,6 +31,9 @@ test('fixed presets use the already-negotiated codec and bounded WebRTC stream c
   const mobilePrefs = { qualityPreset: 'automatic' };
   const sandbox = {
     mobilePrefs,
+    currentSession: { sessionId: 'safe-test-session' },
+    mobileAdaptiveState: { tier: 0 },
+    autoFpsProof: { sessionId: 'safe-test-session', qualifiedMaxFps: 20 },
     mobileStreamProfilePayload: () => ({ preference: 'native', target_fps: 18, target_bitrate_kbps: 4200, max_width: 0, max_height: 0 })
   };
   const select = vm.runInNewContext(source + '\nselectedViewerStreamProfile;', sandbox);
@@ -67,16 +70,27 @@ test('FPS limit is offered independently of image quality on browser and native 
   const browserStart = js.indexOf('const VIEWER_QUALITY_PRESETS =');
   const browserEnd = js.indexOf('function syncPerformanceOverlay()', browserStart);
   const prefs = { qualityPreset: 'clarity', fpsLimit: 'auto' };
-  const context = { mobilePrefs: prefs, mobileStreamProfilePayload: () => ({ preference: 'native', target_fps: 18, target_bitrate_kbps: 4200 }) };
+  const context = { mobilePrefs: prefs, currentSession: { sessionId: 'browser-test' }, mobileAdaptiveState: { tier: 0 }, autoFpsProof: { sessionId: 'browser-test', qualifiedMaxFps: 20 }, mobileStreamProfilePayload: () => ({ preference: 'native', target_fps: 18, target_bitrate_kbps: 4200 }) };
   const choose = vm.runInNewContext(js.slice(browserStart,browserEnd)+'\nselectedViewerStreamProfile;', context);
   assert.equal(choose().target_fps, 20);
+  assert.equal(choose().fps_mode, 'quality_preset');
   for (const fps of [15,30,45,60]) {
     prefs.fpsLimit = String(fps);
     assert.equal(choose().target_fps,fps);
+    assert.equal(choose().fps_mode,'development_override');
     assert.equal(choose().target_bitrate_kbps,8000);
   }
   prefs.fpsLimit = 'auto';
   assert.equal(choose().target_fps, 20);
+  prefs.qualityPreset = 'automatic';
+  assert.equal(choose().fps_mode, 'auto');
+  context.autoFpsProof.qualifiedMaxFps = 60;
+  assert.equal(choose().target_fps, 60, 'qualified session can auto-promote');
+  context.mobileAdaptiveState.tier = 2;
+  assert.equal(choose().target_fps, 30, 'automatic network adaptation caps qualified FPS');
+  context.autoFpsProof.sessionId = 'stale-old-session';
+  assert.equal(choose().target_fps, 18, 'stale proof must not promote another Viewer session');
+  assert.ok(nativeJs.includes("fps_mode: [15,30,45,60].includes(manualFps) ? 'development_override' : (desktopQualityPreset === 'automatic' ? 'auto' : 'quality_preset')"));
   assert.ok(nativeJs.includes('const manualFps = Number(desktopFpsLimit);'));
   assert.ok(nativeJs.includes("return sendControlObject({ kind: 'viewer_stream_profile'"));
 });

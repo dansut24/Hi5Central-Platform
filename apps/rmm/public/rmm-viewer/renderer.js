@@ -162,6 +162,7 @@ let mobileQualityState = { current: 'good', candidate: null, count: 0, changedAt
 // independently-confirmed sustained severe transport congestion.
 let mobileResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let mobileAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), targetFps: 20, targetBitrateKbps: 6000, label: 'Native · 6 Mbps · 20 fps' };
+let autoFpsProof = { sessionId: '', qualifiedMaxFps: 20 };
 let mobileFileTransfer = null;
 let connectFileAccessGranted = false;
 let connectFilePermissionPending = false;
@@ -297,8 +298,20 @@ function selectedViewerStreamProfile() {
   const manual = Number(mobilePrefs.fpsLimit);
   // Explicit FPS target is independent of resolution/bitrate. The Agent
   // enforces its own qualified ceiling, so this is never an FPS guarantee.
-  if ([15,30,45,60].includes(manual)) return { ...profile, target_fps: manual };
-  return profile;
+  if ([15,30,45,60].includes(manual))
+    return { ...profile, target_fps: manual, fps_mode: 'development_override' };
+  // Auto is the default. The Agent still refuses unqualified rates rather
+  // than assuming a capable codec can sustain 60 or 120 FPS.
+  if (mobilePrefs.qualityPreset === 'automatic' &&
+      autoFpsProof.sessionId === currentSession?.sessionId &&
+      autoFpsProof.qualifiedMaxFps > 20) {
+    // High rates are requested only after authenticated Agent proof.
+    // Ordinary network adaptation can reduce the cap immediately.
+    const tierMax = [60,45,30,20,15][Math.min(4, Math.max(0, mobileAdaptiveState.tier))];
+    return { ...profile, fps_mode: 'auto',
+      target_fps: Math.max(profile.target_fps, Math.min(autoFpsProof.qualifiedMaxFps, tierMax)) };
+  }
+  return { ...profile, fps_mode: mobilePrefs.qualityPreset === 'automatic' ? 'auto' : 'quality_preset' };
 }
 
 function syncPerformanceOverlay() {
@@ -2805,6 +2818,20 @@ async function handleViewerControlMessage(raw) {
       setMobileClipboardStatus('Remote clipboard loaded below — use Copy if prompted by iOS.');
     }
   } else if (msg.type === 'viewer_stream_profile_result') {
+    // Only the authenticated current session may elevate Automatic FPS;
+    // unqualified/legacy agents always stay on the 20 FPS baseline.
+    if (currentSession) {
+      const reported = Number(msg.qualified_max_fps);
+      const proven = msg.fps_qualified === true;
+      const ceiling = proven && Number.isFinite(reported) && reported > 20
+        ? Math.max(20, Math.min(60, Math.floor(reported))) : 20;
+      if (autoFpsProof.sessionId !== currentSession.sessionId ||
+          autoFpsProof.qualifiedMaxFps !== ceiling) {
+        autoFpsProof = { sessionId: currentSession.sessionId, qualifiedMaxFps: ceiling };
+        if (mobilePrefs.fpsLimit === 'auto' && mobilePrefs.qualityPreset === 'automatic')
+          sendViewerStreamProfile();
+      }
+    }
     console.log('[mobile] stream profile', msg);
   }
 }
