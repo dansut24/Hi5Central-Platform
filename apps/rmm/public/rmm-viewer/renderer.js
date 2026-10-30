@@ -81,6 +81,7 @@ const elSettingsPanel = document.getElementById("settings-panel");
 const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
+const elRemoteFpsPref = document.getElementById("remote-fps-pref");
 const elMobileInputPref = document.getElementById("mobile-input-pref");
 const elMobileToolbarPref = document.getElementById("mobile-toolbar-pref");
 const elMobileAdaptivePref = document.getElementById("mobile-adaptive-pref");
@@ -171,7 +172,7 @@ let mobileViewportResumeToken = 0;
 let mobileViewportResumeUntil = 0;
 
 const MOBILE_PREFS_KEY = "hi5central.viewer.mobile.v2";
-const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", scale: "fit", adaptive: "on", diagnostics: "off", monitorIndex: 0 };
+const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", fps: "auto", scale: "fit", adaptive: "on", diagnostics: "off", monitorIndex: 0 };
 let mobilePrefsStore = { devices: {}, fallback: { ...MOBILE_PREF_DEFAULTS } };
 let mobilePrefs = { ...MOBILE_PREF_DEFAULTS };
 
@@ -180,6 +181,8 @@ function normalizeMobilePrefs(value) {
   if (!['direct','trackpad'].includes(p.inputMode)) p.inputMode = 'direct';
   if (!['auto','always'].includes(p.toolbar)) p.toolbar = 'auto';
   if (!['auto','native','1080p','720p'].includes(p.resolution)) p.resolution = 'auto';
+  if (!['auto','15','30','45','60'].includes(String(p.fps))) p.fps = 'auto';
+  else p.fps = String(p.fps);
   if (!['fit','stretch'].includes(p.scale)) p.scale = 'fit';
   if (!['on','off'].includes(p.adaptive)) p.adaptive = 'on';
   if (!['on','off'].includes(p.diagnostics)) p.diagnostics = 'off';
@@ -227,6 +230,7 @@ function saveMobilePrefs() {
     inputMode: mobileInputMode,
     toolbar: mobilePrefs.toolbar,
     resolution: mobilePrefs.resolution,
+    fps: mobilePrefs.fps,
     scale: mobilePrefs.scale,
     adaptive: mobilePrefs.adaptive,
     diagnostics: mobilePrefs.diagnostics,
@@ -257,7 +261,13 @@ function resolvedMobileResolutionPref() {
 function mobileStreamProfilePayload() {
   const pref = resolvedMobileResolutionPref();
   const adaptive = isMobileViewerSurface() && mobilePrefs.adaptive === 'on' ? mobileAdaptiveState : { targetFps: 20, targetBitrateKbps: 6000 };
-  const base = { target_fps: adaptive.targetFps, target_bitrate_kbps: adaptive.targetBitrateKbps, preference: pref };
+  const manual = ['15','30','45','60'].includes(mobilePrefs.fps);
+  const base = {
+    target_fps: manual ? Number(mobilePrefs.fps) : adaptive.targetFps,
+    fps_mode: manual ? 'manual' : 'auto',
+    target_bitrate_kbps: adaptive.targetBitrateKbps,
+    preference: pref
+  };
   if (pref === '720p') return { ...base, max_width: 1280, max_height: 720 };
   if (pref === '1080p') return { ...base, max_width: 1920, max_height: 1080 };
   return { ...base, max_width: 0, max_height: 0 };
@@ -622,12 +632,14 @@ function updateMobileDiagnosticsUi() {
   elMobileDiagnosticsCard?.classList.toggle('visible', enabled);
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
+  if (elRemoteFpsPref) elRemoteFpsPref.value = mobilePrefs.fps;
   if (elDiagMobileProfile) {
     const resolution = resolvedMobileResolutionPref();
     elDiagMobileProfile.textContent = (mobilePrefs.resolution === 'auto' && resolution === 'native'
       ? 'Native sharpness' : resolution.toUpperCase()) +
       ' · ' + (mobileAdaptiveState.targetBitrateKbps / 1000).toFixed(1) +
-      ' Mbps · ' + mobileAdaptiveState.targetFps + ' fps';
+      ' Mbps · ' + (mobilePrefs.fps === 'auto' ? mobileAdaptiveState.targetFps : mobilePrefs.fps) +
+      ' FPS target';
   }
   if (elDiagMobileViewport) {
     const vv = window.visualViewport;
@@ -822,6 +834,7 @@ function updateMobileModeUi() {
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elRemoteResolutionPref) elRemoteResolutionPref.value = mobilePrefs.resolution;
+  if (elRemoteFpsPref) elRemoteFpsPref.value = mobilePrefs.fps;
   if (elViewerScaleMode) elViewerScaleMode.value = mobilePrefs.scale;
   if (elMobileScrollRail) elMobileScrollRail.classList.toggle('visible', !!currentSession && isMobileViewerSurface() && mobileInputMode === 'trackpad');
   updateMobileReticle();
@@ -902,6 +915,13 @@ elMobileToolbarPref?.addEventListener('change', () => {
 elRemoteResolutionPref?.addEventListener('change', () => {
   mobilePrefs.resolution = ['native','1080p','720p'].includes(elRemoteResolutionPref.value) ? elRemoteResolutionPref.value : 'auto';
   saveMobilePrefs();
+  sendViewerStreamProfile();
+});
+elRemoteFpsPref?.addEventListener('change', () => {
+  const next = elRemoteFpsPref.value;
+  mobilePrefs.fps = ['15','30','45','60'].includes(next) ? next : 'auto';
+  saveMobilePrefs();
+  updateMobileDiagnosticsUi();
   sendViewerStreamProfile();
 });
 elViewerScaleMode?.addEventListener('change', () => {
@@ -2730,7 +2750,13 @@ async function handleViewerControlMessage(raw) {
       setMobileClipboardStatus('Remote clipboard loaded below — use Copy if prompted by iOS.');
     }
   } else if (msg.type === 'viewer_stream_profile_result') {
-    console.log('[mobile] stream profile', msg);
+    console.log('[viewer] stream profile target accepted (not measured FPS)', msg);
+    if (elRemoteFpsPref) {
+      const requested = Number(msg.requested_fps) || 0;
+      const accepted = Number(msg.accepted_fps) || 0;
+      elRemoteFpsPref.title = 'Agent target: ' + accepted + ' FPS; requested: ' +
+        requested + ' FPS. Actual decoded FPS is shown separately in diagnostics.';
+    }
   }
 }
 

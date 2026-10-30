@@ -81,6 +81,7 @@ const elSettingsPanel = document.getElementById("settings-panel");
 const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
+const elRemoteFpsPref = document.getElementById("remote-fps-pref");
 const elDiagIceState = document.getElementById("diag-ice-state");
 const elDiagConnState = document.getElementById("diag-connection-state");
 const elDiagCandidatePair = document.getElementById("diag-candidate-pair");
@@ -152,6 +153,7 @@ let desktopQualityState = { current: 'good', candidate: null, count: 0, changedA
 let desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 'stretch' : 'fit';
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
+let desktopFpsPref = ['15','30','45','60'].includes(localStorage.getItem('hi5.viewer.fps')) ? localStorage.getItem('hi5.viewer.fps') : 'auto';
 
 let inputBound = false;
 let controlActive = false;
@@ -1162,6 +1164,7 @@ function applyDesktopScalePreference() {
   if (elVideo) elVideo.style.objectFit = desktopScaleMode === 'stretch' ? 'fill' : 'contain';
   if (elViewerScaleMode) elViewerScaleMode.value = desktopScaleMode;
   if (elRemoteResolutionPref) elRemoteResolutionPref.value = desktopResolutionPref;
+  if (elRemoteFpsPref) elRemoteFpsPref.value = desktopFpsPref;
 }
 
 function sendDesktopStreamProfile() {
@@ -1169,8 +1172,14 @@ function sendDesktopStreamProfile() {
   const resolution = desktopResolutionProfile();
   desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
   const resolutionLabel = resolution.preference === 'auto' ? 'Native' : resolution.preference;
-  if (elDiagProfile) elDiagProfile.textContent = resolutionLabel + ' · ' + (cfg.bitrate / 1000) + ' Mbps · ' + cfg.fps + ' fps';
-  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: cfg.fps, target_bitrate_kbps: cfg.bitrate });
+  const manual = ['15','30','45','60'].includes(desktopFpsPref);
+  const targetFps = manual ? Number(desktopFpsPref) : cfg.fps;
+  if (elDiagProfile) elDiagProfile.textContent = resolutionLabel + ' · ' + (cfg.bitrate / 1000) + ' Mbps · ' + targetFps + ' FPS target';
+  return sendControlObject({
+    kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution,
+    fps_mode: manual ? 'manual' : 'auto',
+    target_fps: targetFps, target_bitrate_kbps: cfg.bitrate
+  });
 }
 function desktopMedian(values) {
   const nums = values.filter(Number.isFinite).sort((a,b) => a-b);
@@ -3486,6 +3495,12 @@ if (elViewerScaleMode) elViewerScaleMode.addEventListener('change', () => {
 if (elRemoteResolutionPref) elRemoteResolutionPref.addEventListener('change', () => {
   desktopResolutionPref = ['native','1080p','720p'].includes(elRemoteResolutionPref.value) ? elRemoteResolutionPref.value : 'auto';
   localStorage.setItem('hi5.viewer.resolution', desktopResolutionPref);
+  sendDesktopStreamProfile();
+});
+if (elRemoteFpsPref) elRemoteFpsPref.addEventListener('change', () => {
+  const next = elRemoteFpsPref.value;
+  desktopFpsPref = ['15','30','45','60'].includes(next) ? next : 'auto';
+  localStorage.setItem('hi5.viewer.fps', desktopFpsPref);
   sendDesktopStreamProfile();
 });
 applyDesktopScalePreference();
