@@ -812,6 +812,17 @@
         </div>
         <p class="perf-hint">Presets adjust the existing WebRTC session. Maximum clarity is still lossy.</p>
         <div class="settings-control">
+          <label for="viewer-fps-limit">Maximum frame rate</label>
+          <select id="viewer-fps-limit" class="settings-select">
+            <option value="auto">Automatic (existing safe default)</option>
+            <option value="15">15 FPS</option>
+            <option value="30">30 FPS</option>
+            <option value="45">45 FPS</option>
+            <option value="60">60 FPS (requires capable Agent and device)</option>
+          </select>
+          <p class="perf-hint">Requested FPS limit; actual delivered FPS depends on the Agent, codec, capture and network. Check the performance overlay.</p>
+        </div>
+        <div class="settings-control">
           <label for="viewer-performance-toggle">Performance overlay</label>
           <select id="viewer-performance-toggle" class="settings-select">
             <option value="off">Hidden</option>

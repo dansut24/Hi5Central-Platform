@@ -1118,6 +1118,17 @@
           <p class="performance-hint">Adjusts the existing stream's resolution, frame rate and bitrate. No codec switching. Maximum clarity is still lossy.</p>
         </div>
         <div class="settings-control">
+          <label for="viewer-fps-limit">Maximum frame rate</label>
+          <select id="viewer-fps-limit" class="settings-select">
+            <option value="auto">Automatic (existing safe default)</option>
+            <option value="15">15 FPS</option>
+            <option value="30">30 FPS</option>
+            <option value="45">45 FPS</option>
+            <option value="60">60 FPS (requires capable Agent and device)</option>
+          </select>
+          <p class="performance-hint">Requested FPS limit. Actual FPS depends on capture, codec, Agent policy, device and network. The overlay shows delivered FPS.</p>
+        </div>
+        <div class="settings-control">
           <label for="viewer-performance-toggle">Performance overlay</label>
           <select id="viewer-performance-toggle" class="settings-select">
             <option value="off">Hidden</option>

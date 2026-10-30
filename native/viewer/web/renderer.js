@@ -82,6 +82,7 @@ const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
 const elQualityPreset = document.getElementById("viewer-quality-preset");
+const elFrameRateLimit = document.getElementById("viewer-fps-limit");
 const elPerformanceToggle = document.getElementById("viewer-performance-toggle");
 const elPerformancePanel = document.getElementById("session-performance-panel");
 const elPerfCodec = document.getElementById("perf-codec");
@@ -168,6 +169,7 @@ let desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySinc
 let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 'stretch' : 'fit';
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
 let desktopQualityPreset = ['speed','clarity','maximum'].includes(localStorage.getItem('hi5.viewer.quality')) ? localStorage.getItem('hi5.viewer.quality') : 'automatic';
+let desktopFpsLimit = ['15','30','45','60'].includes(localStorage.getItem('hi5.viewer.fpsLimit')) ? localStorage.getItem('hi5.viewer.fpsLimit') : 'auto';
 let performanceOverlayEnabled = localStorage.getItem('hi5.viewer.performance') === 'on';
 
 let inputBound = false;
@@ -1194,6 +1196,7 @@ function applyDesktopScalePreference() {
   if (elViewerScaleMode) elViewerScaleMode.value = desktopScaleMode;
   if (elRemoteResolutionPref) { elRemoteResolutionPref.value = desktopResolutionPref; elRemoteResolutionPref.disabled = desktopQualityPreset !== 'automatic'; }
   if (elQualityPreset) elQualityPreset.value = desktopQualityPreset;
+  if (elFrameRateLimit) elFrameRateLimit.value = desktopFpsLimit;
   if (elPerformanceToggle) elPerformanceToggle.value = performanceOverlayEnabled ? 'on' : 'off';
   syncPerformanceOverlay();
 }
@@ -1203,7 +1206,8 @@ function sendDesktopStreamProfile() {
   const override = DESKTOP_QUALITY_PRESETS[desktopQualityPreset];
   const resolution = override || desktopResolutionProfile();
   if (!override) desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
-  const fps = override?.target_fps || cfg.fps;
+  const manualFps = Number(desktopFpsLimit);
+  const fps = [15,30,45,60].includes(manualFps) ? manualFps : (override?.target_fps || cfg.fps);
   const bitrate = override?.target_bitrate_kbps || cfg.bitrate;
   if (elDiagProfile) elDiagProfile.textContent = (override ? desktopQualityPreset : resolution.preference) + ' · ' + (bitrate / 1000) + ' Mbps · ' + fps + ' fps';
   return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: fps, target_bitrate_kbps: bitrate });
@@ -3564,6 +3568,11 @@ if (elQualityPreset) elQualityPreset.addEventListener('change', () => {
     desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
   }
   applyDesktopScalePreference();
+  sendDesktopStreamProfile();
+});
+if (elFrameRateLimit) elFrameRateLimit.addEventListener('change', () => {
+  desktopFpsLimit = ['15','30','45','60'].includes(elFrameRateLimit.value) ? elFrameRateLimit.value : 'auto';
+  localStorage.setItem('hi5.viewer.fpsLimit', desktopFpsLimit);
   sendDesktopStreamProfile();
 });
 if (elPerformanceToggle) elPerformanceToggle.addEventListener('change', () => {

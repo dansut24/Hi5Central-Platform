@@ -49,6 +49,38 @@ test('fixed presets use the already-negotiated codec and bounded WebRTC stream c
   assert.doesNotMatch(source, /setRemoteDescription|createOffer|setCodecPreferences|renegotiat/);
 });
 
+test('FPS limit is offered independently of image quality on browser and native Viewer', () => {
+  const nativeRoot = path.resolve(root, '../../native/viewer/web');
+  const nativeHtml = fs.readFileSync(path.join(nativeRoot, 'index.html'), 'utf8');
+  const nativeJs = fs.readFileSync(path.join(nativeRoot, 'renderer.js'), 'utf8');
+  for (const htmlSource of [html, nativeHtml]) {
+    assert.match(htmlSource, /id="viewer-fps-limit"/);
+    for (const cap of ['auto', '15', '30', '45', '60'])
+      assert.ok(htmlSource.includes('value="' + cap + '"'), cap);
+    assert.match(htmlSource, /Actual FPS|actual delivered FPS/);
+  }
+  for (const source of [js, nativeJs]) {
+    assert.match(source, /getElementById\("viewer-fps-limit"\)/);
+    assert.match(source, /elFrameRateLimit.*addEventListener\('change'/);
+    assert.match(source, /sendViewerStreamProfile\(\)|sendDesktopStreamProfile\(\)/);
+  }
+  const browserStart = js.indexOf('const VIEWER_QUALITY_PRESETS =');
+  const browserEnd = js.indexOf('function syncPerformanceOverlay()', browserStart);
+  const prefs = { qualityPreset: 'clarity', fpsLimit: 'auto' };
+  const context = { mobilePrefs: prefs, mobileStreamProfilePayload: () => ({ preference: 'native', target_fps: 18, target_bitrate_kbps: 4200 }) };
+  const choose = vm.runInNewContext(js.slice(browserStart,browserEnd)+'\nselectedViewerStreamProfile;', context);
+  assert.equal(choose().target_fps, 20);
+  for (const fps of [15,30,45,60]) {
+    prefs.fpsLimit = String(fps);
+    assert.equal(choose().target_fps,fps);
+    assert.equal(choose().target_bitrate_kbps,8000);
+  }
+  prefs.fpsLimit = 'auto';
+  assert.equal(choose().target_fps, 20);
+  assert.ok(nativeJs.includes('const manualFps = Number(desktopFpsLimit);'));
+  assert.ok(nativeJs.includes("return sendControlObject({ kind: 'viewer_stream_profile'"));
+});
+
 test('manual presets cannot be replaced by mobile adaptive rate control', () => {
   assert.match(js, /function applyMobileAdaptiveTier\(nextTier, reason = ''\) \{\s*if \(mobilePrefs\.qualityPreset !== 'automatic'\) return;/);
   assert.match(js, /if \(mobilePrefs\.qualityPreset !== 'automatic'\) return;\s*\/\/ Only sustained Poor quality/);

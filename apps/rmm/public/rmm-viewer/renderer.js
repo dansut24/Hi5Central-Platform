@@ -82,6 +82,7 @@ const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
 const elQualityPreset = document.getElementById("viewer-quality-preset");
+const elFrameRateLimit = document.getElementById("viewer-fps-limit");
 const elPerformanceToggle = document.getElementById("viewer-performance-toggle");
 const elPerformancePanel = document.getElementById("session-performance-panel");
 const elPerfCodec = document.getElementById("perf-codec");
@@ -186,7 +187,7 @@ let mobileViewportResumeToken = 0;
 let mobileViewportResumeUntil = 0;
 
 const MOBILE_PREFS_KEY = "hi5central.viewer.mobile.v2";
-const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", scale: "fit", adaptive: "on", diagnostics: "off", qualityPreset: "automatic", performanceOverlay: "off", monitorIndex: 0 };
+const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", scale: "fit", adaptive: "on", diagnostics: "off", qualityPreset: "automatic", fpsLimit: "auto", performanceOverlay: "off", monitorIndex: 0 };
 let mobilePrefsStore = { devices: {}, fallback: { ...MOBILE_PREF_DEFAULTS } };
 let mobilePrefs = { ...MOBILE_PREF_DEFAULTS };
 
@@ -199,6 +200,7 @@ function normalizeMobilePrefs(value) {
   if (!['on','off'].includes(p.adaptive)) p.adaptive = 'on';
   if (!['on','off'].includes(p.diagnostics)) p.diagnostics = 'off';
   if (!['automatic','speed','clarity','maximum'].includes(p.qualityPreset)) p.qualityPreset = 'automatic';
+  p.fpsLimit = ['auto','15','30','45','60'].includes(String(p.fpsLimit)) ? String(p.fpsLimit) : 'auto';
   if (!['on','off'].includes(p.performanceOverlay)) p.performanceOverlay = 'off';
   p.monitorIndex = Number.isInteger(Number(p.monitorIndex)) ? Math.max(-1, Math.min(31, Number(p.monitorIndex))) : 0;
   return p;
@@ -248,6 +250,7 @@ function saveMobilePrefs() {
     adaptive: mobilePrefs.adaptive,
     diagnostics: mobilePrefs.diagnostics,
     qualityPreset: mobilePrefs.qualityPreset,
+    fpsLimit: mobilePrefs.fpsLimit,
     performanceOverlay: mobilePrefs.performanceOverlay,
     monitorIndex: mobilePrefs.monitorIndex
   });
@@ -290,7 +293,12 @@ const VIEWER_QUALITY_PRESETS = Object.freeze({
 });
 
 function selectedViewerStreamProfile() {
-  return VIEWER_QUALITY_PRESETS[mobilePrefs.qualityPreset] || mobileStreamProfilePayload();
+  const profile = VIEWER_QUALITY_PRESETS[mobilePrefs.qualityPreset] || mobileStreamProfilePayload();
+  const manual = Number(mobilePrefs.fpsLimit);
+  // Explicit FPS target is independent of resolution/bitrate. The Agent
+  // enforces its own qualified ceiling, so this is never an FPS guarantee.
+  if ([15,30,45,60].includes(manual)) return { ...profile, target_fps: manual };
+  return profile;
 }
 
 function syncPerformanceOverlay() {
@@ -659,6 +667,7 @@ function updateMobileDiagnosticsUi() {
   elMobileDiagnosticsCard?.classList.toggle('visible', enabled);
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elQualityPreset) elQualityPreset.value = mobilePrefs.qualityPreset;
+  if (elFrameRateLimit) elFrameRateLimit.value = mobilePrefs.fpsLimit;
   if (elPerformanceToggle) elPerformanceToggle.value = mobilePrefs.performanceOverlay;
   syncPerformanceOverlay();
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
@@ -864,6 +873,7 @@ function updateMobileModeUi() {
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elQualityPreset) elQualityPreset.value = mobilePrefs.qualityPreset;
+  if (elFrameRateLimit) elFrameRateLimit.value = mobilePrefs.fpsLimit;
   if (elPerformanceToggle) elPerformanceToggle.value = mobilePrefs.performanceOverlay;
   syncPerformanceOverlay();
   if (elRemoteResolutionPref) elRemoteResolutionPref.value = mobilePrefs.resolution;
@@ -947,6 +957,12 @@ elMobileToolbarPref?.addEventListener('change', () => {
 elQualityPreset?.addEventListener('change', () => {
   mobilePrefs.qualityPreset = VIEWER_QUALITY_PRESETS[elQualityPreset.value] ? elQualityPreset.value : 'automatic';
   if (mobilePrefs.qualityPreset === 'automatic') resetMobileAdaptiveState();
+  saveMobilePrefs();
+  sendViewerStreamProfile();
+});
+elFrameRateLimit?.addEventListener('change', () => {
+  mobilePrefs.fpsLimit = ['15','30','45','60'].includes(elFrameRateLimit.value)
+    ? elFrameRateLimit.value : 'auto';
   saveMobilePrefs();
   sendViewerStreamProfile();
 });
