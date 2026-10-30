@@ -81,6 +81,22 @@ const elSettingsPanel = document.getElementById("settings-panel");
 const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
+const elQualityPreset = document.getElementById("viewer-quality-preset");
+const elFrameRateLimit = document.getElementById("viewer-fps-limit");
+const elPerformanceToggle = document.getElementById("viewer-performance-toggle");
+const elPerformancePanel = document.getElementById("session-performance-panel");
+const elPerfCodec = document.getElementById("perf-codec");
+const elPerfFps = document.getElementById("perf-presented-fps");
+const elPerfBitrate = document.getElementById("perf-bitrate");
+const elPerfRtt = document.getElementById("perf-rtt");
+const elPerfLoss = document.getElementById("perf-loss");
+const elPerfDecode = document.getElementById("perf-decode");
+const elDiagPresentedFps = document.getElementById("diag-presented-fps");
+const elDiagFramesDropped = document.getElementById("diag-frames-dropped");
+const elDiagJitter = document.getElementById("diag-jitter");
+const elDiagJitterBuffer = document.getElementById("diag-jitter-buffer");
+const elDiagDecodeMs = document.getElementById("diag-decode-ms");
+const elDiagLossRate = document.getElementById("diag-loss-rate");
 const elDiagIceState = document.getElementById("diag-ice-state");
 const elDiagConnState = document.getElementById("diag-connection-state");
 const elDiagCandidatePair = document.getElementById("diag-candidate-pair");
@@ -137,7 +153,7 @@ let viewerFatalTransportError = false;
 
 let statsTimer = null;
 let transitionWatchdogTimer = null;
-let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0, totalDecodeTime: 0, framesDropped: 0, displayed: 0 };
 // Text clarity is more important than reacting to a jitter-buffer spike.
 // Ordinary adaptation changes bitrate/FPS, not desktop pixel resolution.
 const DESKTOP_ADAPTIVE_TIERS = [
@@ -152,6 +168,10 @@ let desktopQualityState = { current: 'good', candidate: null, count: 0, changedA
 let desktopResolutionGuard = { preference: 'native', severeSince: 0, healthySince: 0 };
 let desktopScaleMode = localStorage.getItem('hi5.viewer.scale') === 'stretch' ? 'stretch' : 'fit';
 let desktopResolutionPref = ['native','1080p','720p'].includes(localStorage.getItem('hi5.viewer.resolution')) ? localStorage.getItem('hi5.viewer.resolution') : 'auto';
+let desktopQualityPreset = ['speed','clarity','maximum'].includes(localStorage.getItem('hi5.viewer.quality')) ? localStorage.getItem('hi5.viewer.quality') : 'automatic';
+let desktopFpsLimit = ['15','30','45','60'].includes(localStorage.getItem('hi5.viewer.fpsLimit')) ? localStorage.getItem('hi5.viewer.fpsLimit') : 'auto';
+let autoFpsProof = { sessionId: '', qualifiedMaxFps: 20 };
+let performanceOverlayEnabled = localStorage.getItem('hi5.viewer.performance') === 'on';
 
 let inputBound = false;
 let controlActive = false;
@@ -1028,8 +1048,9 @@ function stopStatsPoll() {
     clearInterval(transitionWatchdogTimer);
     transitionWatchdogTimer = null;
   }
-  lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+  lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0, totalDecodeTime: 0, framesDropped: 0, displayed: 0 };
   lastFramesDecoded = 0;
+  if (elPerformancePanel) elPerformancePanel.classList.remove('visible');
 }
 
 function requestRemoteKeyframe(reason = "frame-continuity") {
@@ -1147,6 +1168,19 @@ function sendControlObject(message) {
   return false;
 }
 
+const DESKTOP_QUALITY_PRESETS = Object.freeze({
+  speed: Object.freeze({ preference: '720p', max_width: 1280, max_height: 720, target_fps: 24, target_bitrate_kbps: 3200 }),
+  clarity: Object.freeze({ preference: 'native', max_width: 0, max_height: 0, target_fps: 20, target_bitrate_kbps: 8000 }),
+  maximum: Object.freeze({ preference: 'native', max_width: 0, max_height: 0, target_fps: 20, target_bitrate_kbps: 12000 })
+});
+
+function syncPerformanceOverlay() {
+  if (!elPerformancePanel) return;
+  const show = performanceOverlayEnabled && Boolean(currentSession) && pc?.connectionState === 'connected';
+  elPerformancePanel.classList.toggle('visible', show);
+  elPerformancePanel.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
 function desktopResolutionProfile() {
   if (desktopResolutionPref === '720p') return { max_width: 1280, max_height: 720, preference: '720p' };
   if (desktopResolutionPref === '1080p') return { max_width: 1920, max_height: 1080, preference: '1080p' };
@@ -1161,16 +1195,28 @@ function desktopResolutionProfile() {
 function applyDesktopScalePreference() {
   if (elVideo) elVideo.style.objectFit = desktopScaleMode === 'stretch' ? 'fill' : 'contain';
   if (elViewerScaleMode) elViewerScaleMode.value = desktopScaleMode;
-  if (elRemoteResolutionPref) elRemoteResolutionPref.value = desktopResolutionPref;
+  if (elRemoteResolutionPref) { elRemoteResolutionPref.value = desktopResolutionPref; elRemoteResolutionPref.disabled = desktopQualityPreset !== 'automatic'; }
+  if (elQualityPreset) elQualityPreset.value = desktopQualityPreset;
+  if (elFrameRateLimit) elFrameRateLimit.value = desktopFpsLimit;
+  if (elPerformanceToggle) elPerformanceToggle.value = performanceOverlayEnabled ? 'on' : 'off';
+  syncPerformanceOverlay();
 }
 
 function sendDesktopStreamProfile() {
   const cfg = DESKTOP_ADAPTIVE_TIERS[Math.max(0, Math.min(DESKTOP_ADAPTIVE_TIERS.length - 1, desktopAdaptiveState.tier))];
-  const resolution = desktopResolutionProfile();
-  desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
-  const resolutionLabel = resolution.preference === 'auto' ? 'Native' : resolution.preference;
-  if (elDiagProfile) elDiagProfile.textContent = resolutionLabel + ' · ' + (cfg.bitrate / 1000) + ' Mbps · ' + cfg.fps + ' fps';
-  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', ...resolution, target_fps: cfg.fps, target_bitrate_kbps: cfg.bitrate });
+  const override = DESKTOP_QUALITY_PRESETS[desktopQualityPreset];
+  const resolution = override || desktopResolutionProfile();
+  if (!override) desktopAdaptiveState = { ...desktopAdaptiveState, ...cfg };
+  const manualFps = Number(desktopFpsLimit);
+  const automaticQualified = !override && desktopFpsLimit === 'auto' &&
+    autoFpsProof.sessionId === currentSession?.sessionId
+    ? autoFpsProof.qualifiedMaxFps : 20;
+  const networkTierMax = [60,45,30,20,15][Math.min(4,Math.max(0,desktopAdaptiveState.tier))];
+  const fps = [15,30,45,60].includes(manualFps) ? manualFps :
+    Math.max(override?.target_fps || cfg.fps, Math.min(automaticQualified, networkTierMax));
+  const bitrate = override?.target_bitrate_kbps || cfg.bitrate;
+  if (elDiagProfile) elDiagProfile.textContent = (override ? desktopQualityPreset : resolution.preference) + ' · ' + (bitrate / 1000) + ' Mbps · ' + fps + ' fps';
+  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: 'native', fps_mode: [15,30,45,60].includes(manualFps) ? 'development_override' : (desktopQualityPreset === 'automatic' ? 'auto' : 'quality_preset'), ...resolution, target_fps: fps, target_bitrate_kbps: bitrate });
 }
 function desktopMedian(values) {
   const nums = values.filter(Number.isFinite).sort((a,b) => a-b);
@@ -1202,7 +1248,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
   const severe=(lossEvidence&&loss>=0.08&&(rtt>=220||jitter>=90))||
     (packetTotal>=60&&rtt>=800);
   const now=Date.now();
-  if(severe){
+  if(desktopQualityPreset === 'automatic' && severe){
     desktopResolutionGuard.healthySince=0;
     if(!desktopResolutionGuard.severeSince)desktopResolutionGuard.severeSince=now;
     if(desktopResolutionGuard.preference==='native'&&now-desktopResolutionGuard.severeSince>=45000){
@@ -1210,7 +1256,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
       console.log('[adaptive] desktop 1080p after severe verified congestion');
       sendDesktopStreamProfile();
     }
-  }else{
+  }else if(desktopQualityPreset === 'automatic'){
     desktopResolutionGuard.severeSince=0;
     if(desktopResolutionGuard.preference!=='native'&&excellent){
       if(!desktopResolutionGuard.healthySince)desktopResolutionGuard.healthySince=now;
@@ -1233,6 +1279,7 @@ function observeDesktopNetworkQuality({ rttMs, jitterMs, jitterBufferMs, packetC
   const qualityDetail=qualityLabel+' · '+Math.round(rtt||0)+'ms · '+(loss*100).toFixed(1)+'% loss';
   if(elDiagQuality) elDiagQuality.textContent=qualityDetail;
   if(elDesktopQualityIndicator){ elDesktopQualityIndicator.textContent=qualityLabel; elDesktopQualityIndicator.dataset.quality=current; elDesktopQualityIndicator.title=qualityDetail; }
+  if(desktopQualityPreset !== 'automatic') return;
   if(current==='poor'){desktopAdaptiveState.bad+=1;desktopAdaptiveState.good=0;}
   else if(current==='excellent'){desktopAdaptiveState.good+=1;desktopAdaptiveState.bad=0;}
   else {desktopAdaptiveState.bad=Math.max(0,desktopAdaptiveState.bad-1);desktopAdaptiveState.good=Math.max(0,desktopAdaptiveState.good-1);}
@@ -1888,8 +1935,20 @@ async function pollStatsOnce() {
   let packetsLostDelta = 0;
   let jitterMs = null;
   let jitterBufferMs = null;
+  let decodeMs = null;
+  let displayedFps = null;
+  let droppedDelta = null;
+  let codecName = '—';
+  let resolutionLabel = '';
 
   if (inbound) {
+    const codec = inbound.codecId ? stats.get(inbound.codecId) : null;
+    if (codec?.mimeType) codecName = codec.mimeType.replace(/^video\//i, '').toUpperCase();
+    if (inbound.frameWidth > 0 && inbound.frameHeight > 0) resolutionLabel = inbound.frameWidth + '×' + inbound.frameHeight;
+    if (elStatCodec && codecName !== '—') elStatCodec.textContent = codecName;
+    const playback = elVideo?.getVideoPlaybackQuality?.();
+    const displayedTotal = Number(playback?.totalVideoFrames);
+    const hasDisplayedTotal = playback && Number.isFinite(displayedTotal);
     const bytesReceived = Number(inbound.bytesReceived || 0);
     framesDecoded = Number(inbound.framesDecoded || 0);
     packetsLost = Number(inbound.packetsLost || 0);
@@ -1920,8 +1979,14 @@ async function pollStatsOnce() {
         const dBytes = bytesReceived - lastStats.bytes;
         bitrateKbps = (dBytes * 8) / dt / 1000;
 
-        const dFrames = framesDecoded - lastStats.frames;
+        const dFrames = Math.max(0, framesDecoded - lastStats.frames);
         fps = dFrames / dt;
+        const totalDecode = Number(inbound.totalDecodeTime);
+        if (dFrames > 0 && Number.isFinite(totalDecode) && totalDecode >= lastStats.totalDecodeTime) {
+          decodeMs = (totalDecode - lastStats.totalDecodeTime) * 1000 / dFrames;
+        }
+        if (hasDisplayedTotal) displayedFps = Math.max(0, displayedTotal - lastStats.displayed) / dt;
+        if (Number.isFinite(Number(inbound.framesDropped))) droppedDelta = Math.max(0, Number(inbound.framesDropped) - lastStats.framesDropped);
         packetsLostDelta = Math.max(0, packetsLost - lastStats.packetsLost);
         const dReceived = Math.max(0, packetsReceived - lastStats.packetsReceived);
         packetSampleCount = packetsLostDelta + dReceived;
@@ -1935,6 +2000,9 @@ async function pollStatsOnce() {
     lastStats.packetsReceived = packetsReceived;
     lastStats.jitterDelay = jitterDelay;
     lastStats.jitterEmitted = jitterEmitted;
+    if (Number.isFinite(Number(inbound.totalDecodeTime))) lastStats.totalDecodeTime = Number(inbound.totalDecodeTime);
+    if (Number.isFinite(Number(inbound.framesDropped))) lastStats.framesDropped = Number(inbound.framesDropped);
+    if (hasDisplayedTotal) lastStats.displayed = displayedTotal;
   }
 
   const rttMs = selectedPair && isFinite(selectedPair.currentRoundTripTime)
@@ -1979,6 +2047,22 @@ async function pollStatsOnce() {
   if (elDiagFrames) elDiagFrames.textContent = String(framesDecoded ?? "—");
   if (elDiagPacketsLost) elDiagPacketsLost.textContent = String(packetsLost ?? "—");
   if (elDiagRtt) elDiagRtt.textContent = rttMs != null ? `${rttMs}ms` : "—";
+  const fmtMs = (v) => Number.isFinite(v) && v >= 0 ? v.toFixed(1) + ' ms' : '—';
+  const presentedText = Number.isFinite(displayedFps) ? Math.round(displayedFps) + ' fps' : '—';
+  const lossText = packetSampleCount > 0 ? (packetsLostDelta / packetSampleCount * 100).toFixed(1) + '%' : '—';
+  if (elDiagPresentedFps) elDiagPresentedFps.textContent = presentedText;
+  if (elDiagFramesDropped) elDiagFramesDropped.textContent = droppedDelta != null ? droppedDelta + ' in last sample' : '—';
+  if (elDiagJitter) elDiagJitter.textContent = fmtMs(jitterMs);
+  if (elDiagJitterBuffer) elDiagJitterBuffer.textContent = fmtMs(jitterBufferMs);
+  if (elDiagDecodeMs) elDiagDecodeMs.textContent = fmtMs(decodeMs);
+  if (elDiagLossRate) elDiagLossRate.textContent = lossText;
+  if (elPerfCodec) elPerfCodec.textContent = codecName + (resolutionLabel ? ' · ' + resolutionLabel : '');
+  if (elPerfFps) elPerfFps.textContent = presentedText;
+  if (elPerfBitrate) elPerfBitrate.textContent = brStr;
+  if (elPerfRtt) elPerfRtt.textContent = rttMs != null ? rttMs + ' ms' : '—';
+  if (elPerfLoss) elPerfLoss.textContent = lossText;
+  if (elPerfDecode) elPerfDecode.textContent = fmtMs(decodeMs) + ' / ' + fmtMs(jitterBufferMs);
+  syncPerformanceOverlay();
   if (elDiagIceServers) elDiagIceServers.textContent = activeIceServers().map(s => Array.isArray(s.urls) ? s.urls.join(",") : s.urls).join(" | ");
 
   updateSelectedCodecFromStats();
@@ -2624,6 +2708,21 @@ function handleAgentControlData(raw) {
   if (typeof raw !== "string") return;
   try {
     const msg = JSON.parse(raw);
+    if (msg?.type === "viewer_stream_profile_result") {
+      if (currentSession) {
+        const reported = Number(msg.qualified_max_fps);
+        const proven = msg.fps_qualified === true;
+        const ceiling = proven && Number.isFinite(reported) && reported > 20
+          ? Math.max(20, Math.min(60, Math.floor(reported))) : 20;
+        if (autoFpsProof.sessionId !== currentSession.sessionId ||
+            autoFpsProof.qualifiedMaxFps !== ceiling) {
+          autoFpsProof = { sessionId: currentSession.sessionId, qualifiedMaxFps: ceiling };
+          if (desktopFpsLimit === 'auto' && desktopQualityPreset === 'automatic')
+            sendDesktopStreamProfile();
+        }
+      }
+      return;
+    }
     if (msg?.type === "dev_codec_switch_result") {
       handleDevCodecSwitchResult(msg);
       return;
@@ -3482,6 +3581,25 @@ if (elViewerScaleMode) elViewerScaleMode.addEventListener('change', () => {
   desktopScaleMode = elViewerScaleMode.value === 'stretch' ? 'stretch' : 'fit';
   localStorage.setItem('hi5.viewer.scale', desktopScaleMode);
   applyDesktopScalePreference();
+});
+if (elQualityPreset) elQualityPreset.addEventListener('change', () => {
+  desktopQualityPreset = DESKTOP_QUALITY_PRESETS[elQualityPreset.value] ? elQualityPreset.value : 'automatic';
+  localStorage.setItem('hi5.viewer.quality', desktopQualityPreset);
+  if (desktopQualityPreset === 'automatic') {
+    desktopAdaptiveState = { tier: 0, bad: 0, good: 0, lastChangeAt: Date.now(), ...DESKTOP_ADAPTIVE_TIERS[0] };
+  }
+  applyDesktopScalePreference();
+  sendDesktopStreamProfile();
+});
+if (elFrameRateLimit) elFrameRateLimit.addEventListener('change', () => {
+  desktopFpsLimit = ['15','30','45','60'].includes(elFrameRateLimit.value) ? elFrameRateLimit.value : 'auto';
+  localStorage.setItem('hi5.viewer.fpsLimit', desktopFpsLimit);
+  sendDesktopStreamProfile();
+});
+if (elPerformanceToggle) elPerformanceToggle.addEventListener('change', () => {
+  performanceOverlayEnabled = elPerformanceToggle.value === 'on';
+  localStorage.setItem('hi5.viewer.performance', performanceOverlayEnabled ? 'on' : 'off');
+  syncPerformanceOverlay();
 });
 if (elRemoteResolutionPref) elRemoteResolutionPref.addEventListener('change', () => {
   desktopResolutionPref = ['native','1080p','720p'].includes(elRemoteResolutionPref.value) ? elRemoteResolutionPref.value : 'auto';
