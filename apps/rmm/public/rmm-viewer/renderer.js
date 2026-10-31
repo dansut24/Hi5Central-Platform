@@ -121,6 +121,8 @@ let mouseMoveDc = null;
 let mouseMoveSeq = 0;
 
 let currentSession = null;
+// SDP evidence belongs only to this Viewer launch.
+let preconnectAv1SdpProof = null;
 let audioEnabled = false;
 let localInputBlocked = false;
 let remoteDescSet = false;
@@ -2962,6 +2964,7 @@ function resetTransitionState() {
 }
 
 function disconnect(reason, options = {}) {
+  preconnectAv1SdpProof = null;
   const silent = !!options.silent;
   const closeNative = !!options.closeNative;
   console.log("[viewer] disconnect called:", reason || "(none)", silent ? "silent" : "", closeNative ? "close-native" : "");
@@ -5079,7 +5082,7 @@ function teardownPeerForReconnect() {
 // Browser-reported decoding capabilities are attached only to our existing
 // authenticated Viewer signaling socket. No extra connection round-trip or
 // codec preference change. Legacy browsers simply omit the optional query.
-function universalBrowserCodecQuery() {
+function universalBrowserCodecQuery(sdpProof = preconnectAv1SdpProof) {
   try {
     if (typeof RTCRtpReceiver === 'undefined' ||
         typeof RTCRtpReceiver.getCapabilities !== 'function') return '';
@@ -5092,6 +5095,12 @@ function universalBrowserCodecQuery() {
       String(c.mimeType || '').trim().toLowerCase()));
     const codecs = ['vp8', 'vp9', 'h264', 'av1'].filter(codec =>
       available.has('video/' + codec));
+    // A successful local receive-only WebRTC SDP offer from this Viewer is
+    // stronger AV1 support evidence than an incomplete early enumeration.
+    // Never use a media playback check or evidence from another browser tab.
+    const av1SdpVerified = sdpProof?.sdp_probe_ok === true &&
+      sdpProof?.sdp_av1 === true && sdpProof?.sdp_codecs?.includes('av1') === true;
+    if (av1SdpVerified && !codecs.includes('av1')) codecs.push('av1');
     if (available.has('video/h265') || available.has('video/hevc'))
       codecs.push('h265');
     if (!codecs.length) return '';
@@ -5367,7 +5376,22 @@ function startSession(params) {
 
   mobileReconnectDeadline = 0;
   mobileRecoveryAttempts = 0;
-  connectViewerSignaling('initial');
+  preconnectAv1SdpProof = null;
+  const launchedSession = currentSession;
+  // Pre-SDP capability proof must be ready before the authenticated socket
+  // triggers Agent start_webrtc. Bound the wait to preserve fast connection.
+  const proof = inspectActualViewerCodecOffer().catch(() => null);
+  const maxWait = new Promise(resolve => window.setTimeout(() => resolve(null), 350));
+  void Promise.race([proof, maxWait]).then(result => {
+    if (currentSession !== launchedSession) return;
+    preconnectAv1SdpProof = result;
+    console.log('[codec] bounded preconnect receive-only SDP proof', {
+      av1: result?.sdp_probe_ok === true && result?.sdp_av1 === true,
+      receiveAv1: result?.receive_av1 === true,
+      verified: result?.sdp_probe_ok === true,
+    });
+    connectViewerSignaling('initial');
+  });
 }
 
 
