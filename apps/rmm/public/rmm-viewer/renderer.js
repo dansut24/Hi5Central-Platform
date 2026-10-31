@@ -5109,6 +5109,48 @@ function universalBrowserCodecQuery() {
   }
 }
 
+async function inspectActualViewerCodecOffer() {
+  const advertised = (kind) => {
+    try {
+      const api = kind === 'receive' ? RTCRtpReceiver : RTCRtpSender;
+      return new Set((api.getCapabilities('video')?.codecs || [])
+        .map(c => String(c.mimeType || '').toLowerCase()));
+    } catch { return new Set(); }
+  };
+  const receive = advertised('receive');
+  const send = advertised('send');
+  let sdpCodecs = [];
+  let probeOk = false;
+  let peer = null;
+  try {
+    peer = new RTCPeerConnection({ iceServers: [] });
+    peer.addTransceiver('video', { direction: 'recvonly' });
+    const offer = await peer.createOffer({ offerToReceiveVideo: true });
+    const videoSection = String(offer.sdp || '').split(/\r?\nm=video\s/)[1] || '';
+    // Delimit to the first media section; reject any spurious match in audio.
+    const onlyVideo = videoSection.split(/\r?\nm=/)[0];
+    const list = [...onlyVideo.matchAll(/(?:^|\r?\n)a=rtpmap:\d+\s+([A-Za-z0-9_-]+)\/90000/gi)]
+      .map(m => String(m[1]).toLowerCase());
+    sdpCodecs = [...new Set(list)].filter(c => ['vp8','vp9','h264','h265','hevc','av1'].includes(c));
+    probeOk = true;
+  } catch (error) {
+    console.warn('[codec] local receive-only SDP probe unavailable', error?.name || 'error');
+  } finally {
+    try { peer?.close(); } catch {}
+  }
+  return {
+    type: 'viewer_codec_probe',
+    receive_av1: receive.has('video/av1'),
+    send_av1: send.has('video/av1'),
+    sdp_av1: sdpCodecs.includes('av1'),
+    sdp_codecs: sdpCodecs,
+    sdp_probe_ok: probeOk,
+    native_host: Boolean(window.hi5?.onConnect),
+    embedded: window.self !== window.top,
+    standalone: Boolean(window.matchMedia?.('(display-mode: standalone)')?.matches),
+  };
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -5126,6 +5168,12 @@ function connectViewerSignaling(reason = 'initial') {
     if (ws !== socket) return;
     setStatus('', mobileRecoveryAttempts ? 'Reconnecting…' : 'Connected');
     setMobileRecoveryStage(mobileRecoveryAttempts ? 'Signaling restored' : 'Idle');
+    // Best-effort, non-blocking SDP capability check on the authenticated
+    // socket. This never modifies offer/answer, stream codec, or startup timing.
+    void inspectActualViewerCodecOffer().then(report => {
+      if (ws !== socket || socket.readyState !== WebSocket.OPEN || !currentSession) return;
+      socket.send(JSON.stringify({ ...report, session_id: currentSession.sessionId }));
+    }).catch(() => {});
     if (mobileRecoveryAttempts > 0) {
       const attempt = mobileRecoveryAttempts;
       window.setTimeout(() => {
