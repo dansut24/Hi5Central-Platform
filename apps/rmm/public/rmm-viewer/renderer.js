@@ -4551,6 +4551,32 @@ async function onSignalMessage(raw) {
     case "viewer_connected":
       break;
 
+    case "viewer_error": {
+      // An experimental codec can be rejected before WebRTC SDP. Show a
+      // terminal, actionable error instead of leaving the startup spinner.
+      const detail = String(msg.error || 'Remote session could not start.').slice(0, 240);
+      const codecMismatch = /experimental video codec not advertised/i.test(detail);
+      if (codecMismatch) {
+        if (mobileReconnectTimer) {
+          clearTimeout(mobileReconnectTimer);
+          mobileReconnectTimer = null;
+        }
+        mobileReconnectDeadline = 0;
+        setMobileRecoveryStage('Unsupported codec');
+        setStatus('error', 'The requested video codec is not available in this browser');
+        showOverlay('Codec unavailable',
+          'This browser did not advertise the remote codec for WebRTC playback.', {
+            spinner: false,
+            error: 'Switch the endpoint to a compatible codec before reconnecting. AV1 video playback support does not necessarily mean AV1 WebRTC support.'
+          });
+      } else {
+        setStatus('error', detail);
+        if (!hasEverRenderedFrame)
+          showOverlay('Remote session could not start', detail, { spinner: false, error: detail });
+      }
+      break;
+    }
+
     case "agent_reconnecting": {
       const graceMs = Math.max(10000, Number(msg.grace_ms || 0) || 240000);
       mobileEndpointRestartUntil = Date.now() + graceMs;
