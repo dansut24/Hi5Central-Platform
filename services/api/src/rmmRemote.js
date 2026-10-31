@@ -6,7 +6,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
-import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation } from './rmmCodecNegotiation.js'
+import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from './rmmCodecNegotiation.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -40,7 +40,7 @@ let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 const VIEWER_MESSAGE_TYPES = new Set([
   'webrtc_answer', 'answer', 'ice_candidate',
   // Authenticated Viewer reports real decoded frames/keyframe recovery.
-  'viewer_codec_observation',
+  'viewer_codec_observation', 'viewer_codec_failure',
   'switch_monitor', 'input_event',
   'service_shortcut', 'system_shortcut', 'shortcut', 'service_command',
   'backstage_start', 'backstage_stop', 'console_start',
@@ -986,6 +986,12 @@ export function attachRmmViewerWebSocket(server) {
         // Ignore malformed reports, never forward untrusted metadata.
         // The relay stamps the server-authorised session ID itself.
         payload = sanitizeViewerCodecObservation(payload, sessionId)
+        if (!payload) return
+      }
+      if (type === 'viewer_codec_failure') {
+        // A decoder failure can only demote the codec that this session was
+        // offered, and only on an Agent with opt-in failover enabled.
+        payload = sanitizeViewerCodecFailure(payload, sessionId)
         if (!payload) return
       }
       payload.session_id = sessionId

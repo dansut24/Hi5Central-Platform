@@ -1,6 +1,6 @@
 // Universal codec handshake: small, dependency-free, strict validation.
 // This module is transport-neutral; authorization remains in rmmRemote.
-const SUPPORTED = new Set(['vp8','vp9','h264'])
+const SUPPORTED = new Set(['vp8','vp9','h264','av1','h265'])
 
 export function parseViewerCodecCapabilities(params) {
   if (params?.get?.('codec_caps_v1') !== '1') return null
@@ -41,4 +41,15 @@ export function sanitizeViewerCodecObservation(payload, sessionId) {
       observation.frames_dropped > observation.frames_decoded / 5) return null
   // Other client-provided fields (including session_id) are discarded.
   return observation
+}
+
+// A codec failure is session-local. Never accept a Viewer-selected backend,
+// arbitrary retry strategy or a different session ID from the browser.
+export function sanitizeViewerCodecFailure(payload, sessionId) {
+  const codec = String(payload?.codec || '').trim().toLowerCase()
+  const reason = String(payload?.reason || '').trim()
+  if (!SUPPORTED.has(codec) ||
+      !['media-negotiation-timeout','decode-unavailable'].includes(reason) ||
+      typeof sessionId !== 'string' || !sessionId || sessionId.length > 160) return null
+  return { type: 'viewer_codec_failure', session_id: sessionId, codec, reason }
 }

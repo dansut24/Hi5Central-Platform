@@ -174,6 +174,10 @@ let remoteFilePath = "/";
 let hasEverRenderedFrame = false;
 let lastFrameAtMs = 0;
 let lastFramesDecoded = 0;
+let lastNativeCodecProofAt = 0;
+let lastNativeCodecFailureAt = 0;
+let nativeOfferedPrimaryCodec = '';
+let codecOfferedAtMs = 0;
 let passiveOverlayActive = false;
 let secureDesktopLikely = false;
 let secureDesktopActive = false;
@@ -1041,12 +1045,31 @@ function requestRemoteKeyframe(reason = "frame-continuity") {
   return true;
 }
 
+// Only retry a codec if RTP is actively arriving but no decoded frame has
+// *ever* rendered for the current SDP. A quiet desktop, slow ICE setup, a
+// disconnected network or a user/UAC desktop handoff must not demote a codec.
+function shouldTriggerCodecDecoderFallback({
+  codec, offeredAtMs, lastPacketAtMs, nowMs, rendered, connected
+}) {
+  return Boolean(codec && connected && !rendered &&
+    offeredAtMs > 0 && nowMs - offeredAtMs >= 12000 &&
+    lastPacketAtMs > offeredAtMs &&
+    nowMs - lastPacketAtMs <= 3000);
+}
+
 function startTransitionWatchdog() {
   if (transitionWatchdogTimer) return;
 
   transitionWatchdogTimer = setInterval(() => {
     if (!pc || pc.connectionState !== "connected") return;
-    if (!hasEverRenderedFrame) return;
+    if (!hasEverRenderedFrame) {
+      if (shouldTriggerCodecDecoderFallback({
+        codec: nativeOfferedPrimaryCodec, offeredAtMs: codecOfferedAtMs,
+        lastPacketAtMs: lastMediaPacketAtMs, nowMs: Date.now(),
+        rendered: hasEverRenderedFrame, connected: pc.connectionState === 'connected'
+      })) scheduleViewerReconnect('media-negotiation-timeout');
+      return;
+    }
 
     const now = Date.now();
 
@@ -1879,6 +1902,35 @@ async function pollStatsOnce() {
 
   const nowMs = Date.now();
 
+  // Authenticated Viewer decoder evidence for this particular RTP session.
+  if (inbound&&currentSession?.sessionId&&ws?.readyState===WebSocket.OPEN&&
+      pc?.connectionState==='connected'&&nowMs-lastNativeCodecProofAt>=6000) {
+    const detail=inbound.codecId?stats.get(inbound.codecId):null;
+    const mime=String(detail?.mimeType||'').toLowerCase();
+    const codec=mime==='video/hevc'?'h265':mime.slice(6);
+    const frames=Number(inbound.framesDecoded);
+    const keyframes=Number(inbound.keyFramesDecoded);
+    const dropped=Number(inbound.framesDropped||0);
+    const packets=Number(inbound.packetsReceived);
+    const width=Number(inbound.frameWidth||elVideo?.videoWidth||0);
+    const height=Number(inbound.frameHeight||elVideo?.videoHeight||0);
+    if(['vp8','vp9','h264','av1','h265'].includes(codec)&&
+       Number.isSafeInteger(frames)&&frames>=30&&frames<=10000000&&
+       Number.isSafeInteger(keyframes)&&keyframes>=1&&keyframes<=100000&&
+       Number.isSafeInteger(dropped)&&dropped>=0&&dropped<=frames/5&&
+       Number.isSafeInteger(packets)&&packets>=frames&&packets<=100000000&&
+       Number.isSafeInteger(width)&&width>=320&&width<=7680&&
+       Number.isSafeInteger(height)&&height>=240&&height<=4320) {
+      try {
+        ws.send(JSON.stringify({type:'viewer_codec_observation',
+          session_id:currentSession.sessionId,codec,frames_decoded:frames,
+          keyframes_decoded:keyframes,frames_dropped:dropped,
+          packets_received:packets,width,height}));
+        lastNativeCodecProofAt=nowMs;
+      }catch{}
+    }
+  }
+
   let bitrateKbps = NaN;
   let fps = NaN;
   let framesDecoded = null;
@@ -1950,6 +2002,8 @@ async function pollStatsOnce() {
     bitrate_kbps: Number.isFinite(bitrateKbps) ? bitrateKbps : 0,
     fps: Number.isFinite(fps) ? fps : 0,
     packets_lost: packetsLost ?? 0,
+    packet_loss_rate: packetSampleCount>0 ? packetsLostDelta/packetSampleCount : 0,
+    packets_sampled: packetSampleCount,
     route: usingTurnRelay ? "turn_relay" : (selectedPair ? "direct" : "unknown"),
     local_candidate_type: localCandidateType,
     remote_candidate_type: remoteCandidateType,
@@ -2706,9 +2760,30 @@ async function updateSelectedCodecFromStats() {
    WebRTC negotiation
 ------------------------------------------ */
 
+// The offered RTP payload determines the selected codec; the browser's
+// capability enumeration is only a prerequisite, not encoder proof.
+function nativeOfferedVideoCodec(sdp) {
+ const lines=String(sdp||'').split(/\r?\n/);
+ const video=lines.find(line=>line.startsWith('m=video '));
+ if(!video||video.trim().split(/\s+/)[1]==='0')return '';
+ const m=new Map();
+ for(const line of lines){
+  const x=line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)/i);
+  if(x)m.set(x[1],x[2].toLowerCase());
+ }
+ for(const id of video.trim().split(/\s+/).slice(3)){
+  const codec=m.get(id);
+  if(['vp8','vp9','h264','av1','h265','hevc'].includes(codec))
+   return codec==='hevc'?'h265':codec;
+ }
+ return '';
+}
+
 async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
+  nativeOfferedPrimaryCodec = nativeOfferedVideoCodec(offerSdp);
+  codecOfferedAtMs = Date.now();
 
   if (typeof RTCPeerConnection !== "function") {
     const detail = "RTCPeerConnection is unavailable in this Viewer runtime.";
@@ -2763,17 +2838,24 @@ async function handleOffer(msg) {
     const codecs = caps?.codecs || [];
 
     if (transceiver && transceiver.setCodecPreferences && codecs.length) {
-      // Stable Auto prefers VP9 on capable endpoints. Keep VP8 immediately behind
-      // it as the universal compatibility fallback; forced/experimental codecs
-      // remain available without overriding the Agent's stable offer policy.
-      const primaryOrder = ["video/vp9", "video/vp8", "video/h264", "video/av1", "video/h265", "video/hevc"];
-      const primary = [];
-      for (const wanted of primaryOrder) {
-        primary.push(...codecs.filter(c => String(c.mimeType).toLowerCase() === wanted));
+      // Agent offer order is authoritative for both manual and automatic RTP.
+      const lines=String(offerSdp).split(/\r?\n/);
+      const map=new Map();
+      for(const line of lines){
+        const x=line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)/i);
+        if(x)map.set(x[1],x[2].toLowerCase());
       }
-      const rest = codecs.filter(c => !primaryOrder.includes(String(c.mimeType).toLowerCase()));
-      console.log("[codec] viewer codec preference", primary.map(c => c.mimeType));
-      transceiver.setCodecPreferences([...primary, ...rest]);
+      const v=lines.find(line=>line.startsWith('m=video '))||'';
+      const order=[...new Set(v.trim().split(/\s+/).slice(3).map(id=>map.get(id)).filter(Boolean))];
+      const primary=codecs.filter(c=>/video\/(vp8|vp9|h264|av1|h265|hevc)/i.test(c.mimeType||''));
+      const rest=codecs.filter(c=>!primary.includes(c));
+      const rank=c=>{
+        const name=String(c.mimeType||'').toLowerCase().replace(/^video\//,'');
+        const i=order.indexOf(name==='hevc'?'h265':name);
+        return i<0?999:i;
+      };
+      primary.sort((a,b)=>rank(a)-rank(b));
+      transceiver.setCodecPreferences([...primary,...rest]);
     }
   } catch (e) {
     console.warn("[webrtc] codec preference step failed:", e?.message || e);
@@ -3298,6 +3380,29 @@ function scheduleViewerTransportProbe(reason = 'transport-probe', delayMs = 3500
   return true;
 }
 
+// Only advertise supported native WebView2/Chromium receiver codecs.
+function nativeViewerCodecCapabilitiesQuery(){
+ try {
+  if(typeof RTCRtpReceiver==='undefined'||
+     typeof RTCRtpReceiver.getCapabilities!=='function')return '';
+  const arr=RTCRtpReceiver.getCapabilities('video')?.codecs||[];
+  const codecs=['vp8','vp9','h264','av1','h265'].filter(name=>
+    arr.some(c=>{
+      const mime=String(c.mimeType||'').toLowerCase();
+      return mime==='video/'+name||(name==='h265'&&mime==='video/hevc');
+    }));
+  if(!codecs.length)return '';
+  const level4=arr.some(c=>{
+    if(String(c.mimeType||'').toLowerCase()!=='video/h264')return false;
+    const match=String(c.sdpFmtpLine||'')
+      .match(/(?:^|;)\s*profile-level-id=([0-9a-f]{6})(?:;|$)/i);
+    return Boolean(match&&parseInt(match[1].slice(4),16)>=0x28);
+  });
+  return '&codec_caps_v1=1&video_codecs='+
+    encodeURIComponent(codecs.join(','))+'&h264_level4='+(level4?'1':'0');
+ }catch{return ''}
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession || viewerFatalTransportError) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -3307,7 +3412,8 @@ function connectViewerSignaling(reason = 'initial') {
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
     (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
-    (viewerVersion ? `&viewer_version=${encodeURIComponent(viewerVersion)}` : '');
+    (viewerVersion ? `&viewer_version=${encodeURIComponent(viewerVersion)}` : '') +
+    nativeViewerCodecCapabilitiesQuery();
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: viewerReconnectAttempts });
   const socket = new WebSocket(url);
   ws = socket;
@@ -3344,6 +3450,22 @@ function scheduleViewerReconnect(reason = 'network-recovery', { closeSocket = tr
   if (!viewerReconnectDeadline) viewerReconnectDeadline = now + 85000;
   if (now >= viewerReconnectDeadline) { disconnect('Connection lost'); return false; }
   if (viewerReconnectTimer) return true;
+  // Only a codec-specific first-frame timeout; no poisoning after real video
+  // or for an unrelated ICE/network failure or secure desktop transition.
+  if(reason==='media-negotiation-timeout'&&
+      ws?.readyState===WebSocket.OPEN&&now-lastNativeCodecFailureAt>=5000&&
+      shouldTriggerCodecDecoderFallback({
+        codec:nativeOfferedPrimaryCodec,offeredAtMs:codecOfferedAtMs,
+        lastPacketAtMs:lastMediaPacketAtMs,nowMs:now,
+        rendered:hasEverRenderedFrame,connected:pc?.connectionState==='connected'
+      })){
+    try{
+      ws.send(JSON.stringify({type:'viewer_codec_failure',
+        session_id:currentSession.sessionId,codec:nativeOfferedPrimaryCodec,
+        reason:'media-negotiation-timeout'}));
+      lastNativeCodecFailureAt=now;
+    }catch{}
+  }
   viewerReconnectAttempts += 1;
   if (elDesktopQualityIndicator) { elDesktopQualityIndicator.textContent='Reconnecting'; elDesktopQualityIndicator.dataset.quality='reconnecting'; elDesktopQualityIndicator.title=reason; }
   if (hasEverRenderedFrame) {
