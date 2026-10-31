@@ -717,6 +717,20 @@ export function attachRmmViewerWebSocket(server) {
       // Only an authenticated Viewer can attach capabilities to its session.
       // A missing/legacy query never changes the existing codec negotiation.
       viewerSession.codec_capabilities = parseViewerCodecCapabilities(url.searchParams)
+      // Bounded diagnostics: no socket URL, token, User-Agent or raw query.
+      if (viewerSession.viewer_client === 'browser') {
+        const codecQuery = clean(url.searchParams.get('video_codecs')).slice(0, 64)
+        const names = codecQuery.toLowerCase().split(',').map(s => s.trim())
+        console.info('[rmm.viewer.codec_capability_trace]', JSON.stringify({
+          session_id: String(viewerSession.id),
+          handshake_v1: url.searchParams.get('codec_caps_v1') === '1',
+          codec_count: codecQuery ? names.length : 0,
+          av1_requested: names.includes('av1'),
+          h265_requested: names.includes('h265') || names.includes('hevc'),
+          parsed_receive_codecs: viewerSession.codec_capabilities?.codecs || [],
+          parsed: Boolean(viewerSession.codec_capabilities),
+        }))
+      }
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
