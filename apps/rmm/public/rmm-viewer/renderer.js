@@ -128,6 +128,8 @@ let pendingRemoteIce = [];
 
 let statsTimer = null;
 let lastUniversalDecoderProofMs = 0;
+let offeredPrimaryCodec = '';
+let lastCodecFailureAtMs = 0;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
 let wakeLockSentinel = null;
@@ -3194,7 +3196,7 @@ async function pollStatsOnce() {
     const packets = Number(inbound.packetsReceived);
     const width = Number(inbound.frameWidth || elVideo?.videoWidth || 0);
     const height = Number(inbound.frameHeight || elVideo?.videoHeight || 0);
-    if (['video/h264', 'video/vp8', 'video/vp9'].includes(mime) &&
+    if (['video/h264', 'video/vp8', 'video/vp9', 'video/av1', 'video/h265', 'video/hevc'].includes(mime) &&
         Number.isSafeInteger(frames) && frames >= 30 && frames <= 10000000 &&
         Number.isSafeInteger(keyframes) && keyframes >= 1 && keyframes <= 100000 &&
         Number.isSafeInteger(dropped) && dropped >= 0 && dropped <= frames / 5 &&
@@ -3205,7 +3207,7 @@ async function pollStatsOnce() {
         ws.send(JSON.stringify({
           type: 'viewer_codec_observation',
           session_id: currentSession.sessionId,
-          codec: mime.slice(6),
+          codec: mime === 'video/hevc' ? 'h265' : mime.slice(6),
           frames_decoded: frames,
           keyframes_decoded: keyframes,
           frames_dropped: dropped,
@@ -3320,7 +3322,10 @@ async function pollStatsOnce() {
         bitrate_kbps: Number.isFinite(bitrateKbps) ? bitrateKbps : 0,
         fps: Number.isFinite(fps) ? fps : 0,
         packets_lost: packetsLost ?? 0,
-        packet_loss_rate: lossRate
+        packet_loss_rate: lossRate,
+        // Delta of real RTP samples; idle screens and zero-packet samples
+        // must not be interpreted as congestion by the Agent.
+        packets_sampled: packetSampleCount
       }));
     } catch {}
   }
@@ -4246,9 +4251,29 @@ async function updateSelectedCodecFromStats() {
    WebRTC negotiation
 ------------------------------------------ */
 
+// Read the selected RTP codec from the actual SDP offer. Do not infer it
+// from a GPU name, a cached preference, or the browser's capabilities.
+function offeredPrimaryVideoCodec(sdp) {
+  const lines = String(sdp || '').split(/\r?\n/);
+  const video = lines.find(line => line.startsWith('m=video '));
+  if (!video || video.split(/\s+/)[1] === '0') return '';
+  const map = new Map();
+  for (const line of lines) {
+    const match = line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)/i);
+    if (match) map.set(match[1],match[2].toLowerCase());
+  }
+  for (const payload of video.split(/\s+/).slice(3)) {
+    const codec = map.get(payload);
+    if (['vp8','vp9','h264','av1','h265','hevc'].includes(codec))
+      return codec === 'hevc' ? 'h265' : codec;
+  }
+  return '';
+}
+
 async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
+  offeredPrimaryCodec = offeredPrimaryVideoCodec(offerSdp);
 
   if (pc) teardownPeerForReconnect();
   mobileEndpointRestartUntil = 0;
@@ -4273,15 +4298,29 @@ async function handleOffer(msg) {
       // Prefer codecs that keep browser/mobile sessions sharp without forcing
       // the conservative H.264 level-3.1 720p ceiling. The Agent still makes
       // the final choice from the codecs actually returned in our SDP answer.
-      const vp8 = codecs.filter(c => String(c.mimeType).toLowerCase() === "video/vp8");
-      const h264 = codecs.filter(c => String(c.mimeType).toLowerCase() === "video/h264");
-      const vp9 = codecs.filter(c => String(c.mimeType).toLowerCase() === "video/vp9");
-      const rest = codecs.filter(c => {
-        const mt = String(c.mimeType).toLowerCase();
-        return mt !== "video/vp8" && mt !== "video/h264" && mt !== "video/vp9";
-      });
-      console.log("[codec] viewer codec preference", { vp8: vp8.length, h264: h264.length, vp9: vp9.length, rest: rest.length });
-      transceiver.setCodecPreferences([...vp8, ...h264, ...vp9, ...rest]);
+      // Keep the sender's offer authoritative: prefer common codecs in the
+      // offer's own order, not an unconditional VP8-first browser policy.
+      // Never advertise codecs the browser's decoder did not enumerate.
+      const offerVideo = String(offerSdp).split(/\r?\n/);
+      const payloadToCodec = new Map();
+      for (const line of offerVideo) {
+        const match = line.match(/^a=rtpmap:(\d+)\s+([^/\s]+)/i);
+        if (match) payloadToCodec.set(match[1],match[2].toLowerCase());
+      }
+      const videoLine = offerVideo.find(line => line.startsWith('m=video ')) || '';
+      const offeredCodecOrder = [...new Set(videoLine.trim().split(/\s+/).slice(3)
+        .map(pt => payloadToCodec.get(pt)).filter(Boolean))];
+      const order = name => {
+        const mime = String(name || '').toLowerCase().replace(/^video\//,'');
+        const canonical = mime === 'hevc' ? 'h265' : mime;
+        const position = offeredCodecOrder.indexOf(canonical);
+        return position < 0 ? 999 : position;
+      };
+      const known = codecs.filter(c => /video\/(vp8|vp9|h264|av1|h265|hevc)/i.test(c.mimeType || ''));
+      const rest = codecs.filter(c => !known.includes(c));
+      known.sort((a,b) => order(a.mimeType) - order(b.mimeType));
+      console.log("[codec] viewer matches RTP offer", { offered: offeredCodecOrder, receiver: known.length });
+      transceiver.setCodecPreferences([...known, ...rest]);
     }
   } catch (e) {
     console.warn("[webrtc] codec preference step failed:", e?.message || e);
@@ -5058,8 +5097,15 @@ function universalBrowserCodecQuery() {
     if (typeof RTCRtpReceiver === 'undefined' ||
         typeof RTCRtpReceiver.getCapabilities !== 'function') return '';
     const offered = RTCRtpReceiver.getCapabilities('video')?.codecs || [];
-    const codecs = ['vp8', 'vp9', 'h264'].filter(codec =>
-      offered.some(c => String(c.mimeType || '').toLowerCase() === 'video/' + codec));
+    // Actual browser decoder support only. The Agent chooses from the
+    // intersection of this list and encoder modes with sustained real RTP
+    // evidence. A codec mentioned here is NOT itself qualified.
+    const codecs = ['vp8', 'vp9', 'h264', 'av1', 'h265'].filter(codec =>
+      offered.some(c => {
+        const mime = String(c.mimeType || '').toLowerCase();
+        return mime === 'video/' + codec ||
+          (codec === 'h265' && mime === 'video/hevc');
+      }));
     if (!codecs.length) return '';
     const level4 = offered.some(c => {
       if (String(c.mimeType || '').toLowerCase() !== 'video/h264') return false;
@@ -5168,6 +5214,23 @@ function scheduleMobileSessionReconnect(reason = 'network-recovery', { closeSock
     return false;
   }
   if (mobileReconnectTimer) return true;
+  // Only a codec-specific absence of decoded video after SDP negotiation can
+  // demote an automatic codec. ICE disconnection, inactivity, secure-desktop
+  // transitions and ordinary frame stalls are NOT codec failures.
+  if (reason === 'media-negotiation-timeout' &&
+      !hasEverRenderedFrame && offeredPrimaryCodec &&
+      ws?.readyState === WebSocket.OPEN &&
+      now - lastCodecFailureAtMs >= 5000) {
+    try {
+      ws.send(JSON.stringify({
+        type: 'viewer_codec_failure',
+        session_id: currentSession.sessionId,
+        codec: offeredPrimaryCodec,
+        reason: 'media-negotiation-timeout'
+      }));
+      lastCodecFailureAtMs = now;
+    } catch {}
+  }
   mobileRecoveryAttempts += 1;
   setMobileRecoveryStage('Reconnecting · attempt ' + mobileRecoveryAttempts);
   setMobileQualityUi('Reconnecting', 'reconnecting', reason);
