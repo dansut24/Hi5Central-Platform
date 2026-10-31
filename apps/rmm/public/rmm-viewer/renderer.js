@@ -121,6 +121,8 @@ let mouseMoveDc = null;
 let mouseMoveSeq = 0;
 
 let currentSession = null;
+// SDP evidence belongs only to this Viewer launch.
+let preconnectAv1SdpProof = null;
 let audioEnabled = false;
 let localInputBlocked = false;
 let remoteDescSet = false;
@@ -2962,6 +2964,7 @@ function resetTransitionState() {
 }
 
 function disconnect(reason, options = {}) {
+  preconnectAv1SdpProof = null;
   const silent = !!options.silent;
   const closeNative = !!options.closeNative;
   console.log("[viewer] disconnect called:", reason || "(none)", silent ? "silent" : "", closeNative ? "close-native" : "");
@@ -3320,7 +3323,19 @@ async function pollStatsOnce() {
         bitrate_kbps: Number.isFinite(bitrateKbps) ? bitrateKbps : 0,
         fps: Number.isFinite(fps) ? fps : 0,
         packets_lost: packetsLost ?? 0,
-        packet_loss_rate: lossRate
+        packet_loss_rate: lossRate,
+        // Read-only counters from the actual Safari inbound RTP receiver.
+        // The Agent logs these at most every ten seconds. Distinguish
+        // no RTP transport from received-but-undecodable AV1 packets.
+        packets_received: Math.max(0, Number(packetsReceived) || 0),
+        bytes_received: Math.max(0, Number(inbound?.bytesReceived) || 0),
+        frames_received: Math.max(0, Number(inbound?.framesReceived) || 0),
+        frames_assembled: Math.max(0, Number(inbound?.framesAssembledFromMultiplePackets) || 0),
+        frames_decoded: Math.max(0, Number(framesDecoded) || 0),
+        frames_dropped: Math.max(0, Number(inbound?.framesDropped) || 0),
+        frames_rendered: Math.max(0, Number(inbound?.framesRendered) || 0),
+        codec_pt: Math.max(0, Math.min(127, Number(stats.get(inbound?.codecId)?.payloadType) || 0)),
+        keyframes_decoded: Math.max(0, Number(inbound?.keyFramesDecoded) || 0)
       }));
     } catch {}
   }
@@ -4551,6 +4566,32 @@ async function onSignalMessage(raw) {
     case "viewer_connected":
       break;
 
+    case "viewer_error": {
+      // An experimental codec can be rejected before WebRTC SDP. Show a
+      // terminal, actionable error instead of leaving the startup spinner.
+      const detail = String(msg.error || 'Remote session could not start.').slice(0, 240);
+      const codecMismatch = /experimental video codec not advertised/i.test(detail);
+      if (codecMismatch) {
+        if (mobileReconnectTimer) {
+          clearTimeout(mobileReconnectTimer);
+          mobileReconnectTimer = null;
+        }
+        mobileReconnectDeadline = 0;
+        setMobileRecoveryStage('Unsupported codec');
+        setStatus('error', 'The requested video codec is not available in this browser');
+        showOverlay('Codec unavailable',
+          'This browser did not advertise the remote codec for WebRTC playback.', {
+            spinner: false,
+            error: 'Switch the endpoint to a compatible codec before reconnecting. AV1 video playback support does not necessarily mean AV1 WebRTC support.'
+          });
+      } else {
+        setStatus('error', detail);
+        if (!hasEverRenderedFrame)
+          showOverlay('Remote session could not start', detail, { spinner: false, error: detail });
+      }
+      break;
+    }
+
     case "agent_reconnecting": {
       const graceMs = Math.max(10000, Number(msg.grace_ms || 0) || 240000);
       mobileEndpointRestartUntil = Date.now() + graceMs;
@@ -5053,13 +5094,27 @@ function teardownPeerForReconnect() {
 // Browser-reported decoding capabilities are attached only to our existing
 // authenticated Viewer signaling socket. No extra connection round-trip or
 // codec preference change. Legacy browsers simply omit the optional query.
-function universalBrowserCodecQuery() {
+function universalBrowserCodecQuery(sdpProof = preconnectAv1SdpProof) {
   try {
     if (typeof RTCRtpReceiver === 'undefined' ||
         typeof RTCRtpReceiver.getCapabilities !== 'function') return '';
     const offered = RTCRtpReceiver.getCapabilities('video')?.codecs || [];
-    const codecs = ['vp8', 'vp9', 'h264'].filter(codec =>
-      offered.some(c => String(c.mimeType || '').toLowerCase() === 'video/' + codec));
+    // Advertise all five actual *receiver* MIME types, never playback-only
+    // support or untested sender capability. HEVC can be video/H265 or HEVC;
+    // normalise to h265 on the signalling wire. The Agent still gates AV1
+    // and H265 until production RTP senders have passed live qualification.
+    const available = new Set(offered.map(c =>
+      String(c.mimeType || '').trim().toLowerCase()));
+    const codecs = ['vp8', 'vp9', 'h264', 'av1'].filter(codec =>
+      available.has('video/' + codec));
+    // A successful local receive-only WebRTC SDP offer from this Viewer is
+    // stronger AV1 support evidence than an incomplete early enumeration.
+    // Never use a media playback check or evidence from another browser tab.
+    const av1SdpVerified = sdpProof?.sdp_probe_ok === true &&
+      sdpProof?.sdp_av1 === true && sdpProof?.sdp_codecs?.includes('av1') === true;
+    if (av1SdpVerified && !codecs.includes('av1')) codecs.push('av1');
+    if (available.has('video/h265') || available.has('video/hevc'))
+      codecs.push('h265');
     if (!codecs.length) return '';
     const level4 = offered.some(c => {
       if (String(c.mimeType || '').toLowerCase() !== 'video/h264') return false;
@@ -5073,6 +5128,48 @@ function universalBrowserCodecQuery() {
   } catch {
     return '';
   }
+}
+
+async function inspectActualViewerCodecOffer() {
+  const advertised = (kind) => {
+    try {
+      const api = kind === 'receive' ? RTCRtpReceiver : RTCRtpSender;
+      return new Set((api.getCapabilities('video')?.codecs || [])
+        .map(c => String(c.mimeType || '').toLowerCase()));
+    } catch { return new Set(); }
+  };
+  const receive = advertised('receive');
+  const send = advertised('send');
+  let sdpCodecs = [];
+  let probeOk = false;
+  let peer = null;
+  try {
+    peer = new RTCPeerConnection({ iceServers: [] });
+    peer.addTransceiver('video', { direction: 'recvonly' });
+    const offer = await peer.createOffer({ offerToReceiveVideo: true });
+    const videoSection = String(offer.sdp || '').split(/\r?\nm=video\s/)[1] || '';
+    // Delimit to the first media section; reject any spurious match in audio.
+    const onlyVideo = videoSection.split(/\r?\nm=/)[0];
+    const list = [...onlyVideo.matchAll(/(?:^|\r?\n)a=rtpmap:\d+\s+([A-Za-z0-9_-]+)\/90000/gi)]
+      .map(m => String(m[1]).toLowerCase());
+    sdpCodecs = [...new Set(list)].filter(c => ['vp8','vp9','h264','h265','hevc','av1'].includes(c));
+    probeOk = true;
+  } catch (error) {
+    console.warn('[codec] local receive-only SDP probe unavailable', error?.name || 'error');
+  } finally {
+    try { peer?.close(); } catch {}
+  }
+  return {
+    type: 'viewer_codec_probe',
+    receive_av1: receive.has('video/av1'),
+    send_av1: send.has('video/av1'),
+    sdp_av1: sdpCodecs.includes('av1'),
+    sdp_codecs: sdpCodecs,
+    sdp_probe_ok: probeOk,
+    native_host: Boolean(window.hi5?.onConnect),
+    embedded: window.self !== window.top,
+    standalone: Boolean(window.matchMedia?.('(display-mode: standalone)')?.matches),
+  };
 }
 
 function connectViewerSignaling(reason = 'initial') {
@@ -5092,6 +5189,12 @@ function connectViewerSignaling(reason = 'initial') {
     if (ws !== socket) return;
     setStatus('', mobileRecoveryAttempts ? 'Reconnecting…' : 'Connected');
     setMobileRecoveryStage(mobileRecoveryAttempts ? 'Signaling restored' : 'Idle');
+    // Best-effort, non-blocking SDP capability check on the authenticated
+    // socket. This never modifies offer/answer, stream codec, or startup timing.
+    void inspectActualViewerCodecOffer().then(report => {
+      if (ws !== socket || socket.readyState !== WebSocket.OPEN || !currentSession) return;
+      socket.send(JSON.stringify({ ...report, session_id: currentSession.sessionId }));
+    }).catch(() => {});
     if (mobileRecoveryAttempts > 0) {
       const attempt = mobileRecoveryAttempts;
       window.setTimeout(() => {
@@ -5285,7 +5388,22 @@ function startSession(params) {
 
   mobileReconnectDeadline = 0;
   mobileRecoveryAttempts = 0;
-  connectViewerSignaling('initial');
+  preconnectAv1SdpProof = null;
+  const launchedSession = currentSession;
+  // Pre-SDP capability proof must be ready before the authenticated socket
+  // triggers Agent start_webrtc. Bound the wait to preserve fast connection.
+  const proof = inspectActualViewerCodecOffer().catch(() => null);
+  const maxWait = new Promise(resolve => window.setTimeout(() => resolve(null), 350));
+  void Promise.race([proof, maxWait]).then(result => {
+    if (currentSession !== launchedSession) return;
+    preconnectAv1SdpProof = result;
+    console.log('[codec] bounded preconnect receive-only SDP proof', {
+      av1: result?.sdp_probe_ok === true && result?.sdp_av1 === true,
+      receiveAv1: result?.receive_av1 === true,
+      verified: result?.sdp_probe_ok === true,
+    });
+    connectViewerSignaling('initial');
+  });
 }
 
 
