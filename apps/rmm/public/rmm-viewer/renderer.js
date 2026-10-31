@@ -5058,8 +5058,16 @@ function universalBrowserCodecQuery() {
     if (typeof RTCRtpReceiver === 'undefined' ||
         typeof RTCRtpReceiver.getCapabilities !== 'function') return '';
     const offered = RTCRtpReceiver.getCapabilities('video')?.codecs || [];
-    const codecs = ['vp8', 'vp9', 'h264'].filter(codec =>
-      offered.some(c => String(c.mimeType || '').toLowerCase() === 'video/' + codec));
+    // Advertise all five actual *receiver* MIME types, never playback-only
+    // support or untested sender capability. HEVC can be video/H265 or HEVC;
+    // normalise to h265 on the signalling wire. The Agent still gates AV1
+    // and H265 until production RTP senders have passed live qualification.
+    const available = new Set(offered.map(c =>
+      String(c.mimeType || '').trim().toLowerCase()));
+    const codecs = ['vp8', 'vp9', 'h264', 'av1'].filter(codec =>
+      available.has('video/' + codec));
+    if (available.has('video/h265') || available.has('video/hevc'))
+      codecs.push('h265');
     if (!codecs.length) return '';
     const level4 = offered.some(c => {
       if (String(c.mimeType || '').toLowerCase() !== 'video/h264') return false;
