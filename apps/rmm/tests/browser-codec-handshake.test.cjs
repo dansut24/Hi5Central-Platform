@@ -23,16 +23,16 @@ test('old Safari with no receiver capability API preserves legacy handshake', ()
   assert.equal(query(null), '')
 })
 
-test('browser sends only real decoding capabilities, not newer unimplemented codecs', () => {
+test('browser advertises only actual receiver codecs, including AV1 when supported', () => {
   const result = query([
     {mimeType:'video/VP8'},
     {mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'},
     {mimeType:'video/AV1'}
   ])
   assert.match(result, /codec_caps_v1=1/)
-  assert.match(result, /video_codecs=vp8%2Ch264/)
+  assert.match(result, /video_codecs=vp8%2Ch264%2Cav1/)
   assert.match(result, /h264_level4=0/)
-  assert.doesNotMatch(result, /av1/)
+  assert.doesNotMatch(result, /h265/)
 })
 
 test('H264 level 4 only when an actual advertised receive profile supports it', () => {
@@ -43,4 +43,10 @@ test('H264 level 4 only when an actual advertised receive profile supports it', 
 
 test('a codec-free browser does not assert support', () => {
   assert.equal(query([{mimeType:'video/rtx'}]), '')
+})
+
+test('HEVC support is never inferred; it requires the browser to advertise an HEVC decoder', () => {
+  assert.match(query([{mimeType:'video/H265'}]),/video_codecs=h265/)
+  assert.match(query([{mimeType:'video/HEVC'}]),/video_codecs=h265/)
+  assert.equal(query([{mimeType:'video/rtx'}, {mimeType:'video/unsupported'}]),'')
 })
