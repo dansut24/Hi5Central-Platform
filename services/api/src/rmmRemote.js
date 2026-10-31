@@ -39,6 +39,7 @@ let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
   'webrtc_answer', 'answer', 'ice_candidate',
+  'viewer_codec_probe',
   // Authenticated Viewer reports real decoded frames/keyframe recovery.
   'viewer_codec_observation',
   'switch_monitor', 'input_event',
@@ -987,6 +988,26 @@ export function attachRmmViewerWebSocket(server) {
       try { payload = JSON.parse(text) } catch { return }
       const type = clean(payload?.type)
       if (!VIEWER_MESSAGE_TYPES.has(type)) return
+      if (type === 'viewer_codec_probe') {
+        // Log ONLY bounded codec names and booleans, never URL, token, SDP,
+        // user agent or device identity. Do not forward this diagnostic to Agent.
+        const allow = new Set(['vp8','vp9','h264','h265','hevc','av1'])
+        const sdpCodecs = Array.isArray(payload.sdp_codecs)
+          ? [...new Set(payload.sdp_codecs.filter(c => typeof c === 'string' && allow.has(c)))].slice(0, 6)
+          : []
+        console.info('[rmm.viewer.sdp_codec_probe]', JSON.stringify({
+          session_id: sessionId,
+          receive_av1: payload.receive_av1 === true,
+          send_av1: payload.send_av1 === true,
+          sdp_av1: payload.sdp_av1 === true && sdpCodecs.includes('av1'),
+          sdp_codecs: sdpCodecs,
+          probe_ok: payload.sdp_probe_ok === true,
+          native_host: payload.native_host === true,
+          embedded: payload.embedded === true,
+          standalone: payload.standalone === true,
+        }))
+        return
+      }
       if (['viewer_disconnected','viewer_closed','viewer_left','end_session','stop_webrtc'].includes(type)) explicitViewerClose = true
       if (remote.mode !== 'backstage' && (type === 'backstage_start' || type === 'backstage_stop')) {
         safeSend(viewerWs, { type: 'viewer_error', session_id: sessionId, error: 'Background mode is not authorised for this remote session.' })
