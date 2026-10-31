@@ -177,6 +177,7 @@ let lastFramesDecoded = 0;
 let lastNativeCodecProofAt = 0;
 let lastNativeCodecFailureAt = 0;
 let nativeOfferedPrimaryCodec = '';
+let codecOfferedAtMs = 0;
 let passiveOverlayActive = false;
 let secureDesktopLikely = false;
 let secureDesktopActive = false;
@@ -1044,12 +1045,31 @@ function requestRemoteKeyframe(reason = "frame-continuity") {
   return true;
 }
 
+// Only retry a codec if RTP is actively arriving but no decoded frame has
+// *ever* rendered for the current SDP. A quiet desktop, slow ICE setup, a
+// disconnected network or a user/UAC desktop handoff must not demote a codec.
+function shouldTriggerCodecDecoderFallback({
+  codec, offeredAtMs, lastPacketAtMs, nowMs, rendered, connected
+}) {
+  return Boolean(codec && connected && !rendered &&
+    offeredAtMs > 0 && nowMs - offeredAtMs >= 12000 &&
+    lastPacketAtMs > offeredAtMs &&
+    nowMs - lastPacketAtMs <= 3000);
+}
+
 function startTransitionWatchdog() {
   if (transitionWatchdogTimer) return;
 
   transitionWatchdogTimer = setInterval(() => {
     if (!pc || pc.connectionState !== "connected") return;
-    if (!hasEverRenderedFrame) return;
+    if (!hasEverRenderedFrame) {
+      if (shouldTriggerCodecDecoderFallback({
+        codec: nativeOfferedPrimaryCodec, offeredAtMs: codecOfferedAtMs,
+        lastPacketAtMs: lastMediaPacketAtMs, nowMs: Date.now(),
+        rendered: hasEverRenderedFrame, connected: pc.connectionState === 'connected'
+      })) scheduleViewerReconnect('media-negotiation-timeout');
+      return;
+    }
 
     const now = Date.now();
 
@@ -2763,6 +2783,7 @@ async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
   nativeOfferedPrimaryCodec = nativeOfferedVideoCodec(offerSdp);
+  codecOfferedAtMs = Date.now();
 
   if (typeof RTCPeerConnection !== "function") {
     const detail = "RTCPeerConnection is unavailable in this Viewer runtime.";

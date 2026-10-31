@@ -129,6 +129,7 @@ let pendingRemoteIce = [];
 let statsTimer = null;
 let lastUniversalDecoderProofMs = 0;
 let offeredPrimaryCodec = '';
+let codecOfferedAtMs = 0;
 let lastCodecFailureAtMs = 0;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
@@ -2499,6 +2500,18 @@ function stopStatsPoll() {
   lastFramesDecoded = 0;
 }
 
+// Only retry a codec if RTP is actively arriving but no decoded frame has
+// *ever* rendered for the current SDP. A quiet desktop, slow ICE setup, a
+// disconnected network or a user/UAC desktop handoff must not demote a codec.
+function shouldTriggerCodecDecoderFallback({
+  codec, offeredAtMs, lastPacketAtMs, nowMs, rendered, connected
+}) {
+  return Boolean(codec && connected && !rendered &&
+    offeredAtMs > 0 && nowMs - offeredAtMs >= 12000 &&
+    lastPacketAtMs > offeredAtMs &&
+    nowMs - lastPacketAtMs <= 3000);
+}
+
 function startTransitionWatchdog() {
   if (transitionWatchdogTimer) return;
 
@@ -2508,6 +2521,16 @@ function startTransitionWatchdog() {
     const now = Date.now();
 
     if (!hasEverRenderedFrame) {
+      // More reliable than repeatedly requesting IDRs while the browser is
+      // receiving RTP that it cannot actually decode.
+      if (shouldTriggerCodecDecoderFallback({
+        codec: offeredPrimaryCodec, offeredAtMs: codecOfferedAtMs,
+        lastPacketAtMs: lastMediaPacketAtMs, nowMs: now,
+        rendered: hasEverRenderedFrame, connected: pc.connectionState === 'connected'
+      })) {
+        scheduleMobileSessionReconnect('media-negotiation-timeout');
+        return;
+      }
       // Allow the first WebRTC decode/IDR to complete before recovery.
       if (lastFrameAtMs && now - lastFrameAtMs >= 2000) {
         requestRemoteKeyframe("initial-frame-timeout");
@@ -4274,6 +4297,7 @@ async function handleOffer(msg) {
   const offerSdp = msg?.sdp;
   if (!offerSdp) return;
   offeredPrimaryCodec = offeredPrimaryVideoCodec(offerSdp);
+  codecOfferedAtMs = Date.now();
 
   if (pc) teardownPeerForReconnect();
   mobileEndpointRestartUntil = 0;

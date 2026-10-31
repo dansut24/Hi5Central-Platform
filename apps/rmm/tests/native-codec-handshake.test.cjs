@@ -44,3 +44,22 @@ test('native renderer includes verified decode and bounded packet metrics',()=>{
  assert.match(source,/packet_loss_rate: packetSampleCount>0/)
  assert.match(source,/packets_sampled: packetSampleCount/)
 })
+
+
+test('12-second first-frame codec failure requires active RTP, not idle or network stall', () => {
+  const start=source.indexOf('function shouldTriggerCodecDecoderFallback({')
+  const end=source.indexOf('function startTransitionWatchdog()',start)
+  assert.ok(start>=0 && end>start)
+  const sandbox={}
+  vm.runInNewContext(source.slice(start,end),sandbox)
+  const check=sandbox.shouldTriggerCodecDecoderFallback
+  const good={codec:'av1',offeredAtMs:1000,lastPacketAtMs:12900,
+    nowMs:13000,rendered:false,connected:true}
+  assert.equal(check(good),true)
+  assert.equal(check({...good,codec:''}),false)
+  assert.equal(check({...good,rendered:true}),false)
+  assert.equal(check({...good,connected:false}),false)
+  assert.equal(check({...good,lastPacketAtMs:0}),false)
+  assert.equal(check({...good,lastPacketAtMs:3000}),false)
+  assert.equal(check({...good,nowMs:7000,lastPacketAtMs:6900}),false)
+})
