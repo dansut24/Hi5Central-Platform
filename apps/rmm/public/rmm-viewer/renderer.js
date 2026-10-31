@@ -3329,7 +3329,12 @@ async function pollStatsOnce() {
         // no RTP transport from received-but-undecodable AV1 packets.
         packets_received: Math.max(0, Number(packetsReceived) || 0),
         bytes_received: Math.max(0, Number(inbound?.bytesReceived) || 0),
+        frames_received: Math.max(0, Number(inbound?.framesReceived) || 0),
+        frames_assembled: Math.max(0, Number(inbound?.framesAssembledFromMultiplePackets) || 0),
         frames_decoded: Math.max(0, Number(framesDecoded) || 0),
+        frames_dropped: Math.max(0, Number(inbound?.framesDropped) || 0),
+        frames_rendered: Math.max(0, Number(inbound?.framesRendered) || 0),
+        codec_pt: Math.max(0, Math.min(127, Number(stats.get(inbound?.codecId)?.payloadType) || 0)),
         keyframes_decoded: Math.max(0, Number(inbound?.keyFramesDecoded) || 0)
       }));
     } catch {}
