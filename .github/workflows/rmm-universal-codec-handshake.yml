@@ -7,6 +7,8 @@ on:
       - 'services/api/test/rmmCodecNegotiation.test.js'
       - 'apps/rmm/public/rmm-viewer/renderer.js'
       - 'apps/rmm/tests/browser-codec-handshake.test.cjs'
+      - 'apps/rmm/tests/native-codec-handshake.test.cjs'
+      - 'native/viewer/web/renderer.js'
       - '.github/workflows/rmm-universal-codec-handshake.yml'
   workflow_dispatch:
 permissions:
@@ -24,5 +26,6 @@ jobs:
           node --check services/api/src/rmmRemote.js
           node --check services/api/src/rmmCodecNegotiation.js
           node --check apps/rmm/public/rmm-viewer/renderer.js
+          node --check native/viewer/web/renderer.js
       - name: Test authenticated Viewer codec protocol
-        run: node --test services/api/test/rmmCodecNegotiation.test.js apps/rmm/tests/browser-codec-handshake.test.cjs
+        run: node --test services/api/test/rmmCodecNegotiation.test.js apps/rmm/tests/browser-codec-handshake.test.cjs apps/rmm/tests/native-codec-handshake.test.cjs
