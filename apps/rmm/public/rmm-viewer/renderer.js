@@ -129,6 +129,9 @@ let pendingRemoteIce = [];
 let statsTimer = null;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+// Authenticated on-session capture status from the Agent's WebRTC control
+// channel. An empty inbound RTP interval alone cannot prove the screen idle.
+let agentCaptureStatus = { mode: null, atMs: 0 };
 let wakeLockSentinel = null;
 let wakeLockRequested = false;
 let mobileRecoveryStage = 'Idle';
@@ -2493,6 +2496,7 @@ function stopStatsPoll() {
     transitionWatchdogTimer = null;
   }
   lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+  agentCaptureStatus = { mode: null, atMs: 0 };
   lastFramesDecoded = 0;
 }
 
@@ -2712,6 +2716,13 @@ async function handleViewerControlMessage(raw) {
   let msg = null;
   try { msg = typeof raw === 'string' ? JSON.parse(raw) : JSON.parse(new TextDecoder().decode(raw)); } catch { return; }
   if (!msg || typeof msg !== 'object') return;
+  if (msg.type === 'stream_capture_status') {
+    const mode = String(msg.mode || '');
+    if (['idle', 'active', 'motion'].includes(mode) && currentSession) {
+      agentCaptureStatus = { mode, atMs: Date.now() };
+    }
+    return;
+  }
   if (msg.type === 'clipboard_result') {
     mobileClipboardRequestPending = false;
     const text = String(msg.text || '');
@@ -3288,7 +3299,20 @@ async function pollStatsOnce() {
 
   const state = pc.connectionState || pc.iceConnectionState || "—";
   const brStr  = fmtKbps(bitrateKbps);
-  const fpsStr = isFinite(fps) ? `${Math.round(fps)} fps` : "— fps";
+  // Only label zero decoded FPS as idle when the *Agent itself* recently
+  // reported idle over authenticated WebRTC, no new RTP was received, no loss
+  // increased, and a frame was rendered in this connected session.
+  // Real decode/network stalls continue to say "0 fps".
+  const confirmedIdle =
+    state === 'connected' &&
+    agentCaptureStatus.mode === 'idle' &&
+    nowMs - agentCaptureStatus.atMs >= 0 &&
+    nowMs - agentCaptureStatus.atMs <= 11000 &&
+    Number.isFinite(fps) && fps < 0.5 &&
+    framesDecoded > 0 &&
+    packetSampleCount === 0 && packetsLostDelta === 0;
+  const fpsStr = confirmedIdle ? 'Idle' :
+    (isFinite(fps) ? `${Math.round(fps)} fps` : '— fps');
   const frmStr = (framesDecoded != null) ? `frames ${framesDecoded}` : "frames —";
   const lossStr = (packetsLost != null) ? `lost ${packetsLost}` : "lost —";
   const rttStr = (rttMs != null) ? `rtt ${rttMs}ms` : "rtt —";
