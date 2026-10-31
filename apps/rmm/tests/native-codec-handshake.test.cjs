@@ -63,3 +63,10 @@ test('12-second first-frame codec failure requires active RTP, not idle or netwo
   assert.equal(check({...good,lastPacketAtMs:3000}),false)
   assert.equal(check({...good,nowMs:7000,lastPacketAtMs:6900}),false)
 })
+
+test('reconnect timeout cannot quarantine a codec without the real RTP decode failure predicate',()=>{
+  const match=source.match(/if\s*\(reason\s*===?\s*'media-negotiation-timeout'[\s\S]{0,450}/)
+  assert.ok(match,'codec failure report guard must exist')
+  assert.match(match[0],/shouldTriggerCodecDecoderFallback/)
+  assert.match(source,/lastPacketAtMs:\s*lastMediaPacketAtMs/)
+})

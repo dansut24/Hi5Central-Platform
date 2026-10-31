@@ -3452,9 +3452,13 @@ function scheduleViewerReconnect(reason = 'network-recovery', { closeSocket = tr
   if (viewerReconnectTimer) return true;
   // Only a codec-specific first-frame timeout; no poisoning after real video
   // or for an unrelated ICE/network failure or secure desktop transition.
-  if(reason==='media-negotiation-timeout'&&!hasEverRenderedFrame&&
-      nativeOfferedPrimaryCodec&&ws?.readyState===WebSocket.OPEN&&
-      now-lastNativeCodecFailureAt>=5000){
+  if(reason==='media-negotiation-timeout'&&
+      ws?.readyState===WebSocket.OPEN&&now-lastNativeCodecFailureAt>=5000&&
+      shouldTriggerCodecDecoderFallback({
+        codec:nativeOfferedPrimaryCodec,offeredAtMs:codecOfferedAtMs,
+        lastPacketAtMs:lastMediaPacketAtMs,nowMs:now,
+        rendered:hasEverRenderedFrame,connected:pc?.connectionState==='connected'
+      })){
     try{
       ws.send(JSON.stringify({type:'viewer_codec_failure',
         session_id:currentSession.sessionId,codec:nativeOfferedPrimaryCodec,

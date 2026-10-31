@@ -5242,9 +5242,14 @@ function scheduleMobileSessionReconnect(reason = 'network-recovery', { closeSock
   // demote an automatic codec. ICE disconnection, inactivity, secure-desktop
   // transitions and ordinary frame stalls are NOT codec failures.
   if (reason === 'media-negotiation-timeout' &&
-      !hasEverRenderedFrame && offeredPrimaryCodec &&
       ws?.readyState === WebSocket.OPEN &&
-      now - lastCodecFailureAtMs >= 5000) {
+      now - lastCodecFailureAtMs >= 5000 &&
+      shouldTriggerCodecDecoderFallback({
+        codec: offeredPrimaryCodec, offeredAtMs: codecOfferedAtMs,
+        lastPacketAtMs: lastMediaPacketAtMs, nowMs: now,
+        rendered: hasEverRenderedFrame,
+        connected: pc?.connectionState === 'connected'
+      })) {
     try {
       ws.send(JSON.stringify({
         type: 'viewer_codec_failure',
