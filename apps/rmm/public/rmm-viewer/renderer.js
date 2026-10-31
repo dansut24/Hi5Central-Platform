@@ -3323,7 +3323,14 @@ async function pollStatsOnce() {
         bitrate_kbps: Number.isFinite(bitrateKbps) ? bitrateKbps : 0,
         fps: Number.isFinite(fps) ? fps : 0,
         packets_lost: packetsLost ?? 0,
-        packet_loss_rate: lossRate
+        packet_loss_rate: lossRate,
+        // Read-only counters from the actual Safari inbound RTP receiver.
+        // The Agent logs these at most every ten seconds. Distinguish
+        // no RTP transport from received-but-undecodable AV1 packets.
+        packets_received: Math.max(0, Number(packetsReceived) || 0),
+        bytes_received: Math.max(0, Number(inbound?.bytesReceived) || 0),
+        frames_decoded: Math.max(0, Number(framesDecoded) || 0),
+        keyframes_decoded: Math.max(0, Number(inbound?.keyFramesDecoded) || 0)
       }));
     } catch {}
   }
