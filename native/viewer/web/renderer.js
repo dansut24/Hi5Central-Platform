@@ -138,6 +138,8 @@ let viewerFatalTransportError = false;
 let statsTimer = null;
 let transitionWatchdogTimer = null;
 let lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+// A zero-FPS browser sample is not sufficient evidence that the Agent is idle.
+let agentCaptureStatus = { mode: null, atMs: 0 };
 // Text clarity is more important than reacting to a jitter-buffer spike.
 // Ordinary adaptation changes bitrate/FPS, not desktop pixel resolution.
 const DESKTOP_ADAPTIVE_TIERS = [
@@ -1029,6 +1031,7 @@ function stopStatsPoll() {
     transitionWatchdogTimer = null;
   }
   lastStats = { tsMs: 0, bytes: 0, frames: 0, packetsLost: 0, packetsReceived: 0, jitterDelay: 0, jitterEmitted: 0 };
+  agentCaptureStatus = { mode: null, atMs: 0 };
   lastFramesDecoded = 0;
 }
 
@@ -1959,7 +1962,17 @@ async function pollStatsOnce() {
 
   const state = pc.connectionState || pc.iceConnectionState || "—";
   const brStr  = fmtKbps(bitrateKbps);
-  const fpsStr = isFinite(fps) ? `${Math.round(fps)} fps` : "— fps";
+  // Idle must be corroborated by a fresh, authenticated RTC status from the
+  // Agent, a connected transport and no inbound RTP/packet loss in the sample.
+  // Otherwise preserve the visible 0 fps signal for real faults.
+  const confirmedIdle = state === "connected" &&
+    agentCaptureStatus.mode === "idle" &&
+    nowMs - agentCaptureStatus.atMs >= 0 &&
+    nowMs - agentCaptureStatus.atMs <= 11000 &&
+    Number.isFinite(fps) && fps < 0.5 &&
+    framesDecoded > 0 && packetSampleCount === 0 && packetsLostDelta === 0;
+  const fpsStr = confirmedIdle ? "Idle" :
+    (isFinite(fps) ? `${Math.round(fps)} fps` : "— fps");
   const frmStr = (framesDecoded != null) ? `frames ${framesDecoded}` : "frames —";
   const lossStr = (packetsLost != null) ? `lost ${packetsLost}` : "lost —";
   const rttStr = (rttMs != null) ? `rtt ${rttMs}ms` : "rtt —";
@@ -2624,6 +2637,13 @@ function handleAgentControlData(raw) {
   if (typeof raw !== "string") return;
   try {
     const msg = JSON.parse(raw);
+    if (msg?.type === "stream_capture_status") {
+      const mode = String(msg.mode || "");
+      if (["idle", "active", "motion"].includes(mode) && currentSession) {
+        agentCaptureStatus = { mode, atMs: Date.now() };
+      }
+      return;
+    }
     if (msg?.type === "dev_codec_switch_result") {
       handleDevCodecSwitchResult(msg);
       return;
