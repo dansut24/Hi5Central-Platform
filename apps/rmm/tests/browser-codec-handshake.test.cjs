@@ -5,16 +5,17 @@ const vm = require('node:vm')
 const path = require('node:path')
 
 const source = fs.readFileSync(path.join(__dirname, '../public/rmm-viewer/renderer.js'), 'utf8')
-const start = source.indexOf('function universalBrowserCodecQuery() {')
+const start = source.indexOf('function universalBrowserCodecQuery(')
 const end = source.indexOf("\nfunction connectViewerSignaling(reason = 'initial') {", start)
 assert.ok(start > 0 && end > start, 'capability query must precede socket creation')
 const querySource = source.slice(start, end)
 assert.match(source.slice(end, end + 800), /universalBrowserCodecQuery\(\)/)
 assert.match(source, /type: 'viewer_codec_observation'/)
 
-function query(codecs) {
+function query(codecs, proof = null) {
   const sandbox = { RTCRtpReceiver: codecs === null ? undefined :
-    { getCapabilities: () => ({ codecs }) }, encodeURIComponent }
+    { getCapabilities: () => ({ codecs }) }, encodeURIComponent,
+    preconnectAv1SdpProof: proof }
   vm.runInNewContext(querySource, sandbox)
   return sandbox.universalBrowserCodecQuery()
 }
@@ -54,4 +55,11 @@ test('H264 level 4 only when an actual advertised receive profile supports it', 
 
 test('a codec-free browser does not assert support', () => {
   assert.equal(query([{mimeType:'video/rtx'}]), '')
+})
+
+test('AV1 SDP proof is session-local, verified and fail-closed', () => {
+  const caps = [{ mimeType: 'video/vp8' }]
+  assert.doesNotMatch(query(caps, { sdp_probe_ok: false, sdp_av1: true, sdp_codecs: ['av1'] }), /av1/)
+  assert.doesNotMatch(query(caps, { sdp_probe_ok: true, sdp_av1: true, sdp_codecs: ['h264'] }), /av1/)
+  assert.match(query(caps, { sdp_probe_ok: true, sdp_av1: true, sdp_codecs: ['av1'] }), /video_codecs=vp8%2Cav1/)
 })
