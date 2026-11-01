@@ -564,6 +564,11 @@
     #mobile-quality-indicator[data-quality="poor"], #mobile-quality-indicator[data-quality="reconnecting"] { border-color:rgba(251,191,36,.65); }
     #mobile-quality-indicator::before, #mobile-toolbar-handle::before { content:''; position:absolute; inset:-8px; border-radius:inherit; }
     #mobile-diagnostics-card { display:none; }
+    /* Keep detailed ICE/RTP engineering telemetry available on explicit
+       ?diagnostics=1 support sessions, not in the production settings UI. */
+    .diagnostics-only { display:none !important; }
+    html[data-viewer-diagnostics="on"] .diagnostics-only { display:block !important; }
+    .settings-hint { font-size:11px; line-height:1.45; opacity:.68; margin:6px 0 0; }
     #mobile-diagnostics-card.visible { display:block; }
 
     #mobile-precision-loupe {
@@ -996,7 +1001,7 @@
     <button id="btn-start-menu" class="icon-btn" disabled title="Start Menu" aria-label="Start Menu">⊞<span class="label">Start</span></button>
     <button id="btn-cad" class="icon-btn" disabled title="Ctrl+Alt+Del" aria-label="Ctrl+Alt+Del">⌘<span class="label">CAD</span></button>
     <button id="btn-monitor" disabled title="Monitors" aria-label="Monitors">Monitors</button>
-    <button id="btn-settings" class="icon-btn" title="About and diagnostics" aria-label="About and diagnostics">⚙<span class="label">Settings</span></button>
+    <button id="btn-settings" class="icon-btn" title="Viewer settings" aria-label="Viewer settings">⚙<span class="label">Settings</span></button>
     <div id="monitor-menu"></div>
   </div>
 
@@ -1056,9 +1061,9 @@
     </div>
   </div>
 
-  <div id="settings-panel" class="settings-popout" role="dialog" aria-modal="false" aria-label="About and diagnostics">
+  <div id="settings-panel" class="settings-popout" role="dialog" aria-modal="false" aria-label="Viewer settings">
     <div class="panel-head">
-      <span>About & diagnostics</span>
+      <span>Viewer settings</span>
       <button id="settings-close" class="panel-close" title="Close" aria-label="Close settings">×</button>
     </div>
     <div class="settings-body">
@@ -1080,6 +1085,15 @@
             <option value="720p">720p (performance)</option>
           </select>
         </div>
+        <div class="settings-control">
+          <label for="hardware-acceleration-pref">Hardware acceleration</label>
+          <select id="hardware-acceleration-pref" class="settings-select">
+            <option value="auto">Automatic (recommended)</option>
+            <option value="on">Prefer GPU encoding</option>
+            <option value="off">Software encoding only</option>
+          </select>
+        </div>
+        <p class="settings-hint">Applies to the next connection. Uses qualified codecs supported by both devices; GPU support is not guaranteed.</p>
         <div class="settings-control mobile-only-setting">
           <label for="mobile-input-pref">Mobile input</label>
           <select id="mobile-input-pref" class="settings-select">
@@ -1109,8 +1123,8 @@
         <div class="diag-row"><span>Codec</span><span id="stat-codec">VP8</span></div>
         <div class="diag-row"><span>State</span><span id="stat-state">—</span></div>
       </div>
-      <div class="settings-card">
-        <h3>WebRTC</h3>
+      <div class="settings-card diagnostics-only">
+        <h3>Technical diagnostics</h3>
         <div class="diag-row"><span>ICE state</span><span id="diag-ice-state">—</span></div>
         <div class="diag-row"><span>Connection state</span><span id="diag-connection-state">—</span></div>
         <div class="diag-row"><span>Candidate pair</span><span id="diag-candidate-pair">—</span></div>
@@ -1130,11 +1144,7 @@
         <div class="diag-row"><span>Selected monitor</span><span id="diag-mobile-monitor">—</span></div>
         <div class="diag-row"><span>Wake lock</span><span id="diag-mobile-wakelock">—</span></div>
       </div>
-      <div class="settings-card">
-        <h3>Hi5Central Viewer</h3>
-        <div class="diag-row"><span>Build</span><span>Development</span></div>
-        <div class="diag-row"><span>Mode</span><span>WebRTC VP8</span></div>
-      </div>
+ 
     </div>
   </div>
 
