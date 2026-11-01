@@ -5,16 +5,21 @@ const vm = require('node:vm')
 const path = require('node:path')
 
 const source = fs.readFileSync(path.join(__dirname, '../public/rmm-viewer/renderer.js'), 'utf8')
-const start = source.indexOf('function universalBrowserCodecQuery() {')
-const end = source.indexOf("\nfunction connectViewerSignaling(reason = 'initial') {", start)
-assert.ok(start > 0 && end > start, 'capability query must precede socket creation')
+// The live Viewer now accepts a validated one-shot AV1 preconnect SDP
+// proof. Keep this test aligned with the production-preserved function.
+const start = source.indexOf('function universalBrowserCodecQuery(')
+const end = source.indexOf('\nasync function inspectActualViewerCodecOffer()', start)
+const connectAt = source.indexOf("\nfunction connectViewerSignaling(reason = 'initial') {", end)
+assert.ok(start > 0 && end > start && connectAt > end,
+  'capability query must precede socket creation')
 const querySource = source.slice(start, end)
-assert.match(source.slice(end, end + 800), /universalBrowserCodecQuery\(\)/)
+assert.match(source.slice(connectAt, connectAt + 1000), /universalBrowserCodecQuery\(\)/)
 assert.match(source, /type: 'viewer_codec_observation'/)
 
 function query(codecs) {
   const sandbox = { RTCRtpReceiver: codecs === null ? undefined :
-    { getCapabilities: () => ({ codecs }) }, encodeURIComponent }
+    { getCapabilities: () => ({ codecs }) }, encodeURIComponent,
+    preconnectAv1SdpProof: null }
   vm.runInNewContext(querySource, sandbox)
   return sandbox.universalBrowserCodecQuery()
 }
@@ -52,27 +57,103 @@ test('HEVC support is never inferred; it requires the browser to advertise an HE
 })
 
 
-test('12-second first-frame codec failure requires active RTP, not idle or network stall', () => {
-  const start=source.indexOf('function shouldTriggerCodecDecoderFallback({')
-  const end=source.indexOf('function startTransitionWatchdog()',start)
-  assert.ok(start>=0 && end>start)
-  const sandbox={}
-  vm.runInNewContext(source.slice(start,end),sandbox)
-  const check=sandbox.shouldTriggerCodecDecoderFallback
-  const good={codec:'av1',offeredAtMs:1000,lastPacketAtMs:12900,
-    nowMs:13000,rendered:false,connected:true}
-  assert.equal(check(good),true)
-  assert.equal(check({...good,codec:''}),false)
-  assert.equal(check({...good,rendered:true}),false)
-  assert.equal(check({...good,connected:false}),false)
-  assert.equal(check({...good,lastPacketAtMs:0}),false)
-  assert.equal(check({...good,lastPacketAtMs:3000}),false)
-  assert.equal(check({...good,nowMs:7000,lastPacketAtMs:6900}),false)
+test('production Viewer avoids false idle-screen freeze recovery', () => {
+  const begin = source.indexOf('function startTransitionWatchdog()')
+  const end = source.indexOf('function requestRemoteKeyframe(', begin)
+  assert.ok(begin > 0 && end > begin)
+  const watchdog = source.slice(begin, end)
+  // A stopped cursor or unchanged static screen is not decoder failure.
+  assert.match(watchdog, /const actionableStall = stalledFor > FRAME_STALL_MS/)
+  assert.match(watchdog, /lastVisualActionAtMs > lastFrameAtMs/)
+  assert.match(watchdog, /lastMediaPacketAtMs > lastFrameAtMs/)
+  assert.match(watchdog, /requestRemoteKeyframe\("actionable-decoded-frame-stall"\)/)
+  assert.doesNotMatch(watchdog, /viewer_codec_failure/)
 })
 
-test('reconnect timeout cannot quarantine a codec without the real RTP decode failure predicate',()=>{
-  const match=source.match(/if\s*\(reason\s*===?\s*'media-negotiation-timeout'[\s\S]{0,450}/)
-  assert.ok(match,'codec failure report guard must exist')
-  assert.match(match[0],/shouldTriggerCodecDecoderFallback/)
-  assert.match(source,/lastPacketAtMs:\s*lastMediaPacketAtMs/)
+test('production AV1 receive-only SDP proof is session-local and requires success', () => {
+  // Preserve the working live SDP guard, which replaced the obsolete 12s
+  // codec-quarantine helper from the older Viewer implementation.
+  const offered = query([{mimeType:'video/vp8'}])
+  assert.doesNotMatch(offered, /av1/)
+  const sandbox = {
+    RTCRtpReceiver: { getCapabilities: () => ({ codecs: [{mimeType:'video/vp8'}] }) },
+    encodeURIComponent, preconnectAv1SdpProof: null
+  }
+  vm.runInNewContext(querySource, sandbox)
+  const accepted=sandbox.universalBrowserCodecQuery({
+    sdp_probe_ok:true, sdp_av1:true, sdp_codecs:['vp8','av1']
+  })
+  assert.match(accepted,/video_codecs=vp8%2Cav1/)
+  const rejected=sandbox.universalBrowserCodecQuery({
+    sdp_probe_ok:false, sdp_av1:true, sdp_codecs:['av1']
+  })
+  assert.doesNotMatch(rejected,/av1/)
+})
+
+test('decoder fallback is only real inbound RTP without decode, not idle or network loss', () => {
+ const begin=source.indexOf('function shouldTriggerCodecDecoderFallback({')
+ const end=source.indexOf('\nfunction logSdpCodecSummary(',begin)
+ assert.ok(begin>0 && end>begin)
+ const context={}
+ vm.runInNewContext(source.slice(begin,end),context)
+ const check=context.shouldTriggerCodecDecoderFallback
+ const b={codec:'h265',offeredAtMs:1000,lastDecodeAtMs:1000,packetsSinceDecode:250,
+   lastPacketAtMs:14000,nowMs:15000,connected:true,hidden:false,
+   desktopTransition:false,reported:false,decodedAny:false,lastVisualActionAtMs:0}
+ assert.equal(check(b),true)
+ assert.equal(check({...b,codec:'vp8'}),false)
+ assert.equal(check({...b,codec:'av1'}),true)
+ assert.equal(check({...b,packetsSinceDecode:150}),false)
+ assert.equal(check({...b,lastPacketAtMs:10000}),false)
+ assert.equal(check({...b,nowMs:11000,lastPacketAtMs:10500}),false)
+ assert.equal(check({...b,connected:false}),false)
+ assert.equal(check({...b,hidden:true}),false)
+ assert.equal(check({...b,desktopTransition:true}),false)
+ assert.equal(check({...b,reported:true}),false)
+ assert.equal(check({...b,decodedAny:true}),false)
+ assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:13500}),true)
+ assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:9000}),false)
+})
+
+
+test('engineering failure test is canary-gated, deliberate and one-shot', () => {
+  const markup = fs.readFileSync(path.join(__dirname, '../public/rmm-viewer/index.html'), 'utf8')
+  assert.match(markup, /id="codec-recovery-test"/)
+  assert.match(markup, /id="codec-recovery-test-panel"/)
+  assert.ok(markup.indexOf('id="codec-recovery-test-panel"') < markup.indexOf('Technical diagnostics'), 'test must be in the ordinary Session settings card')
+  assert.match(source, /const enabled = currentSession\?\.codecRecoveryEnabled === true/)
+  assert.doesNotMatch(source, /const engineering = document\.documentElement\.dataset\.viewerDiagnostics/)
+  assert.match(source, /codecRecoveryTestRequested = true/)
+  assert.match(source, /proof\.lastDecodedFrames < 10/)
+  assert.match(source, /codecRecoveryTestRequested = true/)
+  assert.match(source, /type: 'viewer_codec_failure'/)
+  assert.match(source, /reason: 'decode-unavailable'/)
+  assert.match(source, /Passed: VP8 decoded after an H\.265 retry/)
+})
+
+test('canary recovery caps software VP8 only after a negotiated retry', () => {
+  const begin = source.indexOf('function recoverySafeStreamProfile(')
+  const end = source.indexOf('\nfunction sendViewerStreamProfile(', begin)
+  assert.ok(begin > 0 && end > begin)
+  const context = {}
+  vm.runInNewContext(source.slice(begin, end), context)
+  const profile = { preference: 'native', max_width: 0, max_height: 0,
+    target_fps: 30, target_bitrate_kbps: 6000 }
+  const check = context.recoverySafeStreamProfile
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, false, 'vp8'))), profile)
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'h265'))), profile)
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'vp8'))),
+    { preference: '1080p', max_width: 1920, max_height: 1080,
+      target_fps: 20, target_bitrate_kbps: 4200 })
+  assert.deepEqual(JSON.parse(JSON.stringify(check({ ...profile, preference: '720p',
+    max_width: 1280, max_height: 720 }, true, 'vp8'))),
+    { preference: '720p', max_width: 1280, max_height: 720,
+      target_fps: 20, target_bitrate_kbps: 4200 })
+  assert.deepEqual(JSON.parse(JSON.stringify(check({ ...profile, target_bitrate_kbps: 1200 }, true, 'vp8'))),
+    { preference: '1080p', max_width: 1920, max_height: 1080,
+      target_fps: 20, target_bitrate_kbps: 1200 })
+  assert.match(source, /codecRecoveryFallbackActive = true/)
+  assert.match(source, /codecRecoveryFallbackActive = false/)
+  const retry = source.slice(source.indexOf("case 'viewer_codec_retrying':"), source.indexOf('case "viewer_connected":'))
+  assert.doesNotMatch(retry, /teardownPeerForReconnect\(\)/)
 })

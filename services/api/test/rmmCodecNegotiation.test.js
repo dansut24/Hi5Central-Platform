@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from '../src/rmmCodecNegotiation.js'
+import { parseViewerCodecCapabilities, parseViewerHardwarePreference, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from '../src/rmmCodecNegotiation.js'
 
 test('legacy and malformed receive capabilities preserve existing behaviour', () => {
   assert.equal(parseViewerCodecCapabilities(new URLSearchParams()), null)
@@ -70,4 +70,13 @@ test('codec failure is limited to the authenticated session and two allowlisted 
   assert.equal(sanitizeViewerCodecFailure({codec:'vp8',reason:'network-disconnected'},'authenticated'),null)
   assert.equal(sanitizeViewerCodecFailure({codec:'fake',reason:'decode-unavailable'},'authenticated'),null)
   assert.equal(sanitizeViewerCodecFailure({codec:'av1',reason:'decode-unavailable'},''),null)
+})
+
+test('Viewer acceleration preference is bounded and defaults safely', () => {
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams()), 'auto')
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams('hw_accel=on')), 'on')
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams('hw_accel=off')), 'off')
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams('hw_accel=auto')), 'auto')
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams('hw_accel=force-gpu')), 'auto')
+  assert.equal(parseViewerHardwarePreference(new URLSearchParams('hw_accel=ON')), 'auto')
 })
