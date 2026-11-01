@@ -1193,6 +1193,11 @@
         <div class="diag-row"><span>Decode time / frame</span><span id="diag-decode-ms">—</span></div>
         <div class="diag-row"><span>Packet loss (sample)</span><span id="diag-loss-rate">—</span></div>
         <div class="diag-row"><span>ICE servers</span><span id="diag-ice-servers">—</span></div>
+        <div id="codec-recovery-test-panel" style="display:none;margin-top:14px">
+          <div class="diag-row"><span>Canary-only test</span><span>Codec failover</span></div>
+          <button id="codec-recovery-test" type="button" disabled>Simulate decoder failure</button>
+          <p class="settings-hint" id="codec-recovery-test-result">Requires a working H.265 stream before testing.</p>
+        </div>
       </div>
       <div id="mobile-diagnostics-card" class="settings-card">
         <h3>Mobile diagnostics</h3>
