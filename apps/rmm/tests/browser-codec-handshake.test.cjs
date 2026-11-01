@@ -5,16 +5,21 @@ const vm = require('node:vm')
 const path = require('node:path')
 
 const source = fs.readFileSync(path.join(__dirname, '../public/rmm-viewer/renderer.js'), 'utf8')
-const start = source.indexOf('function universalBrowserCodecQuery() {')
-const end = source.indexOf("\nfunction connectViewerSignaling(reason = 'initial') {", start)
-assert.ok(start > 0 && end > start, 'capability query must precede socket creation')
+// The live Viewer now accepts a validated one-shot AV1 preconnect SDP
+// proof. Keep this test aligned with the production-preserved function.
+const start = source.indexOf('function universalBrowserCodecQuery(')
+const end = source.indexOf('\nasync function inspectActualViewerCodecOffer()', start)
+const connectAt = source.indexOf("\nfunction connectViewerSignaling(reason = 'initial') {", end)
+assert.ok(start > 0 && end > start && connectAt > end,
+  'capability query must precede socket creation')
 const querySource = source.slice(start, end)
-assert.match(source.slice(end, end + 800), /universalBrowserCodecQuery\(\)/)
+assert.match(source.slice(connectAt, connectAt + 1000), /universalBrowserCodecQuery\(\)/)
 assert.match(source, /type: 'viewer_codec_observation'/)
 
 function query(codecs) {
   const sandbox = { RTCRtpReceiver: codecs === null ? undefined :
-    { getCapabilities: () => ({ codecs }) }, encodeURIComponent }
+    { getCapabilities: () => ({ codecs }) }, encodeURIComponent,
+    preconnectAv1SdpProof: null }
   vm.runInNewContext(querySource, sandbox)
   return sandbox.universalBrowserCodecQuery()
 }
