@@ -1362,8 +1362,9 @@ const elRecoveryTest = document.getElementById('codec-recovery-test');
 const elRecoveryTestPanel = document.getElementById('codec-recovery-test-panel');
 const elRecoveryTestResult = document.getElementById('codec-recovery-test-result');
 function updateCodecRecoveryTestButton() {
-  const engineering = document.documentElement.dataset.viewerDiagnostics === 'on';
-  const enabled = engineering && currentSession?.codecRecoveryEnabled === true;
+  // The API enables this only for the authorised test device. It must
+  // never require a URL parameter or a reload of a live remote session.
+  const enabled = currentSession?.codecRecoveryEnabled === true;
   if (elRecoveryTestPanel) elRecoveryTestPanel.style.display = enabled ? 'block' : 'none';
   if (!elRecoveryTest) return;
   const proof = codecRecoveryState;
