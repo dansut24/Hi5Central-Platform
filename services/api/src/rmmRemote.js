@@ -6,7 +6,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
-import { parseViewerCodecCapabilities, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from './rmmCodecNegotiation.js'
+import { parseViewerCodecCapabilities, parseViewerHardwarePreference, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from './rmmCodecNegotiation.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -717,6 +717,7 @@ export function attachRmmViewerWebSocket(server) {
       // Only an authenticated Viewer can attach capabilities to its session.
       // A missing/legacy query never changes the existing codec negotiation.
       viewerSession.codec_capabilities = parseViewerCodecCapabilities(url.searchParams)
+      viewerSession.hardware_acceleration_preference = parseViewerHardwarePreference(url.searchParams)
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -956,6 +957,8 @@ export function attachRmmViewerWebSocket(server) {
         viewer_codecs: remote.codec_capabilities?.codecs || [],
         viewer_h264_level4: remote.codec_capabilities?.h264_level4 === true,
         viewer_caps_v1: Boolean(remote.codec_capabilities),
+        // User preference from the authenticated Viewer, never encoder proof.
+        viewer_hw_accel: remote.hardware_acceleration_preference || 'auto',
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })
       return sent
