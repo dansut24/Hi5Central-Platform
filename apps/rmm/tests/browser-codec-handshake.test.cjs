@@ -89,3 +89,28 @@ test('production AV1 receive-only SDP proof is session-local and requires succes
   })
   assert.doesNotMatch(rejected,/av1/)
 })
+
+test('decoder fallback is only real inbound RTP without decode, not idle or network loss', () => {
+ const begin=source.indexOf('function shouldTriggerCodecDecoderFallback({')
+ const end=source.indexOf('\nfunction logSdpCodecSummary(',begin)
+ assert.ok(begin>0 && end>begin)
+ const context={}
+ vm.runInNewContext(source.slice(begin,end),context)
+ const check=context.shouldTriggerCodecDecoderFallback
+ const b={codec:'h265',offeredAtMs:1000,lastDecodeAtMs:1000,packetsSinceDecode:250,
+   lastPacketAtMs:14000,nowMs:15000,connected:true,hidden:false,
+   desktopTransition:false,reported:false,decodedAny:false,lastVisualActionAtMs:0}
+ assert.equal(check(b),true)
+ assert.equal(check({...b,codec:'vp8'}),false)
+ assert.equal(check({...b,codec:'av1'}),true)
+ assert.equal(check({...b,packetsSinceDecode:150}),false)
+ assert.equal(check({...b,lastPacketAtMs:10000}),false)
+ assert.equal(check({...b,nowMs:11000,lastPacketAtMs:10500}),false)
+ assert.equal(check({...b,connected:false}),false)
+ assert.equal(check({...b,hidden:true}),false)
+ assert.equal(check({...b,desktopTransition:true}),false)
+ assert.equal(check({...b,reported:true}),false)
+ assert.equal(check({...b,decodedAny:true}),false)
+ assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:13500}),true)
+ assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:9000}),false)
+})
