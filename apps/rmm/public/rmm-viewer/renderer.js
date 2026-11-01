@@ -2658,13 +2658,20 @@ function sendControlObject(message) {
 
 function recoverySafeStreamProfile(profile, retryAccepted, offeredCodec) {
   if (!retryAccepted || offeredCodec !== 'vp8') return profile;
-  // Canary fallback only: H.265 hardware was running at 720p. Its VP8
-  // replacement must not silently jump to 1080p software encoding and
-  // saturate RTP during a codec recovery. Leave normal sessions untouched.
+  // Preserve readable remote-desktop text after an HEVC decoder fallback.
+  // A forced 720p stream was stretched back to the original desktop size,
+  // hiding text despite low VP8 encode latency. Limit the *automatic* software
+  // fallback to 1080p instead, while respecting an explicit 720p selection.
+  // Keep the workload bounded; do not affect normal H.265 or Software-only
+  // connections that have not undergone a decoder-failure renegotiation.
+  const explicit720p = profile.preference === '720p';
   return {
-    ...profile, preference: '720p', max_width: 1280, max_height: 720,
+    ...profile,
+    preference: explicit720p ? '720p' : '1080p',
+    max_width: explicit720p ? 1280 : 1920,
+    max_height: explicit720p ? 720 : 1080,
     target_fps: Math.min(20, Math.max(1, Number(profile.target_fps) || 20)),
-    target_bitrate_kbps: Math.min(2500, Math.max(500, Number(profile.target_bitrate_kbps) || 2500))
+    target_bitrate_kbps: Math.min(4200, Math.max(500, Number(profile.target_bitrate_kbps) || 4200))
   };
 }
 
