@@ -81,6 +81,7 @@ const elSettingsPanel = document.getElementById("settings-panel");
 const elSettingsClose = document.getElementById("settings-close");
 const elViewerScaleMode = document.getElementById("viewer-scale-mode");
 const elRemoteResolutionPref = document.getElementById("remote-resolution-pref");
+const elHardwareAccelerationPref = document.getElementById("hardware-acceleration-pref");
 const elMobileInputPref = document.getElementById("mobile-input-pref");
 const elMobileToolbarPref = document.getElementById("mobile-toolbar-pref");
 const elMobileAdaptivePref = document.getElementById("mobile-adaptive-pref");
@@ -175,7 +176,7 @@ let mobileViewportResumeToken = 0;
 let mobileViewportResumeUntil = 0;
 
 const MOBILE_PREFS_KEY = "hi5central.viewer.mobile.v2";
-const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", scale: "fit", adaptive: "on", diagnostics: "off", monitorIndex: 0 };
+const MOBILE_PREF_DEFAULTS = { inputMode: "direct", toolbar: "auto", resolution: "auto", scale: "fit", adaptive: "on", diagnostics: "off", hardwareAcceleration: "auto", monitorIndex: 0 };
 let mobilePrefsStore = { devices: {}, fallback: { ...MOBILE_PREF_DEFAULTS } };
 let mobilePrefs = { ...MOBILE_PREF_DEFAULTS };
 
@@ -187,6 +188,7 @@ function normalizeMobilePrefs(value) {
   if (!['fit','stretch'].includes(p.scale)) p.scale = 'fit';
   if (!['on','off'].includes(p.adaptive)) p.adaptive = 'on';
   if (!['on','off'].includes(p.diagnostics)) p.diagnostics = 'off';
+  if (!['auto','on','off'].includes(p.hardwareAcceleration)) p.hardwareAcceleration = 'auto';
   p.monitorIndex = Number.isInteger(Number(p.monitorIndex)) ? Math.max(-1, Math.min(31, Number(p.monitorIndex))) : 0;
   return p;
 }
@@ -234,6 +236,7 @@ function saveMobilePrefs() {
     scale: mobilePrefs.scale,
     adaptive: mobilePrefs.adaptive,
     diagnostics: mobilePrefs.diagnostics,
+    hardwareAcceleration: mobilePrefs.hardwareAcceleration,
     monitorIndex: mobilePrefs.monitorIndex
   });
   const key = String(currentSession?.deviceId || '').trim();
@@ -626,6 +629,7 @@ function updateMobileDiagnosticsUi() {
   elMobileDiagnosticsCard?.classList.toggle('visible', enabled);
   if (elMobileDiagnosticsPref) elMobileDiagnosticsPref.value = mobilePrefs.diagnostics;
   if (elMobileAdaptivePref) elMobileAdaptivePref.value = mobilePrefs.adaptive;
+  if (elHardwareAccelerationPref) elHardwareAccelerationPref.value = mobilePrefs.hardwareAcceleration;
   if (elDiagMobileProfile) {
     const resolution = resolvedMobileResolutionPref();
     elDiagMobileProfile.textContent = (mobilePrefs.resolution === 'auto' && resolution === 'native'
@@ -886,6 +890,12 @@ elMobileAdaptivePref?.addEventListener('change', () => {
   saveMobilePrefs();
   sendViewerStreamProfile();
 });
+elHardwareAccelerationPref?.addEventListener('change', () => {
+  // SDP codec selection is connection-scoped; apply on next connection.
+  mobilePrefs.hardwareAcceleration = ['on','off'].includes(elHardwareAccelerationPref.value)
+    ? elHardwareAccelerationPref.value : 'auto';
+  saveMobilePrefs();
+});
 elMobileDiagnosticsPref?.addEventListener('change', () => {
   mobilePrefs.diagnostics = elMobileDiagnosticsPref.value === 'on' ? 'on' : 'off';
   saveMobilePrefs();
@@ -915,6 +925,9 @@ elViewerScaleMode?.addEventListener('change', () => {
 });
 
 if (new URLSearchParams(location.search).get('diagnostics') === '1') mobilePrefs.diagnostics = 'on';
+// Hide engineering-only ICE/RTP diagnostics in production by default.
+if (new URLSearchParams(location.search).get('diagnostics') === '1')
+  document.documentElement.dataset.viewerDiagnostics = 'on';
 
 let mobileKeyboardOpen = false;
 let mobileKeyboardLayer = 'letters';
@@ -5154,7 +5167,8 @@ function connectViewerSignaling(reason = 'initial') {
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
     (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
-    universalBrowserCodecQuery();
+    universalBrowserCodecQuery() +
+    '&hw_accel=' + encodeURIComponent(mobilePrefs.hardwareAcceleration || 'auto');
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: mobileRecoveryAttempts });
   const socket = new WebSocket(url);
   ws = socket;
