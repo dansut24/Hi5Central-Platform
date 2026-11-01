@@ -57,27 +57,35 @@ test('HEVC support is never inferred; it requires the browser to advertise an HE
 })
 
 
-test('12-second first-frame codec failure requires active RTP, not idle or network stall', () => {
-  const start=source.indexOf('function shouldTriggerCodecDecoderFallback({')
-  const end=source.indexOf('function startTransitionWatchdog()',start)
-  assert.ok(start>=0 && end>start)
-  const sandbox={}
-  vm.runInNewContext(source.slice(start,end),sandbox)
-  const check=sandbox.shouldTriggerCodecDecoderFallback
-  const good={codec:'av1',offeredAtMs:1000,lastPacketAtMs:12900,
-    nowMs:13000,rendered:false,connected:true}
-  assert.equal(check(good),true)
-  assert.equal(check({...good,codec:''}),false)
-  assert.equal(check({...good,rendered:true}),false)
-  assert.equal(check({...good,connected:false}),false)
-  assert.equal(check({...good,lastPacketAtMs:0}),false)
-  assert.equal(check({...good,lastPacketAtMs:3000}),false)
-  assert.equal(check({...good,nowMs:7000,lastPacketAtMs:6900}),false)
+test('production Viewer avoids false idle-screen freeze recovery', () => {
+  const begin = source.indexOf('function startTransitionWatchdog()')
+  const end = source.indexOf('function requestRemoteKeyframe(', begin)
+  assert.ok(begin > 0 && end > begin)
+  const watchdog = source.slice(begin, end)
+  // A stopped cursor or unchanged static screen is not decoder failure.
+  assert.match(watchdog, /const actionableStall = stalledFor > FRAME_STALL_MS/)
+  assert.match(watchdog, /lastVisualActionAtMs > lastFrameAtMs/)
+  assert.match(watchdog, /lastMediaPacketAtMs > lastFrameAtMs/)
+  assert.match(watchdog, /requestRemoteKeyframe\("actionable-decoded-frame-stall"\)/)
+  assert.doesNotMatch(watchdog, /viewer_codec_failure/)
 })
 
-test('reconnect timeout cannot quarantine a codec without the real RTP decode failure predicate',()=>{
-  const match=source.match(/if\s*\(reason\s*===?\s*'media-negotiation-timeout'[\s\S]{0,450}/)
-  assert.ok(match,'codec failure report guard must exist')
-  assert.match(match[0],/shouldTriggerCodecDecoderFallback/)
-  assert.match(source,/lastPacketAtMs:\s*lastMediaPacketAtMs/)
+test('production AV1 receive-only SDP proof is session-local and requires success', () => {
+  // Preserve the working live SDP guard, which replaced the obsolete 12s
+  // codec-quarantine helper from the older Viewer implementation.
+  const offered = query([{mimeType:'video/vp8'}])
+  assert.doesNotMatch(offered, /av1/)
+  const sandbox = {
+    RTCRtpReceiver: { getCapabilities: () => ({ codecs: [{mimeType:'video/vp8'}] }) },
+    encodeURIComponent, preconnectAv1SdpProof: null
+  }
+  vm.runInNewContext(querySource, sandbox)
+  const accepted=sandbox.universalBrowserCodecQuery({
+    sdp_probe_ok:true, sdp_av1:true, sdp_codecs:['vp8','av1']
+  })
+  assert.match(accepted,/video_codecs=vp8%2Cav1/)
+  const rejected=sandbox.universalBrowserCodecQuery({
+    sdp_probe_ok:false, sdp_av1:true, sdp_codecs:['av1']
+  })
+  assert.doesNotMatch(rejected,/av1/)
 })
