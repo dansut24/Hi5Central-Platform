@@ -1358,6 +1358,9 @@ let lastMediaPacketAtMs = 0;
 // Recovery is a bounded, evidence-driven per-SDP retry, not a network timer.
 let codecRecoveryState = null;
 let codecRecoveryTestRequested = false;
+// True only after the Agent has accepted a recovery retry for this session.
+// Preserve normal codec quality and user resolution preferences otherwise.
+let codecRecoveryFallbackActive = false;
 const elRecoveryTest = document.getElementById('codec-recovery-test');
 const elRecoveryTestPanel = document.getElementById('codec-recovery-test-panel');
 const elRecoveryTestResult = document.getElementById('codec-recovery-test-result');
@@ -2653,10 +2656,25 @@ function sendControlObject(message) {
   return false;
 }
 
+function recoverySafeStreamProfile(profile, retryAccepted, offeredCodec) {
+  if (!retryAccepted || offeredCodec !== 'vp8') return profile;
+  // Canary fallback only: H.265 hardware was running at 720p. Its VP8
+  // replacement must not silently jump to 1080p software encoding and
+  // saturate RTP during a codec recovery. Leave normal sessions untouched.
+  return {
+    ...profile, preference: '720p', max_width: 1280, max_height: 720,
+    target_fps: Math.min(20, Math.max(1, Number(profile.target_fps) || 20)),
+    target_bitrate_kbps: Math.min(2500, Math.max(500, Number(profile.target_bitrate_kbps) || 2500))
+  };
+}
+
 function sendViewerStreamProfile() {
   if (!currentSession) return false;
-  const profile = mobileStreamProfilePayload();
-  return sendControlObject({ kind: 'viewer_stream_profile', viewer_client: isMobileViewerSurface() ? 'mobile' : 'desktop', ...profile });
+  const profile = recoverySafeStreamProfile(
+    mobileStreamProfilePayload(), codecRecoveryFallbackActive,
+    codecRecoveryState?.codec);
+  return sendControlObject({ kind: 'viewer_stream_profile',
+    viewer_client: isMobileViewerSurface() ? 'mobile' : 'desktop', ...profile });
 }
 
 function sendInput(kind, extra = {}, force = false) {
@@ -3019,6 +3037,7 @@ function disconnect(reason, options = {}) {
   preconnectAv1SdpProof = null;
   codecRecoveryState = null;
   codecRecoveryTestRequested = false;
+  codecRecoveryFallbackActive = false;
   const silent = !!options.silent;
   const closeNative = !!options.closeNative;
   console.log("[viewer] disconnect called:", reason || "(none)", silent ? "silent" : "", closeNative ? "close-native" : "");
@@ -4687,15 +4706,15 @@ async function onSignalMessage(raw) {
 
   switch (msg.type) {
     case 'viewer_codec_retrying': {
+      codecRecoveryFallbackActive = true;
       // API accepted the failure for the codec actually offered by the Agent.
       // A fresh SDP will negotiate a compatible codec under the same session.
       codecRecoveryState = null;
       if (elRecoveryTestResult && codecRecoveryTestRequested) elRecoveryTestResult.textContent = 'Agent accepted failure; renegotiating…';
       updateCodecRecoveryTestButton();
-      teardownPeerForReconnect();
-      hasEverRenderedFrame = false;
-      lastFrameAtMs = 0;
-      lastFramesDecoded = 0;
+      // Keep the last H.265 frame visible until the replacement SDP arrives.
+      // handleOffer() alone tears down the old peer and captures its poster;
+      // tearing down here caused an unnecessary black gap before renegotiation.
       setStatus('', 'Trying a compatible video codec…');
       break;
     }
