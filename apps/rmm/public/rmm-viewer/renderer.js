@@ -1355,6 +1355,8 @@ let lastKeyframeRequestAtMs = 0;
 // encoder from elapsed time alone: use actual input or inbound RTP evidence.
 let lastVisualActionAtMs = 0;
 let lastMediaPacketAtMs = 0;
+// Recovery is a bounded, evidence-driven per-SDP retry, not a network timer.
+let codecRecoveryState = null;
 let lastVideoPlaybackAttemptAtMs = 0;
 let presentedFrameCallbackId = null;
 let presentedFrameCallbackEpoch = 0;
@@ -2979,6 +2981,7 @@ function resetTransitionState() {
 
 function disconnect(reason, options = {}) {
   preconnectAv1SdpProof = null;
+  codecRecoveryState = null;
   const silent = !!options.silent;
   const closeNative = !!options.closeNative;
   console.log("[viewer] disconnect called:", reason || "(none)", silent ? "silent" : "", closeNative ? "close-native" : "");
@@ -3274,6 +3277,37 @@ async function pollStatsOnce() {
     }
     packetsLost = Number(inbound.packetsLost || 0);
     packetsReceived = Number(inbound.packetsReceived || 0);
+    const recovery = codecRecoveryState;
+    if (recovery && Number.isFinite(framesDecoded) && Number.isFinite(packetsReceived)) {
+      if (framesDecoded > recovery.lastDecodedFrames || packetsReceived < recovery.lastPackets) {
+        recovery.lastDecodedFrames = Math.max(0, framesDecoded);
+        recovery.lastDecodeAtMs = nowMs;
+        recovery.packetsAtDecode = packetsReceived;
+      }
+      if (packetsReceived > recovery.lastPackets) recovery.lastPacketAtMs = nowMs;
+      recovery.lastPackets = packetsReceived;
+      if (currentSession?.codecRecoveryEnabled && shouldTriggerCodecDecoderFallback({
+        codec: recovery.codec, offeredAtMs: recovery.offeredAtMs,
+        lastDecodeAtMs: recovery.lastDecodeAtMs,
+        packetsSinceDecode: Math.max(0, packetsReceived - recovery.packetsAtDecode),
+        lastPacketAtMs: recovery.lastPacketAtMs, nowMs,
+        connected: pc.connectionState === 'connected' && ws?.readyState === WebSocket.OPEN,
+        hidden: document.hidden,
+        desktopTransition: secureDesktopActive || desktopHandoffActive ||
+          Boolean(monitorSwitchUntilMs && nowMs < monitorSwitchUntilMs),
+        reported: recovery.reported, decodedAny: recovery.lastDecodedFrames > 0,
+        lastVisualActionAtMs
+      })) {
+        recovery.reported = true;
+        try {
+          ws.send(JSON.stringify({
+            type: 'viewer_codec_failure', codec: recovery.codec,
+            reason: 'decode-unavailable', session_id: currentSession.sessionId
+          }));
+          setStatus('', 'Video recovery requested…');
+        } catch {}
+      }
+    }
     if (packetsReceived > lastStats.packetsReceived) lastMediaPacketAtMs = nowMs;
     jitterMs = Number.isFinite(Number(inbound.jitter)) ? Number(inbound.jitter) * 1000 : null;
     const jitterDelay = Number(inbound.jitterBufferDelay || 0);
@@ -4240,6 +4274,30 @@ function extractSdpVideoCodecs(sdp) {
   return Array.from(rtpmap.entries()).map(([pt, codec]) => ({ pt, codec, fmtp: fmtp.get(pt) || "" }));
 }
 
+function offeredCodecForRecovery(sdp) {
+  const codecs = [...new Set(extractSdpVideoCodecs(sdp).map(row =>
+    String(row.codec || '').split('/')[0].toLowerCase()).map(name =>
+      name === 'hevc' ? 'h265' : name).filter(name =>
+      ['vp8','vp9','h264','av1','h265'].includes(name)))];
+  return codecs.length === 1 ? codecs[0] : '';
+}
+
+// Only meaningful, recent inbound RTP with no decode progress is actionable.
+// Do not blame a codec for idle desktop, secure desktop, lost network or
+// an existing stream that has no actual user activity.
+function shouldTriggerCodecDecoderFallback({
+  codec, offeredAtMs, lastDecodeAtMs, packetsSinceDecode,
+  lastPacketAtMs, nowMs, connected, hidden, desktopTransition,
+  reported, decodedAny, lastVisualActionAtMs
+}) {
+  if (!codec || codec === 'vp8' || reported || !connected || hidden ||
+      desktopTransition || nowMs - offeredAtMs < 12000 ||
+      nowMs - lastDecodeAtMs < 12000 || packetsSinceDecode < 160 ||
+      lastPacketAtMs <= 0 || nowMs - lastPacketAtMs > 1800) return false;
+  return !decodedAny || (lastVisualActionAtMs > lastDecodeAtMs &&
+    nowMs - lastVisualActionAtMs <= 4000);
+}
+
 function logSdpCodecSummary(label, sdp) {
   const codecs = extractSdpVideoCodecs(sdp);
   console.log(`[codec] ${label}`, codecs);
@@ -4281,6 +4339,13 @@ async function handleOffer(msg) {
 
   if (pc) teardownPeerForReconnect();
   mobileEndpointRestartUntil = 0;
+  const nowOfferedMs = Date.now();
+  codecRecoveryState = {
+    codec: offeredCodecForRecovery(offerSdp), offeredAtMs: nowOfferedMs,
+    lastDecodeAtMs: nowOfferedMs, lastDecodedFrames: 0,
+    packetsAtDecode: 0, lastPackets: 0, lastPacketAtMs: 0,
+    reported: false
+  };
   logSdpCodecSummary("remote offer", offerSdp);
 
   setStatus("", "Negotiating…");
@@ -4577,6 +4642,17 @@ async function onSignalMessage(raw) {
   console.log("[signal] raw message:", msg);
 
   switch (msg.type) {
+    case 'viewer_codec_retrying': {
+      // API accepted the failure for the codec actually offered by the Agent.
+      // A fresh SDP will negotiate a compatible codec under the same session.
+      codecRecoveryState = null;
+      teardownPeerForReconnect();
+      hasEverRenderedFrame = false;
+      lastFrameAtMs = 0;
+      lastFramesDecoded = 0;
+      setStatus('', 'Trying a compatible video codec…');
+      break;
+    }
     case "viewer_connected":
       break;
 
@@ -4752,6 +4828,7 @@ async function onSignalMessage(raw) {
 
     case "session_config": {
       if (currentSession) {
+        currentSession.codecRecoveryEnabled = msg.codec_auto_recovery_enabled === true;
         currentSession.iceServers = normalizeIceServers(msg.ice_servers || msg.iceServers || []);
         if (msg.remote_platform || msg.remotePlatform) {
           setCurrentRemotePlatform(msg.remote_platform || msg.remotePlatform);
