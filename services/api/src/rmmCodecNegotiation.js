@@ -16,6 +16,13 @@ export function parseViewerCodecCapabilities(params) {
   }
 }
 
+// Authenticated, bounded preference. This is advisory, never a claim that
+// either device has a working hardware encoder or decoder.
+export function parseViewerHardwarePreference(params) {
+  const choice = params?.get?.('hw_accel') || 'auto'
+  return ['auto', 'on', 'off'].includes(choice) ? choice : 'auto'
+}
+
 export function sanitizeViewerCodecObservation(payload, sessionId) {
   const codec = String(payload?.codec || '').toLowerCase().trim()
   if (!SUPPORTED.has(codec) || typeof sessionId !== 'string' || !sessionId ||
