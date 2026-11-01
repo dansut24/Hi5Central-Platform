@@ -114,3 +114,17 @@ test('decoder fallback is only real inbound RTP without decode, not idle or netw
  assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:13500}),true)
  assert.equal(check({...b,decodedAny:true,lastVisualActionAtMs:9000}),false)
 })
+
+
+test('engineering failure test is canary-gated, deliberate and one-shot', () => {
+  const markup = fs.readFileSync(path.join(__dirname, '../public/rmm-viewer/index.html'), 'utf8')
+  assert.match(markup, /id="codec-recovery-test"/)
+  assert.match(markup, /id="codec-recovery-test-panel"/)
+  assert.match(source, /dataset\.viewerDiagnostics === 'on'/)
+  assert.match(source, /currentSession\?\.codecRecoveryEnabled === true/)
+  assert.match(source, /proof\.lastDecodedFrames < 10/)
+  assert.match(source, /codecRecoveryTestRequested = true/)
+  assert.match(source, /type: 'viewer_codec_failure'/)
+  assert.match(source, /reason: 'decode-unavailable'/)
+  assert.match(source, /Passed: VP8 decoded after an H\.265 retry/)
+})
