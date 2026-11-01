@@ -773,6 +773,9 @@ export function attachRmmViewerWebSocket(server) {
     if (previousActive?.viewerWs && previousActive.viewerWs !== viewerWs) {
       try { previousActive.viewerWs.close(4001, 'Viewer superseded') } catch {}
     }
+    const codecRetryEnabled =
+      clean(process.env.RMM_CODEC_FAILOVER_CANARY_DEVICE_ID) === String(remote.agent_device_id) &&
+      remote.viewer_client === 'browser'
     const active = {
       viewerWs, agentWs: null, tenantId: remote.tenant_id, agentDeviceId: String(remote.agent_device_id),
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
@@ -1000,6 +1003,7 @@ export function attachRmmViewerWebSocket(server) {
         if (!payload) return
       }
       if (type === 'viewer_codec_failure') {
+        if (!codecRetryEnabled) return
         payload = sanitizeViewerCodecFailure(payload, sessionId)
         if (!payload || !canRetryOfferedCodec({
           viewerClient: remote.viewer_client, reportedCodec: payload.codec,
@@ -1147,7 +1151,8 @@ export function attachRmmViewerWebSocket(server) {
     }
 
     safeSend(viewerWs, { type: 'viewer_connected', session_id: sessionId })
-    safeSend(viewerWs, { type: 'session_config', session_id: sessionId, mode: remote.mode, ice_servers: ice.viewer })
+    safeSend(viewerWs, { type: 'session_config', session_id: sessionId, mode: remote.mode,
+      ice_servers: ice.viewer, codec_auto_recovery_enabled: codecRetryEnabled })
     if (agentWs) bindAgentSocket(agentWs)
     else {
       safeSend(viewerWs, { type: 'agent_reconnecting', session_id: sessionId, grace_ms: AGENT_RESTART_GRACE_MS })
