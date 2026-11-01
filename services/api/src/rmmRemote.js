@@ -7,6 +7,7 @@ import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { parseViewerCodecCapabilities, parseViewerHardwarePreference, sanitizeViewerCodecObservation, sanitizeViewerCodecFailure } from './rmmCodecNegotiation.js'
+import { offeredPrimaryVideoCodec, canRetryOfferedCodec } from './rmmCodecFailover.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -763,6 +764,7 @@ export function attachRmmViewerWebSocket(server) {
     const previousActive = activeViewerSessions.get(sessionId)
     const viewerInterruptedAt = previousActive?.viewerDisconnectedAt || 0
     if (previousActive?.cleanupTimer) clearTimeout(previousActive.cleanupTimer)
+    if (previousActive?.codecRetryTimer) clearTimeout(previousActive.codecRetryTimer)
     if (previousActive?.agentRestartTimer) clearTimeout(previousActive.agentRestartTimer)
     if (previousActive?.agentWs && previousActive?.relayFromAgent) {
       try { previousActive.agentWs.off('message', previousActive.relayFromAgent) } catch {}
@@ -774,6 +776,7 @@ export function attachRmmViewerWebSocket(server) {
     const active = {
       viewerWs, agentWs: null, tenantId: remote.tenant_id, agentDeviceId: String(remote.agent_device_id),
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
+      offeredCodec: '', codecRetryCount: Math.min(1, previousActive?.codecRetryCount || 0), codecRetryTimer: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
       iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
       agentDisconnectedAt: 0,
@@ -883,6 +886,11 @@ export function attachRmmViewerWebSocket(server) {
       if (payloadSessionId !== sessionId) return
       logAgentStreamHealth(payload)
       logAgentEncoderHealth(payload)
+      if (payload?.type === 'webrtc_offer') {
+        // Bound any later Viewer decode-failure claim to the ONE codec
+        // actually present in the Agent's offered video RTP media section.
+        active.offeredCodec = offeredPrimaryVideoCodec(payload.sdp)
+      }
       safeSend(viewerWs, text)
       if (payload?.type === 'webrtc_offer') {
         pool.query(
@@ -992,10 +1000,30 @@ export function attachRmmViewerWebSocket(server) {
         if (!payload) return
       }
       if (type === 'viewer_codec_failure') {
-        // A decoder failure can only demote the codec that this session was
-        // offered, and only on an Agent with opt-in failover enabled.
         payload = sanitizeViewerCodecFailure(payload, sessionId)
-        if (!payload) return
+        if (!payload || !canRetryOfferedCodec({
+          viewerClient: remote.viewer_client, reportedCodec: payload.codec,
+          offeredCodec: active.offeredCodec, attempts: active.codecRetryCount,
+          reason: payload.reason,
+        })) return
+        // Send the authenticated, server-stamped failure FIRST. The Agent
+        // quarantines the offered codec only in THIS session. A new
+        // start_webrtc then creates a fresh SDP with a different codec.
+        if (!safeSend(active.agentWs, payload)) return
+        active.codecRetryCount += 1
+        active.offeredCodec = ''
+        safeSend(viewerWs, { type: 'viewer_codec_retrying', session_id: sessionId })
+        const boundSocket = active.agentWs
+        active.codecRetryTimer = setTimeout(() => {
+          active.codecRetryTimer = null
+          if (active.finalized || activeViewerSessions.get(sessionId) !== active ||
+              active.viewerWs !== viewerWs || boundSocket !== active.agentWs ||
+              !boundSocket || boundSocket.readyState !== 1) return
+          // Bind again to the existing authenticated socket. No new tenant,
+          // token, or technician session; no mixed RTP codecs on one offer.
+          bindAgentSocket(boundSocket, { restarted: false })
+        }, 300)
+        return
       }
       payload.session_id = sessionId
       delete payload.sessionId
@@ -1014,6 +1042,7 @@ export function attachRmmViewerWebSocket(server) {
       if (currentActive) {
         currentActive.finalized = true
         if (currentActive.agentRestartTimer) clearTimeout(currentActive.agentRestartTimer)
+        if (currentActive.codecRetryTimer) clearTimeout(currentActive.codecRetryTimer)
       }
       safeSend(boundAgentWs, { type: 'viewer_disconnected', session_id: sessionId })
       detachAgentSocket()
