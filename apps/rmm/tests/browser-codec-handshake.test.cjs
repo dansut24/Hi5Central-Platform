@@ -130,3 +130,23 @@ test('engineering failure test is canary-gated, deliberate and one-shot', () => 
   assert.match(source, /reason: 'decode-unavailable'/)
   assert.match(source, /Passed: VP8 decoded after an H\.265 retry/)
 })
+
+test('canary recovery caps software VP8 only after a negotiated retry', () => {
+  const begin = source.indexOf('function recoverySafeStreamProfile(')
+  const end = source.indexOf('\nfunction sendViewerStreamProfile(', begin)
+  assert.ok(begin > 0 && end > begin)
+  const context = {}
+  vm.runInNewContext(source.slice(begin, end), context)
+  const profile = { preference: 'native', max_width: 0, max_height: 0,
+    target_fps: 30, target_bitrate_kbps: 6000 }
+  const check = context.recoverySafeStreamProfile
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, false, 'vp8'))), profile)
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'h265'))), profile)
+  assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'vp8'))),
+    { preference: '720p', max_width: 1280, max_height: 720,
+      target_fps: 20, target_bitrate_kbps: 2500 })
+  assert.match(source, /codecRecoveryFallbackActive = true/)
+  assert.match(source, /codecRecoveryFallbackActive = false/)
+  const retry = source.slice(source.indexOf("case 'viewer_codec_retrying':"), source.indexOf('case "viewer_connected":'))
+  assert.doesNotMatch(retry, /teardownPeerForReconnect\(\)/)
+})
