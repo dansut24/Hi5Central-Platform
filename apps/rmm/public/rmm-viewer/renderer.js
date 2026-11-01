@@ -1357,6 +1357,41 @@ let lastVisualActionAtMs = 0;
 let lastMediaPacketAtMs = 0;
 // Recovery is a bounded, evidence-driven per-SDP retry, not a network timer.
 let codecRecoveryState = null;
+let codecRecoveryTestRequested = false;
+const elRecoveryTest = document.getElementById('codec-recovery-test');
+const elRecoveryTestPanel = document.getElementById('codec-recovery-test-panel');
+const elRecoveryTestResult = document.getElementById('codec-recovery-test-result');
+function updateCodecRecoveryTestButton() {
+  const engineering = document.documentElement.dataset.viewerDiagnostics === 'on';
+  const enabled = engineering && currentSession?.codecRecoveryEnabled === true;
+  if (elRecoveryTestPanel) elRecoveryTestPanel.style.display = enabled ? 'block' : 'none';
+  if (!elRecoveryTest) return;
+  const proof = codecRecoveryState;
+  elRecoveryTest.disabled = !enabled || codecRecoveryTestRequested || !proof ||
+    !['h265','h264','vp9','av1'].includes(proof.codec) ||
+    proof.lastDecodedFrames < 10 || proof.reported ||
+    ws?.readyState !== WebSocket.OPEN || pc?.connectionState !== 'connected';
+}
+elRecoveryTest?.addEventListener('click', () => {
+  updateCodecRecoveryTestButton();
+  if (elRecoveryTest?.disabled || !codecRecoveryState || !currentSession?.sessionId) return;
+  // Deliberate engineering injection. No RTP is corrupted, and the server
+  // independently binds the report to this authenticated Agent SDP.
+  codecRecoveryTestRequested = true;
+  codecRecoveryState.reported = true;
+  const codec = codecRecoveryState.codec;
+  try {
+    ws.send(JSON.stringify({
+      type: 'viewer_codec_failure', session_id: currentSession.sessionId,
+      codec, reason: 'decode-unavailable'
+    }));
+    if (elRecoveryTestResult) elRecoveryTestResult.textContent =
+      'Simulated '+codec.toUpperCase()+' failure sent; checking new SDP…';
+  } catch {
+    if (elRecoveryTestResult) elRecoveryTestResult.textContent = 'Could not request recovery.';
+  }
+  updateCodecRecoveryTestButton();
+});
 let lastVideoPlaybackAttemptAtMs = 0;
 let presentedFrameCallbackId = null;
 let presentedFrameCallbackEpoch = 0;
@@ -2982,6 +3017,7 @@ function resetTransitionState() {
 function disconnect(reason, options = {}) {
   preconnectAv1SdpProof = null;
   codecRecoveryState = null;
+  codecRecoveryTestRequested = false;
   const silent = !!options.silent;
   const closeNative = !!options.closeNative;
   console.log("[viewer] disconnect called:", reason || "(none)", silent ? "silent" : "", closeNative ? "close-native" : "");
@@ -3286,6 +3322,13 @@ async function pollStatsOnce() {
       }
       if (packetsReceived > recovery.lastPackets) recovery.lastPacketAtMs = nowMs;
       recovery.lastPackets = packetsReceived;
+      if (codecRecoveryTestRequested && recovery.codec === 'vp8' &&
+          recovery.lastDecodedFrames >= 10) {
+        if (elRecoveryTestResult) elRecoveryTestResult.textContent =
+          'Passed: VP8 decoded after an H.265 retry.';
+        codecRecoveryTestRequested = false;
+      }
+      updateCodecRecoveryTestButton();
       if (currentSession?.codecRecoveryEnabled && shouldTriggerCodecDecoderFallback({
         codec: recovery.codec, offeredAtMs: recovery.offeredAtMs,
         lastDecodeAtMs: recovery.lastDecodeAtMs,
@@ -4646,6 +4689,8 @@ async function onSignalMessage(raw) {
       // API accepted the failure for the codec actually offered by the Agent.
       // A fresh SDP will negotiate a compatible codec under the same session.
       codecRecoveryState = null;
+      if (elRecoveryTestResult && codecRecoveryTestRequested) elRecoveryTestResult.textContent = 'Agent accepted failure; renegotiating…';
+      updateCodecRecoveryTestButton();
       teardownPeerForReconnect();
       hasEverRenderedFrame = false;
       lastFrameAtMs = 0;
@@ -4829,6 +4874,7 @@ async function onSignalMessage(raw) {
     case "session_config": {
       if (currentSession) {
         currentSession.codecRecoveryEnabled = msg.codec_auto_recovery_enabled === true;
+        updateCodecRecoveryTestButton();
         currentSession.iceServers = normalizeIceServers(msg.ice_servers || msg.iceServers || []);
         if (msg.remote_platform || msg.remotePlatform) {
           setCurrentRemotePlatform(msg.remote_platform || msg.remotePlatform);
