@@ -143,8 +143,15 @@ test('canary recovery caps software VP8 only after a negotiated retry', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(check(profile, false, 'vp8'))), profile)
   assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'h265'))), profile)
   assert.deepEqual(JSON.parse(JSON.stringify(check(profile, true, 'vp8'))),
+    { preference: '1080p', max_width: 1920, max_height: 1080,
+      target_fps: 20, target_bitrate_kbps: 4200 })
+  assert.deepEqual(JSON.parse(JSON.stringify(check({ ...profile, preference: '720p',
+    max_width: 1280, max_height: 720 }, true, 'vp8'))),
     { preference: '720p', max_width: 1280, max_height: 720,
-      target_fps: 20, target_bitrate_kbps: 2500 })
+      target_fps: 20, target_bitrate_kbps: 4200 })
+  assert.deepEqual(JSON.parse(JSON.stringify(check({ ...profile, target_bitrate_kbps: 1200 }, true, 'vp8'))),
+    { preference: '1080p', max_width: 1920, max_height: 1080,
+      target_fps: 20, target_bitrate_kbps: 1200 })
   assert.match(source, /codecRecoveryFallbackActive = true/)
   assert.match(source, /codecRecoveryFallbackActive = false/)
   const retry = source.slice(source.indexOf("case 'viewer_codec_retrying':"), source.indexOf('case "viewer_connected":'))
