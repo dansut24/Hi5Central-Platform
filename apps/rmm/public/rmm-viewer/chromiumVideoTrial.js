@@ -91,8 +91,9 @@ export class Hi5ChromiumVideoTrial {
          ['FAILED','CLOSED'].includes(newState)){
         this.#fail('chromium_media_connection_failed')
       }
-      if(this.#status==='promoted' &&
+      if(['ready','promoted'].includes(this.#status) &&
          ['FAILED','CLOSED'].includes(newState)){
+        this.#failure='chromium_media_connection_failed'
         this.rollback()
       }
     }
