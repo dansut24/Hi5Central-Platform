@@ -37,7 +37,7 @@ test('passes server-issued H5C identity, SPAKE2 secret and token into pinned bro
   const adapter=make()
   const credentials=grant()
   const response=await connect(adapter,credentials)
-  assert.deepEqual(response,{engine:'chromium',connected:true})
+  assert.deepEqual(response,{engine:'chromium',state:'negotiating',connected:false})
   const s=FakeSession.instances.at(-1)
   assert.equal(s.options.clientId,credentials.client_id)
   assert.equal(s.options.signalingUrl,'wss://api.hi5central.com')
@@ -45,6 +45,8 @@ test('passes server-issued H5C identity, SPAKE2 secret and token into pinned bro
   assert.equal(s.options.iceServers.length,1)
   assert.deepEqual(s.calls,[[credentials.device_alias,credentials.spake2_secret,credentials.signal_token]])
   assert.equal(adapter.active,true)
+  // A successful offer is not yet proof of a rendered Chromium frame.
+  assert.equal(adapter.peerConnection,null)
   adapter.disconnect()
   assert.equal(s.disconnected,true)
   assert.equal(adapter.active,false)
