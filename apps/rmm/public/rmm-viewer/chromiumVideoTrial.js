@@ -18,10 +18,16 @@ export class Hi5ChromiumVideoTrial {
   #settle=null
   #failure=null
   #started=false
+  #probeFactory=null
+  #probe=null
+  #sampleTimer=null
+  #sampleIntervalMs=2000
+  #onSample=()=>{}
 
   constructor({adapter,trialVideo,primaryVideo,
     makeStream=(track)=>new MediaStream([track]),
-    minWidth=1920,minHeight=1080,timeoutMs=12000}={}) {
+    minWidth=1920,minHeight=1080,timeoutMs=12000,
+    probeFactory=null,onSample=()=>{},sampleIntervalMs=2000}={}) {
     if(!adapter || typeof adapter.connect!=='function' ||
        typeof adapter.disconnect!=='function' ||
        !trialVideo || typeof trialVideo.requestVideoFrameCallback!=='function' ||
@@ -35,6 +41,30 @@ export class Hi5ChromiumVideoTrial {
     this.#minWidth=Math.max(1,Math.floor(minWidth))
     this.#minHeight=Math.max(1,Math.floor(minHeight))
     this.#timeoutMs=Math.min(60000,Math.max(100,Math.floor(timeoutMs)))
+    this.#probeFactory=probeFactory
+    this.#onSample=onSample
+    this.#sampleIntervalMs=Math.min(10000,Math.max(1000,Math.floor(sampleIntervalMs)))
+  }
+
+  #startProbe(video) {
+    if(typeof this.#probeFactory!=='function')return
+    if(this.#sampleTimer){clearInterval(this.#sampleTimer);this.#sampleTimer=null}
+    this.#probe?.stop?.()
+    const pc=this.#adapter.peerConnection
+    if(!pc)return
+    try {
+      this.#probe=this.#probeFactory({pc,video})
+      this.#probe.start()
+      this.#sampleTimer=setInterval(()=>{
+        void this.#probe.sample().then(sample=>{
+          if(this.#status==='ready'||this.#status==='promoted')
+            this.#onSample(sample)
+        }).catch(()=>{})
+      },this.#sampleIntervalMs)
+    } catch {
+      // Diagnostics must never disconnect otherwise working Chromium media.
+      this.#probe=null
+    }
   }
 
   async start(options) {
@@ -74,6 +104,7 @@ export class Hi5ChromiumVideoTrial {
           clearTimeout(this.#timer)
           this.#timer=null
           this.#status='ready'
+          this.#startProbe(this.#trialVideo)
           const settle=this.#settle
           this.#settle=null
           settle?.resolve({
@@ -110,6 +141,10 @@ export class Hi5ChromiumVideoTrial {
     this.#primaryVideo.srcObject=this.#trialVideo.srcObject
     this.#status='promoted'
     this.#promoted=true
+    // Stop decoding twice. Sample the displayed Hi5Central video, not the
+    // now-hidden staging element that might be throttled by the browser.
+    this.#trialVideo.srcObject=null
+    this.#startProbe(this.#primaryVideo)
     this.#primaryVideo.play?.()?.catch?.(()=>this.rollback())
     return {engine:'chromium',promoted:true}
   }
@@ -130,6 +165,8 @@ export class Hi5ChromiumVideoTrial {
     const unsettled=this.#settle
     this.#settle=null
     this.#status='rolled_back'
+    if(this.#sampleTimer){clearInterval(this.#sampleTimer);this.#sampleTimer=null}
+    this.#probe?.stop?.()
     if(this.#promoted){
       this.#primaryVideo.srcObject=this.#priorStream
       this.#primaryVideo.play?.()?.catch?.(()=>{})
@@ -141,6 +178,7 @@ export class Hi5ChromiumVideoTrial {
   }
 
   get status(){return this.#status}
+  get performance(){return this.#probe?.summary?.()||null}
   get failure(){return this.#failure}
   get promoted(){return this.#promoted}
 }
