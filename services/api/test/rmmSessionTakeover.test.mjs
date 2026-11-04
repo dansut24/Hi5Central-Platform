@@ -15,6 +15,7 @@ const implementation = source.slice(start, end)
 function harness({ active = [], ended = [], live = new Map() } = {}) {
   const messages = []
   const dbUpdates = []
+  const chromiumRevocations = []
   const queries = []
   const agent = { readyState: 1 }
   const ctx = {
@@ -27,6 +28,12 @@ function harness({ active = [], ended = [], live = new Map() } = {}) {
       },
     },
     activeViewerSessions: live,
+    chromiumRuntime: {
+      revoke(tenantId, sessionId, agentDeviceId) {
+        chromiumRevocations.push({ tenantId, sessionId, agentDeviceId })
+        return true
+      },
+    },
     safeSend(socket, payload) { messages.push({ socket, payload }); return true },
     Promise, Set, String,
   }
@@ -36,7 +43,7 @@ function harness({ active = [], ended = [], live = new Map() } = {}) {
     tenantId: 'tenant-one', agentDeviceId: 'device-one',
     userId: 'tech-one', mode: 'console', liveAgentWs: agent,
   })
-  return { run, queries, messages, dbUpdates, agent, live }
+  return { run, queries, messages, dbUpdates, chromiumRevocations, agent, live }
 }
 
 test('recently ended session still sends scoped Agent cleanup', async () => {
@@ -45,6 +52,10 @@ test('recently ended session still sends scoped Agent cleanup', async () => {
   assert.deepEqual(h.messages.map(x => x.payload.type), ['end_session'])
   assert.equal(h.messages[0].payload.session_id, 'ended-but-still-streaming')
   assert.equal(h.messages[0].payload.reason, 'stale_agent_session_reclaim')
+  assert.deepEqual(h.chromiumRevocations, [{
+    tenantId: 'tenant-one', sessionId: 'ended-but-still-streaming',
+    agentDeviceId: 'device-one',
+  }])
   assert.equal(h.messages[0].socket, h.agent)
   assert.equal(h.dbUpdates.length, 0)
   assert.equal(h.queries[0].args[1], 'device-one')
@@ -59,6 +70,7 @@ test('active session is stopped and marked ended before new session creation', a
   assert.equal(h.messages.length, 1)
   assert.equal(h.messages[0].payload.type, 'end_session')
   assert.equal(h.messages[0].payload.session_id, 'prior-active')
+  assert.equal(h.chromiumRevocations.length, 1)
   assert.equal(h.dbUpdates.length, 1)
   assert.equal(h.dbUpdates[0].args[0], 'prior-active')
 })
