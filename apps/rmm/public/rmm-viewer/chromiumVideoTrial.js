@@ -48,7 +48,8 @@ export class Hi5ChromiumVideoTrial {
     this.#timer=setTimeout(()=>{
       this.#fail('chromium_first_native_frame_timeout')
     },this.#timeoutMs)
-    this.#timer.unref?.()
+    // Keep the timeout scheduled even in Node-based tests: a missing first
+    // Chromium frame must deterministically trigger fallback.
 
     const onTrack=({track,streams}={})=>{
       if(this.#status!=='negotiating' || track?.kind!=='video')return
