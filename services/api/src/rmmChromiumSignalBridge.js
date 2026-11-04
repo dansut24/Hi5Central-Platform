@@ -71,6 +71,7 @@ export class RmmChromiumSignalBridge {
     if (!ws || typeof ws.on !== 'function' || typeof ws.send !== 'function' ||
         typeof ws.close !== 'function') throw new Error('WebSocket required')
     let principal = null
+    let expiryTimer = null
     let bucketAt = this.#now(), messagesInBucket = 0
     const timer = setTimeout(() => {
       if (!principal) ws.close(4401, 'Chromium authentication required')
@@ -79,6 +80,7 @@ export class RmmChromiumSignalBridge {
 
     const detach = () => {
       clearTimeout(timer)
+      if (expiryTimer) { clearTimeout(expiryTimer); expiryTimer = null }
       if (!principal) return
       const key = JSON.stringify([principal.tenantId, principal.sessionId])
       const session = this.#sessions.get(key)
@@ -131,6 +133,13 @@ export class RmmChromiumSignalBridge {
         }
         this.#sessions.set(key, session)
         principal = ticket
+        // Do not leave an idle Chromium WebSocket authenticated after
+        // the Hi5Central remote session expires. The message-level check
+        // remains a second safeguard against delayed frames.
+        expiryTimer = setTimeout(() => {
+          if (open(ws)) ws.close(4403, 'Hi5Central remote session expired')
+        }, Math.max(1, ticket.sessionExpiresAt - now))
+        expiryTimer.unref?.()
         if (ticket.role === 'host') session.host = ws
         else session.clients.set(ticket.clientId, ws)
         clearTimeout(timer)
