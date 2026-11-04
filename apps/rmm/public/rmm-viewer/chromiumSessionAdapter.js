@@ -70,7 +70,10 @@ export class Hi5ChromiumViewerAdapter {
     try {
       await session.connect(grant.device_alias,grant.spake2_secret,grant.signal_token)
       if(this.#active!==session)throw new Error('Chromium session closed during setup')
-      return {engine:'chromium',connected:true}
+      // An SDP offer is not a connected remote stream. The first decoded
+      // and *presented* native frame must be confirmed by VideoTrial before
+      // this engine is ever shown as working or allowed to replace VP8/HEVC.
+      return {engine:'chromium',state:'negotiating',connected:false}
     } catch(e) {
       try{session.disconnect?.()}catch{}
       if(this.#active===session)this.#active=null
@@ -83,6 +86,10 @@ export class Hi5ChromiumViewerAdapter {
     this.#active=null
     try{session?.disconnect?.()}catch{}
   }
+
+  // Frame-level diagnostics can sample Chromium's actual RTCPeerConnection,
+  // but not its SPAKE2 or signaling credentials.
+  get peerConnection(){return this.#active?.pc||null}
 
   get active(){return Boolean(this.#active)}
 }
