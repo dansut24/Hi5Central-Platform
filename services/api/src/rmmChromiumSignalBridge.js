@@ -54,10 +54,16 @@ export class RmmChromiumSignalBridge {
     if (role === 'client' && !ID_RE.test(clientId)) throw new Error('invalid client id')
     if (role === 'host' && clientId) throw new Error('host cannot claim a client id')
     if (!finite(expiresAt) || expiresAt <= this.#now()) throw new Error('expired H5C session')
-    const expire = Math.min(expiresAt, this.#now() + Math.max(1000, Math.min(ttlMs, TOKEN_TTL_MS)))
+    const timestamp = this.#now()
+    // Bound memory even when issued tickets are never redeemed.
+    for (const [digest, ticket] of this.#tickets) {
+      if (ticket.expire <= timestamp) this.#tickets.delete(digest)
+    }
+    if (this.#tickets.size >= 1024) throw new Error('Chromium tickets exhausted')
+    const expire = Math.min(expiresAt, timestamp + Math.max(1000, Math.min(ttlMs, TOKEN_TTL_MS)))
     const token = randomBytes(32).toString('hex')
     this.#tickets.set(sha256(token), { tenantId, sessionId, deviceId, subjectId,
-      role, clientId, expire })
+      role, clientId, expire, sessionExpiresAt: expiresAt })
     return token
   }
 
@@ -74,7 +80,7 @@ export class RmmChromiumSignalBridge {
     const detach = () => {
       clearTimeout(timer)
       if (!principal) return
-      const key = principal.tenantId + ':' + principal.sessionId
+      const key = JSON.stringify([principal.tenantId, principal.sessionId])
       const session = this.#sessions.get(key)
       if (!session) return
       if (principal.role === 'host' && session.host === ws) {
@@ -114,7 +120,7 @@ export class RmmChromiumSignalBridge {
           ws.close(4401, 'Expired or mismatched Chromium signal ticket')
           return
         }
-        const key = ticket.tenantId + ':' + ticket.sessionId
+        const key = JSON.stringify([ticket.tenantId, ticket.sessionId])
         const session = this.#sessions.get(key) || { deviceId: ticket.deviceId,
           host: null, clients: new Map() }
         if (session.deviceId !== ticket.deviceId ||
@@ -132,10 +138,18 @@ export class RmmChromiumSignalBridge {
         return
       }
 
+      // A ticket's 30s lifetime only bounds *connection*. The full H5C RMM
+      // session expiry still applies to every frame even if the WebSocket
+      // remains open. Termination/takeover also invokes revokeSession().
+      if (now >= principal.sessionExpiresAt) {
+        ws.close(4403, 'Hi5Central remote session expired')
+        return
+      }
+
       // H5C authorises the tenant/session; the QuickDesk wire must NEVER
       // allow a peer to pick a different client, session or device by
       // embedding arbitrary metadata in its forwarded Jingle envelope.
-      const key = principal.tenantId + ':' + principal.sessionId
+      const key = JSON.stringify([principal.tenantId, principal.sessionId])
       const session = this.#sessions.get(key)
       if (!session || session.deviceId !== principal.deviceId ||
           frame.type === 'auth' || !ID_RE.test(frame.client_id) ||
@@ -169,7 +183,7 @@ export class RmmChromiumSignalBridge {
   // Called on Hi5Central session termination/takeover. Revoke unused tickets
   // and both peer transports; no Chromium signaling may outlive its RMM grant.
   revokeSession(tenantId, sessionId) {
-    const key = tenantId + ':' + sessionId
+    const key = JSON.stringify([tenantId, sessionId])
     for (const [digest, ticket] of this.#tickets) {
       if (ticket.tenantId === tenantId && ticket.sessionId === sessionId)
         this.#tickets.delete(digest)
