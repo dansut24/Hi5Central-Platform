@@ -100,6 +100,35 @@ that replacing the engine will improve performance.
 - Disable Chromium path automatically on any failure; **no merge/rollout
   from this protocol-only draft**.
 
+## Dell Windows host artifact preflight completed
+
+- Host binaries downloaded from the pinned `v1.0.3` GitHub release
+  **directly on Dell `DESKTOP-2JHH2ON`** via the existing authenticated
+  Hi5Central Agent command channel, verified SHA-256, and extracted into
+  `C:\\ProgramData\\Hi5Central\\Agent\\Chromium\\quickdesk-remoting-v1.0.3\\bin`.
+  No additional Windows service was installed.
+- Binary hashes: `quickdesk_host.exe`
+  `01de5e356163896a0df967f73011e5315b2b17530d550017ee9f16799e7b20bb`;
+  `quickdesk_core.dll`
+  `b5137bc27a2d3e505deea133382b8a6eb2587159b9c787c00f7e7f1daa24c127`.
+  Both binaries are unsigned; verify pinned release provenance and maintain
+  source/version checks before shipping.
+- Launched the host **only as a short-lived local child**, sending the
+  Chromium native-messaging length-prefixed
+  `{"type":"hello","protocol_version":3}` frame over stdin.
+  Actual host returned `helloResponse`, protocol v3 (196-byte JSON payload)
+  and 2 supported features. The child was killed/exited cleanly,
+  with **zero lingering host processes, no QuickDeskHost service and no
+  signaling endpoint or remote credentials configured**.
+- Tested the **actual** QuickDesk `WebSocketTransport` JS module with
+  `RmmChromiumSignalBridge` via an in-process WebSocket mock. Real upstream
+  first-frame `auth/auth_ok`, Jingle client-to-host envelope and
+  host-to-client Jingle response all passed. This is a local protocol
+  compatibility test, not a live video session.
+- Ten bridge protocol/security cases pass, including replay, cross-tenant
+  and cross-client isolation, token expiry, and revocation. Other RMM
+  codec health tests pass. Legacy Agent is still **1.0.305 connected**.
+
 ## Next actionable implementation slice
 
 Add a scoped Windows host manager with a native messaging bridge, and
