@@ -1,0 +1,27 @@
+diff --git a/WebClient/js/protocol/session.js b/WebClient/js/protocol/session.js
+index c69b241..5a3f8c9 100644
+--- a/WebClient/js/protocol/session.js
++++ b/WebClient/js/protocol/session.js
+@@ -38,6 +38,13 @@ export class Session extends EventTarget {
+         this.signalingUrl = options.signalingUrl || 'ws://localhost:8000';
+         this.iceServers = options.iceServers || [];
+         this.preferredVideoCodec = options.preferredVideoCodec || '';
++        // Hi5Central issues a one-use signaling ticket for one exact client
++        // identity. The SPAKE2 JID and first-frame WS client_id must match.
++        this.h5cAuthorizedClientId = options.clientId || '';
++        if (this.h5cAuthorizedClientId &&
++            !/^webclient_[a-f0-9]{24}$/.test(this.h5cAuthorizedClientId)) {
++            throw new Error('Invalid authorised Hi5Central client ID');
++        }
+ 
+         this.state = SessionState.IDLE;
+         this.deviceId = null;
+@@ -91,7 +98,7 @@ export class Session extends EventTarget {
+             //   Chromium's SPAKE2 verifier hashes local_id/remote_id, so
+             //   WebClient must use the same JID string locally.
+             const clientUUID = generateUUID().replace(/-/g, '').substring(0, 12);
+-            this._clientId = `webclient_${clientUUID}`;
++            this._clientId = this.h5cAuthorizedClientId || `webclient_${clientUUID}`;
+             const localJid = `${deviceId}@quickdesk.local/chromoting_ftl_${this._clientId}`;
+             const remoteJid = `${deviceId}@quickdesk.local/chromoting_ftl_quickdesk_host`;
+ 
