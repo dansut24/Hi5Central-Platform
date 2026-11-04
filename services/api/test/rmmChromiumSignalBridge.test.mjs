@@ -156,3 +156,29 @@ test('rate limiting is bounded per socket', () => {
   }
   assert.equal(c.closeCode, 4429)
 })
+
+
+test('in-flight connections expire with their Hi5Central session', () => {
+  const b = broker()
+  const host = attachAuthorised(b, 'host').sock
+  const client = attachAuthorised(b, 'client').sock
+  now.value += 120001
+  client.receive({ client_id: 'webclient_abc', payload: iq })
+  assert.equal(client.closeCode, 4403)
+  host.receive({ client_id: 'webclient_abc', payload: iq })
+  assert.equal(host.closeCode, 4403)
+  now.value = 1_000_000
+})
+
+test('tenant/session keying resists separator collisions', () => {
+  const b = broker()
+  const host = attachAuthorised(b, 'host', '', {
+    tenantId: 'tenant:a', sessionId: 'b',
+  }).sock
+  const client = attachAuthorised(b, 'client', '', {
+    tenantId: 'tenant', sessionId: 'a:b',
+  }).sock
+  client.receive({ client_id: 'webclient_abc', payload: iq })
+  assert.equal(client.sent.at(-1).code, 'HOST_OFFLINE')
+  assert.equal(host.sent.length, 1)
+})
