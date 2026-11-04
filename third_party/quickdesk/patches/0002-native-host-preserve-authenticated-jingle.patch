@@ -1,72 +1,42 @@
 diff --git a/remoting/quickdesk/signaling/quickdesk_signal_strategy.cc b/remoting/quickdesk/signaling/quickdesk_signal_strategy.cc
 --- a/remoting/quickdesk/signaling/quickdesk_signal_strategy.cc
 +++ b/remoting/quickdesk/signaling/quickdesk_signal_strategy.cc
-@@ -194,7 +194,7 @@
- 
-   // Convert stanza to string
-   std::string jingle_xml = stanza->Str();
+@@ -197 +197 @@
 -  LOG(INFO) << "Sending Jingle XML directly (first 500 chars): " << jingle_xml.substr(0, 500);
 +  LOG(INFO) << "Sending Chromium host Jingle bytes=" << jingle_xml.size();
- 
-   // QuickDesk Native: Send Jingle XML directly without conversion
-   // Native Client and Native Host both understand Jingle XML
-@@ -235,42 +235,17 @@
-     return false;
-   }
- 
+@@ -201 +201 @@
+-  // Web Client support will require conversion, but that's for future
++  // Hi5Central WebClient consumes this same authenticated XML.
+@@ -238 +238 @@
 -  // QuickDesk: Convert Jingle XML to WebRTC JSON before sending
-+  // The browser WebClient authenticates and negotiates via Chromium Jingle.
-+  // Converting XMPP to generic WebRTC JSON destroys SPAKE2/Jingle metadata,
-+  // so preserve the original authenticated XML through SendStanza().
-   if (message.has_xmpp()) {
--    std::string jingle_xml = message.xmpp().stanza();
++  // Preserve Chromium Jingle/FTL authentication and SDP, not generic JSON.
+@@ -241,4 +241,13 @@
 -    LOG(INFO) << "Host sending Jingle XML: " << jingle_xml.substr(0, 200) << "...";
 -
 -    // Convert Jingle XML to WebRTC JSON
 -    std::string webrtc_json = converter_->ConvertFromJingle(jingle_xml);
--    
--    if (webrtc_json.empty()) {
--      LOG(ERROR) << "Failed to convert Jingle to WebRTC JSON";
++    LOG(INFO) << "Host signaling Jingle bytes=" << jingle_xml.size();
++
++    // Preserve the complete authenticated Jingle XML and originating host JID.
 +    auto stanza = std::unique_ptr<jingle_xmpp::XmlElement>(
-+        jingle_xmpp::XmlElement::ForStr(message.xmpp().stanza()));
++        jingle_xmpp::XmlElement::ForStr(jingle_xml));
 +    if (!stanza) {
-+      LOG(ERROR) << "Chromium host received invalid outbound XMPP";
-       return false;
-     }
--
++      LOG(ERROR) << "Invalid outbound Chromium Jingle";
++      return false;
++    }
++    stanza->SetAttr(jingle_xmpp::QName(std::string(), "from"),
++                    local_address_.id());
++    // Legacy variable name retained; it now carries raw Jingle XML.
++    std::string webrtc_json = stanza->Str();
+@@ -247 +256 @@
+-      LOG(ERROR) << "Failed to convert Jingle to WebRTC JSON";
++      LOG(ERROR) << "Empty outbound Chromium Jingle XML";
+@@ -251 +260 @@
 -    LOG(INFO) << "Converted to WebRTC JSON: " << webrtc_json.substr(0, 200) << "...";
--
--    // Write to data pipe using new Mojo API
--    base::span<const uint8_t> data_span(
--        reinterpret_cast<const uint8_t*>(webrtc_json.data()), 
--        webrtc_json.size());
--    size_t actually_written_bytes = 0;
--    MojoResult result = send_stream_->WriteData(
--        data_span,
--        MOJO_WRITE_DATA_FLAG_NONE,
--        actually_written_bytes);
--
--    if (result != MOJO_RESULT_OK || actually_written_bytes != webrtc_json.size()) {
--      LOG(ERROR) << "Failed to write to send stream: " << result;
--      return false;
--    }
--
--    // Send via WebSocket
--    websocket_->SendMessage(network::mojom::WebSocketMessageType::TEXT,
--                            webrtc_json.size());
--
++    LOG(INFO) << "Forwarding Chromium Jingle bytes=" << webrtc_json.size();
+@@ -272 +281 @@
 -    LOG(INFO) << "WebRTC JSON sent successfully";
--    return true;
-+    return SendStanza(std::move(stanza));
-   }
- 
-   LOG(WARNING) << "ChromotingMessage has no XMPP stanza to send";
-@@ -410,7 +385,7 @@
- 
- void QuickDeskSignalStrategy::OnWebSocketMessage(const std::string& message) {
-   DCHECK(network_task_runner_->BelongsToCurrentThread());
++    LOG(INFO) << "Chromium Jingle XML sent successfully";
+@@ -413 +422 @@
 -  LOG(INFO) << "Received Jingle XML (first 500 chars): " << message.substr(0, 500);
 +  LOG(INFO) << "Received Chromium host Jingle bytes=" << message.size();
- 
-   // QuickDesk Native: Receive Jingle XML directly without conversion
-   // Parse XML element
