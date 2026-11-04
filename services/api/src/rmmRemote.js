@@ -6,6 +6,7 @@ import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.
 import { pool } from './db.js'
 import { agentSocketForDevice, sendAgentMessage, subscribeAgentConnections, subscribeAgentMessages } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
+import { createRmmChromiumRuntime } from './rmmChromiumRuntime.js'
 import { resolveSession } from './session.js'
 
 const ROOT_DOMAIN = deployment.rootDomain
@@ -34,6 +35,12 @@ const WAYLAND_PERSISTENCE_STATUS_MIN_AGENT_VERSION = '0.3.153'
 const VIEWER_RECONNECT_GRACE_MS = 90 * 1000
 const AGENT_RESTART_GRACE_MS = 10 * 60 * 1000
 const activeViewerSessions = new Map()
+// Experimental Chromium engine has its own independent feature gate.
+// Staging a native binary does not enable it or grant remote-access rights.
+const chromiumRuntime = createRmmChromiumRuntime({
+  pool, agentSocketForDevice, sendAgentMessage, subscribeAgentMessages,
+  enabled: process.env.RMM_CHROMIUM_EXPERIMENTAL === 'true',
+})
 let viewerReleaseManifestCache = { expiresAt: 0, value: null }
 
 const VIEWER_MESSAGE_TYPES = new Set([
@@ -313,6 +320,7 @@ async function supersedePriorTechnicianRemoteSessions({ tenantId, agentDeviceId,
   ])]
 
   for (const priorSessionId of priorIds) {
+    chromiumRuntime.revoke(String(tenantId), priorSessionId, String(agentDeviceId))
     const live = activeViewerSessions.get(priorSessionId)
     if (live?.viewerWs) {
       safeSend(live.viewerWs, {
@@ -634,6 +642,7 @@ export function registerRmmRemoteRoutes(app) {
       [sessionId, auth.session.tenant_id],
     )
 
+    chromiumRuntime.revoke(String(auth.session.tenant_id), sessionId, String(remote.agent_device_id))
     const live = activeViewerSessions.get(sessionId)
     const agentWs = live?.agentWs || agentSocketForDevice(remote.agent_device_id)
     safeSend(agentWs, { type: 'end_session', session_id: sessionId, reason: 'terminated_by_technician' })
@@ -699,6 +708,8 @@ async function authenticateViewer(sessionId, deviceId, token) {
 
 export function attachRmmViewerWebSocket(server) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_VIEWER_PAYLOAD_BYTES })
+  // Deliberately absent from the HTTP upgrade handler unless enabled.
+  const chromiumSignalWss = chromiumRuntime.attachSignaling(server)
 
   server.on('upgrade', async (request, socket, head) => {
     let url
@@ -738,8 +749,13 @@ export function attachRmmViewerWebSocket(server) {
     })
   })
 
-  wss.on('connection', async (viewerWs) => {
+  wss.on('connection', async (viewerWs, request) => {
     const remote = viewerWs.hi5RemoteSession
+    // Already checked by authenticateViewer at WS upgrade; socket-local only.
+    // Never relay, persist, or log the original Hi5Central Viewer token.
+    const chromiumViewerToken = chromiumRuntime.enabled
+      ? new URL(request.url || '/', 'http://localhost').searchParams.get('token')
+      : null
     const sessionId = String(remote.id)
     let agentWs = agentSocketForDevice(remote.agent_device_id)
     if (agentWs?.readyState !== 1) agentWs = null
@@ -755,6 +771,7 @@ export function attachRmmViewerWebSocket(server) {
     ).catch(() => {})
     const previousActive = activeViewerSessions.get(sessionId)
     const viewerInterruptedAt = previousActive?.viewerDisconnectedAt || 0
+    try { previousActive?.chromiumUnsubscribe?.() } catch {}
     if (previousActive?.cleanupTimer) clearTimeout(previousActive.cleanupTimer)
     if (previousActive?.agentRestartTimer) clearTimeout(previousActive.agentRestartTimer)
     if (previousActive?.agentWs && previousActive?.relayFromAgent) {
@@ -772,6 +789,8 @@ export function attachRmmViewerWebSocket(server) {
       agentDisconnectedAt: 0,
     }
     activeViewerSessions.set(sessionId, active)
+    active.chromiumUnsubscribe = chromiumRuntime.watchHostReady(
+      String(remote.agent_device_id), sessionId)
     if (viewerInterruptedAt) {
       const interruptionSeconds = Math.max(0, Math.round((Date.now() - viewerInterruptedAt) / 1000))
       recordRmmActivity({
@@ -960,6 +979,41 @@ export function attachRmmViewerWebSocket(server) {
       let payload
       try { payload = JSON.parse(text) } catch { return }
       const type = clean(payload?.type)
+      if (type === 'chromium_begin' || type === 'chromium_access') {
+        // The remote identity and bearer token come from this previously
+        // authenticated H5C Viewer socket, NEVER from its JSON payload.
+        if (!chromiumRuntime.enabled || remote.viewer_client !== 'browser' ||
+            remote.mode !== 'console' || !chromiumViewerToken) {
+          safeSend(viewerWs, { type: 'chromium_error', session_id: sessionId,
+            reason: 'chromium_not_enabled_for_session' })
+          return
+        }
+        const credentials = { sessionId,
+          deviceId: String(remote.agent_device_id),
+          viewerToken: chromiumViewerToken }
+        const launch = type === 'chromium_begin'
+          ? chromiumRuntime.grants.begin(credentials)
+          : chromiumRuntime.grants.viewerAccess(credentials)
+        void launch.then((data) => {
+          if (active.finalized || activeViewerSessions.get(sessionId) !== active ||
+              active.viewerWs !== viewerWs || viewerWs.readyState !== 1) {
+            if (type === 'chromium_begin') {
+              chromiumRuntime.revoke(String(remote.tenant_id), sessionId,
+                String(remote.agent_device_id))
+            }
+            return
+          }
+          safeSend(viewerWs, { type: type === 'chromium_begin'
+            ? 'chromium_prepare_result' : 'chromium_access_result',
+            session_id: sessionId, ...data })
+        }).catch((error) => {
+          if (active.finalized || activeViewerSessions.get(sessionId) !== active ||
+              active.viewerWs !== viewerWs) return
+          safeSend(viewerWs, { type: 'chromium_error', session_id: sessionId,
+            reason: clean(error?.code || 'chromium_unavailable').slice(0, 80) })
+        })
+        return
+      }
       if (!VIEWER_MESSAGE_TYPES.has(type)) return
       if (['viewer_disconnected','viewer_closed','viewer_left','end_session','stop_webrtc'].includes(type)) explicitViewerClose = true
       if (remote.mode !== 'backstage' && (type === 'backstage_start' || type === 'backstage_stop')) {
@@ -988,6 +1042,9 @@ export function attachRmmViewerWebSocket(server) {
         currentActive.finalized = true
         if (currentActive.agentRestartTimer) clearTimeout(currentActive.agentRestartTimer)
       }
+      chromiumRuntime.revoke(String(remote.tenant_id), sessionId,
+        String(remote.agent_device_id))
+      try { currentActive?.chromiumUnsubscribe?.() } catch {}
       safeSend(boundAgentWs, { type: 'viewer_disconnected', session_id: sessionId })
       detachAgentSocket()
       activeViewerSessions.delete(sessionId)
@@ -1112,7 +1169,10 @@ export function attachRmmViewerWebSocket(server) {
       else if (type === 'disconnected') active.onAgentDisconnected?.(ws)
     }
   })
-  wss.on('close', () => unsubscribeAgentConnections())
+  wss.on('close', () => {
+    unsubscribeAgentConnections()
+    if (chromiumSignalWss) chromiumSignalWss.close()
+  })
 
   return wss
 }
