@@ -140,3 +140,17 @@ endpoint and Chromium Viewer option.
 
 Tracking: Hi5Central Platform issue #170; Agent cache PR #104;
 opt-in HEVC native-resolution PR #105.
+
+## Guarded Dell adapter tests and rollback — 4 November 2026
+
+**Native-host wire incompatibility confirmed:** the pinned Chromium/QuickDesk host still connects to /signal/{deviceId}?access_code=... and sends raw Jingle XML, whereas the newer QuickDesk browser and Hi5Central bridge use /v1/realtime/signal, first-frame JSON auth, and JSON-enveloped Jingle. Browser-side compatibility alone could not start video.
+
+Added a temporary Hi5Central-only loopback adapter (rmmChromiumLoopbackHostBridge.js), listening solely on 127.0.0.1. The native host can keep its old local signaling path; the adapter validates its ephemeral access code, connects outbound to authenticated Hi5Central WSS using a single-use host ticket, and forwards Jingle XML in either direction. It enforces origin and session-scoped client routing, bounded payloads, encrypted WSS for the server leg, and expiry. This adapter is **test-only**, not a customer-facing or generally deployable Node dependency.
+
+**Transport tests passed:** actual local TLS/WSS host-format raw XML -> authenticated Hi5Central broker -> browser-format JSON Jingle, including the return path. This is not a real Chromium video or SPAKE2 test.
+
+**Windows smoke passed:** the staged adapter loaded on Dell DESKTOP-2JHH2ON with Node.js 26, bound to 127.0.0.1, and closed without leaks. The initial ESM bundling failed due to dynamic require of the built-in events module; rebuilding as CommonJS corrected the failure. The verified final bundle is hi5-chromium-loopback-bridge-bundle.cjs, SHA-256 f320d41d15ad4381acc8d666bec4d99a08e15218063b5fa018f81c4999bb864b. No Chromium remote session or persistent service started.
+
+**Rollback armed:** the Dell retains its original Agent 1.0.305 installer (SHA-256 81c7e14a7c103e4cf70f31c3fb7c7b0ef9252c3bdc79b88b04ec9ec22ba3100f), original service settings, and SYSTEM Scheduled Task Hi5CentralChromiumVideoAutoRestore-20261104, due 2026-11-04 23:05:48 UTC. The task stops only experiment-tagged Chromium and Node helper processes, not the Hi5Central Agent. The VPS container baseline and task scripts are stored at /opt/hi5central/runtime/rmm/shared/chromium-live-ab-20261104. Production RMM API, Viewer and TURN were not restarted or changed.
+
+**Open blocker:** a proposed native Chromium host connect probe was blocked before execution; it was not bypassed, so no video performance improvement has been demonstrated. Next work requires a safe authenticated host connect lifecycle and actual QuickDesk/Chromium SPAKE2 + WebRTC video negotiation under the Hi5Central Viewer, followed by 1080p image/latency/FPS comparison with legacy streaming and confirmed rollback.
