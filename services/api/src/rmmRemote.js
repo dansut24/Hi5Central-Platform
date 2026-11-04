@@ -1124,6 +1124,11 @@ export function attachRmmViewerWebSocket(server) {
     }
     active.onAgentDisconnected = (closedWs) => {
       if (active.finalized || active.agentWs !== closedWs) return
+      // If the Agent drops, any Chromium native process is no longer
+      // supervised by the authenticated host socket. Revoke immediately,
+      // rather than allowing a stale Jingle peer to retain remote access.
+      chromiumRuntime.revoke(String(remote.tenant_id), sessionId,
+        String(remote.agent_device_id))
       detachAgentSocket()
       if (!active.agentDisconnectedAt) {
         active.agentDisconnectedAt = Date.now()
