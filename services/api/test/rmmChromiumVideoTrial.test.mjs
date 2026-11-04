@@ -123,3 +123,42 @@ test('a successful first frame without motion is not falsely treated as a freeze
   assert.equal(f.bench.status,'ready')
   f.bench.rollback()
 })
+
+
+test('QoE measurements follow visible Chromium video and stop on rollback',async()=>{
+  const f=make()
+  f.adapter.peerConnection={id:'chromium_peer'}
+  const probes=[]
+  const bench=new Hi5ChromiumVideoTrial({
+    adapter:f.adapter,trialVideo:f.trialVideo,primaryVideo:f.primaryVideo,
+    probeFactory:({pc,video})=>{
+      const p={pc,video,started:false,stopped:false,
+        start(){this.started=true},
+        stop(){this.stopped=true},
+        async sample(){return {decodedFps:29,renderedFps:28}},
+        summary(){return {renderedFpsMedian:28}},
+      }
+      probes.push(p)
+      return p
+    },
+  })
+  const pending=bench.start({})
+  await Promise.resolve()
+  f.adapter.track()
+  f.firstFrame()
+  await pending
+  assert.equal(probes.length,1)
+  assert.equal(probes[0].pc,f.adapter.peerConnection)
+  assert.equal(probes[0].video,f.trialVideo)
+  assert.equal(probes[0].started,true)
+  assert.deepEqual(bench.performance,{renderedFpsMedian:28})
+  bench.promote()
+  assert.equal(probes.length,2)
+  assert.equal(probes[0].stopped,true)
+  assert.equal(probes[1].video,f.primaryVideo)
+  assert.equal(f.trialVideo.srcObject,null)
+  assert.equal(probes[1].started,true)
+  bench.rollback()
+  assert.equal(probes[1].stopped,true)
+  assert.equal(f.primaryVideo.srcObject,f.old)
+})
