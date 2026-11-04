@@ -32,6 +32,7 @@ test('Windows host signal loopback binds 127.0.0.1 only and shuts down cleanly',
   const base=await bridge.localAddress()
   assert.match(base,/^ws:\/\/127\.0\.0\.1:[0-9]+$/)
   const ws=new WebSocket(base+'/signal/123456789?access_code=wrong')
+  ws.on('error',()=>{}) // expected pre-upgrade rejection resets TCP
   await waitClose(ws)
   await bridge.close()
   assert.equal(bridge.events.length,0)
