@@ -10,7 +10,9 @@ Set-StrictMode -Version Latest
 $Pin='0a502e844e10081c11c0a81eb40171466de252e4'
 $SourceHash='b4438b5c7b9cddb47feefadac880fdf0005e95f4d66eb3e358f4e9f6d032cdbc'
 $Rel='remoting/quickdesk/signaling/quickdesk_signal_strategy.cc'
-$Patch=Join-Path (Split-Path $PSScriptRoot -Parent) 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+$CheckedOutPatch=Join-Path (Split-Path $PSScriptRoot -Parent) 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+$Patch=Join-Path ([IO.Path]::GetTempPath()) ('h5c-chromium-'+[guid]::NewGuid().ToString('N')+'.patch')
+[IO.File]::WriteAllText($Patch,([IO.File]::ReadAllText($CheckedOutPatch) -replace "`r`n","`n"),[Text.UTF8Encoding]::new($false))
 if([string]::IsNullOrWhiteSpace($SourceRoot) -or [string]::IsNullOrWhiteSpace($OutputRoot)){
   throw 'Configure H5C_CHROMIUM_SOURCE and H5C_CHROMIUM_OUTPUT on a dedicated Windows Chromium builder.'
 }
@@ -96,4 +98,5 @@ try{
     if($LASTEXITCODE -ne 0){Write-Warning 'Inspect Chromium checkout; native patch could not be restored.'}
   }
   Pop-Location
+  Remove-Item -LiteralPath $Patch -Force -ErrorAction SilentlyContinue
 }
