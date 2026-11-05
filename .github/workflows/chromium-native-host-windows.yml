@@ -1,0 +1,107 @@
+name: Chromium native host Windows build
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/chromium-native-host-windows.yml'
+      - 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+      - 'scripts/build-chromium-native-host-windows.ps1'
+  workflow_dispatch:
+    inputs:
+      build_native:
+        description: 'Build full Chromium host on provisioned chromium-builder Windows runner'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract:
+    name: Windows native Jingle patch contract (no binary)
+    runs-on: windows-2025
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply audited Jingle patch to exact Chromium source on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $pin='0a502e844e10081c11c0a81eb40171466de252e4'
+          $url="https://raw.githubusercontent.com/barry-ran/quickdesk-remoting/$pin/remoting/quickdesk/signaling/quickdesk_signal_strategy.cc"
+          $tmp=Join-Path $env:RUNNER_TEMP 'chromium-source-verify'
+          $source=Join-Path $tmp 'remoting/quickdesk/signaling/quickdesk_signal_strategy.cc'
+          New-Item -Path (Split-Path $source) -ItemType Directory -Force|Out-Null
+          Invoke-WebRequest -Uri $url -OutFile $source -MaximumRetryCount 3 -RetryIntervalSec 2
+          $sha=(Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($sha -cne 'b4438b5c7b9cddb47feefadac880fdf0005e95f4d66eb3e358f4e9f6d032cdbc'){
+            throw "Chromium pinned upstream source SHA mismatch: $sha"
+          }
+          $patch=Join-Path $env:GITHUB_WORKSPACE 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+          Push-Location $tmp
+          try {
+            git init -q
+            git apply --unidiff-zero --check $patch
+            if($LASTEXITCODE -ne 0){throw 'Pinned native Jingle patch does not apply on Windows.'}
+            git apply --unidiff-zero $patch
+            if($LASTEXITCODE -ne 0){throw 'Pinned native Jingle patch failed to apply.'}
+            $modified=Get-Content $source -Raw
+            if($modified -notmatch 'std::string webrtc_json = stanza->Str\(\)' -or
+               $modified -match 'converter_->ConvertFromJingle\(jingle_xml\)'){
+              throw 'Native Chromium host still loses authenticated Jingle/SDP.'
+            }
+            Write-Host 'WINDOWS_PINNED_NATIVE_CHROMIUM_JINGLE_PATCH_APPLIED=PASS'
+          } finally { Pop-Location }
+      - name: Validate script syntax and report actual runner capacity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $script=Join-Path $env:GITHUB_WORKSPACE 'scripts/build-chromium-native-host-windows.ps1'
+          $tokens=$null;$errors=$null
+          [Management.Automation.Language.Parser]::ParseFile($script,[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count){throw ("Native build script syntax: "+$errors[0].Message)}
+          $ram=[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB,1)
+          $disk=Get-CimInstance Win32_LogicalDisk -Filter "DeviceID='C:'"
+          $free=[math]::Round($disk.FreeSpace/1GB,1)
+          $ready=($ram -ge 24 -and $free -ge 180)
+          $report=[ordered]@{
+            chromium_commit='0a502e844e10081c11c0a81eb40171466de252e4'
+            patch_applied=$true
+            build_script_syntax='pass'
+            runner_ram_gb=$ram
+            runner_free_disk_gb=$free
+            can_prepare_full_chromium_source=$ready
+            native_binary_compiled=$false
+            production_agent_changed=$false
+          }
+          $report|ConvertTo-Json -Depth 5|Set-Content windows-native-source-contract.json -Encoding UTF8
+          Write-Host "WINDOWS_CHROMIUM_CONTRACT_PASS RAM_GB=$ram FREE_GB=$free FULL_BUILD_READY=$ready"
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Windows native source patch validates. Full Chromium host compile requires a dedicated build runner with synced source and 24+GB RAM.'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chromium-windows-source-contract
+          path: windows-native-source-contract.json
+          if-no-files-found: error
+          retention-days: 14
+
+  native-host-build:
+    name: Native Chromium host on dedicated Windows builder
+    if: github.event_name == 'workflow_dispatch' && inputs.build_native == true
+    runs-on: [self-hosted, Windows, X64, chromium-builder]
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile pinned Chromium host without installing or deploying
+        shell: pwsh
+        run: |
+          $output=Join-Path $env:GITHUB_WORKSPACE 'hi5central-native-host-output'
+          & ./scripts/build-chromium-native-host-windows.ps1 -SourceRoot 'C:\h5c-chromium\src' -OutputRoot $output
+          if($LASTEXITCODE){throw "Chromium native host build failed ($LASTEXITCODE)"}
+      - name: Publish signed-off-for-review native build outputs only
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Chromium-Native-Host-Windows-x64-UNDEPLOYED
+          path: hi5central-native-host-output/
+          if-no-files-found: error
+          retention-days: 7
