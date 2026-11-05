@@ -38,7 +38,9 @@ jobs:
           if($sha -cne 'b4438b5c7b9cddb47feefadac880fdf0005e95f4d66eb3e358f4e9f6d032cdbc'){
             throw "Chromium pinned upstream source SHA mismatch: $sha"
           }
-          $patch=Join-Path $env:GITHUB_WORKSPACE 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+          $checkedOutPatch=Join-Path $env:GITHUB_WORKSPACE 'third_party/quickdesk/patches/0002-native-host-preserve-authenticated-jingle.patch'
+          $patch=Join-Path $env:RUNNER_TEMP 'hi5-chromium-native-patch-lf.patch'
+          [IO.File]::WriteAllText($patch,([IO.File]::ReadAllText($checkedOutPatch) -replace "`r`n","`n"),[Text.UTF8Encoding]::new($false))
           Push-Location $tmp
           try {
             git init -q
