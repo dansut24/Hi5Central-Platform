@@ -1,0 +1,2 @@
+third_party/quickdesk/patches/*.patch text eol=lf
+scripts/build-chromium-native-host-windows.ps1 text eol=lf
