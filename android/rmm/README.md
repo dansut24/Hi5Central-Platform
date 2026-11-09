@@ -20,6 +20,14 @@ The GitHub Actions workflow `android-rmm.yml` also builds an unsigned-for-distri
 - The frontend opens that URL via `window.open`; the Android `WebChromeClient` creates a second, internal WebView on top of the portal.
 - Back closes the viewer and returns to the portal. WebRTC's existing codec selection, signaling and input controls remain in the shared viewer code.
 
+## Native Android keyboard (new)
+
+While a remote session is open inside the APK, use **⌨ Type** (floating button near the lower-right edge) after tapping the remote application's text field. This opens the phone's normal Android keyboard. Edits are forwarded live over the existing authenticated viewer input channel; Enter and Backspace buttons are available when the IME does not expose those keys. **Hide** restores the video view without ending the remote session. The existing web remote keyboard remains available for Ctrl, Alt, Windows/Super, function keys and other special shortcuts.
+
+This adapter is active only for the selected tenant's exact HTTPS `/rmm-viewer/index.html` URL. It does not expose a JavaScript bridge to arbitrary websites. On an actual Android phone, the phone's installed Android keyboard is used; an iPhone controlling an Android emulator through Chrome Remote Desktop is a separate input-translation layer.
+
+Confirm that typing, deletion, Enter, special shortcuts, landscape and leaving/rejoining a viewer all work on physical Android hardware before releasing.
+
 ## Notifications status
 
 The APK includes a FirebaseMessagingService, notification channel and Android notification permission. **Live push notifications are not yet enabled.** They require the Firebase Android app `com.hi5central.rmm` configuration file (`app/google-services.json`, excluded from Git), secure token registration on the tenant-authenticated Hi5Central API, server-side dispatch for device/alert events, and end-to-end checks. Never embed Firebase service-account credentials in the APK.

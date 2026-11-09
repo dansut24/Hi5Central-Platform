@@ -34,6 +34,7 @@ class MainActivity : Activity() {
     private var viewer: WebView? = null
     private var fullscreenView: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+    private var nativeKeyboard: RemoteKeyboardController? = null
     private val prefs by lazy { getSharedPreferences("workspace", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -148,6 +149,20 @@ class MainActivity : Activity() {
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
         web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                if (view === viewer && isTrustedViewerUrl(url)) {
+                    if (nativeKeyboard == null) {
+                        nativeKeyboard = RemoteKeyboardController(this@MainActivity, root, web) {
+                            viewer === web && isTrustedViewerUrl(web.url)
+                        }
+                    }
+                    nativeKeyboard?.showLauncher()
+                } else if (view === viewer) {
+                    nativeKeyboard?.dispose()
+                    nativeKeyboard = null
+                }
+            }
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val url = request?.url ?: return true
                 if (url.scheme == "https" && isAllowedHost(url.host)) return false
@@ -183,6 +198,7 @@ class MainActivity : Activity() {
                 fullscreenView = view
                 fullscreenCallback = callback
                 root.addView(view, FrameLayout.LayoutParams(-1, -1))
+                nativeKeyboard?.bringToFront()
                 window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                 window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -190,6 +206,18 @@ class MainActivity : Activity() {
             override fun onHideCustomView() { leaveFullscreen() }
         }
         return web
+    }
+
+    private fun isTrustedViewerUrl(value: String?): Boolean {
+        return try {
+            val uri = android.net.Uri.parse(value ?: return false)
+            val workspace = android.net.Uri.parse(prefs.getString("workspace", "") ?: "")
+            uri.scheme == "https" &&
+                uri.host.equals(workspace.host, ignoreCase = true) &&
+                uri.path == "/rmm-viewer/index.html"
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun isAllowedHost(host: String?): Boolean {
@@ -207,6 +235,8 @@ class MainActivity : Activity() {
     }
 
     private fun closeViewer() {
+        nativeKeyboard?.dispose()
+        nativeKeyboard = null
         leaveFullscreen()
         viewer?.let { root.removeView(it); it.stopLoading(); it.destroy() }
         viewer = null
@@ -215,6 +245,7 @@ class MainActivity : Activity() {
 
     @Deprecated("Supports Android system Back navigation for the embedded viewer")
     override fun onBackPressed() {
+        if (nativeKeyboard?.isOpen() == true) { nativeKeyboard?.hideKeyboard(); return }
         if (fullscreenView != null) { leaveFullscreen(); return }
         val child = viewer
         if (child != null) {
