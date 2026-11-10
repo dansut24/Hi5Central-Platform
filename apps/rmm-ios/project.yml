@@ -1,0 +1,32 @@
+name: Hi5CentralRMM
+options:
+  bundleIdPrefix: com.hi5central
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  Hi5CentralRMM:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - Info.plist
+    info:
+      path: Sources/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hi5central.rmm
+        PRODUCT_NAME: Hi5CentralRMM
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser: NO
+schemes:
+  Hi5CentralRMM:
+    build:
+      targets:
+        Hi5CentralRMM: all
+    run:
+      config: Debug
+    archive:
+      config: Release
