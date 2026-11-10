@@ -1,0 +1,58 @@
+name: RMM iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/rmm-ios/**'
+      - '.github/workflows/rmm-ios-unsigned-ipa.yml'
+  pull_request:
+    paths:
+      - 'apps/rmm-ios/**'
+      - '.github/workflows/rmm-ios-unsigned-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: apps/rmm-ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile for physical iPhone without a signing identity
+        working-directory: apps/rmm-ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Hi5CentralRMM.xcodeproj \
+            -scheme Hi5CentralRMM \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/Hi5DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package unsigned IPA for Windows sideloading tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Hi5DerivedData/Build/Products/Release-iphoneos/Hi5CentralRMM.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/Hi5IPABuild/Payload"
+          ditto "$APP" "$RUNNER_TEMP/Hi5IPABuild/Payload/Hi5CentralRMM.app"
+          cd "$RUNNER_TEMP/Hi5IPABuild"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Hi5CentralRMM-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/Hi5CentralRMM-unsigned.ipa"
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5CentralRMM-iOS-unsigned
+          path: Hi5CentralRMM-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
