@@ -780,9 +780,21 @@ namespace hi5 {
             }
         }
 
+        // Focus detection must never jeopardise the independent video feed.
+        // UI Automation can interact with the desktop compositor and has caused
+        // startup regressions on some GPU/desktop combinations. In this
+        // recovery build it is opt-in so that capture remains the priority.
+        // A future isolated helper will permit automatic keyboard focus without
+        // running UI Automation inside the video capture process.
         RemoteFocusProbe focusProbe;
-        if (inputPipeOk && !IsSecureHelperArgs(args)) {
+        const char* focusSetting = std::getenv("HI5_REMOTE_FOCUS_PROBE");
+        const bool enableFocusProbe = focusSetting && std::string(focusSetting) == "1";
+        if (inputPipeOk && !IsSecureHelperArgs(args) && enableFocusProbe) {
+            LogInfo("[streamer] focus probe enabled (experimental)");
             focusProbe.Start(inputPipe);
+        }
+        else {
+            LogInfo("[streamer] focus probe disabled to protect capture");
         }
         PrimeInputQueue();
         LogInfo("[streamer] input queue primed");
