@@ -126,7 +126,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         guard let params else { return }
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 20
-        let session = URLSession(configuration: config)
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         self.session = session
         let socket = session.webSocketTask(with: params.websocket)
         self.socket = socket
@@ -531,5 +531,18 @@ extension NativeRemoteEngine: RTCVideoViewDelegate {
             self.hasVideo = size.width > 0 && size.height > 0
             if self.hasVideo { self.status = "Streaming" }
         }
+    }
+}
+
+extension NativeRemoteEngine: URLSessionWebSocketDelegate {
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didOpenWithProtocol protocol: String?) {
+        event("Signalling socket connected")
+    }
+
+    func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
+                    didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        guard !intentionallyClosed else { return }
+        event("Signalling socket closed (code \(closeCode.rawValue))")
     }
 }

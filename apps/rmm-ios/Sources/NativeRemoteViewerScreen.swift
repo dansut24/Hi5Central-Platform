@@ -126,17 +126,9 @@ struct NativeRemoteViewerScreen: View {
                 Task { await RemoteSessionActivity.shared.update(sessionId: id, state: "Connected") }
             }
         }
-        .onDisappear {
-            // SwiftUI can temporarily remove a view while presenting sheets or
-            // changing app phase. Do not kill the server session unless the
-            // technician explicitly confirms Disconnection.
-            if isClosing || state.viewer?.id != target.id {
-                engine.close(reason: "Viewer closed")
-                if let id = launch?.sessionId {
-                    Task { await RemoteSessionActivity.shared.end(sessionId: id) }
-                }
-            }
-        }
+        // A temporary SwiftUI disappearance is not a remote-session close.
+        // Only the explicit Disconnect action terminates the server session.
+        // If this view is truly destroyed, the transport deinit closes its socket.
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
                 List(Array(engine.recentEvents.enumerated().reversed()), id: \.offset) { row in

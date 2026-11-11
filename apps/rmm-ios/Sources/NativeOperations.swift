@@ -439,7 +439,7 @@ struct NativeSettings: View {
                     HStack {
                         Text("Version").foregroundStyle(.secondary)
                         Spacer()
-                        Text("0.4.0")
+                        Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.2")
                     }.font(.subheadline)
                     HStack {
                         Text("Company").foregroundStyle(.secondary)
