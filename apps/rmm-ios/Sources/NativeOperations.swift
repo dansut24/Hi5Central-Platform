@@ -385,6 +385,7 @@ struct NativeSettings: View {
     @EnvironmentObject private var client: RMMClient
     @AppStorage("hi5central.rmm.appearance") private var appearance = "system"
     @AppStorage("hi5central.rmm.nativeViewer") private var nativeViewerEnabled = true
+    @AppStorage("hi5central.rmm.autoRemoteKeyboard") private var autoRemoteKeyboard = true
     @State private var policy: [String: Any] = [:]
     @State private var failure: String?
 
@@ -404,6 +405,9 @@ struct NativeSettings: View {
                 }
                 NativePanel(title: "Remote viewer", symbol: "display") {
                     Toggle("Native WebRTC viewer (preview)", isOn: $nativeViewerEnabled)
+                    Toggle("Automatically show iPhone keyboard", isOn: $autoRemoteKeyboard)
+                    Text("Requires Windows agent focus reporting. The keyboard button always works if an application does not expose its editable field.")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("Use a native video renderer and iOS chat/files. Turn this off to use the last WebView viewer if an endpoint cannot connect.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
