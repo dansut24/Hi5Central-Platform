@@ -334,7 +334,7 @@ final class RMMClient: ObservableObject {
             throw RMMNetworkError.server("Select an online managed device.")
         }
         _ = try await perform("/api/v1/rmm/automations/\(id)/run", method: "POST",
-                              body: ["agentDeviceId": device.agentId])
+                              body: ["agentDeviceIds": [device.agentId]])
     }
 
     func signOut() async {
