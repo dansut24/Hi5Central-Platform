@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 enum RMMRoute: String, CaseIterable, Identifiable {
-    case dashboard, devices, alerts, patching, software, automation, reports, settings
+    case dashboard, devices, alerts, patching, software, automation, reports, settings, profile, connect
 
     var id: String { rawValue }
     var path: String { self == .dashboard ? "/" : "/\(rawValue)" }
@@ -16,6 +16,8 @@ enum RMMRoute: String, CaseIterable, Identifiable {
         case .automation: return "Automation"
         case .reports: return "Reports"
         case .settings: return "RMM settings"
+        case .profile: return "My profile"
+        case .connect: return "Connect"
         }
     }
 }
@@ -29,6 +31,7 @@ final class RMMState: ObservableObject {
     @Published var tenant: String
     @Published var route: RMMRoute = .dashboard
     @Published var showingMore = false
+    @Published var showPortalTools = false
     @Published var viewer: ViewerLaunch?
     @Published var loading = false
     @Published var errorMessage: String?
@@ -52,6 +55,7 @@ final class RMMState: ObservableObject {
         UserDefaults.standard.set(slug, forKey: "hi5central.rmm.tenant")
         route = .dashboard
         showingMore = false
+        showPortalTools = false
         errorMessage = nil
         return true
     }
@@ -61,12 +65,19 @@ final class RMMState: ObservableObject {
         UserDefaults.standard.removeObject(forKey: "hi5central.rmm.tenant")
         route = .dashboard
         showingMore = false
+        showPortalTools = false
         viewer = nil
     }
 
     func navigate(to page: RMMRoute) {
+        showPortalTools = false
         showingMore = false
         route = page
+    }
+
+    func routeForWebPath(_ path: String) -> RMMRoute? {
+        let first = path.split(separator: "/").first.map(String.init) ?? ""
+        return RMMRoute(rawValue: first.isEmpty ? "dashboard" : first)
     }
 
     func isTrustedHi5(_ url: URL) -> Bool {
