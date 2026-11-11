@@ -1,4 +1,8 @@
 name: Hi5CentralRMM
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 156.0.0
 options:
   bundleIdPrefix: com.hi5central
   deploymentTarget:
@@ -11,13 +15,21 @@ targets:
       - path: Sources
         excludes:
           - Info.plist
+    dependencies:
+      - package: WebRTC
+      - target: Hi5RemoteActivity
+        embed: true
     info:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central RMM"
-        CFBundleShortVersionString: "0.4.0"
-        CFBundleVersion: "4"
+        CFBundleShortVersionString: "0.5.0"
+        CFBundleVersion: "5"
         UILaunchStoryboardName: LaunchScreen
+        NSSupportsLiveActivities: true
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - hi5central-rmm
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -37,6 +49,23 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
         INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser: NO
+  Hi5RemoteActivity:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.1"
+    sources:
+      - path: LiveActivity
+        excludes:
+          - Info.plist
+      - path: Sources/RemoteSessionAttributes.swift
+    info:
+      path: LiveActivity/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.hi5central.rmm.activity
+        PRODUCT_NAME: Hi5RemoteActivity
+        SWIFT_VERSION: "5.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
 schemes:
   Hi5CentralRMM:
     build:

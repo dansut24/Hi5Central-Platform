@@ -6,6 +6,7 @@ struct RootView: View {
     @EnvironmentObject private var state: RMMState
     @EnvironmentObject private var client: RMMClient
     @State private var splash = true
+    @AppStorage("hi5central.rmm.nativeViewer") private var nativeViewerEnabled = true
     @AppStorage("hi5central.rmm.appearance") private var appearance = "system"
 
     var body: some View {
@@ -20,7 +21,21 @@ struct RootView: View {
         }
         .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         .fullScreenCover(item: $state.viewer) { target in
-            RemoteViewerScreen(target: target)
+            if nativeViewerEnabled {
+                NativeRemoteViewerScreen(target: target)
+                    .environmentObject(client)
+            } else {
+                RemoteViewerScreen(target: target)
+            }
+        }
+        .onOpenURL { url in
+            // A Dynamic Island tap foregrounds this app. If the session is
+            // still open, the existing full-screen viewer is retained.
+            guard url.scheme == "hi5central-rmm", url.host == "remote",
+                  let id = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "session" })?.value,
+                  let active = state.viewer,
+                  NativeViewerParameters(url: active.url)?.sessionId == id else { return }
+            state.viewer = active
         }
         .sheet(isPresented: Binding(get: { !client.recoveryCodes.isEmpty },
                                     set: { if !$0 { client.finishRecoveryCodes() } })) {

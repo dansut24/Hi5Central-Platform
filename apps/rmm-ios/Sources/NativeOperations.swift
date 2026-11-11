@@ -384,6 +384,7 @@ struct NativeConnect: View {
 struct NativeSettings: View {
     @EnvironmentObject private var client: RMMClient
     @AppStorage("hi5central.rmm.appearance") private var appearance = "system"
+    @AppStorage("hi5central.rmm.nativeViewer") private var nativeViewerEnabled = true
     @State private var policy: [String: Any] = [:]
     @State private var failure: String?
 
@@ -399,6 +400,11 @@ struct NativeSettings: View {
                     }
                     .pickerStyle(.segmented)
                     Text("System follows the iPhone's current appearance setting.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                NativePanel(title: "Remote viewer", symbol: "display") {
+                    Toggle("Native WebRTC viewer (preview)", isOn: $nativeViewerEnabled)
+                    Text("Use a native video renderer and iOS chat/files. Turn this off to use the last WebView viewer if an endpoint cannot connect.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 NativePanel(title: "Notifications", symbol: "bell.badge") {
