@@ -40,30 +40,26 @@ struct NativeRemoteViewerScreen: View {
             ZStack {
                 Color.black
                 GeometryReader { geometry in
-                    NativeVideoCanvas(renderer: engine.renderer)
-                        .scaleEffect(scale)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(SpatialTapGesture().onEnded { value in
-                            guard engine.connected else { return }
-                            let videoSize = CGSize(width: engine.videoWidth, height: engine.videoHeight)
-                            let viewport = geometry.size
-                            guard videoSize.width > 0, videoSize.height > 0,
-                                  viewport.width > 0, viewport.height > 0 else { return }
-                            let ratio = min(viewport.width / videoSize.width,
-                                            viewport.height / videoSize.height)
-                            let rendered = CGSize(width: videoSize.width * ratio,
-                                                  height: videoSize.height * ratio)
-                            let left = (viewport.width - rendered.width) / 2
-                            let top = (viewport.height - rendered.height) / 2
-                            let x = (value.location.x - left) / rendered.width
-                            let y = (value.location.y - top) / rendered.height
-                            guard (0...1).contains(x), (0...1).contains(y) else { return }
-                            engine.tap(x: x, y: y)
-                        })
-                        .simultaneousGesture(MagnificationGesture()
-                            .onChanged { value in scale = min(4, max(1, lastScale * value)) }
-                            .onEnded { _ in lastScale = scale })
+                    ZStack {
+                        NativeVideoCanvas(renderer: engine.renderer)
+                            .scaleEffect(scale)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                        if engine.hasVideo {
+                            // The transparent UIKit surface owns touch input;
+                            // Metal owns video rendering only. This avoids
+                            // SwiftUI gestures being swallowed by RTCMTLVideoView.
+                            NativeRemoteTouchSurface(
+                                zoom: $scale,
+                                videoSize: CGSize(width: engine.videoWidth, height: engine.videoHeight),
+                                active: engine.connected || engine.hasVideo
+                            ) { kind, values in
+                                engine.sendInput(kind, values: values)
+                            }
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .zIndex(1)
+                        }
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
                 }
                 if !engine.hasVideo {
                     VStack(spacing: 14) {
@@ -131,6 +127,14 @@ struct NativeRemoteViewerScreen: View {
         // If this view is truly destroyed, the transport deinit closes its socket.
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
+                VStack(alignment: .leading, spacing: 7) {
+                    Label("Native touch events sent: \(engine.touchEventsSent)", systemImage: "hand.tap")
+                        .font(.subheadline)
+                    Text("Tap, double-tap, long-press to right-click, drag and two-finger scroll are enabled.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(14)
                 List(Array(engine.recentEvents.enumerated().reversed()), id: \.offset) { row in
                     Text(row.element).font(.subheadline)
                 }

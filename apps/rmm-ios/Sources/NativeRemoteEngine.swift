@@ -81,6 +81,7 @@ struct NativeFileEntry: Identifiable {
 final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var status = "Preparing connection"
     @Published private(set) var recentEvents: [String] = []
+    @Published private(set) var touchEventsSent = 0
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
@@ -351,13 +352,26 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     }
 
     func sendInput(_ kind: String, values: [String: Any] = [:]) {
-        guard let params, connected else { return }
+        // The video can be flowing while ICE state callbacks are still
+        // transitioning. Don't discard touch input in that case.
+        guard let params, connected || hasVideo else { return }
         var payload = values
         payload["kind"] = kind
-        if let channel = inputChannel, channel.readyState == .open,
+
+        if kind == "mouse_click" || kind == "mouse_down" || kind == "mouse_up" || kind == "wheel" {
+            DispatchQueue.main.async { self.touchEventsSent += 1 }
+        }
+
+        // Use the authenticated signalling socket for small reliable
+        // clicks/keys/wheel, like Hi5Central's mobile Connect viewer. Some
+        // mobile WebRTC control data channels are open but drop tap events.
+        // High-frequency mouse movement continues on the WebRTC channel.
+        if kind == "mouse_move", let channel = inputChannel,
+           channel.readyState == .open,
            let bytes = try? JSONSerialization.data(withJSONObject: payload) {
-            channel.sendData(RTCDataBuffer(data: bytes, isBinary: false))
-            return
+            if channel.sendData(RTCDataBuffer(data: bytes, isBinary: false)) {
+                return
+            }
         }
         payload["type"] = "input_event"
         payload["session_id"] = params.sessionId
