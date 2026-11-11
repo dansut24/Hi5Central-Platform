@@ -59,9 +59,10 @@ struct NativeRemoteKeyboardInput: UIViewRepresentable {
             if field.isFirstResponder { field.reloadInputViews() }
         }
 
+        field.wantsNativeFocus = active
         if active && !field.isFirstResponder {
             DispatchQueue.main.async { [weak field] in
-                guard let field, field.window != nil else { return }
+                guard let field, field.window != nil, field.wantsNativeFocus else { return }
                 _ = field.becomeFirstResponder()
             }
         } else if !active && field.isFirstResponder {
@@ -100,6 +101,17 @@ struct NativeRemoteKeyboardInput: UIViewRepresentable {
 
 final class RemoteKeyboardTextField: UITextField {
     var deleteHandler: (() -> Void)?
+    var wantsNativeFocus = false
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if wantsNativeFocus && window != nil && !isFirstResponder {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window != nil, self.wantsNativeFocus else { return }
+                _ = self.becomeFirstResponder()
+            }
+        }
+    }
 
     override func deleteBackward() {
         deleteHandler?()
