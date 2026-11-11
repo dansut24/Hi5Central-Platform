@@ -1,3 +1,19 @@
+# Hi5Central RMM iOS v0.5.8 — restore confirmed working native ICE path
+
+This recovery build is deliberately based on **v0.5.4 commit f3dff6d**, which followed the real-device working v0.5.2 native WebRTC confirmation on 2026-11-11 at 12:28 UTC, plus v0.5.4 touch fixes at 12:54 UTC.
+
+It retains the v0.5.6 **manual iPhone keyboard** without the automatic Win32 focus detector.
+
+**Native media:** the complete v0.5.4 offer/answer sequence, ICE handling, transceiver selection, WebSocket session and timeouts remain unchanged. In particular, the unverified receive-only transceiver, video-only SDP constraints, main-queue negotiation rewrite, and ping changes of v0.5.7 have been excluded.
+
+**Read-only telemetry:** Connection details now displays number of local and remote ICE candidates and TURN relay candidate counts; diagnostic messages show SDP accepted, answer sent, gathering, ICE connected/failed, and video-track received. No addresses, credentials or SDP bodies are displayed.
+
+**Environment:** keep working Lenovo Agent v1.0.318 on original IONOS VPS; do not rebuild Agent, change TURN, or switch servers.
+
+**Live verification:** Install fresh IPA, open new remote session using tenant newtest; confirm iOS stream reaches "ICE connected" and visible video; in Connection details, relay and candidate counts reveal missing ICE paths if it fails. After video succeeds, open Notepad, tap keyboard icon, type directly using iOS keyboard; check Backspace/Return. Automatic keyboard-on-focus must be added only after this passes.
+
+---
+
 # Hi5Central RMM iOS v0.5.6 — video-first recovery with direct native keyboard
 
 This release branches from the last pre-auto-keyboard v0.5.4 source at commit `f3dff6d` and retains native touch, zoom/pan, WebRTC, chat and file controls.
