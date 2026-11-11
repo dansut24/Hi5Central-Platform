@@ -5971,6 +5971,9 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                 uint64_t framesForwarded = 0;
                 uint64_t lastNormalStatsSeq = 0;
                 uint64_t lastSecureStatsSeq = 0;
+                uint64_t lastRemoteFocusSeq = 0;
+                int currentFocusKind = -1;
+                auto nextFocusPoll = std::chrono::steady_clock::now();
                 auto nextDiagnosticsPoll = std::chrono::steady_clock::now() + std::chrono::seconds(1);
                 ctx.lastNormalLaunchAttempt = std::chrono::steady_clock::now();
                 ctx.lastSecureLaunchAttempt = {};
@@ -6213,6 +6216,38 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                             ctx.sender->sendExternalRawI420(normalFrame, forceKf);
                         }
                         sent = true;
+                    }
+
+                    if (now >= nextFocusPoll) {
+                        uint64_t seq = 0;
+                        int kind = 0;
+                        if (ctx.normalInputPipe.ReadRemoteFocus(lastRemoteFocusSeq, seq, kind)) {
+                            lastRemoteFocusSeq = seq;
+                            currentFocusKind = (kind >= 0 && kind <= 3) ? kind : 0;
+                            // The service only relays non-sensitive focus metadata.
+                            // Text/password data and application titles are never collected.
+                            if (ctx.activeMode != DesktopMode::Secure && !ctx.uacRequested && signaling_) {
+                                json focus = {
+                                    {"type", "remote_focus_state"},
+                                    {"session_id", ctx.sessionId},
+                                    {"editable", currentFocusKind != 0},
+                                    {"keyboard_kind", currentFocusKind == 2 ? "url" : (currentFocusKind == 3 ? "password" : "text")}
+                                };
+                                signaling_->send(focus.dump());
+                            }
+                        }
+                        if ((ctx.activeMode == DesktopMode::Secure || ctx.uacRequested) &&
+                            currentFocusKind > 0 && signaling_) {
+                            currentFocusKind = 0;
+                            json focus = {
+                                {"type", "remote_focus_state"},
+                                {"session_id", ctx.sessionId},
+                                {"editable", false},
+                                {"keyboard_kind", "text"}
+                            };
+                            signaling_->send(focus.dump());
+                        }
+                        nextFocusPoll = now + std::chrono::milliseconds(250);
                     }
 
                     if (now >= nextDiagnosticsPoll) {

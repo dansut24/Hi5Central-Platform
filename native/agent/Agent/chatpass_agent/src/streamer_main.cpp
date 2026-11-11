@@ -1,6 +1,7 @@
 #include "frame_source.h"
 #include "ipc/shmem_ring.h"
 #include "ipc/input_pipe.h"
+#include "remote_focus_probe.h"
 #include "util/log.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -779,6 +780,10 @@ namespace hi5 {
             }
         }
 
+        RemoteFocusProbe focusProbe;
+        if (inputPipeOk && !IsSecureHelperArgs(args)) {
+            focusProbe.Start(inputPipe);
+        }
         PrimeInputQueue();
         LogInfo("[streamer] input queue primed");
 
@@ -1000,6 +1005,7 @@ namespace hi5 {
             }
         }
 
+        focusProbe.Stop();
         if (inputPipeOk) {
             inputPipe.Close();
         }
