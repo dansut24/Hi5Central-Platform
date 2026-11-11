@@ -1,3 +1,17 @@
+# Hi5Central RMM iOS v0.5.9 — authenticated TURN fallback
+
+Derived from native iOS v0.5.8, preserving the successful native v0.5.4 video negotiation and the manual iPhone keyboard.
+
+A live test on 11 November 2026 generated 19 local ICE candidates but received only one remote candidate, with no relay candidates and no media path. A direct test of the original IONOS VPS TURN server passed allocation, permission, and relayed packet delivery.
+
+Native iOS previously replaced the launch URL's ICE configuration with the subsequent WebSocket configuration, potentially losing TURN options. This build merges both trusted, session-scoped ICE sources, with signalling-first precedence, and accepts string or object remote ICE candidate messages matching the web viewer.
+
+Connection details now includes the count of authenticated TURN servers available from the combined configuration and from the signalling message. Credentials, ICE addresses and SDP remain private. No VPS, server, Agent or codec changes were made.
+
+Test: install the native-viewer-only IPA with Sideloadly, start a new session on the Lenovo, check authenticated TURN availability and ICE connection. If a relay candidate appears and video starts, test Notepad typing using the manual iOS keyboard. Automatic keyboard activation remains separate.
+
+---
+
 # Hi5Central RMM iOS v0.5.8 — restore confirmed working native ICE path
 
 This recovery build is deliberately based on **v0.5.4 commit f3dff6d**, which followed the real-device working v0.5.2 native WebRTC confirmation on 2026-11-11 at 12:28 UTC, plus v0.5.4 touch fixes at 12:54 UTC.
