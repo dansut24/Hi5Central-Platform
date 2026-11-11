@@ -49,5 +49,16 @@ SET search_path = pg_catalog, public AS $func$
  );
 $func$;
 REVOKE ALL ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid) FROM PUBLIC;
+-- The scheduler must evaluate the same customer eligibility as the stage
+-- workers. Grant no write rights and no customer-list bypass. This role is
+-- provisioned separately by the restricted-workers SQL on clean installs.
+DO $grant$
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='hi5_release_planner') THEN
+  GRANT EXECUTE ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid)
+   TO hi5_release_planner;
+ END IF;
+END
+$grant$;
 COMMENT ON FUNCTION public.hi5_release_generic_tenant_permitted(uuid) IS
  'Automatic all-onboarded ITSM tenant discovery. Exact certified SHA, staff stage approval, global pause, tenant maintenance and customer Custom UAT approval remain separate execution gates.';
