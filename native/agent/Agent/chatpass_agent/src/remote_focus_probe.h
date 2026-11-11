@@ -7,8 +7,9 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#include <UIAutomationClient.h>
+#include <objbase.h>
 #include <oleauto.h>
+#include <UIAutomation.h>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
