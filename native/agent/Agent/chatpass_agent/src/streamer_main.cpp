@@ -16,6 +16,7 @@
 #include <cwchar>
 #include <csignal>
 #include <cstring>
+#include <cstdlib>
 #include <optional>
 #include <string>
 #include <thread>
