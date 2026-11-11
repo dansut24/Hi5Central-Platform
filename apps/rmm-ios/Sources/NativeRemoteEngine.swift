@@ -513,45 +513,55 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         sendInput("text_input", values: ["text": String(text.prefix(4000))])
     }
 
-    // Explicit user-initiated native keyboard buttons; uses the same reliable
-    // WebRTC input-control channel as mouse clicks, with signalling fallback.
+    // All physical-key messages use the proven reliable input-control channel.
+    // Non-printable keys must NOT send their DomCode as the textual "key":
+    // the Windows Agent otherwise mistakes "F1" or "Space" for Unicode text.
     func keyPress(_ code: String) {
-        let allowed = ["Backspace", "Enter", "Tab", "Escape",
-                       "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
-                       "Delete", "Home", "End", "PageUp", "PageDown", "MetaLeft"]
+        let allowed = Set(["Backspace", "Enter", "Tab", "Escape", "Space",
+                           "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+                           "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
+                           "MetaLeft", "MetaRight", "F1", "F2", "F3", "F4",
+                           "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12"])
         guard allowed.contains(code) else { return }
-        sendInput("key_down", values: ["code": code, "key": code])
-        sendInput("key_up", values: ["code": code, "key": code])
+        sendInput("key_down", values: ["code": code, "key": "Unidentified"])
+        sendInput("key_up", values: ["code": code, "key": "Unidentified"])
     }
 
-    /// Send Windows shortcuts as balanced physical key down/up events.
-    /// ctrl/alt/meta flags suppress the Agent's Unicode text-paste fast path,
-    /// which would otherwise type "KeyS" rather than pressing Win+S.
+    /// Balanced Windows modifier combinations for UK laptop/num-pad keys.
+    /// The Agent recognises "Unidentified" as non-textual, avoiding its
+    /// clipboard-paste path for special keys and Shift-only shortcuts.
     func keyChord(_ codes: [String]) {
-        let allowedModifiers = Set(["ControlLeft", "ShiftLeft", "AltLeft", "MetaLeft"])
-        let allowedTargets = Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyS",
-                                  "Tab", "Escape", "Enter", "ArrowLeft",
-                                  "ArrowRight", "ArrowUp", "ArrowDown"])
-        guard (2...4).contains(codes.count),
+        let allowedModifiers = Set(["ControlLeft", "ShiftLeft", "AltLeft",
+                                    "AltRight", "MetaLeft", "MetaRight"])
+        let allowedSpecial = Set(["Tab", "Escape", "Enter", "Backspace",
+                                  "Delete", "Insert", "Home", "End",
+                                  "PageUp", "PageDown", "Space",
+                                  "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+                                  "F1", "F2", "F3", "F4", "F5", "F6",
+                                  "F7", "F8", "F9", "F10", "F11", "F12"])
+        guard (2...6).contains(codes.count),
               codes.dropLast().allSatisfy({ allowedModifiers.contains($0) }),
-              let last = codes.last, allowedTargets.contains(last) else { return }
+              let last = codes.last else { return }
+        let printableTarget = last.range(of: #"^Key[A-Z]$|^Digit[0-9]$"#,
+                                         options: .regularExpression) != nil
+        guard allowedSpecial.contains(last) || printableTarget else { return }
         let modifiers = Set(codes.dropLast())
         let flags: [String: Any] = [
             "ctrl": modifiers.contains("ControlLeft"),
-            "alt": modifiers.contains("AltLeft"),
-            "meta": modifiers.contains("MetaLeft"),
+            "alt": modifiers.contains("AltLeft") || modifiers.contains("AltRight"),
+            "meta": modifiers.contains("MetaLeft") || modifiers.contains("MetaRight"),
             "shift": modifiers.contains("ShiftLeft")
         ]
         for code in codes {
             var payload = flags
             payload["code"] = code
-            payload["key"] = code
+            payload["key"] = "Unidentified"
             sendInput("key_down", values: payload)
         }
         for code in codes.reversed() {
             var payload = flags
             payload["code"] = code
-            payload["key"] = code
+            payload["key"] = "Unidentified"
             sendInput("key_up", values: payload)
         }
     }
