@@ -1,38 +1,40 @@
-# Hi5Central RMM native iOS — v0.3 test
+# Hi5Central RMM iOS v0.4 — Native UI upgrade
 
-This is a SwiftUI-native application for Hi5Central RMM, developed on Windows and compiled on macOS GitHub Actions runners.
+This branch carries the SwiftUI native RMM app, compiled by GitHub Actions on macOS and installed for testing through Sideloadly. The existing Hi5Central backend is unchanged.
 
-## Implemented
-- Branded full-screen storyboard and animated SwiftUI launch experience.
-- Native login form for tenant prefix, email and password against the **existing** `/api/v1/auth/login-secure` API; no password storage.
-- Existing mandatory MFA challenge, authenticator setup and one-time recovery-code display.
-- Existing session restoration and tenant/RMM access validation.
-- Native dashboard, device inventory, search, details and connectivity alerts via `/api/v1/rmm/devices`.
-- Native remote launch from an online managed device using `/api/v1/rmm/remote-sessions` and the existing WebRTC Viewer.
-- Session cookie handoff between URLSession and the Viewer WKWebView, without logging session tokens.
-- Native More panel and remaining advanced RMM pages via the already-working authenticated WebView as migration continues.
-- User-triggered **local** iOS notification demonstration after permission grant, including lock-screen/sound support.
+## Native interface
+- Splash, tenant-aware password login, MFA, main navigation, dashboard, Devices, Alerts, device details and Connect
+- Patching dashboard, existing policy listings, Windows/Unix update and vulnerability summaries
+- Software catalogue with search, source filter, pagination and package details
+- Automation catalogue, recent jobs, published-automation execution on a selected online device with confirmation
+- Recent activity and jobs reports
+- Settings with persisted System, Light and Dark appearance, local notification tests, read-only tray-policy overview
+- Profile, sign-out, and account information
 
-## Not yet implemented
-- Passkey authentication registration and WebAuthn relying-party support on server.
-- APNs push token registration, server-sent background notifications, and push management.
-- Fully native screens for the RMM tool suite (Patching, Software, Reports, Automation, Settings, Connect). These currently use the existing secure website inside the app.
-- Microsoft SSO login from the native form. Accounts relying on Microsoft SSO require a dedicated ASWebAuthenticationSession integration.
+## Remote viewer
+- Native SwiftUI toolbar with SF Symbols (file transfer, chat, audio, monitor, Windows/start menu, Ctrl+Alt+Del, zoom, fit, precision, trackpad, clipboard, Backstage/Console and settings)
+- Keyboard text is composed using the iPhone's native keyboard and sent through the existing remote text-entry function
+- Connection status and a confirmation before secure attention/input block
+- Existing authenticated WebRTC viewer/video remains in WKWebView, with its old web toolbars hidden **inside the app only**
+- The screenshot-reported AV1 codec negotiation issue is deliberately out of scope for this build
 
-## Windows test install
-1. Go to the latest **RMM iOS unsigned IPA** GitHub Actions run for this branch.
-2. Open **Artifacts > Hi5CentralRMM-iOS-unsigned**, download and extract the ZIP.
-3. Install the unsigned IPA with Sideloadly on Windows using your own Apple ID and trusted iPhone USB connection. Free signing typically needs renewal every seven days.
-4. Launch the native login, sign in with tenant/email/password, verify MFA. Sign-in does **not** require or bypass MFA.
-5. Refresh Devices; open an online device; tap **Start remote desktop**; verify viewer, mouse, keyboard, zoom, disconnect.
-6. Open More > **Send test notification**; allow notifications; lock phone; the locally scheduled alert should appear after about eight seconds.
-7. Check navigation and the advanced web-supported tools.
+## Important boundaries
+- This release makes all main tab routes native, but **advanced workflows are not fully feature-parity**. The native patching and software views currently provide discovery/search/inspection rather than all deployment, policy-editing and approval operations.
+- The previously working backend and website are not modified. Native automation run and remote session termination actions use existing endpoints/permissions.
+- Passkeys are not yet implemented; push from the server needs properly signed APNs. Native local notification demonstration remains free.
+- Dark/light modes use iOS appearance APIs and system-adaptive backgrounds. The actual remote video area is intentionally black.
+- Viewer controls and keyboard text-entry must be checked on a real iPhone; GitHub's unsigned build verifies compilation, not live WebRTC behaviour.
+- The Android native design parity work remains outstanding.
 
-Apple Developer Program membership is **not** required for local notifications, but native remote APNs notifications require a correctly provisioned signed application. A Safari Home Screen PWA can separately use standards-based Web Push without Apple membership; that is not the same install as this IPA.
+## Test
+1. Open GitHub Actions > **RMM iOS unsigned IPA** for the latest successful branch build.
+2. Download artifact **Hi5CentralRMM-iOS-unsigned**, extract the IPA on Windows.
+3. Install with Sideloadly; free Apple ID signing usually requires renewal every seven days.
+4. Check native Home, Devices, Alerts and all More tools without loading the website.
+5. Settings > Appearance: select Light, Dark and System; confirm all main screens change immediately.
+6. Open remote desktop; test native files/chat/audio/Windows/monitor/zoom/keyboard/clipboard buttons. Confirm CAD prompt and end session.
+7. Open Software, search Hi5Central and WinGet sources; open a package. Open Patching, Automation, Reports and Connect.
+8. Settings > Send local test notification: allow notifications, lock screen, and verify banner.
 
-## Security
-- Only `api.hi5central.com` HTTPS API and tenant-matching HTTPS Viewer URLs are used for login and remote launch.
-- RMM sessions are created exclusively by existing backend permissions and MFA.
-- No viewer session token is saved to preferences, log output, or analytics.
-- Mobile credential login uses the existing secure origin/tenant policy and persistent scoped secure session cookies.
-- The native device availability screen derives offline state from the inventory; it is not yet an equivalent to the full RMM monitoring rules.
+### Next implementation
+Full native policy editing / patch/install approvals, native automation creation, full reporting filters, passkeys, signed server push notifications and Android parity.
