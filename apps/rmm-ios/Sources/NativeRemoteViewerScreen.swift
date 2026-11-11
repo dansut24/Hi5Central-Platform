@@ -36,6 +36,10 @@ struct NativeRemoteViewerScreen: View {
     @State private var showDiagnostics = false
     @State private var isClosing = false
 
+    // Keep the iPhone keyboard available if WebRTC briefly reports ICE
+    // disconnected while an active remote video track remains visible.
+    private var canTypeOnRemote: Bool { engine.connected || engine.hasVideo }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -56,6 +60,19 @@ struct NativeRemoteViewerScreen: View {
                                 videoSize: CGSize(width: engine.videoWidth, height: engine.videoHeight),
                                 active: engine.connected || engine.hasVideo,
                                 onTouch: { point in lastFocalPoint = point },
+                                onDesktopClick: { x, y in
+                                    // Common Windows bottom-taskbar search positions:
+                                    // Windows 10 near Start and centred Windows 11.
+                                    // Only an actual remote left-click triggers this;
+                                    // pinching, panning and ordinary editing do not.
+                                    if y > 0.94 &&
+                                        ((x > 0.055 && x < 0.235) ||
+                                         (x > 0.465 && x < 0.555)) {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                                            if canTypeOnRemote && !isClosing { openKeyboard() }
+                                        }
+                                    }
+                                },
                                 send: { kind, values in engine.sendInput(kind, values: values) }
                             )
                             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -93,9 +110,10 @@ struct NativeRemoteViewerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             nativeControls
-            // Manual keyboard is intentionally independent of remote focus
-            // telemetry. Rendering video and answering offers never depends on it.
-            if showText && engine.connected {
+            // Keyboard input is completely independent of video negotiation.
+            // Remote Windows focus may be inferred for the taskbar Search
+            // hotspot, but the always-visible buttons work in every viewport.
+            if showText && canTypeOnRemote {
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
                         NativeRemoteKeyboardInput(
@@ -113,13 +131,27 @@ struct NativeRemoteViewerScreen: View {
                         .buttonStyle(.bordered)
                         .accessibilityLabel("Hide iPhone keyboard")
                     }
-                    HStack(spacing: 7) {
-                        Button("Tab") { engine.keyPress("Tab") }
-                        Button("Esc") { engine.keyPress("Escape") }
-                        Button("←") { engine.keyPress("ArrowLeft") }
-                        Button("→") { engine.keyPress("ArrowRight") }
-                        Spacer()
-                        Button("Enter") { engine.keyPress("Enter") }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 7) {
+                            extraKey("Win") { engine.keyPress("MetaLeft") }
+                            extraKey("Esc") { engine.keyPress("Escape") }
+                            extraKey("Tab") { engine.keyPress("Tab") }
+                            extraKey("⇧Tab") { engine.keyChord(["ShiftLeft", "Tab"]) }
+                            extraKey("⌫") { engine.keyPress("Backspace") }
+                            extraKey("Del") { engine.keyPress("Delete") }
+                            extraKey("←") { engine.keyPress("ArrowLeft") }
+                            extraKey("↑") { engine.keyPress("ArrowUp") }
+                            extraKey("↓") { engine.keyPress("ArrowDown") }
+                            extraKey("→") { engine.keyPress("ArrowRight") }
+                            extraKey("Home") { engine.keyPress("Home") }
+                            extraKey("End") { engine.keyPress("End") }
+                            extraKey("Ctrl+A") { engine.keyChord(["ControlLeft", "KeyA"]) }
+                            extraKey("Ctrl+C") { engine.keyChord(["ControlLeft", "KeyC"]) }
+                            extraKey("Ctrl+V") { engine.keyChord(["ControlLeft", "KeyV"]) }
+                            extraKey("Ctrl+X") { engine.keyChord(["ControlLeft", "KeyX"]) }
+                            extraKey("Alt+Tab") { engine.shortcut("alt_tab") }
+                        }
+                        .padding(.horizontal, 2)
                     }
                     .buttonStyle(.bordered)
                     .font(.caption)
@@ -145,7 +177,7 @@ struct NativeRemoteViewerScreen: View {
             )
         }
         .onChange(of: engine.connected) { connected in
-            if !connected { hideKeyboard() }
+            if !connected && !engine.hasVideo { hideKeyboard() }
             if connected, let id = launch?.sessionId {
                 Task { await RemoteSessionActivity.shared.update(sessionId: id, state: "Connected") }
             }
@@ -221,12 +253,18 @@ struct NativeRemoteViewerScreen: View {
                 Image(systemName: "plus.magnifyingglass")
             }
             Button {
-                if showText { hideKeyboard() } else if engine.connected { showText = true }
+                if showText { hideKeyboard() } else { openKeyboard() }
             } label: {
                 Image(systemName: "keyboard")
+                    .font(.system(size: 18, weight: .medium))
+                    .frame(width: 46, height: 46)
+                    .contentShape(Rectangle())
             }
-            .disabled(!engine.connected)
+            .buttonStyle(.plain)
+            .disabled(!canTypeOnRemote)
             .accessibilityLabel(showText ? "Hide iPhone keyboard" : "Open iPhone keyboard")
+            .accessibilityHint("Available even when the remote desktop is zoomed or panned.")
+            .zIndex(10)
             Button { showClose = true } label: {
                 Image(systemName: "xmark").font(.subheadline.bold())
                     .frame(width: 30, height: 30)
@@ -243,6 +281,21 @@ struct NativeRemoteViewerScreen: View {
     private var nativeControls: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                // Fixed SwiftUI controls sit outside the zoomed remote canvas.
+                control("Keyboard", "keyboard") {
+                    if showText { hideKeyboard() } else { openKeyboard() }
+                }
+                .disabled(!canTypeOnRemote)
+                control("Search", "magnifyingglass") {
+                    guard canTypeOnRemote else { return }
+                    // Windows+S focuses the Windows Search box regardless
+                    // of display resolution, taskbar alignment or zoom.
+                    engine.keyChord(["MetaLeft", "KeyS"])
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+                        if canTypeOnRemote && !isClosing { openKeyboard() }
+                    }
+                }
+                .disabled(!canTypeOnRemote)
                 control("Fit", "arrow.up.left.and.arrow.down.right") {
                     scale = 1
                     panOffset = .zero
@@ -317,6 +370,19 @@ struct NativeRemoteViewerScreen: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
+    }
+
+    private func extraKey(_ label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 12, weight: .medium))
+                .frame(minWidth: 36, minHeight: 34)
+        }
+        .accessibilityLabel("Remote Windows " + label)
+    }
+
+    private func openKeyboard() {
+        guard canTypeOnRemote else { return }
+        showText = true
     }
 
     private func hideKeyboard() {
