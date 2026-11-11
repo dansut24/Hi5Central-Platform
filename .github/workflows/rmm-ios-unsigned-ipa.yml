@@ -49,6 +49,24 @@ jobs:
           cd "$RUNNER_TEMP/Hi5IPABuild"
           /usr/bin/zip -qry "$GITHUB_WORKSPACE/Hi5CentralRMM-unsigned.ipa" Payload
           ls -lh "$GITHUB_WORKSPACE/Hi5CentralRMM-unsigned.ipa"
+      - name: Package native viewer-only fallback IPA for free signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/Hi5IPABuild"
+          APP="Payload/Hi5CentralRMM.app"
+          # No embedded widget extension; only the core iOS app and WebRTC library.
+          rm -rf "$APP/PlugIns"
+          /usr/libexec/PlistBuddy -c "Set :NSSupportsLiveActivities false" "$APP/Info.plist"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Hi5CentralRMM-native-viewer-only.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/Hi5CentralRMM-native-viewer-only.ipa"
+      - name: Upload native viewer-only IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5CentralRMM-iOS-native-viewer-only
+          path: Hi5CentralRMM-native-viewer-only.ipa
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
