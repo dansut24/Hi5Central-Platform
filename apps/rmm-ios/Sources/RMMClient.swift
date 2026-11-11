@@ -93,10 +93,20 @@ final class RMMClient: ObservableObject {
         tenant.range(of: #"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"#, options: .regularExpression) != nil
     }
 
-    private func request(_ path: String, method: String = "GET", body: [String: Any]? = nil) throws -> URLRequest {
+    private func request(_ path: String, method: String = "GET",
+                         body: [String: Any]? = nil, useRMMHost: Bool = false) throws -> URLRequest {
         guard validTenant() else { throw RMMNetworkError.configuration }
-        guard let url = URL(string: path, relativeTo: apiBase)?.absoluteURL, url.host == apiBase.host,
-              url.scheme == "https" else { throw RMMNetworkError.invalidResponse }
+        // Authentication and general platform APIs continue on api.hi5central.com.
+        // Only remote-session creation must use the RMM API, which owns the
+        // TURN secret and WebSocket signalling for this exact tenant.
+        guard let rmmBase = URL(string: "https://\(tenant)-rmm.hi5central.com") else {
+            throw RMMNetworkError.invalidResponse
+        }
+        let baseURL = useRMMHost ? rmmBase : apiBase
+        guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
+              url.host == baseURL.host, url.scheme == "https" else {
+            throw RMMNetworkError.invalidResponse
+        }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -108,8 +118,9 @@ final class RMMClient: ObservableObject {
         return request
     }
 
-    private func perform(_ path: String, method: String = "GET", body: [String: Any]? = nil) async throws -> [String: Any] {
-        let request = try request(path, method: method, body: body)
+    private func perform(_ path: String, method: String = "GET",
+                         body: [String: Any]? = nil, useRMMHost: Bool = false) async throws -> [String: Any] {
+        let request = try request(path, method: method, body: body, useRMMHost: useRMMHost)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -258,7 +269,7 @@ final class RMMClient: ObservableObject {
         }
         let result = try await perform("/api/v1/rmm/remote-sessions", method: "POST", body: [
             "agentDeviceId": device.agentId, "mode": "console", "viewerClient": "browser"
-        ])
+        ], useRMMHost: true)
         guard let raw = result["browserUrl"] as? String, let url = URL(string: raw),
               url.scheme == "https",
               url.host?.lowercased() == "\(tenant)-rmm.hi5central.com",
