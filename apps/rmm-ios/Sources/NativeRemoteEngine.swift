@@ -82,6 +82,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var status = "Preparing connection"
     @Published private(set) var recentEvents: [String] = []
     @Published private(set) var touchEventsSent = 0
+    @Published private(set) var controlPath = "Waiting for input channel"
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
@@ -102,6 +103,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     private var socket: URLSessionWebSocketTask?
     private var session: URLSession?
     private var inputChannel: RTCDataChannel?
+    private var inputControlChannel: RTCDataChannel?
+    private var inputMoveChannel: RTCDataChannel?
     private var socketReady = false
     private var serverIceServers: [RTCIceServer]?
     private var receivedOffer = false
@@ -352,30 +355,43 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     }
 
     func sendInput(_ kind: String, values: [String: Any] = [:]) {
-        // The video can be flowing while ICE state callbacks are still
-        // transitioning. Don't discard touch input in that case.
         guard let params, connected || hasVideo else { return }
         var payload = values
         payload["kind"] = kind
 
-        if kind == "mouse_click" || kind == "mouse_down" || kind == "mouse_up" || kind == "wheel" {
+        let isClick = ["mouse_click", "mouse_down", "mouse_up", "wheel"].contains(kind)
+        if isClick {
             DispatchQueue.main.async { self.touchEventsSent += 1 }
         }
 
-        // Use the authenticated signalling socket for small reliable
-        // clicks/keys/wheel, like Hi5Central's mobile Connect viewer. Some
-        // mobile WebRTC control data channels are open but drop tap events.
-        // High-frequency mouse movement continues on the WebRTC channel.
-        if kind == "mouse_move", let channel = inputChannel,
-           channel.readyState == .open,
-           let bytes = try? JSONSerialization.data(withJSONObject: payload) {
-            if channel.sendData(RTCDataBuffer(data: bytes, isBinary: false)) {
-                return
+        // The Agent creates two reliable data channels. Sending mouse clicks
+        // over signalling when those channels are open can result in movement
+        // without a button press. Mirror the working web viewer: reliable
+        // controls via input-control, otherwise input, then WebSocket fallback.
+        let primary = kind == "mouse_move"
+            ? [inputMoveChannel, inputControlChannel, inputChannel]
+            : [inputControlChannel, inputChannel]
+
+        if let bytes = try? JSONSerialization.data(withJSONObject: payload) {
+            for candidate in primary {
+                guard let channel = candidate, channel.readyState == .open else { continue }
+                if channel.sendData(RTCDataBuffer(data: bytes, isBinary: false)) {
+                    if isClick {
+                        DispatchQueue.main.async { self.controlPath = channel.label }
+                    }
+                    return
+                }
             }
         }
+
+        // The WS fallback remains essential for endpoints which haven't
+        // opened a WebRTC control data channel (especially Connect sessions).
         payload["type"] = "input_event"
         payload["session_id"] = params.sessionId
         send(payload)
+        if isClick {
+            DispatchQueue.main.async { self.controlPath = "WebSocket fallback" }
+        }
     }
 
     func tap(x: CGFloat, y: CGFloat) {
@@ -472,7 +488,11 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         videoTrack?.remove(renderer)
         videoTrack = nil
         inputChannel?.delegate = nil
+        inputControlChannel?.delegate = nil
+        inputMoveChannel?.delegate = nil
         inputChannel = nil
+        inputControlChannel = nil
+        inputMoveChannel = nil
         peer?.close()
         peer = nil
     }
@@ -513,9 +533,16 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
     }
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
-        guard dataChannel.label == "input" || dataChannel.label == "input-control" else { return }
-        inputChannel = dataChannel
+        switch dataChannel.label {
+        case "input-control": inputControlChannel = dataChannel
+        case "input": inputChannel = dataChannel
+        case "input-move", "viewer-mouse-move": inputMoveChannel = dataChannel
+        default: return
+        }
         dataChannel.delegate = self
+        DispatchQueue.main.async {
+            self.controlPath = "Channel: " + dataChannel.label
+        }
     }
     func peerConnection(_ peerConnection: RTCPeerConnection,
                         didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
@@ -533,7 +560,13 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
 }
 
 extension NativeRemoteEngine: RTCDataChannelDelegate {
-    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {}
+    func dataChannelDidChangeState(_ dataChannel: RTCDataChannel) {
+        DispatchQueue.main.async {
+            if dataChannel.readyState == .open {
+                self.controlPath = "Ready: " + dataChannel.label
+            }
+        }
+    }
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {}
 }
 
