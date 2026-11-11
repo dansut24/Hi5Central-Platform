@@ -1,81 +1,38 @@
-# Hi5Central RMM for iOS — native test build
+# Hi5Central RMM native iOS — v0.3 test
 
-This project creates a **real SwiftUI iPhone/iPad app**, with a native mobile
-shell around the existing Hi5Central RMM tenant portal. The current browser
-viewer is hosted in a separate in-app WKWebView for live WebRTC sessions.
+This is a SwiftUI-native application for Hi5Central RMM, developed on Windows and compiled on macOS GitHub Actions runners.
 
-## Phase 1: what works in source
+## Implemented
+- Branded full-screen storyboard and animated SwiftUI launch experience.
+- Native login form for tenant prefix, email and password against the **existing** `/api/v1/auth/login-secure` API; no password storage.
+- Existing mandatory MFA challenge, authenticator setup and one-time recovery-code display.
+- Existing session restoration and tenant/RMM access validation.
+- Native dashboard, device inventory, search, details and connectivity alerts via `/api/v1/rmm/devices`.
+- Native remote launch from an online managed device using `/api/v1/rmm/remote-sessions` and the existing WebRTC Viewer.
+- Session cookie handoff between URLSession and the Viewer WKWebView, without logging session tokens.
+- Native More panel and remaining advanced RMM pages via the already-working authenticated WebView as migration continues.
+- User-triggered **local** iOS notification demonstration after permission grant, including lock-screen/sound support.
 
-- Onboarding accepts an RMM tenant prefix, for example `newtest`, then loads
-  `https://newtest-rmm.hi5central.com` over HTTPS.
-- Native top bar, bottom navigation (Home / Devices / Alerts / More),
-  additional shortcuts (Patching / Software / Automation / Reports / Settings).
-- Loads the existing RMM login, MFA, device management and alerts pages; cookies
-  persist in the normal WKWebView website data store.
-- Captures browser Viewer popups and presents the Viewer **in-app**, sharing
-  the same cookie store. Viewer gets existing mobile text, keyboard and touch UI.
-- Native Type button attempts to focus the existing viewer text field; on iOS,
-  keyboard appearance from programmatic focus must be verified on a real phone.
-- Native Disconnect closes through the existing Viewer disconnect button.
-- No new unauthenticated RMM endpoints, trusted-certificate bypass, or custom
-  JavaScript forwarding of session credentials.
+## Not yet implemented
+- Passkey authentication registration and WebAuthn relying-party support on server.
+- APNs push token registration, server-sent background notifications, and push management.
+- Fully native screens for the RMM tool suite (Patching, Software, Reports, Automation, Settings, Connect). These currently use the existing secure website inside the app.
+- Microsoft SSO login from the native form. Accounts relying on Microsoft SSO require a dedicated ASWebAuthenticationSession integration.
 
-The *contents* of the portal pages are still web UI. A fully native device list,
-monitoring dashboard and native push notifications are **not implemented** yet.
+## Windows test install
+1. Go to the latest **RMM iOS unsigned IPA** GitHub Actions run for this branch.
+2. Open **Artifacts > Hi5CentralRMM-iOS-unsigned**, download and extract the ZIP.
+3. Install the unsigned IPA with Sideloadly on Windows using your own Apple ID and trusted iPhone USB connection. Free signing typically needs renewal every seven days.
+4. Launch the native login, sign in with tenant/email/password, verify MFA. Sign-in does **not** require or bypass MFA.
+5. Refresh Devices; open an online device; tap **Start remote desktop**; verify viewer, mouse, keyboard, zoom, disconnect.
+6. Open More > **Send test notification**; allow notifications; lock phone; the locally scheduled alert should appear after about eight seconds.
+7. Check navigation and the advanced web-supported tools.
 
-## Building for iPhone on Windows (no Mac required)
+Apple Developer Program membership is **not** required for local notifications, but native remote APNs notifications require a correctly provisioned signed application. A Safari Home Screen PWA can separately use standards-based Web Push without Apple membership; that is not the same install as this IPA.
 
-GitHub Actions starts when files in this directory or the iOS workflow change.
-Open the **RMM iOS unsigned IPA** workflow in GitHub Actions and inspect its
-latest successful run. Download the `Hi5CentralRMM-iOS-unsigned` artifact,
-extract the ZIP and locate `Hi5CentralRMM-unsigned.ipa`.
-
-This file is deliberately **unsigned**. **You cannot simply download and open
-this IPA in Safari** on a standard iPhone. To test without jailbreaking:
-1. Install Sideloadly on Windows.
-2. Connect the iPhone with a trusted USB cable; allow device trust prompts.
-3. Select the unsigned IPA in Sideloadly and sign/install with a free Apple ID.
-4. Enable Developer Mode / trust the local developer identity if iOS asks.
-5. Repeat signing regularly (free personal signing normally lasts 7 days).
-
-Sideloadly compatibility with the unsigned bundle must be validated with a real
-device; an unsigned GitHub artifact alone is not proof of installation success.
-A paid Apple Developer membership and suitable distribution signing are required
-for Ad Hoc or TestFlight distribution.
-
-## If you have a Mac later
-
-```bash
-brew install xcodegen
-cd apps/rmm-ios
-xcodegen generate --spec project.yml
-open Hi5CentralRMM.xcodeproj
-```
-
-## Manual smoke tests
-
-1. Set up a test tenant and sign in with existing credentials and MFA.
-2. Open Devices, Alerts and a device detail page.
-3. Start a remote session from an online agent — verify it opens **inside** app.
-4. Verify VP8 / H.264 / H.265 receive as supported by iOS WKWebView.
-5. Test remote mouse/touch, native iPhone keyboard, zoom/pan, CAD and reconnect.
-6. Disconnect; verify the session terminates and a new one can start.
-7. Switch between tabs, rotate the phone and relaunch (cookies still valid).
-8. Check SSO login and link-popup behaviour; external identity providers may
-   require ASWebAuthenticationSession in a later release.
-
-## Android parity
-
-Mirror the native navigation and viewer overlay in the existing Android app,
-using the same tenant URL and RMM routes. **Do not copy iOS WKWebView APIs into
-Android**; keep Android's WebView/WebRTC and keyboard input handling native.
-
-## Security and constraints
-
-- HTTPS-only Hi5Central domain allowlist; URLs from unrelated domains open via
-  the system browser only when HTTPS.
-- In-app remote Viewer links are restricted to trusted Hi5Central viewer paths.
-- The Viewer may carry a single-use session token in its URL fragment: **never
-  log, persist, share, or send the full launch URL to analytics**.
-- Existing backend session authorization, audit and MFA are unchanged.
-- This first build is a test preview, not App Store production readiness.
+## Security
+- Only `api.hi5central.com` HTTPS API and tenant-matching HTTPS Viewer URLs are used for login and remote launch.
+- RMM sessions are created exclusively by existing backend permissions and MFA.
+- No viewer session token is saved to preferences, log output, or analytics.
+- Mobile credential login uses the existing secure origin/tenant policy and persistent scoped secure session cookies.
+- The native device availability screen derives offline state from the inventory; it is not yet an equivalent to the full RMM monitoring rules.
