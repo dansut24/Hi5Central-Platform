@@ -9,6 +9,7 @@ struct RootView: View {
     @EnvironmentObject private var client: RMMClient
     @State private var splash = true
     @State private var reloadID = UUID()
+    @AppStorage("hi5central.rmm.appearance") private var appearance = "system"
 
     var body: some View {
         Group {
@@ -20,7 +21,7 @@ struct RootView: View {
                 NativeLogin()
             }
         }
-        .preferredColorScheme(nil)
+        .preferredColorScheme(appearance == "light" ? .light : (appearance == "dark" ? .dark : nil))
         .fullScreenCover(item: $state.viewer) { target in
             RemoteViewerScreen(target: target)
         }
@@ -48,25 +49,12 @@ struct RootView: View {
                 }
                 Spacer()
                 if !state.showingMore {
-                    if !isNativeRoute {
-                        Button {
-                            state.showPortalTools.toggle()
-                        } label: {
-                            Image(systemName: state.showPortalTools ? "xmark" : "magnifyingglass")
-                                .frame(width: 30, height: 36)
-                        }
-                        .accessibilityLabel("Website search and account tools")
-                    }
                     Button {
-                        if isNativeRoute {
-                            Task { await client.refreshDevices() }
-                        } else {
-                            reloadID = UUID()
-                        }
+                        Task { await client.refreshDevices() }
                     } label: {
                         Image(systemName: "arrow.clockwise").frame(width: 30, height: 36)
                     }
-                    .accessibilityLabel("Refresh")
+                    .accessibilityLabel("Refresh device inventory")
                 }
                 Button {
                     withAnimation(.easeInOut(duration: 0.16)) { state.showingMore = true }
@@ -90,9 +78,20 @@ struct RootView: View {
                         NativeDeviceList()
                     case .alerts:
                         NativeAlerts()
-                    default:
-                        PortalWebView(state: state)
-                            .id(reloadID)
+                    case .patching:
+                        NativePatching()
+                    case .software:
+                        NativeSoftware()
+                    case .automation:
+                        NativeAutomation()
+                    case .reports:
+                        NativeReports()
+                    case .settings:
+                        NativeSettings()
+                    case .profile:
+                        NativeProfile()
+                    case .connect:
+                        NativeConnect()
                     }
                 }
             }
@@ -120,9 +119,7 @@ struct RootView: View {
         .task { await client.prepareViewerCookies() }
     }
 
-    private var isNativeRoute: Bool {
-        [.dashboard, .devices, .alerts].contains(state.route)
-    }
+    private var isNativeRoute: Bool { true }
 
     private func tab(_ text: String, icon: String, isActive: Bool,
                      action: @escaping () -> Void) -> some View {
