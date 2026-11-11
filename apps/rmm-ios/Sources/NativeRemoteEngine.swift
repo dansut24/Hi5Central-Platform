@@ -87,6 +87,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var remoteIceCandidates = 0
     @Published private(set) var localRelayCandidates = 0
     @Published private(set) var remoteRelayCandidates = 0
+    @Published private(set) var availableTurnServers = 0
+    @Published private(set) var offeredTurnServers = 0
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
@@ -131,6 +133,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             self.remoteIceCandidates = 0
             self.localRelayCandidates = 0
             self.remoteRelayCandidates = 0
+            self.availableTurnServers = 0
+            self.offeredTurnServers = 0
         }
         event("Starting remote session")
         openSocket()
@@ -196,11 +200,20 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             event("Remote video offer received")
             createAnswer(sdp)
         case "ice_candidate":
-            let sdp = message["candidate"] as? String ?? ""
+            // Match the browser's normalisation of string and object ICE
+            // candidates; formerly object candidates were silently ignored.
+            let nested = message["candidate"] as? [String: Any] ?? [:]
+            let sdp = (message["candidate"] as? String) ??
+                      (nested["candidate"] as? String) ?? ""
             guard !sdp.isEmpty else { return }
-            let mid = message["mid"] as? String ?? message["sdpMid"] as? String
+            let mid = message["mid"] as? String ??
+                      message["sdpMid"] as? String ??
+                      nested["sdpMid"] as? String ??
+                      nested["mid"] as? String
             let index = (message["mline_index"] as? NSNumber)?.int32Value ??
-                        (message["sdpMLineIndex"] as? NSNumber)?.int32Value ?? 0
+                        (message["sdpMLineIndex"] as? NSNumber)?.int32Value ??
+                        (nested["sdpMLineIndex"] as? NSNumber)?.int32Value ??
+                        (nested["mline_index"] as? NSNumber)?.int32Value ?? 0
             let candidate = RTCIceCandidate(sdp: sdp, sdpMLineIndex: index, sdpMid: mid)
             let isRelay = sdp.contains(" typ relay")
             DispatchQueue.main.async {
@@ -213,7 +226,9 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             let servers = Self.parseIceServers(message["ice_servers"] ?? message["iceServers"])
             if !servers.isEmpty {
                 serverIceServers = servers
-                event("Received ICE configuration: \(servers.count) servers")
+                let turnCount = Self.authenticatedTurnCount(servers)
+                DispatchQueue.main.async { self.offeredTurnServers = turnCount }
+                event("Received ICE configuration: \(servers.count) servers; authenticated TURN: \(turnCount)")
             } else {
                 event("No ICE servers provided by signalling")
             }
@@ -294,7 +309,14 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         guard let params else { return }
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
-        config.iceServers = serverIceServers ?? params.iceServers
+        // Keep TURN options from BOTH authorised sources. WebSocket ICE
+        // configuration may omit a TURN server that is present in the
+        // session launch URL: never replace the launch servers outright.
+        let ice = Self.mergeIceServers(serverIceServers ?? [], params.iceServers)
+        config.iceServers = ice
+        let usableTurn = Self.authenticatedTurnCount(ice)
+        DispatchQueue.main.async { self.availableTurnServers = usableTurn }
+        event("ICE ready: \(ice.count) servers; authenticated TURN: \(usableTurn)")
         config.continualGatheringPolicy = .gatherContinually
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"],
@@ -339,6 +361,25 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 }
             }
         }
+    }
+
+    private static func authenticatedTurnCount(_ servers: [RTCIceServer]) -> Int {
+        servers.filter { server in
+            server.urlStrings.contains {
+                $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
+            } && !server.username.isEmpty && !server.credential.isEmpty
+        }.count
+    }
+
+    private static func mergeIceServers(_ signalled: [RTCIceServer],
+                                        _ launch: [RTCIceServer]) -> [RTCIceServer] {
+        var combined: [RTCIceServer] = []
+        var seen = Set<String>()
+        for item in signalled + launch {
+            let key = item.urlStrings.joined(separator: "|") + "|" + item.username
+            if seen.insert(key).inserted { combined.append(item) }
+        }
+        return combined
     }
 
     private static func parseIceServers(_ raw: Any?) -> [RTCIceServer] {
