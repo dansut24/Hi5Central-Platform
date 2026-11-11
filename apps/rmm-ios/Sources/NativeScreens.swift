@@ -233,12 +233,12 @@ struct NativeOverview: View {
                     emptyState("No devices found", "Pull to refresh or check access to this tenant.", "desktopcomputer")
                 } else {
                     VStack(spacing: 0) {
-                        ForEach(Array(client.devices.prefix(6).enumerated()), id: \.element.id) { index, device in
+                        ForEach(Array(client.devices.prefix(6).enumerated()), id: \.element.id) { entry in
                             Button { state.navigate(to: .devices) } label: {
-                                deviceRow(device)
+                                deviceRow(entry.element)
                             }
                             .buttonStyle(.plain)
-                            if index < min(client.devices.count, 6) - 1 { Divider().padding(.leading, 50) }
+                            if entry.offset < min(client.devices.count, 6) - 1 { Divider().padding(.leading, 50) }
                         }
                     }
                     .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 17))
@@ -482,16 +482,16 @@ struct NativeMore: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("Tools").font(.title2.bold())
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 11) {
-                    ForEach(items, id: \.0) { title, symbol, route in
+                    ForEach(items, id: \.0) { item in
                         Button {
                             Task {
                                 await client.prepareViewerCookies()
-                                state.navigate(to: route)
+                                state.navigate(to: item.2)
                             }
                         } label: {
                             VStack(alignment: .leading, spacing: 12) {
-                                Image(systemName: symbol).font(.title2).foregroundStyle(accent)
-                                Text(title).font(.subheadline.bold()).foregroundStyle(.primary)
+                                Image(systemName: item.1).font(.title2).foregroundStyle(accent)
+                                Text(item.0).font(.subheadline.bold()).foregroundStyle(.primary)
                             }
                             .frame(maxWidth: .infinity, minHeight: 80, alignment: .leading)
                             .padding(15)
