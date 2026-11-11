@@ -106,6 +106,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     private var inputControlChannel: RTCDataChannel?
     private var inputMoveChannel: RTCDataChannel?
     private var socketReady = false
+    private var heartbeat: Timer?
     private var serverIceServers: [RTCIceServer]?
     private var receivedOffer = false
     private var remoteSdpReady = false
@@ -129,7 +130,10 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     private func openSocket() {
         guard let params else { return }
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 20
+        // WebSockets outlive individual HTTP requests; signalling must not
+        // expire during ICE negotiation or an otherwise healthy idle desktop.
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 8 * 60 * 60
         let session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
         self.session = session
         let socket = session.webSocketTask(with: params.websocket)
@@ -145,15 +149,19 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             switch result {
             case .success(let message):
                 if case .string(let text) = message {
-                    self.read(text)
+                    DispatchQueue.main.async { self.read(text) }
                 } else if case .data(let data) = message,
                           let text = String(data: data, encoding: .utf8) {
-                    self.read(text)
+                    DispatchQueue.main.async { self.read(text) }
                 }
                 self.receive()
             case .failure(let error):
                 self.socketReady = false
-                self.event("Signalling receive failed: \(error.localizedDescription)")
+                self.stopHeartbeat()
+                let problem = error as NSError
+                // URLSession errors sometimes contain the launch URL. Never
+                // show an error description containing the session token.
+                self.event("Signalling receive failed (\(problem.domain) \(problem.code))")
                 self.statusOnMain("Signalling connection failed")
             }
         }
@@ -165,6 +173,30 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
               let text = String(data: bytes, encoding: .utf8) else { return }
         socket?.send(.string(text)) { [weak self] error in
             if error != nil { self?.statusOnMain("Connection interrupted") }
+        }
+    }
+
+    private func startHeartbeat() {
+        DispatchQueue.main.async {
+            self.heartbeat?.invalidate()
+            guard !self.intentionallyClosed else { return }
+            let timer = Timer(timeInterval: 12, repeats: true) { [weak self] _ in
+                guard let self, !self.intentionallyClosed, self.socketReady else { return }
+                self.socket?.sendPing { [weak self] error in
+                    guard let self, !self.intentionallyClosed, let error else { return }
+                    let issue = error as NSError
+                    self.event("Signalling ping failed (\(issue.code))")
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            self.heartbeat = timer
+        }
+    }
+
+    private func stopHeartbeat() {
+        DispatchQueue.main.async {
+            self.heartbeat?.invalidate()
+            self.heartbeat = nil
         }
     }
 
@@ -183,7 +215,10 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 event("Empty video offer received")
                 return
             }
-            event("Remote video offer received")
+            let codecs = ["VP8", "H264", "VP9", "AV1", "H265"].filter {
+                sdp.range(of: "a=rtpmap:[0-9]+ \\($0)/", options: .regularExpression) != nil
+            }
+            event("Remote video offer received (\(codecs.isEmpty ? "unknown codecs" : codecs.joined(separator: ", ")))")
             createAnswer(sdp)
         case "ice_candidate":
             let sdp = message["candidate"] as? String ?? ""
@@ -282,7 +317,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         config.iceServers = serverIceServers ?? params.iceServers
         config.continualGatheringPolicy = .gatherContinually
         let constraints = RTCMediaConstraints(
-            mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"],
+            mandatoryConstraints: ["OfferToReceiveVideo": "true"],
             optionalConstraints: nil
         )
         guard let peer = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
@@ -290,34 +325,53 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             return
         }
         self.peer = peer
-        statusOnMain("Negotiating native WebRTC")
+        // Mirror the working browser receiver's explicit receive-only video
+        // transceiver before applying the Agent's Unified Plan offer.
+        let videoInit = RTCRtpTransceiverInit()
+        videoInit.direction = .recvOnly
+        guard peer.addTransceiver(of: .video, init: videoInit) != nil else {
+            event("Unable to create native video receiver")
+            return
+        }
+        event("Applying remote video offer")
         let offer = RTCSessionDescription(type: .offer, sdp: offerSdp)
         peer.setRemoteDescription(offer) { [weak self, weak peer] error in
-            guard let self, let peer else { return }
-            if let error {
-                self.event("Remote SDP rejected: \(error.localizedDescription)")
-                return
-            }
-            self.remoteSdpReady = true
-            for candidate in self.pendingCandidates { peer.add(candidate) }
-            self.pendingCandidates = []
-            peer.answer(for: constraints) { [weak self, weak peer] answer, error in
-                guard let self, let peer, let answer else {
-                    self?.statusOnMain("Unable to answer video offer")
-                    return
-                }
+            DispatchQueue.main.async {
+                guard let self, let peer, self.peer === peer, !self.intentionallyClosed else { return }
                 if let error {
-                    self.statusOnMain("SDP negotiation failed: \(error.localizedDescription)")
+                    self.event("Remote SDP rejected (\((error as NSError).code))")
                     return
                 }
-                peer.setLocalDescription(answer) { [weak self] error in
-                    guard let self else { return }
-                    if let error {
-                        self.statusOnMain("Unable to set video answer: \(error.localizedDescription)")
-                        return
+                self.event("Remote SDP accepted")
+                self.remoteSdpReady = true
+                for candidate in self.pendingCandidates { peer.add(candidate) }
+                self.pendingCandidates = []
+                peer.answer(for: constraints) { [weak self, weak peer] answer, error in
+                    DispatchQueue.main.async {
+                        guard let self, let peer, self.peer === peer, !self.intentionallyClosed else { return }
+                        if let error {
+                            self.event("Creating video answer failed (\((error as NSError).code))")
+                            return
+                        }
+                        guard let answer else {
+                            self.event("No native video answer generated")
+                            return
+                        }
+                        self.event("Native video answer created")
+                        peer.setLocalDescription(answer) { [weak self, weak peer] error in
+                            DispatchQueue.main.async {
+                                guard let self, let peer, self.peer === peer, !self.intentionallyClosed else { return }
+                                if let error {
+                                    self.event("Setting video answer failed (\((error as NSError).code))")
+                                    return
+                                }
+                                self.send(["type": "webrtc_answer", "session_id": params.sessionId,
+                                           "sdp": peer.localDescription?.sdp ?? answer.sdp,
+                                           "sdp_type": "answer"])
+                                self.event("Native video answer sent")
+                            }
+                        }
                     }
-                    self.send(["type": "webrtc_answer", "session_id": params.sessionId,
-                               "sdp": answer.sdp, "sdp_type": "answer"])
                 }
             }
         }
@@ -342,7 +396,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.status = detail
             self.recentEvents.append(detail)
-            if self.recentEvents.count > 9 { self.recentEvents.removeFirst() }
+            if self.recentEvents.count > 25 { self.recentEvents.removeFirst() }
         }
     }
 
@@ -481,6 +535,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     func close(reason: String = "Viewer closed", markEnded: Bool = false) {
         guard !intentionallyClosed else { return }
         intentionallyClosed = true
+        stopHeartbeat()
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         socketReady = false
@@ -509,6 +564,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     }
 
     deinit {
+        heartbeat?.invalidate()
         socket?.cancel(with: .normalClosure, reason: nil)
         session?.invalidateAndCancel()
         peer?.close()
@@ -516,7 +572,9 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
 }
 
 extension NativeRemoteEngine: RTCPeerConnectionDelegate {
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState) {
+        if stateChanged == .stable { event("WebRTC signalling stable") }
+    }
     func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         if let track = stream.videoTracks.first { attach(track) }
     }
@@ -524,16 +582,26 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         switch newState {
+        case .checking:
+            event("ICE checking remote network path")
         case .connected, .completed:
-            DispatchQueue.main.async { self.connected = true; self.status = "Connected • waiting for video" }
+            DispatchQueue.main.async {
+                self.connected = true
+                if !self.hasVideo { self.status = "Connected • waiting for video" }
+                self.recentEvents.append("ICE connected")
+                if self.recentEvents.count > 25 { self.recentEvents.removeFirst() }
+            }
         case .failed:
-            DispatchQueue.main.async { self.connected = false; self.status = "ICE connection failed" }
+            DispatchQueue.main.async { self.connected = false }
+            event("ICE connection failed")
         case .disconnected:
-            statusOnMain("Remote connection interrupted")
+            event("ICE disconnected")
         default: break
         }
     }
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+        if newState == .complete { event("ICE candidate gathering complete") }
+    }
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard let params else { return }
         send(["type": "ice_candidate", "session_id": params.sessionId,
@@ -566,7 +634,7 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
         videoTrack = track
         track.add(renderer)
         renderer.delegate = self
-        statusOnMain("Video track received")
+        event("Video track received; waiting for first frame")
     }
 }
 
@@ -595,12 +663,16 @@ extension NativeRemoteEngine: RTCVideoViewDelegate {
 extension NativeRemoteEngine: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didOpenWithProtocol protocol: String?) {
+        socketReady = true
         event("Signalling socket connected")
+        startHeartbeat()
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask,
                     didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
         guard !intentionallyClosed else { return }
+        socketReady = false
+        stopHeartbeat()
         event("Signalling socket closed (code \(closeCode.rawValue))")
     }
 }
