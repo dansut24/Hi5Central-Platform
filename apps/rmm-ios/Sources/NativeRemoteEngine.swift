@@ -83,6 +83,10 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var recentEvents: [String] = []
     @Published private(set) var touchEventsSent = 0
     @Published private(set) var controlPath = "Waiting for input channel"
+    @Published private(set) var localIceCandidates = 0
+    @Published private(set) var remoteIceCandidates = 0
+    @Published private(set) var localRelayCandidates = 0
+    @Published private(set) var remoteRelayCandidates = 0
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
@@ -121,7 +125,13 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         receivedOffer = false
         serverIceServers = nil
         params = launch
-        DispatchQueue.main.async { self.isEnded = false }
+        DispatchQueue.main.async {
+            self.isEnded = false
+            self.localIceCandidates = 0
+            self.remoteIceCandidates = 0
+            self.localRelayCandidates = 0
+            self.remoteRelayCandidates = 0
+        }
         event("Starting remote session")
         openSocket()
     }
@@ -192,6 +202,11 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             let index = (message["mline_index"] as? NSNumber)?.int32Value ??
                         (message["sdpMLineIndex"] as? NSNumber)?.int32Value ?? 0
             let candidate = RTCIceCandidate(sdp: sdp, sdpMLineIndex: index, sdpMid: mid)
+            let isRelay = sdp.contains(" typ relay")
+            DispatchQueue.main.async {
+                self.remoteIceCandidates += 1
+                if isRelay { self.remoteRelayCandidates += 1 }
+            }
             if remoteSdpReady { peer?.add(candidate) }
             else { pendingCandidates.append(candidate) }
         case "session_config":
@@ -298,6 +313,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 self.event("Remote SDP rejected: \(error.localizedDescription)")
                 return
             }
+            self.event("Remote SDP accepted")
             self.remoteSdpReady = true
             for candidate in self.pendingCandidates { peer.add(candidate) }
             self.pendingCandidates = []
@@ -310,6 +326,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                     self.statusOnMain("SDP negotiation failed: \(error.localizedDescription)")
                     return
                 }
+                self.event("Native video answer created")
                 peer.setLocalDescription(answer) { [weak self] error in
                     guard let self else { return }
                     if let error {
@@ -318,6 +335,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                     }
                     self.send(["type": "webrtc_answer", "session_id": params.sessionId,
                                "sdp": answer.sdp, "sdp_type": "answer"])
+                    self.event("Native video answer sent")
                 }
             }
         }
@@ -342,7 +360,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.status = detail
             self.recentEvents.append(detail)
-            if self.recentEvents.count > 9 { self.recentEvents.removeFirst() }
+            if self.recentEvents.count > 20 { self.recentEvents.removeFirst() }
         }
     }
 
@@ -524,18 +542,30 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
     func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection) {}
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         switch newState {
+        case .checking:
+            event("ICE checking remote path")
         case .connected, .completed:
             DispatchQueue.main.async { self.connected = true; self.status = "Connected • waiting for video" }
+            event("ICE connected")
         case .failed:
             DispatchQueue.main.async { self.connected = false; self.status = "ICE connection failed" }
+            event("ICE connection failed")
         case .disconnected:
             statusOnMain("Remote connection interrupted")
+            event("ICE disconnected")
         default: break
         }
     }
-    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {
+        if newState == .complete { event("ICE gathering complete") }
+    }
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard let params else { return }
+        let isRelay = candidate.sdp.contains(" typ relay")
+        DispatchQueue.main.async {
+            self.localIceCandidates += 1
+            if isRelay { self.localRelayCandidates += 1 }
+        }
         send(["type": "ice_candidate", "session_id": params.sessionId,
               "candidate": candidate.sdp, "mid": candidate.sdpMid ?? "",
               "sdpMid": candidate.sdpMid ?? "",
@@ -566,7 +596,7 @@ extension NativeRemoteEngine: RTCPeerConnectionDelegate {
         videoTrack = track
         track.add(renderer)
         renderer.delegate = self
-        statusOnMain("Video track received")
+        event("Video track received")
     }
 }
 
