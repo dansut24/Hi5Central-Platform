@@ -357,6 +357,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     func sendInput(_ kind: String, values: [String: Any] = [:]) {
         guard let params, connected || hasVideo else { return }
         var payload = values
+        let orderedCursor = (payload.removeValue(forKey: "_ordered") as? Bool) == true
         payload["kind"] = kind
 
         let isClick = ["mouse_click", "mouse_down", "mouse_up", "wheel"].contains(kind)
@@ -368,7 +369,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         // over signalling when those channels are open can result in movement
         // without a button press. Mirror the working web viewer: reliable
         // controls via input-control, otherwise input, then WebSocket fallback.
-        let primary = kind == "mouse_move"
+        let primary = kind == "mouse_move" && !orderedCursor
             ? [inputMoveChannel, inputControlChannel, inputChannel]
             : [inputControlChannel, inputChannel]
 

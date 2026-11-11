@@ -148,7 +148,9 @@ final class RemoteTouchUIView: UIView {
         guard active, var point = desktopPoint(at) else { return }
         // Include x/y with the click; don't rely on an independent mouse-move
         // arriving on a different WebRTC data channel before the click.
-        send?("mouse_move", point)
+        var orderedPosition = point
+        orderedPosition["_ordered"] = true
+        send?("mouse_move", orderedPosition)
         point["button"] = button
         // Windows agent InputInjector handles mouse_down / mouse_up, not
         // mouse_click. Deliver both on the ordered reliable control channel.
@@ -254,7 +256,10 @@ final class RemoteTouchUIView: UIView {
         }
 
         if !draggingRemote && travelled > 11 && desktopPoint(initial) != nil {
-            moveMouse(initial)
+            if var position = desktopPoint(initial) {
+                position["_ordered"] = true
+                send?("mouse_move", position)
+            }
             var data = desktopPoint(initial) ?? [:]
             data["button"] = 0
             send?("mouse_down", data)
