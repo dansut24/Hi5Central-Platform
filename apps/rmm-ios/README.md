@@ -1,3 +1,22 @@
+# Hi5Central RMM iOS v0.5.6 — video-first recovery with direct native keyboard
+
+This release branches from the last pre-auto-keyboard v0.5.4 source at commit `f3dff6d` and retains native touch, zoom/pan, WebRTC, chat and file controls.
+
+- **Video first:** automatic Windows editable-focus detection, focus messages and helper processes are not required for iOS connection or decoding.
+- **Manual native keyboard:** after video connects, tap the keyboard icon. A real iOS keyboard opens immediately. Characters stream directly as `text_input`; Backspace, Return, Tab, Escape and arrows send paired `key_down`/`key_up` events.
+- **No buffering:** entered characters aren't held as a local message or stored in logs. Autocorrect and auto-capitalisation are disabled.
+- **Future auto-open:** remote Notepad/edit-field detection will be reintroduced only after this baseline is confirmed on the real iPhone, guarded so it can never block the signalling, ICE or video path.
+- **Deployment:** iOS unsigned IPA only, no Windows Agent rebuild or server modification. Keep Lenovo v1.0.504 and VP8 unchanged.
+
+## Live test
+1. Install v0.5.6 on the iPhone; start a **new** session to Lenovo.
+2. Verify visible video and secure-to-normal-desktop transition **before opening the keyboard**.
+3. Tap Notepad's editing area on the remote desktop. Press the keyboard icon; type directly, then test Backspace and Return.
+4. Hide the keyboard and confirm video and remote touch remain connected.
+5. Report connection diagnostics and any exceptions; do not enable automatic focus probing until stream and manual input both pass.
+
+---
+
 # Hi5Central RMM iOS v0.4 — Native UI upgrade
 
 This branch carries the SwiftUI native RMM app, compiled by GitHub Actions on macOS and installed for testing through Sideloadly. The existing Hi5Central backend is unchanged.
