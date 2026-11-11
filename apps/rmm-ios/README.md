@@ -1,3 +1,19 @@
+# Hi5Central RMM iOS v0.5.12 — VP9/VP8 native codec negotiation fix
+
+**Evidence (11 November 2026):** During the failed native v0.5.11 session at 19:31 UTC, Lenovo Agent v1.0.318 selected `vp9_sw` in automatic mode and offered VP9 RTP payload type 98. The Agent accepted the iPhone's SDP answer (784 bytes) and accepted ~25 ICE candidates. The ICE peer never connected. Successful browser SDP answers on this Agent were 854–969 bytes.
+
+**Root cause hypothesis:** iOS native `RTCPeerConnectionFactory()` has H.264-only default video codec factories, per the official WebRTC Apple API contract. The auto-selected VP9 offer therefore cannot be answered with active video, explaining ICE stuck at checking with no decoded frames.
+
+**Fix:** Replace the default factory with `RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())`, initialising WebRTC SSL first. This enables VP8/VP9 software codec support on iOS without overriding the Agent's hardware/software codec policy.
+
+**Safe diagnostics:** The native Connection details will show the video codecs advertised by the Agent offer and whether the generated SDP answer's video m-line is accepted or rejected. No SDP, ICE IP addresses, session tokens or credentials are logged.
+
+The existing RMM remote-session routing to `{tenant}-rmm.hi5central.com`, native touch controls, authenticated TURN, and manual native iOS keyboard remain in place. No Windows Agent, VPS, TURN, ITSM, or shared API changes.
+
+**Test:** Install the native-viewer-only unsigned IPA with Sideloadly, start a fresh session from tenant `newtest` to Lenovo. Expect `Remote video offer received: VP9`, `Native video m-line: accepted`, then ICE Connected and video frames. If successful, open Windows Notepad and use the iPhone keyboard button to type, Backspace and Enter. Leave automatic keyboard focus detection disabled until direct typing is verified.
+
+---
+
 # Hi5Central RMM iOS v0.5.11 — correct remote-session API routing
 
 **Confirmed root cause (11 November 2026):** RMMClient.swift hardcoded all API requests to https://api.hi5central.com, the shared `api-control` container. That production container has no TURN_SHARED_SECRET_FILE or TURN secret mounted. The native viewer was therefore being supplied two STUN servers, no TURN entry, and a WebSocket endpoint from the wrong API. The dedicated RMM API behind https://{tenant}-rmm.hi5central.com has the correct TURN secret and has passed authenticated relay allocation and relayed packet checks.
