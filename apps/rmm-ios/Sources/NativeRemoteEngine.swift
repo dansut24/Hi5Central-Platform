@@ -406,6 +406,16 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         sendInput("text_input", values: ["text": String(text.prefix(4000))])
     }
 
+    // Explicit user-initiated native keyboard buttons; uses the same reliable
+    // WebRTC input-control channel as mouse clicks, with signalling fallback.
+    func keyPress(_ code: String) {
+        let allowed = ["Backspace", "Enter", "Tab", "Escape",
+                       "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete"]
+        guard allowed.contains(code) else { return }
+        sendInput("key_down", values: ["code": code, "key": code])
+        sendInput("key_up", values: ["code": code, "key": code])
+    }
+
     func shortcut(_ action: String) {
         if action == "ctrl_alt_del" {
             guard let params else { return }
