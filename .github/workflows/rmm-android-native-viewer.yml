@@ -1,0 +1,38 @@
+name: RMM Android native viewer AAR
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/rmm-android-native-viewer/**'
+      - '.github/workflows/rmm-android-native-viewer.yml'
+  pull_request:
+    paths:
+      - 'apps/rmm-android-native-viewer/**'
+      - '.github/workflows/rmm-android-native-viewer.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-viewer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Compile native Android viewer library
+        run: gradle -p apps/rmm-android-native-viewer --no-daemon :viewer:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5CentralRMM-Android-NativeViewer-AAR
+          path: apps/rmm-android-native-viewer/viewer/build/outputs/aar/*.aar
+          retention-days: 14
+          if-no-files-found: error
