@@ -150,7 +150,10 @@ final class RemoteTouchUIView: UIView {
         // arriving on a different WebRTC data channel before the click.
         send?("mouse_move", point)
         point["button"] = button
-        send?("mouse_click", point)
+        // Windows agent InputInjector handles mouse_down / mouse_up, not
+        // mouse_click. Deliver both on the ordered reliable control channel.
+        send?("mouse_down", point)
+        send?("mouse_up", point)
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
