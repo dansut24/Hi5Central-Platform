@@ -25,6 +25,7 @@ struct NativeRemoteViewerScreen: View {
     @State private var showChat = false
     @State private var showFiles = false
     @State private var showText = false
+    @State private var useSystemKeyboard = false
     @State private var showCAD = false
     @State private var showClose = false
     @State private var scale: CGFloat = 1
@@ -110,54 +111,67 @@ struct NativeRemoteViewerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             nativeControls
-            // Keyboard input is completely independent of video negotiation.
-            // Remote Windows focus may be inferred for the taskbar Search
-            // hotspot, but the always-visible buttons work in every viewport.
+            // Keyboard is independent of WebRTC codec/capture negotiation.
+            // The full UK Windows laptop layout is the default; users can
+            // switch back to the proven native iPhone typing field if needed.
             if showText && canTypeOnRemote {
-                VStack(spacing: 8) {
-                    HStack(spacing: 8) {
-                        NativeRemoteKeyboardInput(
-                            active: showText && engine.connected,
-                            kind: "text",
-                            onInsert: { engine.typeText($0) },
-                            onDelete: { engine.keyPress("Backspace") },
-                            onReturn: { engine.keyPress("Enter") }
-                        )
-                        .frame(height: 43)
-                        Button { hideKeyboard() } label: {
-                            Image(systemName: "keyboard.chevron.compact.down")
-                                .font(.system(size: 17))
+                if useSystemKeyboard {
+                    VStack(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button("Laptop") { useSystemKeyboard = false }
+                                .buttonStyle(.bordered)
+                                .accessibilityLabel("Return to Windows laptop keyboard")
+                            NativeRemoteKeyboardInput(
+                                active: showText && canTypeOnRemote && useSystemKeyboard,
+                                kind: "text",
+                                onInsert: { engine.typeText($0) },
+                                onDelete: { engine.keyPress("Backspace") },
+                                onReturn: { engine.keyPress("Enter") }
+                            )
+                            .frame(height: 43)
+                            Button { hideKeyboard() } label: {
+                                Image(systemName: "keyboard.chevron.compact.down")
+                                    .font(.system(size: 17))
+                            }
+                            .buttonStyle(.bordered)
+                            .accessibilityLabel("Hide iPhone keyboard")
+                        }
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 7) {
+                                extraKey("Win") { engine.keyPress("MetaLeft") }
+                                extraKey("Esc") { engine.keyPress("Escape") }
+                                extraKey("Tab") { engine.keyPress("Tab") }
+                                extraKey("⇧Tab") { engine.keyChord(["ShiftLeft", "Tab"]) }
+                                extraKey("⌫") { engine.keyPress("Backspace") }
+                                extraKey("Del") { engine.keyPress("Delete") }
+                                extraKey("←") { engine.keyPress("ArrowLeft") }
+                                extraKey("↑") { engine.keyPress("ArrowUp") }
+                                extraKey("↓") { engine.keyPress("ArrowDown") }
+                                extraKey("→") { engine.keyPress("ArrowRight") }
+                                extraKey("Home") { engine.keyPress("Home") }
+                                extraKey("End") { engine.keyPress("End") }
+                                extraKey("Ctrl+A") { engine.keyChord(["ControlLeft", "KeyA"]) }
+                                extraKey("Ctrl+C") { engine.keyChord(["ControlLeft", "KeyC"]) }
+                                extraKey("Ctrl+V") { engine.keyChord(["ControlLeft", "KeyV"]) }
+                                extraKey("Ctrl+X") { engine.keyChord(["ControlLeft", "KeyX"]) }
+                                extraKey("Alt+Tab") { engine.shortcut("alt_tab") }
+                            }
+                            .padding(.horizontal, 2)
                         }
                         .buttonStyle(.bordered)
-                        .accessibilityLabel("Hide iPhone keyboard")
+                        .font(.caption)
                     }
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 7) {
-                            extraKey("Win") { engine.keyPress("MetaLeft") }
-                            extraKey("Esc") { engine.keyPress("Escape") }
-                            extraKey("Tab") { engine.keyPress("Tab") }
-                            extraKey("⇧Tab") { engine.keyChord(["ShiftLeft", "Tab"]) }
-                            extraKey("⌫") { engine.keyPress("Backspace") }
-                            extraKey("Del") { engine.keyPress("Delete") }
-                            extraKey("←") { engine.keyPress("ArrowLeft") }
-                            extraKey("↑") { engine.keyPress("ArrowUp") }
-                            extraKey("↓") { engine.keyPress("ArrowDown") }
-                            extraKey("→") { engine.keyPress("ArrowRight") }
-                            extraKey("Home") { engine.keyPress("Home") }
-                            extraKey("End") { engine.keyPress("End") }
-                            extraKey("Ctrl+A") { engine.keyChord(["ControlLeft", "KeyA"]) }
-                            extraKey("Ctrl+C") { engine.keyChord(["ControlLeft", "KeyC"]) }
-                            extraKey("Ctrl+V") { engine.keyChord(["ControlLeft", "KeyV"]) }
-                            extraKey("Ctrl+X") { engine.keyChord(["ControlLeft", "KeyX"]) }
-                            extraKey("Alt+Tab") { engine.shortcut("alt_tab") }
-                        }
-                        .padding(.horizontal, 2)
-                    }
-                    .buttonStyle(.bordered)
-                    .font(.caption)
+                    .padding(9)
+                    .background(Color(uiColor: .secondarySystemBackground))
+                } else {
+                    NativeWindowsLaptopKeyboard(
+                        onText: { engine.typeText($0) },
+                        onKey: { engine.keyPress($0) },
+                        onChord: { engine.keyChord($0) },
+                        onUseSystemKeyboard: { useSystemKeyboard = true },
+                        onHide: { hideKeyboard() }
+                    )
                 }
-                .padding(9)
-                .background(Color(uiColor: .secondarySystemBackground))
             }
         }
         .background(Color.black)
@@ -387,6 +401,7 @@ struct NativeRemoteViewerScreen: View {
 
     private func hideKeyboard() {
         showText = false
+        useSystemKeyboard = false
     }
 }
 
