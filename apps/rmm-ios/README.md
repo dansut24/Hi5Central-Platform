@@ -1,3 +1,19 @@
+# Hi5Central RMM iOS v0.5.13 — native Windows typing
+
+This release builds directly on **v0.5.12**, the first restored working native WebRTC streaming build. It **does not modify** the codec factories, SDP signalling, ICE handling, remote-session routing, Windows Agent v1.0.318 or original IONOS VPS.
+
+**Native iOS system keyboard:** Keep the normal iPhone keyboard instead of a fully custom keyboard to preserve native layouts and accessibility. Text is sent to the existing remote `text_input` path, not retained locally. Backspace and Return use remote key events.
+
+**Windows key strip:** Win, Esc, Tab, Shift+Tab, Backspace, Delete, arrows, Home, End, Ctrl+A/C/V/X, and Alt+Tab in a horizontally scrollable bar directly above the iPhone keyboard. Key chords send balanced physical down/up events with modifier flags (prevent the Windows Agent treating a chord key as text).
+
+**Visible keyboard controls:** Large 46-point keyboard toggle in the fixed iOS header, plus a second fixed Keyboard button in the bottom toolbar; both work whenever the native video is present, even if ICE transiently reports disconnected. The remote canvas is the only zoomed view.
+
+**Windows Search:** A dedicated fixed **Search** toolbar button sends Windows+S and opens the iPhone keyboard; this works at every zoom and doesn't depend on taskbar placement. A conservative desktop-tap hot-zone also opens the iPhone keyboard when tapping common Windows 10/11 taskbar Search positions. This heuristic is limited to taskbar clicks; automatic detection of arbitrary application text fields will require Agent-originated Windows focus events later. Remote focus telemetry is intentionally NOT restored in this build because it previously destabilised streaming.
+
+**Test on iPhone:** Open remote Lenovo session; zoom 2–4x, press Keyboard in header and then bottom toolbar and verify both can summon iOS keyboard. Tap **Search** and type text in Windows Search; test Notepad by tapping editor, then tapping Keyboard, typing and pressing Backspace, Return, Tab and Ctrl+A. Verify native video persists over secure desktop transition.
+
+---
+
 # Hi5Central RMM iOS v0.5.12 — VP9/VP8 native codec negotiation fix
 
 **Evidence (11 November 2026):** During the failed native v0.5.11 session at 19:31 UTC, Lenovo Agent v1.0.318 selected `vp9_sw` in automatic mode and offered VP9 RTP payload type 98. The Agent accepted the iPhone's SDP answer (784 bytes) and accepted ~25 ICE candidates. The ICE peer never connected. Successful browser SDP answers on this Agent were 854–969 bytes.
