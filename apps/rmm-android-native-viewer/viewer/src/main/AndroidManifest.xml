@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <application>
+        <activity android:name=".NativeViewerActivity"
+                  android:label="Hi5Central Remote"
+                  android:exported="false"
+                  android:screenOrientation="unspecified"/>
+    </application>
+</manifest>
