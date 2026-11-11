@@ -37,18 +37,17 @@ enum NativeWebScripts {
       if (window.__hi5NativeViewerStyle) return;
       window.__hi5NativeViewerStyle = true;
       const style = document.createElement('style');
-      style.id = 'hi5-native-viewer-style';
+      style.id = 'hi5-ios-native-viewer';
+      // The WebRTC video, input and panel handlers remain in the existing viewer.
+      // Only browser-built toolbars are replaced by native SwiftUI controls.
       style.textContent = [
-        '@media (max-width: 820px), (pointer: coarse) {',
-        '#topbar {min-height:44px!important;height:44px!important;padding:4px 7px!important;grid-template-columns:minmax(0,1fr)!important;grid-template-rows:minmax(0,1fr)!important;gap:0!important;}',
-        '#topbar .brand,#topbar .right-actions {display:none!important;}',
-        '#topbar .topbar-actions {grid-column:1/-1!important;grid-row:1!important;width:100%!important;min-width:0!important;display:flex!important;flex-wrap:nowrap!important;justify-content:flex-start!important;gap:4px!important;overflow-x:auto!important;padding:2px!important;-webkit-overflow-scrolling:touch;}',
-        '#topbar .topbar-actions button {flex:0 0 36px!important;width:36px!important;min-width:36px!important;height:34px!important;min-height:34px!important;}',
-        '#topbar .topbar-actions .label {display:none!important;}',
-        '#mobile-bottom-actions {width:calc(100vw - 12px)!important;max-width:100vw!important;justify-content:flex-start!important;overflow-x:auto!important;overflow-y:hidden!important;-webkit-overflow-scrolling:touch;}',
-        '#mobile-bottom-actions button {flex:0 0 auto!important;white-space:nowrap!important;}',
-        '#mobile-bottom-actions #mobile-text-input {flex:1 0 112px!important;min-width:105px!important;max-width:168px!important;}',
-        '}'
+        '#topbar {display:none!important;}',
+        '#mobile-toolbar-handle,#mobile-view-controls,#mobile-bottom-actions,',
+        '#mobile-quality-indicator,#mobile-scroll-rail {display:none!important;}',
+        '#main {flex:1 1 auto!important;min-height:0!important;padding:0!important;}',
+        'html,body {height:100%!important;min-height:0!important;overflow:hidden!important;}',
+        '#remote-video,#remote-image {object-fit:contain!important;}',
+        '#mobile-keyboard.visible {z-index:91!important;}'
       ].join('\n');
       (document.head || document.documentElement).appendChild(style);
     })();
