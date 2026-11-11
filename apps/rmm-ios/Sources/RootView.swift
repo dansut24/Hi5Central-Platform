@@ -68,7 +68,7 @@ struct RootView: View {
             .padding(22)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
             Spacer()
-            Text("Native iOS preview · version 0.1.0")
+            Text("Native iOS preview · version 0.2.0")
                 .font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(24)
@@ -83,30 +83,32 @@ struct RootView: View {
                     .frame(width: 36, height: 36)
                     .background(hi5Blue.gradient, in: RoundedRectangle(cornerRadius: 11))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Hi5Central").font(.headline)
+                    Text("Hi5Central RMM").font(.subheadline.bold())
                     Text(state.showingMore ? "More" : state.route.title)
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if !state.showingMore {
                     Button {
+                        state.showPortalTools.toggle()
+                    } label: {
+                        Image(systemName: state.showPortalTools ? "xmark" : "magnifyingglass")
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 30, height: 36)
+                    }
+                    .accessibilityLabel(state.showPortalTools ? "Hide website tools" : "Search and account tools")
+                    Button {
                         webReloadID = UUID()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                             .font(.system(size: 17, weight: .medium))
+                            .frame(width: 30, height: 36)
                     }
                     .accessibilityLabel("Refresh")
                 }
-                Button {
-                    state.showingMore = true
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 18, weight: .medium))
-                }
-                .accessibilityLabel("More tools")
             }
             .padding(.horizontal, 18)
-            .frame(height: 58)
+            .frame(height: 50)
             Divider()
             ZStack {
                 PortalWebView(state: state)
@@ -164,7 +166,7 @@ struct RootView: View {
                 Text("Manage your environment").font(.title2.bold())
                 Text("Quick access to other RMM workspaces")
                     .font(.subheadline).foregroundStyle(.secondary)
-                ForEach([RMMRoute.patching, .software, .automation, .reports, .settings]) { route in
+                ForEach([RMMRoute.connect, .patching, .software, .automation, .reports, .settings, .profile]) { route in
                     Button {
                         state.navigate(to: route)
                     } label: {
@@ -203,6 +205,8 @@ struct RootView: View {
         case .automation: return "bolt"
         case .reports: return "chart.bar"
         case .settings: return "gearshape"
+        case .profile: return "person.crop.circle"
+        case .connect: return "antenna.radiowaves.left.and.right"
         default: return "desktopcomputer"
         }
     }
@@ -219,6 +223,10 @@ struct PortalWebView: UIViewRepresentable {
         config.allowsInlineMediaPlayback = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.defaultWebpagePreferences.allowsContentJavaScript = true
+        config.userContentController.add(context.coordinator, name: "rmmRoute")
+        config.userContentController.addUserScript(
+            WKUserScript(source: NativeWebScripts.portal, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
@@ -230,17 +238,35 @@ struct PortalWebView: UIViewRepresentable {
 
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.state = state
+        if context.coordinator.lastToolsVisibility != state.showPortalTools {
+            context.coordinator.lastToolsVisibility = state.showPortalTools
+            let visible = state.showPortalTools ? "true" : "false"
+            view.evaluateJavaScript("document.documentElement.classList.toggle('hi5-native-tools', " + visible + ");", completionHandler: nil)
+        }
         if context.coordinator.lastRoute != state.route || context.coordinator.lastTenant != state.tenant {
             context.coordinator.openRoute(state.route, tenant: state.tenant, on: view)
         }
     }
 
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         var state: RMMState
         var lastRoute: RMMRoute?
         var lastTenant: String?
+        var lastToolsVisibility: Bool?
 
         init(state: RMMState) { self.state = state }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "rmmRoute", let path = message.body as? String,
+                  let url = message.webView?.url, state.isTrustedHi5(url),
+                  let destination = state.routeForWebPath(path) else { return }
+            DispatchQueue.main.async {
+                self.lastRoute = destination
+                if self.state.route != destination {
+                    self.state.route = destination
+                }
+            }
+        }
 
         func openRoute(_ route: RMMRoute, tenant: String, on view: WKWebView) {
             lastRoute = route
