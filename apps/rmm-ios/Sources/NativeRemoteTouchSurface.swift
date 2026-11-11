@@ -95,7 +95,7 @@ final class RemoteTouchUIView: UIView {
         accessibilityLabel = "Hi5Central remote desktop interaction surface"
     }
 
-    private var center: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY) }
+    private var canvasCenter: CGPoint { CGPoint(x: bounds.midX, y: bounds.midY) }
 
     private func contentSize() -> CGSize {
         guard bounds.width > 0, bounds.height > 0,
@@ -117,7 +117,7 @@ final class RemoteTouchUIView: UIView {
     private func desktopPoint(_ screenPoint: CGPoint) -> [String: Any]? {
         let video = contentSize()
         guard video.width > 0, video.height > 0 else { return nil }
-        let c = center
+        let c = canvasCenter
         let unscaled = CGPoint(
             x: c.x + (screenPoint.x - c.x - pan.width) / max(1, zoom),
             y: c.y + (screenPoint.y - c.y - pan.height) / max(1, zoom)
@@ -191,7 +191,7 @@ final class RemoteTouchUIView: UIView {
         previousCenter = mid
         initialZoom = zoom
         panAtStart = pan
-        let c = center
+        let c = canvasCenter
         // This precise untransformed point remains pinned beneath the
         // fingers as pinch magnification and two-finger panning happen.
         pinchAnchor = CGPoint(
@@ -281,7 +281,7 @@ final class RemoteTouchUIView: UIView {
         switch gesture {
         case .navigate:
             let nextZoom = min(6, max(1, initialZoom * separation / initialSeparation))
-            let c = center
+            let c = canvasCenter
             let suggested = CGSize(
                 width: mid.x - c.x - nextZoom * (pinchAnchor.x - c.x),
                 height: mid.y - c.y - nextZoom * (pinchAnchor.y - c.y)
