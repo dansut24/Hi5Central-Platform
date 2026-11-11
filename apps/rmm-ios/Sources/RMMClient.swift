@@ -265,6 +265,40 @@ final class RMMClient: ObservableObject {
               url.path.hasPrefix("/rmm-viewer/") else {
             throw RMMNetworkError.missingRemoteURL
         }
+        // The JSON response is authenticated by the same tenant session.
+        // Prefer explicit connection ICE credentials if the browser URL's
+        // base64url fragment was created without its short-lived TURN entry.
+        // No credentials are persisted or written to logs.
+        if let connection = result["connection"] as? [String: Any],
+           let rows = connection["iceServers"] as? [[String: Any]],
+           !rows.isEmpty,
+           rows.contains(where: { record in
+               let urls = (record["urls"] as? [String]) ??
+                   ((record["urls"] as? String).map { [$0] } ?? [])
+               return urls.contains { $0.hasPrefix("turn:") || $0.hasPrefix("turns:") } &&
+                   !(record["username"] as? String ?? "").isEmpty &&
+                   !(record["credential"] as? String ?? "").isEmpty
+           }),
+           let json = try? JSONSerialization.data(withJSONObject: rows),
+           var browser = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           let fragment = browser.fragment,
+           var params = URLComponents(string: "https://viewer.invalid/?" + fragment) {
+            let packed = json.base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .replacingOccurrences(of: "=", with: "")
+            var items = params.queryItems ?? []
+            items.removeAll { $0.name == "ice" }
+            items.append(URLQueryItem(name: "ice", value: packed))
+            params.queryItems = items
+            browser.fragment = params.percentEncodedQuery
+            if let repairedURL = browser.url,
+               repairedURL.scheme == url.scheme,
+               repairedURL.host == url.host,
+               repairedURL.path == url.path {
+                return repairedURL
+            }
+        }
         return url
     }
 
