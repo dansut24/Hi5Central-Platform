@@ -164,6 +164,8 @@ struct NativeRemoteViewerScreen: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Text("TURN relay candidates: local \(engine.localRelayCandidates), remote \(engine.remoteRelayCandidates)")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("Authenticated TURN: \(engine.availableTurnServers) available (\(engine.offeredTurnServers) signalled)")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("Tap, double-tap, long-press to right-click, drag and two-finger scroll are enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
