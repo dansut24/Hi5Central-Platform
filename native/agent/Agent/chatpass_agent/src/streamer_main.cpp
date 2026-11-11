@@ -1,7 +1,6 @@
 #include "frame_source.h"
 #include "ipc/shmem_ring.h"
 #include "ipc/input_pipe.h"
-#include "remote_focus_probe.h"
 #include "util/log.h"
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -16,7 +15,6 @@
 #include <cwchar>
 #include <csignal>
 #include <cstring>
-#include <cstdlib>
 #include <optional>
 #include <string>
 #include <thread>
@@ -781,22 +779,6 @@ namespace hi5 {
             }
         }
 
-        // Focus detection must never jeopardise the independent video feed.
-        // UI Automation can interact with the desktop compositor and has caused
-        // startup regressions on some GPU/desktop combinations. In this
-        // recovery build it is opt-in so that capture remains the priority.
-        // A future isolated helper will permit automatic keyboard focus without
-        // running UI Automation inside the video capture process.
-        RemoteFocusProbe focusProbe;
-        const char* focusSetting = std::getenv("HI5_REMOTE_FOCUS_PROBE");
-        const bool enableFocusProbe = focusSetting && std::string(focusSetting) == "1";
-        if (inputPipeOk && !IsSecureHelperArgs(args) && enableFocusProbe) {
-            LogInfo("[streamer] focus probe enabled (experimental)");
-            focusProbe.Start(inputPipe);
-        }
-        else {
-            LogInfo("[streamer] focus probe disabled to protect capture");
-        }
         PrimeInputQueue();
         LogInfo("[streamer] input queue primed");
 
@@ -1018,7 +1000,6 @@ namespace hi5 {
             }
         }
 
-        focusProbe.Stop();
         if (inputPipeOk) {
             inputPipe.Close();
         }
