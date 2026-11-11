@@ -162,39 +162,64 @@ struct RootView: View {
 
     private var morePage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Manage your environment").font(.title2.bold())
-                Text("Quick access to other RMM workspaces")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                ForEach([RMMRoute.connect, .patching, .software, .automation, .reports, .settings, .profile]) { route in
-                    Button {
-                        state.navigate(to: route)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: icon(for: route))
-                                .foregroundStyle(hi5Blue)
-                                .frame(width: 30)
-                            Text(route.title).foregroundStyle(.primary)
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Workspace").font(.title2.bold())
+                    Text("Quick access to your RMM tools")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 11) {
+                    ForEach([RMMRoute.connect, .patching, .software, .automation, .reports, .settings, .profile]) { route in
+                        Button {
+                            state.navigate(to: route)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 13) {
+                                Image(systemName: icon(for: route))
+                                    .font(.system(size: 23, weight: .medium))
+                                    .foregroundStyle(hi5Blue)
+                                Spacer(minLength: 0)
+                                HStack(spacing: 5) {
+                                    Text(route.title)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 91, alignment: .leading)
+                            .padding(15)
+                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
                         }
-                        .padding(17)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 15))
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
-                Divider()
-                Text("Connected company: \(state.tenant)")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button(role: .destructive) {
-                    state.resetTenant()
-                    webReloadID = UUID()
-                } label: {
-                    Label("Switch company", systemImage: "rectangle.portrait.and.arrow.right")
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 9) {
+                        Image(systemName: "building.2")
+                            .foregroundStyle(hi5Blue)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Connected company").font(.caption).foregroundStyle(.secondary)
+                            Text(state.tenant).font(.subheadline.weight(.semibold))
+                        }
+                        Spacer()
+                    }
+                    Button(role: .destructive) {
+                        state.resetTenant()
+                        webReloadID = UUID()
+                    } label: {
+                        Label("Switch company", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .font(.subheadline)
                 }
-                .padding(.top, 4)
+                .padding(15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
             }
-            .padding(18)
+            .padding(16)
         }
     }
 
