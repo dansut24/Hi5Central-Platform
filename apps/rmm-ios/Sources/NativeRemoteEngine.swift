@@ -8,6 +8,8 @@ struct NativeViewerParameters {
     let token: String
     let websocket: URL
     let iceServers: [RTCIceServer]
+    let launchIceRawCount: Int
+    let launchIceTurnRawCount: Int
 
     init?(url: URL) {
         guard url.scheme == "https",
@@ -40,6 +42,8 @@ struct NativeViewerParameters {
         websocket = endpoint
 
         var servers: [RTCIceServer] = []
+        var rawCount = 0
+        var rawTurnCount = 0
         if let encoded = values["ice"] {
             let base64 = encoded.replacingOccurrences(of: "-", with: "+")
                 .replacingOccurrences(of: "_", with: "/")
@@ -47,6 +51,8 @@ struct NativeViewerParameters {
                                         withPad: "=", startingAt: 0)
             if let bytes = Data(base64Encoded: padded),
                let parsed = try? JSONSerialization.jsonObject(with: bytes) as? [[String: Any]] {
+                rawCount = parsed.count
+                rawTurnCount = NativeViewerParameters.rawTurnCount(parsed)
                 for entry in parsed {
                     let urls: [String]
                     if let array = entry["urls"] as? [String] { urls = array }
@@ -61,6 +67,16 @@ struct NativeViewerParameters {
             }
         }
         iceServers = servers
+        launchIceRawCount = rawCount
+        launchIceTurnRawCount = rawTurnCount
+    }
+
+    static func rawTurnCount(_ rows: [[String: Any]]) -> Int {
+        rows.filter { entry in
+            let urls = (entry["urls"] as? [String]) ??
+                ((entry["urls"] as? String).map { [$0] } ?? [])
+            return urls.contains { $0.hasPrefix("turn:") || $0.hasPrefix("turns:") }
+        }.count
     }
 }
 
@@ -137,6 +153,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             self.offeredTurnServers = 0
         }
         event("Starting remote session")
+        event("Launch ICE: raw \(launch.launchIceRawCount), raw TURN \(launch.launchIceTurnRawCount), parsed \(launch.iceServers.count)")
         openSocket()
     }
 
@@ -223,7 +240,17 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             if remoteSdpReady { peer?.add(candidate) }
             else { pendingCandidates.append(candidate) }
         case "session_config":
+            let raw = (message["ice_servers"] ?? message["iceServers"]) as? [[String: Any]] ?? []
+            let rawTurn = NativeViewerParameters.rawTurnCount(raw)
+            let rawAuthenticated = raw.filter { entry in
+                let urls = (entry["urls"] as? [String]) ??
+                    ((entry["urls"] as? String).map { [$0] } ?? [])
+                return urls.contains { $0.hasPrefix("turn:") || $0.hasPrefix("turns:") } &&
+                    !(entry["username"] as? String ?? "").isEmpty &&
+                    !(entry["credential"] as? String ?? "").isEmpty
+            }.count
             let servers = Self.parseIceServers(message["ice_servers"] ?? message["iceServers"])
+            event("Signalled raw ICE: \(raw.count), raw TURN: \(rawTurn), authenticated TURN records: \(rawAuthenticated)")
             if !servers.isEmpty {
                 serverIceServers = servers
                 let turnCount = Self.authenticatedTurnCount(servers)
