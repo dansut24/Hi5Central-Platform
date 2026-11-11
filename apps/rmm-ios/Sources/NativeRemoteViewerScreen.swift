@@ -18,6 +18,7 @@ private struct NativeVideoCanvas: UIViewRepresentable {
 struct NativeRemoteViewerScreen: View {
     let target: ViewerLaunch
     @EnvironmentObject private var client: RMMClient
+    @EnvironmentObject private var state: RMMState
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine = NativeRemoteEngine()
     @State private var launch: NativeViewerParameters?
@@ -30,6 +31,8 @@ struct NativeRemoteViewerScreen: View {
     @State private var scale: CGFloat = 1
     @State private var lastScale: CGFloat = 1
     @State private var didStart = false
+    @State private var showDiagnostics = false
+    @State private var isClosing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -68,9 +71,15 @@ struct NativeRemoteViewerScreen: View {
                             .font(.system(size: 43)).foregroundStyle(nativeBlue)
                         Text(engine.status).font(.headline)
                             .multilineTextAlignment(.center)
-                        ProgressView().tint(.white)
+                        if !engine.isEnded && !isClosing { ProgressView().tint(.white) }
                         Text("Native iOS WebRTC")
                             .font(.caption).foregroundStyle(.secondary)
+                        Button("Connection details") {
+                            showDiagnostics = true
+                        }
+                        .font(.subheadline)
+                        .buttonStyle(.bordered)
+                        .allowsHitTesting(true)
                     }
                     .padding(20)
                     .foregroundStyle(.white)
@@ -101,8 +110,7 @@ struct NativeRemoteViewerScreen: View {
             guard !didStart else { return }
             didStart = true
             guard let params = NativeViewerParameters(url: target.url) else {
-                // A malformed/expired link is never handed to a browser or
-                // untrusted domain.
+                engine.showError("Invalid session launch. Close and start a new session from Devices.")
                 return
             }
             launch = params
@@ -119,12 +127,23 @@ struct NativeRemoteViewerScreen: View {
             }
         }
         .onDisappear {
-            engine.close()
-            if let id = launch?.sessionId {
-                Task {
-                    try? await client.terminateRemoteSession(id: id)
-                    await RemoteSessionActivity.shared.end(sessionId: id)
+            // SwiftUI can temporarily remove a view while presenting sheets or
+            // changing app phase. Do not kill the server session unless the
+            // technician explicitly confirms Disconnection.
+            if isClosing || state.viewer?.id != target.id {
+                engine.close(reason: "Viewer closed")
+                if let id = launch?.sessionId {
+                    Task { await RemoteSessionActivity.shared.end(sessionId: id) }
                 }
+            }
+        }
+        .sheet(isPresented: $showDiagnostics) {
+            NavigationStack {
+                List(engine.recentEvents.reversed(), id: \.self) { event in
+                    Text(event).font(.subheadline)
+                }
+                .navigationTitle("Connection details")
+                .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showDiagnostics = false } } }
             }
         }
         .sheet(isPresented: $showChat) {
@@ -136,7 +155,17 @@ struct NativeRemoteViewerScreen: View {
         }
         .confirmationDialog("Disconnect from this computer?", isPresented: $showClose,
                             titleVisibility: .visible) {
-            Button("Disconnect", role: .destructive) { dismiss() }
+            Button("Disconnect", role: .destructive) {
+                isClosing = true
+                engine.close(reason: "Disconnected by technician")
+                if let id = launch?.sessionId {
+                    Task {
+                        try? await client.terminateRemoteSession(id: id)
+                        await RemoteSessionActivity.shared.end(sessionId: id)
+                    }
+                }
+                dismiss()
+            }
         }
         .confirmationDialog("Send Ctrl+Alt+Del?", isPresented: $showCAD,
                             titleVisibility: .visible) {

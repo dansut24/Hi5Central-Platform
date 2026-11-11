@@ -80,6 +80,8 @@ struct NativeFileEntry: Identifiable {
 
 final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var status = "Preparing connection"
+    @Published private(set) var recentEvents: [String] = []
+    @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
     @Published private(set) var chat: [NativeChatEntry] = []
@@ -100,6 +102,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     private var session: URLSession?
     private var inputChannel: RTCDataChannel?
     private var socketReady = false
+    private var serverIceServers: [RTCIceServer]?
+    private var receivedOffer = false
     private var remoteSdpReady = false
     private var pendingCandidates: [RTCIceCandidate] = []
     private var intentionallyClosed = false
@@ -110,8 +114,11 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         guard !opening else { return }
         opening = true
         intentionallyClosed = false
+        receivedOffer = false
+        serverIceServers = nil
         params = launch
-        statusOnMain("Connecting to remote device")
+        DispatchQueue.main.async { self.isEnded = false }
+        event("Starting remote session")
         openSocket()
     }
 
@@ -140,9 +147,10 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                     self.read(text)
                 }
                 self.receive()
-            case .failure:
+            case .failure(let error):
                 self.socketReady = false
-                self.statusOnMain("Remote signalling disconnected")
+                self.event("Signalling receive failed: \(error.localizedDescription)")
+                self.statusOnMain("Signalling connection failed")
             }
         }
     }
@@ -162,8 +170,17 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
               let type = message["type"] as? String else { return }
 
         switch type {
+        case "viewer_connected":
+            event("Signalling authenticated")
+        case "start_webrtc_sent":
+            event("Requested WebRTC stream from device")
         case "webrtc_offer":
-            guard let sdp = message["sdp"] as? String else { return }
+            guard let sdp = message["sdp"] as? String, !sdp.isEmpty else {
+                event("Empty video offer received")
+                return
+            }
+            receivedOffer = true
+            event("Remote video offer received")
             createAnswer(sdp)
         case "ice_candidate":
             let sdp = message["candidate"] as? String ?? ""
@@ -175,12 +192,26 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             if remoteSdpReady { peer?.add(candidate) }
             else { pendingCandidates.append(candidate) }
         case "session_config":
-            statusOnMain("Negotiating video")
-        case "agent_reconnecting", "agent_reconnected":
-            statusOnMain("Reconnecting endpoint")
+            let servers = Self.parseIceServers(message["ice_servers"] ?? message["iceServers"])
+            if !servers.isEmpty {
+                serverIceServers = servers
+                event("Received ICE configuration: \(servers.count) servers")
+            } else {
+                event("No ICE servers provided by signalling")
+            }
+        case "viewer_error":
+            let messageText = (message["error"] as? String ?? "Remote session error")
+            // Never display token-bearing URLs or arbitrary server payloads.
+            event("Server error: " + String(messageText.prefix(180)))
+        case "agent_reconnecting":
+            event("Waiting for endpoint to reconnect")
+        case "agent_reconnected":
+            event("Endpoint reconnected")
         case "session_terminated":
-            statusOnMain("Session ended")
-            close()
+            let reason = message["reason"] as? String ?? "unknown"
+            event("Session ended by server (\(String(reason.prefix(60))))")
+            close(reason: "Session ended by server", markEnded: true)
+            return
         case "chat_message":
             let body = String(message["body"] as? String ?? message["message"] as? String ?? "")
             guard !body.isEmpty else { return }
@@ -244,7 +275,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         guard let params else { return }
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
-        config.iceServers = params.iceServers
+        config.iceServers = serverIceServers ?? params.iceServers
         config.continualGatheringPolicy = .gatherContinually
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: ["OfferToReceiveVideo": "true", "OfferToReceiveAudio": "true"],
@@ -260,7 +291,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         peer.setRemoteDescription(offer) { [weak self, weak peer] error in
             guard let self, let peer else { return }
             if let error {
-                self.statusOnMain("Unsupported offer: \(error.localizedDescription)")
+                self.event("Remote SDP rejected: \(error.localizedDescription)")
                 return
             }
             self.remoteSdpReady = true
@@ -287,6 +318,31 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             }
         }
     }
+
+    private static func parseIceServers(_ raw: Any?) -> [RTCIceServer] {
+        guard let rows = raw as? [[String: Any]] else { return [] }
+        return rows.compactMap { record -> RTCIceServer? in
+            let addresses = (record["urls"] as? [String]) ??
+                (record["urls"] as? String).map { [$0] } ?? []
+            let safeAddresses = addresses.filter {
+                $0.hasPrefix("turn:") || $0.hasPrefix("turns:") || $0.hasPrefix("stun:")
+            }
+            guard !safeAddresses.isEmpty else { return nil }
+            return RTCIceServer(urlStrings: safeAddresses,
+                                username: record["username"] as? String ?? "",
+                                credential: record["credential"] as? String ?? "")
+        }
+    }
+
+    private func event(_ detail: String) {
+        DispatchQueue.main.async {
+            self.status = detail
+            self.recentEvents.append(detail)
+            if self.recentEvents.count > 9 { self.recentEvents.removeFirst() }
+        }
+    }
+
+    func showError(_ detail: String) { event(detail) }
 
     private func statusOnMain(_ status: String) {
         DispatchQueue.main.async {
@@ -381,14 +437,9 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         }
     }
 
-    func close() {
+    func close(reason: String = "Viewer closed", markEnded: Bool = false) {
         guard !intentionallyClosed else { return }
         intentionallyClosed = true
-        if let params {
-            // The authorised session is explicitly terminated by the native app.
-            // The same session is also cleaned up by the server if signalling drops.
-            sendTermination(sessionId: params.sessionId)
-        }
         socket?.cancel(with: .normalClosure, reason: nil)
         socket = nil
         socketReady = false
@@ -398,16 +449,9 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.connected = false
             self.hasVideo = false
-            self.status = "Disconnected"
+            self.isEnded = markEnded
+            self.status = reason
         }
-    }
-
-    private func sendTermination(sessionId: String) {
-        guard let params else { return }
-        // In the absence of a live API client in this transport object, use
-        // native signalling close; RMMClient terminates via the authenticated API.
-        send(["type": "viewer_disconnect", "session_id": sessionId])
-        _ = params
     }
 
     private func tearDownPeer() {
