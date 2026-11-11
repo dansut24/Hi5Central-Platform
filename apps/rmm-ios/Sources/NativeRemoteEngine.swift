@@ -179,7 +179,6 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 event("Empty video offer received")
                 return
             }
-            receivedOffer = true
             event("Remote video offer received")
             createAnswer(sdp)
         case "ice_candidate":
@@ -271,7 +270,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     private func createAnswer(_ offerSdp: String) {
         tearDownPeer()
         remoteSdpReady = false
-        pendingCandidates = []
+        if receivedOffer { pendingCandidates = [] }
+        receivedOffer = true
         guard let params else { return }
         let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan

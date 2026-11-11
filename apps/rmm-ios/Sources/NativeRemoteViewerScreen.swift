@@ -83,7 +83,7 @@ struct NativeRemoteViewerScreen: View {
                     }
                     .padding(20)
                     .foregroundStyle(.white)
-                    .allowsHitTesting(false)
+
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -139,8 +139,8 @@ struct NativeRemoteViewerScreen: View {
         }
         .sheet(isPresented: $showDiagnostics) {
             NavigationStack {
-                List(engine.recentEvents.reversed(), id: \.self) { event in
-                    Text(event).font(.subheadline)
+                List(Array(engine.recentEvents.enumerated().reversed()), id: \.offset) { row in
+                    Text(row.element).font(.subheadline)
                 }
                 .navigationTitle("Connection details")
                 .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showDiagnostics = false } } }
