@@ -29,7 +29,10 @@ struct NativeRemoteViewerScreen: View {
     @State private var showCAD = false
     @State private var showClose = false
     @State private var scale: CGFloat = 1
-    @State private var lastScale: CGFloat = 1
+    @State private var panOffset: CGSize = .zero
+    @State private var panMode = true
+    @State private var viewportSize: CGSize = .zero
+    @State private var lastFocalPoint: CGPoint?
     @State private var didStart = false
     @State private var showDiagnostics = false
     @State private var isClosing = false
@@ -42,24 +45,31 @@ struct NativeRemoteViewerScreen: View {
                 GeometryReader { geometry in
                     ZStack {
                         NativeVideoCanvas(renderer: engine.renderer)
-                            .scaleEffect(scale)
                             .frame(width: geometry.size.width, height: geometry.size.height)
+                            .scaleEffect(scale)
+                            .offset(panOffset)
+
                         if engine.hasVideo {
-                            // The transparent UIKit surface owns touch input;
-                            // Metal owns video rendering only. This avoids
-                            // SwiftUI gestures being swallowed by RTCMTLVideoView.
                             NativeRemoteTouchSurface(
                                 zoom: $scale,
+                                pan: $panOffset,
+                                panMode: $panMode,
                                 videoSize: CGSize(width: engine.videoWidth, height: engine.videoHeight),
-                                active: engine.connected || engine.hasVideo
-                            ) { kind, values in
-                                engine.sendInput(kind, values: values)
-                            }
+                                active: engine.connected || engine.hasVideo,
+                                onTouch: { point in lastFocalPoint = point },
+                                send: { kind, values in engine.sendInput(kind, values: values) }
+                            )
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .zIndex(1)
                         }
                     }
                     .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
+                    .onAppear { viewportSize = geometry.size }
+                    .onChange(of: geometry.size) { size in
+                        viewportSize = size
+                        panOffset = limitPan(panOffset, at: scale)
+                    }
                 }
                 if !engine.hasVideo {
                     VStack(spacing: 14) {
@@ -130,6 +140,8 @@ struct NativeRemoteViewerScreen: View {
                 VStack(alignment: .leading, spacing: 7) {
                     Label("Native touch events sent: \(engine.touchEventsSent)", systemImage: "hand.tap")
                         .font(.subheadline)
+                    Text("Input transport: \(engine.controlPath)")
+                        .font(.caption).foregroundStyle(.secondary)
                     Text("Tap, double-tap, long-press to right-click, drag and two-finger scroll are enabled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -178,10 +190,10 @@ struct NativeRemoteViewerScreen: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            Button { scale = max(1, scale - 0.25); lastScale = scale } label: {
+            Button { changeZoom(to: scale / 1.35) } label: {
                 Image(systemName: "minus.magnifyingglass")
             }
-            Button { scale = min(4, scale + 0.25); lastScale = scale } label: {
+            Button { changeZoom(to: scale * 1.35) } label: {
                 Image(systemName: "plus.magnifyingglass")
             }
             Button { showText.toggle() } label: {
@@ -204,7 +216,12 @@ struct NativeRemoteViewerScreen: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 control("Fit", "arrow.up.left.and.arrow.down.right") {
-                    scale = 1; lastScale = 1
+                    scale = 1
+                    panOffset = .zero
+                    panMode = true
+                }
+                control(panMode ? "Pan" : "Drag", panMode ? "hand.draw" : "hand.point.up.left") {
+                    panMode.toggle()
                 }
                 control("Chat", "bubble.left.and.bubble.right") { showChat = true }
                 control("Files", "folder") { showFiles = true }
@@ -218,6 +235,45 @@ struct NativeRemoteViewerScreen: View {
             .padding(9)
         }
         .background(Color(uiColor: .secondarySystemBackground))
+    }
+
+    private func limitPan(_ proposed: CGSize, at zoom: CGFloat) -> CGSize {
+        guard viewportSize.width > 0, viewportSize.height > 0,
+              engine.videoWidth > 0, engine.videoHeight > 0 else { return .zero }
+        let fit = min(viewportSize.width / engine.videoWidth,
+                      viewportSize.height / engine.videoHeight)
+        let width = engine.videoWidth * fit
+        let height = engine.videoHeight * fit
+        let marginX = max(0, (width * zoom - viewportSize.width) / 2)
+        let marginY = max(0, (height * zoom - viewportSize.height) / 2)
+        return CGSize(
+            width: min(marginX, max(-marginX, proposed.width)),
+            height: min(marginY, max(-marginY, proposed.height))
+        )
+    }
+
+    private func changeZoom(to desired: CGFloat) {
+        let next = min(6, max(1, desired))
+        guard viewportSize.width > 0, viewportSize.height > 0 else {
+            scale = next
+            return
+        }
+        // Preserve the desktop point last touched when using +/-.
+        // The pinch handler independently anchors at the fingers' midpoint.
+        let c = CGPoint(x: viewportSize.width / 2, y: viewportSize.height / 2)
+        let focus = lastFocalPoint ?? c
+        let before = max(1, scale)
+        let anchor = CGPoint(
+            x: c.x + (focus.x - c.x - panOffset.width) / before,
+            y: c.y + (focus.y - c.y - panOffset.height) / before
+        )
+        let newPan = CGSize(
+            width: focus.x - c.x - next * (anchor.x - c.x),
+            height: focus.y - c.y - next * (anchor.y - c.y)
+        )
+        scale = next
+        panOffset = next <= 1.02 ? .zero : limitPan(newPan, at: next)
+        if next > 1.02 { panMode = true }
     }
 
     private func control(_ label: String, _ icon: String, perform: @escaping () -> Void) -> some View {
