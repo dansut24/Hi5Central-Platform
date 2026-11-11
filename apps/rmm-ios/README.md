@@ -1,3 +1,15 @@
+# Hi5Central iOS v0.5.10 — raw ICE contract and signed TURN recovery
+
+On 11 November 2026, iPhone v0.5.9 reported two parsed STUN servers and no TURN credentials, preventing native ICE connectivity. The original IONOS VPS's running backend binary appears designed to issue a third TURN entry and the TURN allocation/relay self-test succeeded, so it's important to distinguish a missing backend entry from a client-side decoding error.
+
+This build logs **counts only** of ICE rows, TURN rows, and authenticated TURN records in the WebSocket's raw session_config payload, and the launch URL fragment's raw and parsed ICE rows. No token, credential, raw URL, network address or SDP is displayed.
+
+Where the authenticated session-creation JSON response contains explicit connection.iceServers with TURN credentials, the app places those short-lived credentials into the in-memory browser launch fragment, without saving or logging them. The native engine still uses the established v0.5.4 offer/answer logic and merges both launch and WebSocket ICE configurations.
+
+Test native v0.5.10: after a fresh session, inspect "Launch ICE" and "Signalled raw ICE" counters. If raw TURN >0 and parsed TURN =0, the Swift decoder needs repair. If both raw TURN=0, the server is not issuing credentials and requires a backend-side fix. Keep the browser viewer and Lenovo Agent v1.0.318 with auto codec unchanged.
+
+---
+
 # Hi5Central RMM iOS v0.5.9 — authenticated TURN fallback
 
 Derived from native iOS v0.5.8, preserving the successful native v0.5.4 video negotiation and the manual iPhone keyboard.
