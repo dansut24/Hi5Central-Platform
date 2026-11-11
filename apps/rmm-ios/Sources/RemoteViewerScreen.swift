@@ -12,12 +12,20 @@ final class ViewerStore: ObservableObject {
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: NativeWebScripts.viewer, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        )
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = UIColor.black
         webView.scrollView.backgroundColor = UIColor.black
         webView.scrollView.isScrollEnabled = false
+    }
+
+    func zoom(_ direction: String) {
+        let id = direction == "in" ? "mobile-zoom-in" : "mobile-zoom-out"
+        webView.evaluateJavaScript("document.getElementById('" + id + "')?.click();", completionHandler: nil)
     }
 
     func focusRemoteTextEntry() {
@@ -59,17 +67,20 @@ struct RemoteViewerScreen: View {
             HStack(spacing: 12) {
                 Image(systemName: "display")
                     .foregroundStyle(.cyan)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Remote session").font(.subheadline.bold())
-                    Text("Hi5Central Viewer").font(.caption).foregroundStyle(.secondary)
+                Text("Remote").font(.subheadline.bold()).lineLimit(1)
+                Spacer(minLength: 4)
+                Button { store.zoom("out") } label: {
+                    Image(systemName: "minus.magnifyingglass")
                 }
-                Spacer()
-                Button {
-                    store.focusRemoteTextEntry()
-                } label: {
-                    Label("Type", systemImage: "keyboard")
+                .accessibilityLabel("Zoom out")
+                Button { store.zoom("in") } label: {
+                    Image(systemName: "plus.magnifyingglass")
                 }
-                .buttonStyle(.bordered)
+                .accessibilityLabel("Zoom in")
+                Button { store.focusRemoteTextEntry() } label: {
+                    Image(systemName: "keyboard")
+                }
+                .accessibilityLabel("Type on remote computer")
                 Button(role: .destructive) {
                     guard !closing else { return }
                     closing = true
@@ -84,7 +95,7 @@ struct RemoteViewerScreen: View {
                 .accessibilityLabel("Disconnect and close")
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 9)
+            .padding(.vertical, 5)
             .background(Color(uiColor: UIColor.secondarySystemBackground))
             ViewerWebView(webView: store.webView, url: target.url)
                 .background(Color.black)
