@@ -119,7 +119,18 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
 
     let renderer = RTCMTLVideoView(frame: .zero)
     private var params: NativeViewerParameters?
-    private let factory = RTCPeerConnectionFactory()
+    // The default RTCPeerConnectionFactory() is H.264-only in the Apple
+    // WebRTC SDK. Our Windows Agent automatically chooses VP8, VP9, H.264,
+    // HEVC or AV1, so register the native software video codec factories.
+    // Without them VP9 video offers are rejected in the local SDP answer,
+    // causing ICE to remain in Checking with a black remote screen.
+    private static let videoCapableFactory: RTCPeerConnectionFactory = {
+        RTCInitializeSSL()
+        let encoder = RTCDefaultVideoEncoderFactory()
+        let decoder = RTCDefaultVideoDecoderFactory()
+        return RTCPeerConnectionFactory(encoderFactory: encoder, decoderFactory: decoder)
+    }()
+    private let factory = NativeRemoteEngine.videoCapableFactory
     private var peer: RTCPeerConnection?
     private var videoTrack: RTCVideoTrack?
     private var socket: URLSessionWebSocketTask?
@@ -214,7 +225,10 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 event("Empty video offer received")
                 return
             }
-            event("Remote video offer received")
+            let offered = ["VP8", "VP9", "H264", "H265", "AV1"].filter { codec in
+                sdp.range(of: "a=rtpmap:[0-9]+ " + codec + "/", options: .regularExpression) != nil
+            }
+            event("Remote video offer received: " + (offered.isEmpty ? "unknown codec" : offered.joined(separator: ", ")))
             createAnswer(sdp)
         case "ice_candidate":
             // Match the browser's normalisation of string and object ICE
@@ -375,6 +389,13 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                     self.statusOnMain("SDP negotiation failed: \(error.localizedDescription)")
                     return
                 }
+                // Log only whether an active video m-line was negotiated.
+                // Never expose raw SDP, ICE addresses or session secrets.
+                let videoLine = answer.sdp.split(whereSeparator: \.isNewline)
+                    .first { $0.hasPrefix("m=video ") }
+                let fields = videoLine?.split(separator: " ") ?? []
+                let accepted = fields.count > 1 && fields[1] != "0"
+                self.event("Native video m-line: " + (accepted ? "accepted" : "rejected (codec mismatch)"))
                 self.event("Native video answer created")
                 peer.setLocalDescription(answer) { [weak self] error in
                     guard let self else { return }
