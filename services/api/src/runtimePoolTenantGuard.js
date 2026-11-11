@@ -35,10 +35,24 @@ export function checkPoolTenantRequest({boundary,host,origin,referer,sessionSlug
   if(authenticated&&clean(sessionSlug)!==boundary.slug)
     return {allowed:false,status:403,reason:'Session belongs to a different tenant.'}
   if(!authenticated){
-    // Allow only the minimal public authentication bootstrap endpoints.
-    const publicRoute=/^\/api\/v1\/auth\/(?:login|logout|tenant-state\/[a-z0-9-]+|tenant-slug\/[a-z0-9-]+)$/
+    // Pre-session access is an exact method/path allowlist. In particular,
+    // the legacy password-only /auth/login route must not bypass MFA.
     if(method==='OPTIONS')return {allowed:true}
-    if(publicRoute.test(path)||path==='/api/v1/updates/version')return {allowed:true}
+    const publicRequests=new Set([
+      'POST /api/v1/auth/login-secure',
+      'POST /api/v1/auth/mfa/setup',
+      'POST /api/v1/auth/mfa/verify',
+      'POST /api/v1/auth/environment-handoff',
+      'POST /api/v1/auth/logout',
+      'GET /api/v1/auth/session',
+      'GET /api/v1/updates/version',
+    ])
+    if(publicRequests.has(method+' '+path))return {allowed:true}
+    // Only this exact tenant can be queried during the login bootstrap.
+    if(method==='GET'&&(
+      path==='/api/v1/auth/tenant-state/'+boundary.slug
+      ||path==='/api/v1/auth/tenant-slug/'+boundary.slug
+    ))return {allowed:true}
     return {allowed:false,status:401,reason:'Canary session required.'}
   }
   return {allowed:true}
