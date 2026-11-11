@@ -1,0 +1,30 @@
+name: Repository source hygiene
+
+on:
+  pull_request:
+    paths:
+      - 'native/agent/**'
+      - '.gitignore'
+      - 'scripts/check-repository-hygiene.py'
+      - '.github/workflows/repository-hygiene.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'native/agent/**'
+      - '.gitignore'
+      - 'scripts/check-repository-hygiene.py'
+      - '.github/workflows/repository-hygiene.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-accidental-native-artifacts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native source tree hygiene
+        run: |
+          python3 -m py_compile scripts/check-repository-hygiene.py
+          python3 scripts/check-repository-hygiene.py
