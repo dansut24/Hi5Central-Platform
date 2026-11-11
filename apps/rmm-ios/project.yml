@@ -23,8 +23,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central RMM"
-        CFBundleShortVersionString: "0.5.4"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "0.5.6"
+        CFBundleVersion: "11"
         UILaunchStoryboardName: LaunchScreen
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
@@ -62,8 +62,8 @@ targets:
       path: LiveActivity/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central Session"
-        CFBundleShortVersionString: "0.5.4"
-        CFBundleVersion: "9"
+        CFBundleShortVersionString: "0.5.6"
+        CFBundleVersion: "11"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
