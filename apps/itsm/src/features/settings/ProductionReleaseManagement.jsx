@@ -3,6 +3,7 @@ import { CheckCircle2, CircleAlert, GitBranch, RefreshCw, RotateCcw, ShieldCheck
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import {publishedCustomerVersion,customerVersionForBuild} from '../../lib/customerReleaseVersion.js'
 import {TenantRuntimeUpdates} from './TenantRuntimeUpdates.jsx'
+import {TrackedConfigurationChanges} from './TrackedConfigurationChanges.jsx'
 import './ProductionReleaseManagement.css'
 
 const API_BASE = window.__HI5_API_BASE__
@@ -123,6 +124,7 @@ function SandboxReleaseOverview() {
             uatLiveChatEnabled?'Enabled for this environment':'Not enabled by this organisation’s release policy'}</p>
           <small>Feature access is separate from the application version displayed above. Test changes in this environment; approve promotion from Live.</small>
         </div>
+        {isUat?<TrackedConfigurationChanges environment="uat"/>:null}
         {state.error?<p className="hi5-release-message is-error"><CircleAlert size={16}/>{state.error}</p>:null}
         <div className="hi5-release-sandbox-guidance">
           <strong>{isUat?'How to validate a release':'How Test fits into releases'}</strong>
@@ -416,6 +418,7 @@ function LiveProductionReleaseManagement() {
       </div>
     </section>
 
+    <TrackedConfigurationChanges environment="live"/>
     <TenantRuntimeUpdates updateMode={policy.updateMode}/>
 
     {platformAvailable ? (

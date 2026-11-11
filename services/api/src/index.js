@@ -17,6 +17,7 @@ import { registerFeatureFlagRoutes } from './featureFlags.js'
 import { persistOnboardingUpdatePreference, registerTenantReleaseRoutes } from './tenantRelease.js'
 import {startCentralMaintenanceReconciler} from './tenantMaintenanceReschedule.js'
 import { registerTenantFeatureRoutes } from './tenantFeatureRollouts.js'
+import {registerConfigurationReleaseRoutes} from './configurationRelease.js'
 import { backfillCompletedTenantSandboxes, provisionTenantSandboxes } from './tenantEnvironmentProvisioner.js'
 import { registerEnvironmentHandoffRoutes } from './environmentHandoff.js'
 import { registerTenantEnvironmentAccessRoutes } from './tenantEnvironmentAccess.js'
@@ -733,6 +734,7 @@ if(process.env.H5C_MAINTENANCE_RECONCILER_ACTIVE==='true'){
 
 registerApplicationUpdatesRoutes(app)
 registerTenantFeatureRoutes(app)
+registerConfigurationReleaseRoutes(app)
 registerEnvironmentHandoffRoutes(app)
 registerTenantEnvironmentAccessRoutes(app)
 registerApiTokenRoutes(app)

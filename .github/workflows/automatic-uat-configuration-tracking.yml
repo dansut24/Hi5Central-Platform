@@ -1,0 +1,83 @@
+name: Automatic UAT configuration changes (isolated validation)
+on:
+  push:
+    branches: [feature/uat-automatic-config-tracking-20261011]
+  pull_request:
+    paths:
+      - 'services/api/src/configurationRelease*.js'
+      - 'services/api/src/settings.js'
+      - 'services/api/src/index.js'
+      - 'services/api/migrations/platform-admin/150_automatic_uat_configuration_tracking.sql'
+      - 'services/api/test/automatic-configuration-release.mjs'
+      - 'apps/itsm/src/features/settings/TrackedConfigurationChanges*'
+      - 'apps/itsm/src/features/settings/ProductionReleaseManagement.jsx'
+permissions: {contents: read}
+jobs:
+  api-and-migrations:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: hi5_ci
+          POSTGRES_PASSWORD: ci_only_password
+          POSTGRES_DB: hi5_config_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hi5_ci -d hi5_config_ci"
+          --health-interval 5s --health-timeout 4s --health-retries 15
+    env:
+      DATABASE_URL: postgresql://hi5_ci:ci_only_password@localhost:5432/hi5_config_ci
+      DEPLOYMENT_MODE: managed
+      TENANCY_MODE: multi
+      ROOT_DOMAIN: hi5central.com
+      RUNTIME_ENVIRONMENT: live
+      BACKGROUND_WORKERS_ENABLED: 'false'
+      NODE_ENV: test
+    defaults:
+      run: {working-directory: services/api}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: services/api/package-lock.json
+      - run: npm ci
+      - name: Check diff, routes and backend bundle
+        run: |
+          node --check src/configurationReleaseDiff.js
+          node --check src/configurationRelease.js
+          node --check src/settings.js
+          node --check src/index.js
+          npm run build:runtime
+      - name: Validate automatic difference and promotion rules
+        run: node test/automatic-configuration-release.mjs
+      - name: Migrate schema and create configuration journal triggers
+        run: npm run migrate
+      - name: Prove direct PostgreSQL writes are tracked without frontend instrumentation
+        run: node test/automatic-configuration-db.mjs
+      - name: Assert database journal and dependency registry exist
+        run: |
+          node --input-type=module -e "
+            import pg from 'pg';
+            const c=new pg.Client({connectionString:process.env.DATABASE_URL});
+            await c.connect();
+            const q=await c.query(\"SELECT count(*)::int AS count FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('tenant_configuration_change_events','tenant_configuration_promotions','platform_build_configuration_capabilities','platform_configuration_capability_requirements','tenant_configuration_tracking_pilots')\");
+            const t=await c.query(\"SELECT count(*)::int AS count FROM pg_trigger WHERE tgname='hi5_track_tenant_settings' AND NOT tgisinternal\");
+            console.log('TABLES',q.rows[0].count,'TRIGGERS',t.rows[0].count);
+            if(q.rows[0].count!==5||t.rows[0].count!==1)process.exitCode=1;
+            await c.end();"
+  itsm-build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run: {working-directory: apps/itsm}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/itsm/package-lock.json
+      - run: npm ci
+      - run: npm run build
