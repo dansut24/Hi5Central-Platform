@@ -83,6 +83,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var recentEvents: [String] = []
     @Published private(set) var touchEventsSent = 0
     @Published private(set) var controlPath = "Waiting for input channel"
+    @Published private(set) var remoteEditableFocused: Bool? = nil
+    @Published private(set) var remoteKeyboardKind = "text"
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
@@ -215,6 +217,16 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             event("Session ended by server (\(String(reason.prefix(60))))")
             close(reason: "Session ended by server", markEnded: true)
             return
+        case "remote_focus_state":
+            // The interactive Windows streamer reports focusability only:
+            // no field content, title, URL, or password is transmitted.
+            guard let editable = message["editable"] as? Bool else { break }
+            let kind = message["keyboard_kind"] as? String ?? "text"
+            DispatchQueue.main.async {
+                self.remoteEditableFocused = editable
+                self.remoteKeyboardKind = ["text", "url", "email", "number", "password"].contains(kind)
+                    ? kind : "text"
+            }
         case "chat_message":
             let body = String(message["body"] as? String ?? message["message"] as? String ?? "")
             guard !body.isEmpty else { return }
@@ -404,6 +416,15 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     func typeText(_ text: String) {
         guard !text.isEmpty else { return }
         sendInput("text_input", values: ["text": String(text.prefix(4000))])
+    }
+
+    func keyPress(_ code: String) {
+        // Remote Windows input handles DOM-style key codes.
+        let allowed = ["Backspace", "Enter", "Tab", "Escape", "ArrowLeft",
+                       "ArrowRight", "ArrowUp", "ArrowDown", "Delete"]
+        guard allowed.contains(code) else { return }
+        sendInput("key_down", values: ["code": code, "key": code])
+        sendInput("key_up", values: ["code": code, "key": code])
     }
 
     func shortcut(_ action: String) {
