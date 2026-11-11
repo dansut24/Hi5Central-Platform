@@ -111,9 +111,15 @@ private:
             }
         }
 
+        // This probe runs on a worker thread, not the foreground GUI thread.
+        // Query the currently active app so Win32 RichEdit and classic Notepad
+        // can be recognised when they do not expose a UIA edit control.
+        const HWND foreground = GetForegroundWindow();
+        const DWORD threadId = foreground ? GetWindowThreadProcessId(foreground, nullptr) : 0;
+        if (threadId == 0) return 0;
         GUITHREADINFO info{};
         info.cbSize = sizeof(info);
-        if (!GetGUIThreadInfo(0, &info) || !info.hwndFocus) return 0;
+        if (!GetGUIThreadInfo(threadId, &info) || !info.hwndFocus) return 0;
         wchar_t buffer[128]{};
         if (!GetClassNameW(info.hwndFocus, buffer, 128)) return 0;
         const std::wstring cls = Lower(buffer);
