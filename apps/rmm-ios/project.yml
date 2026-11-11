@@ -23,8 +23,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central RMM"
-        CFBundleShortVersionString: "0.5.13"
-        CFBundleVersion: "18"
+        CFBundleShortVersionString: "0.5.14"
+        CFBundleVersion: "19"
         UILaunchStoryboardName: LaunchScreen
         NSSupportsLiveActivities: true
         CFBundleURLTypes:
