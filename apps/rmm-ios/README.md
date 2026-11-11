@@ -1,3 +1,19 @@
+# Hi5Central RMM iOS v0.5.14 — in-app UK Windows laptop keyboard
+
+Builds directly on the user-confirmed native WebRTC and typing baseline v0.5.13. No Agent, codec, ICE, TURN, viewer signalling or VPS changes.
+
+**New default keyboard:** Full-width UK ISO laptop QWERTY, function keys F1–F12, number row, punctuation, tall Enter, Backspace, Tab, Caps Lock, two Shifts, Ctrl, Fn, Windows, Alt/AltGr, Menu, Space, navigation arrows. Fits iPhone width without horizontal scrolling; smaller key rows in landscape. The **Num pad** control switches to a separate 4-column keypad with tall +/Enter keys and Num Lock mapping; **Laptop** switches back.
+
+**Shift keycaps:** Key glyphs update immediately to match the actual character that will be injected, including `/` → `?`, `2` → `"`, `3` → `£`, `'` → `@` and `\` → `|`. Caps Lock affects alphabetic keys only; Shift is one-shot, while Caps Lock persists. Each pressed key has a raised iPhone-style preview and haptic feedback. The browser/Windows codec policy is untouched.
+
+**Remote transmission:** Unmodified text is sent via the proven Unicode `text_input` path. Special keys and modifier combinations use balanced key_down/key_up physical DomCodes; nonprintable keys are labelled `Unidentified` to avoid the Windows Agent accidentally pasting their names. The Windows service already accepts the relevant DomCodes. Buttons hold no remote text locally.
+
+**Fallback:** The toolbar's `iOS` button returns to the v0.5.13 native system keyboard and its Windows utility strip. The native keyboard button remains fixed outside the zoomed desktop. Windows Search remains a deliberate Windows+S shortcut; automatic text-field focus for arbitrary Windows applications requires a separate, event-based Agent capability in a future release.
+
+**Real-device test:** Install unsigned `Hi5CentralRMM-iOS-native-viewer-only` IPA with Sideloadly. Open a new Lenovo remote session. Confirm native VP9 video and touch still work. Focus Notepad and press `/`, Shift then `/` (must type `?`), Shift+`2` (must type `"`), Shift+`3` (`£`), Caps then letters. Test Win+R, Ctrl+A, Backspace, Enter, Fn/F keys, Num pad and Num Lock; test key press popups and portrait/landscape. If any key fails, use `iOS` fallback; v0.5.13 remains the known-good recovery build.
+
+---
+
 # Hi5Central RMM iOS v0.5.13 — native Windows typing
 
 This release builds directly on **v0.5.12**, the first restored working native WebRTC streaming build. It **does not modify** the codec factories, SDP signalling, ICE handling, remote-session routing, Windows Agent v1.0.318 or original IONOS VPS.
