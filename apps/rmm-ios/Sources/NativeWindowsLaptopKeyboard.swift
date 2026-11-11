@@ -75,7 +75,7 @@ struct NativeWindowsLaptopKeyboard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color(uiColor: .secondarySystemBackground))
         }
-        .frame(height: compact ? 216 : 276)
+        .frame(height: compact ? 218 : (numPad ? 300 : 276))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Hi5Central Windows UK QWERTY keyboard")
     }
@@ -157,7 +157,8 @@ struct NativeWindowsLaptopKeyboard: View {
         let usable = max(0, width - CGFloat(max(0, keys.count - 1)) * gap)
         let units = keys.reduce(CGFloat.zero) { $0 + $1.units }
         return HStack(spacing: gap) {
-            ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+            ForEach(Array(keys.enumerated()), id: \.offset) { item in
+                let key = item.element
                 let keyWidth = units > 0 ? usable * key.units / units : 0
                 if key.isBlank {
                     Color.clear.frame(width: keyWidth, height: height)
