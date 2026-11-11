@@ -1,3 +1,15 @@
+# Hi5Central RMM iOS v0.5.11 — correct remote-session API routing
+
+**Confirmed root cause (11 November 2026):** RMMClient.swift hardcoded all API requests to https://api.hi5central.com, the shared `api-control` container. That production container has no TURN_SHARED_SECRET_FILE or TURN secret mounted. The native viewer was therefore being supplied two STUN servers, no TURN entry, and a WebSocket endpoint from the wrong API. The dedicated RMM API behind https://{tenant}-rmm.hi5central.com has the correct TURN secret and has passed authenticated relay allocation and relayed packet checks.
+
+**Fix:** Keep login, MFA and generic platform actions on the existing api.hi5central.com host, but send POST /api/v1/rmm/remote-sessions exclusively to https://{tenant}-rmm.hi5central.com. The tenant slug is already validated against a strict hostname-safe pattern. The authenticated session uses the existing scoped Hi5Central cookies, and the dedicated RMM API returns the correct browserUrl, RMM signalling WSS URL, and time-limited ICE/TURN credentials. The native app continues to reuse the v0.5.4 WebRTC negotiation path plus the v0.5.10 ICE/TURN diagnostics and the native iPhone keyboard.
+
+No Windows Agent, TURN, Caddy, release pipeline, or ITSM API change is required. The original IONOS VPS remains the only deployment target.
+
+**Next iPhone test:** install unsigned native-viewer-only IPA via Sideloadly; sign in normally, select the newtest tenant and open a fresh Lenovo session. Connection details should now show authenticated TURN greater than zero, ICE connected, video frames and responsive touch. Then open Notepad and use the iPhone keyboard button to type and test Backspace and Enter. If the session API responds 401, investigate shared-domain cookie/auth configuration between the platform and dedicated RMM API without falling back to the API instance missing TURN.
+
+---
+
 # Hi5Central iOS v0.5.10 — raw ICE contract and signed TURN recovery
 
 On 11 November 2026, iPhone v0.5.9 reported two parsed STUN servers and no TURN credentials, preventing native ICE connectivity. The original IONOS VPS's running backend binary appears designed to issue a third TURN entry and the TURN allocation/relay self-test succeeded, so it's important to distinguish a missing backend entry from a client-side decoding error.
