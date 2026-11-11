@@ -367,7 +367,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         servers.filter { server in
             server.urlStrings.contains {
                 $0.hasPrefix("turn:") || $0.hasPrefix("turns:")
-            } && !server.username.isEmpty && !server.credential.isEmpty
+            } && !(server.username ?? "").isEmpty && !(server.credential ?? "").isEmpty
         }.count
     }
 
@@ -376,7 +376,7 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         var combined: [RTCIceServer] = []
         var seen = Set<String>()
         for item in signalled + launch {
-            let key = item.urlStrings.joined(separator: "|") + "|" + item.username
+            let key = item.urlStrings.joined(separator: "|") + "|" + (item.username ?? "")
             if seen.insert(key).inserted { combined.append(item) }
         }
         return combined
