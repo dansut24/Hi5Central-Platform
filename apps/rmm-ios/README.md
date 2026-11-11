@@ -1,3 +1,14 @@
+# Native remote keyboard (v0.5.5)
+
+- When a remote Windows Agent emits `remote_focus_state`, native iOS automatically presents the iPhone keyboard for editable focused fields. The viewer chooses standard, URL, or secure keyboard styles from the safe focus hint. Focus changes to non-editable controls dismiss the keyboard.
+- The app uses a transient native UITextField first responder and streams text directly to the authorised RMM session: typed characters are **never stored in settings, logs, or remote focus events**. The manual keyboard button remains available for unsupported focus controls, older agents, secure desktops and non-Windows sessions.
+- Backspace, Enter, Tab, Escape, left/right arrow keys, and native keyboard Return are sent as Windows key_down/key_up commands. Autocorrect is disabled to prevent accidental remote text edits. IME composition and dictation need separate testing.
+- Windows focus telemetry is implemented in the interactive (non-secure) streamer via UI Automation, with Win32 focused-class fallback. Only a bounded focus kind (none/text/URL/password) is transmitted to the viewer; text, window titles, URLs, and clipboard contents are not sampled.
+- The Windows focus probe runs off the capture thread, publishing its state through the existing InputPipe shared-memory mapping. The service forwards state changes along the existing authenticated session signalling path. The focus detector and IPC layout require the **matching updated Windows agent and interactive streamer to be built and deployed together**; older agents cannot trigger automatic keyboard opening.
+- Native auto keyboard has an explicit toggle under Settings > Remote viewer. The previous native WebRTC video and touch handling remain unchanged.
+
+**Testing order:** First sideload v0.5.5, connect, press the keyboard icon, and verify direct typing, Backspace and Enter. Then build/deploy the updated Windows agent in a subsequent controlled device-agent test, reconnect, and verify keyboard auto-popup in Windows Search, Notepad, and Chrome/Edge address bar. Do not claim auto focus detection is live on the previously installed agent.
+
 # Hi5Central RMM iOS v0.4 — Native UI upgrade
 
 This branch carries the SwiftUI native RMM app, compiled by GitHub Actions on macOS and installed for testing through Sideloadly. The existing Hi5Central backend is unchanged.
