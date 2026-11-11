@@ -1,5 +1,7 @@
 # Hi5Central RMM iOS v0.5.14 — in-app UK Windows laptop keyboard
 
+Build retry: 11 November 2026, following GitHub Actions macOS runner queue disruption. Source code unchanged; this documentation-only commit deliberately re-triggers the path-filtered unsigned IPA workflow.
+
 Builds directly on the user-confirmed native WebRTC and typing baseline v0.5.13. No Agent, codec, ICE, TURN, viewer signalling or VPS changes.
 
 **New default keyboard:** Full-width UK ISO laptop QWERTY, function keys F1–F12, number row, punctuation, tall Enter, Backspace, Tab, Caps Lock, two Shifts, Ctrl, Fn, Windows, Alt/AltGr, Menu, Space, navigation arrows. Fits iPhone width without horizontal scrolling; smaller key rows in landscape. The **Num pad** control switches to a separate 4-column keypad with tall +/Enter keys and Num Lock mapping; **Laptop** switches back.
