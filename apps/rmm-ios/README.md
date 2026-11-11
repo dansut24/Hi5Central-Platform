@@ -1,3 +1,18 @@
+# Hi5Central iOS RMM v0.5.7 — Native WebRTC signalling recovery
+
+Built on the v0.5.6 video-first + manual native iPhone keyboard recovery baseline. Windows Agent and production servers are **unchanged**.
+
+- Extend the native URLSession WebSocket request timeout from 20s to 300s and the overall resource timeout to eight hours; send a WebSocket ping every 12s while the viewer is open.
+- Mirror the browser viewer's explicit receive-only video transceiver when answering the Agent's offer.
+- Keep signalling messages and SDP-negotiation callbacks on the main queue; ignore stale peer callbacks on desktop transitions.
+- Report each negotiation stage (offer, remote SDP, answer, ICE, track), while never logging session tokens, raw SDP, remote desktop content or ICE addresses.
+- Preserve direct native keyboard input with manual button, plus touch and secure desktop controls.
+- No focus probe, new server endpoint or Agent upgrade in this release.
+
+**Real iPhone test:** Fresh session after installing the IPA -> connection details should show "Remote SDP accepted" and "Native video answer sent", followed by "ICE connected", "Video track received" and "Streaming". If it fails, share the Connection details screenshot. Verify the browser remains usable; then select Notepad and press the iPhone keyboard icon to type text and use Backspace/Enter. Auto-popup is deferred until direct typing and video pass.
+
+---
+
 # Hi5Central RMM iOS v0.5.6 — video-first recovery with direct native keyboard
 
 This release branches from the last pre-auto-keyboard v0.5.4 source at commit `f3dff6d` and retains native touch, zoom/pan, WebRTC, chat and file controls.
