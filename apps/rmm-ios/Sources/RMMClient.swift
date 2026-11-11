@@ -283,6 +283,60 @@ final class RMMClient: ObservableObject {
         }
     }
 
+    // Native screens use the existing authenticated session and scoped server
+    // permissions. New endpoints are deliberately listed here (no arbitrary
+    // URL loading or unauthenticated lookups).
+    enum NativeResource {
+        case patching
+        case catalogue(query: String, source: String, page: Int)
+        case automations
+        case jobs
+        case activity
+        case remoteSessions
+        case trayPolicy
+
+        var path: String {
+            switch self {
+            case .patching: return "/api/v1/rmm/patching"
+            case .catalogue(let query, let source, let page):
+                var components = URLComponents()
+                components.path = "/api/v1/rmm/patching/catalogue"
+                components.queryItems = [
+                    URLQueryItem(name: "source", value: source == "winget" ? "winget" : "hi5central"),
+                    URLQueryItem(name: "q", value: String(query.prefix(120))),
+                    URLQueryItem(name: "page", value: String(max(1, page))),
+                    URLQueryItem(name: "pageSize", value: "25")
+                ]
+                return components.string ?? "/api/v1/rmm/patching/catalogue"
+            case .automations: return "/api/v1/rmm/automations"
+            case .jobs: return "/api/v1/rmm/jobs?limit=40"
+            case .activity: return "/api/v1/rmm/activity?limit=40"
+            case .remoteSessions: return "/api/v1/rmm/remote-sessions"
+            case .trayPolicy: return "/api/v1/rmm/tray-policy"
+            }
+        }
+    }
+
+    func nativeRead(_ resource: NativeResource) async throws -> [String: Any] {
+        guard authenticated else { throw RMMNetworkError.unauthorized }
+        return try await perform(resource.path)
+    }
+
+    func terminateRemoteSession(id: String) async throws {
+        guard UUID(uuidString: id) != nil else { throw RMMNetworkError.invalidResponse }
+        _ = try await perform("/api/v1/rmm/remote-sessions/\(id)/terminate",
+                              method: "POST", body: [:])
+    }
+
+    func executeAutomation(id: String, device: ManagedDevice) async throws {
+        guard UUID(uuidString: id) != nil, UUID(uuidString: device.agentId) != nil,
+              device.isOnline else {
+            throw RMMNetworkError.server("Select an online managed device.")
+        }
+        _ = try await perform("/api/v1/rmm/automations/\(id)/run", method: "POST",
+                              body: ["agentDeviceId": device.agentId])
+    }
+
     func signOut() async {
         _ = try? await perform("/api/v1/auth/logout", method: "POST", body: [:])
         for cookie in HTTPCookieStorage.shared.cookies ?? [] where cookie.name.hasPrefix("hi5central_")
