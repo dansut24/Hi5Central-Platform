@@ -25,7 +25,6 @@ struct NativeRemoteViewerScreen: View {
     @State private var showChat = false
     @State private var showFiles = false
     @State private var showText = false
-    @State private var message = ""
     @State private var showCAD = false
     @State private var showClose = false
     @State private var scale: CGFloat = 1
@@ -94,20 +93,38 @@ struct NativeRemoteViewerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             nativeControls
-            if showText {
-                HStack(spacing: 8) {
-                    TextField("Type on remote computer", text: $message)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(11)
-                        .background(Color(uiColor: .tertiarySystemFill),
-                                    in: RoundedRectangle(cornerRadius: 10))
-                        .onSubmit(sendText)
-                    Button("Send", action: sendText)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(message.isEmpty || !engine.connected)
+            // Manual keyboard is intentionally independent of remote focus
+            // telemetry. Rendering video and answering offers never depends on it.
+            if showText && engine.connected {
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        NativeRemoteKeyboardInput(
+                            active: showText && engine.connected,
+                            kind: "text",
+                            onInsert: { engine.typeText($0) },
+                            onDelete: { engine.keyPress("Backspace") },
+                            onReturn: { engine.keyPress("Enter") }
+                        )
+                        .frame(height: 43)
+                        Button { hideKeyboard() } label: {
+                            Image(systemName: "keyboard.chevron.compact.down")
+                                .font(.system(size: 17))
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityLabel("Hide iPhone keyboard")
+                    }
+                    HStack(spacing: 7) {
+                        Button("Tab") { engine.keyPress("Tab") }
+                        Button("Esc") { engine.keyPress("Escape") }
+                        Button("←") { engine.keyPress("ArrowLeft") }
+                        Button("→") { engine.keyPress("ArrowRight") }
+                        Spacer()
+                        Button("Enter") { engine.keyPress("Enter") }
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.caption)
                 }
-                .padding(10)
+                .padding(9)
                 .background(Color(uiColor: .secondarySystemBackground))
             }
         }
@@ -128,6 +145,7 @@ struct NativeRemoteViewerScreen: View {
             )
         }
         .onChange(of: engine.connected) { connected in
+            if !connected { hideKeyboard() }
             if connected, let id = launch?.sessionId {
                 Task { await RemoteSessionActivity.shared.update(sessionId: id, state: "Connected") }
             }
@@ -196,9 +214,13 @@ struct NativeRemoteViewerScreen: View {
             Button { changeZoom(to: scale * 1.35) } label: {
                 Image(systemName: "plus.magnifyingglass")
             }
-            Button { showText.toggle() } label: {
+            Button {
+                if showText { hideKeyboard() } else if engine.connected { showText = true }
+            } label: {
                 Image(systemName: "keyboard")
             }
+            .disabled(!engine.connected)
+            .accessibilityLabel(showText ? "Hide iPhone keyboard" : "Open iPhone keyboard")
             Button { showClose = true } label: {
                 Image(systemName: "xmark").font(.subheadline.bold())
                     .frame(width: 30, height: 30)
@@ -291,9 +313,8 @@ struct NativeRemoteViewerScreen: View {
         .accessibilityLabel(label)
     }
 
-    private func sendText() {
-        engine.typeText(message)
-        message = ""
+    private func hideKeyboard() {
+        showText = false
     }
 }
 
