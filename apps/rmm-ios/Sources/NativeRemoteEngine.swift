@@ -215,8 +215,8 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
                 event("Empty video offer received")
                 return
             }
-            let codecs = ["VP8", "H264", "VP9", "AV1", "H265"].filter {
-                sdp.range(of: "a=rtpmap:[0-9]+ \\($0)/", options: .regularExpression) != nil
+            let codecs = ["VP8", "H264", "VP9", "AV1", "H265"].filter { codec in
+                sdp.range(of: "a=rtpmap:[0-9]+ " + codec + "/", options: .regularExpression) != nil
             }
             event("Remote video offer received (\(codecs.isEmpty ? "unknown codecs" : codecs.joined(separator: ", ")))")
             createAnswer(sdp)
