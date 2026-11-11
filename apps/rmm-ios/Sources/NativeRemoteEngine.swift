@@ -517,10 +517,43 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     // WebRTC input-control channel as mouse clicks, with signalling fallback.
     func keyPress(_ code: String) {
         let allowed = ["Backspace", "Enter", "Tab", "Escape",
-                       "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Delete"]
+                       "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
+                       "Delete", "Home", "End", "PageUp", "PageDown", "MetaLeft"]
         guard allowed.contains(code) else { return }
         sendInput("key_down", values: ["code": code, "key": code])
         sendInput("key_up", values: ["code": code, "key": code])
+    }
+
+    /// Send Windows shortcuts as balanced physical key down/up events.
+    /// ctrl/alt/meta flags suppress the Agent's Unicode text-paste fast path,
+    /// which would otherwise type "KeyS" rather than pressing Win+S.
+    func keyChord(_ codes: [String]) {
+        let allowedModifiers = Set(["ControlLeft", "ShiftLeft", "AltLeft", "MetaLeft"])
+        let allowedTargets = Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyS",
+                                  "Tab", "Escape", "Enter", "ArrowLeft",
+                                  "ArrowRight", "ArrowUp", "ArrowDown"])
+        guard (2...4).contains(codes.count),
+              codes.dropLast().allSatisfy({ allowedModifiers.contains($0) }),
+              let last = codes.last, allowedTargets.contains(last) else { return }
+        let modifiers = Set(codes.dropLast())
+        let flags: [String: Any] = [
+            "ctrl": modifiers.contains("ControlLeft"),
+            "alt": modifiers.contains("AltLeft"),
+            "meta": modifiers.contains("MetaLeft"),
+            "shift": modifiers.contains("ShiftLeft")
+        ]
+        for code in codes {
+            var payload = flags
+            payload["code"] = code
+            payload["key"] = code
+            sendInput("key_down", values: payload)
+        }
+        for code in codes.reversed() {
+            var payload = flags
+            payload["code"] = code
+            payload["key"] = code
+            sendInput("key_up", values: payload)
+        }
     }
 
     func shortcut(_ action: String) {
