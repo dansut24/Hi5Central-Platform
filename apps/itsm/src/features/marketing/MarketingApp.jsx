@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import './MarketingApp.css'
+import { ProfessionalMarketingHome } from './ProfessionalMarketingHome.jsx'
 
 const API_BASE = window.__HI5_API_BASE__
 const DEPLOYMENT = deploymentConfig()
@@ -434,5 +435,5 @@ function SignupPage() {
 
 export function MarketingApp() {
   const path = window.location.pathname
-  return path === '/signup' || path.startsWith('/signup/') ? <SignupPage /> : <MarketingHome />
+  return path === '/signup' || path.startsWith('/signup/') ? <SignupPage /> : <ProfessionalMarketingHome />
 }

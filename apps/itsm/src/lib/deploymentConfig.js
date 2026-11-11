@@ -71,7 +71,7 @@ export function deploymentConfig() {
     : 'managed'
   const runtimeEnvironment = enumValue(
     runtime.runtimeEnvironment || env.VITE_RUNTIME_ENVIRONMENT,
-    ['dev', 'test', 'uat', 'live'],
+    ['dev', 'test', 'uat', 'live', 'marketing-preview'],
     'live',
   )
   const featureMode = enumValue(

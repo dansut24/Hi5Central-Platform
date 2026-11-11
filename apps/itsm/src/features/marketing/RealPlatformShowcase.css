@@ -1,0 +1,35 @@
+/* Marketing-specific presentation around ACTUAL product screenshots. */
+.h5m-real-showcase {
+  position:relative;
+  min-width:0;
+  background:#fff;
+  border:1px solid #d9e4f2;
+  border-radius:17px;
+  box-shadow:0 30px 75px rgba(21,49,93,.16),0 3px 14px rgba(34,69,118,.07);
+  overflow:hidden;
+}
+.h5m-real-topbar {min-height:45px;padding:10px 15px;display:flex;gap:12px;align-items:center;justify-content:space-between;border-bottom:1px solid #e5ebf4}
+.h5m-real-topbar-heading {display:flex;align-items:center;gap:9px;color:#345a8e;font-size:10px;letter-spacing:.08em;font-weight:850}
+.h5m-real-live-dot {width:8px;height:8px;border-radius:50%;background:#2c9c77;box-shadow:0 0 0 4px #e3f6ed}
+.h5m-real-sample-label {color:#56739e;background:#f0f5ff;padding:5px 9px;border-radius:99px;font-size:9px;font-weight:800;white-space:nowrap}
+.h5m-real-tabs {display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px 12px;background:#f9fbff;border-bottom:1px solid #e1e8f4}
+.h5m-real-tabs button {display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;border:1px solid transparent;border-radius:8px;background:transparent;color:#6c7d95;cursor:pointer;font-size:12px;font-weight:750}
+.h5m-real-tabs button[aria-selected="true"] {background:#e9f1ff;border-color:#cbdcfc;color:#235bcf}
+.h5m-real-tabs button:hover {color:#2159ce}
+.h5m-real-image-wrap {position:relative;background:#f6f8fc;min-height:220px}
+.h5m-real-image-wrap a {display:block;position:relative;line-height:0}
+.h5m-real-image-wrap img {width:100%;height:auto;display:block;object-fit:contain;aspect-ratio:16/10}
+.h5m-real-view-full {position:absolute;right:11px;bottom:11px;display:inline-flex;align-items:center;gap:5px;padding:9px 11px;background:rgba(16,40,80,.91);border-radius:7px;color:white;font-size:10px;font-weight:800;line-height:1.2;box-shadow:0 5px 13px rgba(13,28,55,.18)}
+.h5m-real-caption {display:grid;gap:4px;padding:13px 16px 17px;border-top:1px solid #e9eef6}
+.h5m-real-caption strong {font-size:12px;color:#254265}
+.h5m-real-caption span {font-size:10px;color:#7788a0;line-height:1.5}
+@media(max-width:720px){
+ .h5m-real-topbar {padding:9px 11px}
+ .h5m-real-topbar-heading {font-size:9px}
+ .h5m-real-sample-label {font-size:8px}
+ .h5m-real-tabs {padding:7px}
+ .h5m-real-tabs button {font-size:11px}
+ .h5m-real-image-wrap {min-height:170px}
+ .h5m-real-view-full {font-size:9px;padding:6px}
+ .h5m-real-caption {padding:10px 12px 13px}
+}

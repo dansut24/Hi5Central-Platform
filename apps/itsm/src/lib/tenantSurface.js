@@ -108,6 +108,21 @@ export function resolveTenantSurface(location = window.location) {
   const rootDomain = escapeRegex(config.rootDomain)
   const rootHost = config.rootDomain.toLowerCase()
 
+  // Explicitly marked, isolated marketing-only review surface. This is not a
+  // customer workspace and must never re-route ordinary tenant subdomains.
+  // Production and managed releases never set this runtime environment.
+  if (config.runtimeEnvironment === 'marketing-preview' &&
+      hostname === `marketing-preview.${rootHost}`) {
+    return {
+      kind: 'marketing',
+      tenantSlug: '',
+      tenantName: 'Hi5Central',
+      canonical: false,
+      preview: true,
+      pathBased: false,
+    }
+  }
+
   if (hostname === `admin.${rootHost}`) {
     return {
       kind: 'admin',
