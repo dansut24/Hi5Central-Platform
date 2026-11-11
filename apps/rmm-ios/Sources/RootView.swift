@@ -6,234 +6,139 @@ private let hi5Blue = Color(red: 0.18, green: 0.48, blue: 0.96)
 
 struct RootView: View {
     @EnvironmentObject private var state: RMMState
-    @State private var tenantEntry = ""
-    @State private var webReloadID = UUID()
+    @EnvironmentObject private var client: RMMClient
+    @State private var splash = true
+    @State private var reloadID = UUID()
 
     var body: some View {
         Group {
-            if state.isConfigured {
+            if splash {
+                NativeSplash()
+            } else if client.authenticated {
                 applicationShell
             } else {
-                welcome
+                NativeLogin()
             }
         }
         .preferredColorScheme(nil)
         .fullScreenCover(item: $state.viewer) { target in
             RemoteViewerScreen(target: target)
         }
-    }
-
-    private var welcome: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Image(systemName: "desktopcomputer")
-                .font(.system(size: 38, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 84, height: 84)
-                .background(hi5Blue.gradient, in: RoundedRectangle(cornerRadius: 22))
-            VStack(spacing: 6) {
-                Text("Hi5Central RMM").font(.largeTitle.bold())
-                Text("Remote monitoring and support")
-                    .foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Your company").font(.headline)
-                HStack(spacing: 0) {
-                    TextField("Company prefix", text: $tenantEntry)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.asciiCapable)
-                        .submitLabel(.go)
-                        .onSubmit { _ = state.configure(tenantEntry) }
-                    Text("-rmm.hi5central.com")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(14)
-                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
-                Button {
-                    _ = state.configure(tenantEntry)
-                } label: {
-                    Label("Continue", systemImage: "arrow.right")
-                        .frame(maxWidth: .infinity)
-                        .padding(8)
-                }
-                .buttonStyle(.borderedProminent)
-                if let error = state.errorMessage {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                }
-                Text("Your existing Hi5Central login and MFA will be used.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            .padding(22)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
-            Spacer()
-            Text("Native iOS preview · version 0.2.0")
-                .font(.caption2).foregroundStyle(.tertiary)
+        .sheet(isPresented: Binding(get: { !client.recoveryCodes.isEmpty },
+                                    set: { if !$0 { client.finishRecoveryCodes() } })) {
+            NativeRecoveryCodes()
+                .environmentObject(client)
+                .presentationDetents([.medium, .large])
         }
-        .padding(24)
+        .task {
+            await client.restore(state.tenant)
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            splash = false
+        }
     }
 
     private var applicationShell: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Image(systemName: "desktopcomputer")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(hi5Blue.gradient, in: RoundedRectangle(cornerRadius: 11))
+            HStack(spacing: 11) {
+                Hi5Mark(size: 36)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Hi5Central RMM").font(.subheadline.bold())
-                    Text(state.showingMore ? "More" : state.route.title)
+                    Text("Hi5Central RMM").font(.system(size: 15, weight: .bold))
+                    Text(state.showingMore ? "Tools" : state.route.title)
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if !state.showingMore {
-                    Button {
-                        state.showPortalTools.toggle()
-                    } label: {
-                        Image(systemName: state.showPortalTools ? "xmark" : "magnifyingglass")
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 30, height: 36)
+                    if !isNativeRoute {
+                        Button {
+                            state.showPortalTools.toggle()
+                        } label: {
+                            Image(systemName: state.showPortalTools ? "xmark" : "magnifyingglass")
+                                .frame(width: 30, height: 36)
+                        }
+                        .accessibilityLabel("Website search and account tools")
                     }
-                    .accessibilityLabel(state.showPortalTools ? "Hide website tools" : "Search and account tools")
                     Button {
-                        webReloadID = UUID()
+                        if isNativeRoute {
+                            Task { await client.refreshDevices() }
+                        } else {
+                            reloadID = UUID()
+                        }
                     } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 17, weight: .medium))
-                            .frame(width: 30, height: 36)
+                        Image(systemName: "arrow.clockwise").frame(width: 30, height: 36)
                     }
                     .accessibilityLabel("Refresh")
                 }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.16)) { state.showingMore = true }
+                } label: {
+                    Image(systemName: "square.grid.2x2").frame(width: 30, height: 36)
+                }
+                .accessibilityLabel("Tools")
             }
-            .padding(.horizontal, 18)
-            .frame(height: 50)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 52)
             Divider()
             ZStack {
-                PortalWebView(state: state)
-                    .id(webReloadID)
-                    .opacity(state.showingMore ? 0 : 1)
-                    .allowsHitTesting(!state.showingMore)
                 if state.showingMore {
-                    morePage
-                }
-                if state.loading && !state.showingMore {
-                    ProgressView().padding(12)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    NativeMore()
+                } else {
+                    switch state.route {
+                    case .dashboard:
+                        NativeOverview()
+                    case .devices:
+                        NativeDeviceList()
+                    case .alerts:
+                        NativeAlerts()
+                    default:
+                        PortalWebView(state: state)
+                            .id(reloadID)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
-            HStack {
-                tab("Home", symbol: "house", selected: !state.showingMore && state.route == .dashboard) {
+            HStack(spacing: 0) {
+                tab("Home", icon: "house", isActive: !state.showingMore && state.route == .dashboard) {
                     state.navigate(to: .dashboard)
                 }
-                tab("Devices", symbol: "desktopcomputer", selected: !state.showingMore && state.route == .devices) {
+                tab("Devices", icon: "desktopcomputer", isActive: !state.showingMore && state.route == .devices) {
                     state.navigate(to: .devices)
                 }
-                tab("Alerts", symbol: "bell", selected: !state.showingMore && state.route == .alerts) {
+                tab("Alerts", icon: "bell", isActive: !state.showingMore && state.route == .alerts) {
                     state.navigate(to: .alerts)
                 }
-                tab("More", symbol: "square.grid.2x2", selected: state.showingMore || ![.dashboard, .devices, .alerts].contains(state.route)) {
+                tab("More", icon: "square.grid.2x2", isActive: state.showingMore || !isNativeRoute) {
                     state.showingMore = true
                 }
             }
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .background(.regularMaterial)
+            .padding(.top, 7)
+            .padding(.bottom, 3)
+            .background(Color(uiColor: .secondarySystemBackground))
         }
         .background(Color(uiColor: .systemBackground))
+        .task { await client.prepareViewerCookies() }
     }
 
-    private func tab(_ title: String, symbol: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private var isNativeRoute: Bool {
+        [.dashboard, .devices, .alerts].contains(state.route)
+    }
+
+    private func tab(_ text: String, icon: String, isActive: Bool,
+                     action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 5) {
-                Image(systemName: symbol).font(.system(size: 20, weight: selected ? .semibold : .regular))
-                Text(title).font(.system(size: 10, weight: selected ? .bold : .medium))
+                Image(systemName: icon)
+                    .font(.system(size: 20, weight: isActive ? .semibold : .regular))
+                Text(text)
+                    .font(.system(size: 10, weight: isActive ? .bold : .medium))
             }
-            .foregroundStyle(selected ? hi5Blue : Color.secondary)
+            .foregroundStyle(isActive ? hi5Blue : Color.secondary)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-    }
-
-    private var morePage: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Workspace").font(.title2.bold())
-                    Text("Quick access to your RMM tools")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                }
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 11) {
-                    ForEach([RMMRoute.connect, .patching, .software, .automation, .reports, .settings, .profile]) { route in
-                        Button {
-                            state.navigate(to: route)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 13) {
-                                Image(systemName: icon(for: route))
-                                    .font(.system(size: 23, weight: .medium))
-                                    .foregroundStyle(hi5Blue)
-                                Spacer(minLength: 0)
-                                HStack(spacing: 5) {
-                                    Text(route.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                    Spacer(minLength: 0)
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 91, alignment: .leading)
-                            .padding(15)
-                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 9) {
-                        Image(systemName: "building.2")
-                            .foregroundStyle(hi5Blue)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Connected company").font(.caption).foregroundStyle(.secondary)
-                            Text(state.tenant).font(.subheadline.weight(.semibold))
-                        }
-                        Spacer()
-                    }
-                    Button(role: .destructive) {
-                        state.resetTenant()
-                        webReloadID = UUID()
-                    } label: {
-                        Label("Switch company", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .font(.subheadline)
-                }
-                .padding(15)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-            }
-            .padding(16)
-        }
-    }
-
-    private func icon(for route: RMMRoute) -> String {
-        switch route {
-        case .patching: return "checkmark.shield"
-        case .software: return "square.stack.3d.up"
-        case .automation: return "bolt"
-        case .reports: return "chart.bar"
-        case .settings: return "gearshape"
-        case .profile: return "person.crop.circle"
-        case .connect: return "antenna.radiowaves.left.and.right"
-        default: return "desktopcomputer"
-        }
+        .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }
 
