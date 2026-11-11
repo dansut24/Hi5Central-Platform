@@ -7,7 +7,7 @@ final class RemoteSessionActivity {
     private init() {}
 
     func start(sessionId: String, deviceName: String, state: String) async {
-        guard #available(iOS 16.1, *),
+        guard #available(iOS 16.2, *),
               ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         // Avoid duplicate Dynamic Island entries on a reconnect.
         if Activity<Hi5RemoteActivityAttributes>.activities.contains(where: { $0.attributes.sessionId == sessionId }) {
@@ -25,7 +25,7 @@ final class RemoteSessionActivity {
     }
 
     func update(sessionId: String, state: String) async {
-        guard #available(iOS 16.1, *) else { return }
+        guard #available(iOS 16.2, *) else { return }
         let content = ActivityContent(
             state: Hi5RemoteActivityAttributes.ContentState(phase: state, updatedAt: Date()),
             staleDate: nil
@@ -36,7 +36,7 @@ final class RemoteSessionActivity {
     }
 
     func end(sessionId: String) async {
-        guard #available(iOS 16.1, *) else { return }
+        guard #available(iOS 16.2, *) else { return }
         let content = ActivityContent(
             state: Hi5RemoteActivityAttributes.ContentState(phase: "Disconnected", updatedAt: Date()),
             staleDate: nil
