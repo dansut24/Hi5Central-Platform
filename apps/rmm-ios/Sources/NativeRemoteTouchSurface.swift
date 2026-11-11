@@ -10,6 +10,7 @@ struct NativeRemoteTouchSurface: UIViewRepresentable {
     let videoSize: CGSize
     let active: Bool
     let onTouch: (CGPoint) -> Void
+    let onDesktopClick: (CGFloat, CGFloat) -> Void
     let send: (String, [String: Any]) -> Void
 
     func makeUIView(context: Context) -> RemoteTouchUIView {
@@ -25,6 +26,7 @@ struct NativeRemoteTouchSurface: UIViewRepresentable {
             }
         }
         view.onTouch = onTouch
+        view.onDesktopClick = onDesktopClick
         view.send = send
         return view
     }
@@ -37,6 +39,7 @@ struct NativeRemoteTouchSurface: UIViewRepresentable {
         view.active = active
         view.send = send
         view.onTouch = onTouch
+        view.onDesktopClick = onDesktopClick
         view.onViewportChange = { nextZoom, nextPan, shouldPan in
             DispatchQueue.main.async {
                 zoom = nextZoom
@@ -56,6 +59,7 @@ final class RemoteTouchUIView: UIView {
     var active = false
     var send: ((String, [String: Any]) -> Void)?
     var onTouch: ((CGPoint) -> Void)?
+    var onDesktopClick: ((CGFloat, CGFloat) -> Void)?
     var onViewportChange: ((CGFloat, CGSize, Bool) -> Void)?
 
     private enum TwoFingerMode { case undecided, navigate, scroll }
@@ -156,6 +160,11 @@ final class RemoteTouchUIView: UIView {
         // mouse_click. Deliver both on the ordered reliable control channel.
         send?("mouse_down", point)
         send?("mouse_up", point)
+        if button == 0,
+           let x = point["x_norm"] as? Double,
+           let y = point["y_norm"] as? Double {
+            onDesktopClick?(CGFloat(x), CGFloat(y))
+        }
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
