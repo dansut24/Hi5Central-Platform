@@ -291,7 +291,7 @@ final class RMMClient: ObservableObject {
             items.removeAll { $0.name == "ice" }
             items.append(URLQueryItem(name: "ice", value: packed))
             params.queryItems = items
-            browser.fragment = params.percentEncodedQuery
+            browser.percentEncodedFragment = params.percentEncodedQuery
             if let repairedURL = browser.url,
                repairedURL.scheme == url.scheme,
                repairedURL.host == url.host,
