@@ -5,15 +5,11 @@ private let accent = Color(red: 0.18, green: 0.48, blue: 0.96)
 struct Hi5Mark: View {
     var size: CGFloat = 48
     var body: some View {
-        Image(systemName: "desktopcomputer")
-            .font(.system(size: size * 0.42, weight: .semibold))
-            .foregroundStyle(.white)
+        Image("Hi5CentralLogo")
+            .resizable()
+            .scaledToFit()
             .frame(width: size, height: size)
-            .background(
-                LinearGradient(colors: [accent, Color(red: 0.10, green: 0.66, blue: 0.88)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: size * 0.26)
-            )
+            .accessibilityLabel("Hi5Central logo")
     }
 }
 
@@ -207,6 +203,7 @@ private struct InputSurface: ViewModifier {
 struct NativeOverview: View {
     @EnvironmentObject private var client: RMMClient
     @EnvironmentObject private var state: RMMState
+    @State private var selectedDevice: ManagedDevice?
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -223,6 +220,7 @@ struct NativeOverview: View {
                     stat("Offline", "\(client.offlineDevices.count)", "wifi.slash", .orange)
                     stat("Total inventory", "\(client.devices.count)", "square.stack.3d.up", .cyan)
                 }
+                NativeFleetCharts()
                 HStack {
                     Text("Devices").font(.title3.bold())
                     Spacer()
@@ -234,7 +232,7 @@ struct NativeOverview: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(Array(client.devices.prefix(6))) { device in
-                            Button { state.navigate(to: .devices) } label: {
+                            Button { selectedDevice = device } label: {
                                 deviceRow(device)
                             }
                             .buttonStyle(.plain)
@@ -262,6 +260,11 @@ struct NativeOverview: View {
         }
         .refreshable { await client.refreshDevices() }
         .task { await client.refreshDevices() }
+        .sheet(item: $selectedDevice) { device in
+            NativeDeviceDetail(device: device)
+                .environmentObject(client)
+                .environmentObject(state)
+        }
     }
 
     private func stat(_ title: String, _ value: String, _ symbol: String, _ color: Color) -> some View {
@@ -339,6 +342,7 @@ struct NativeDeviceDetail: View {
     @Environment(\.dismiss) private var dismiss
     @State private var busy = false
     @State private var error: String?
+    @State private var selectedTool: NativeDeviceTool?
 
     var body: some View {
         NavigationStack {
@@ -388,6 +392,43 @@ struct NativeDeviceDetail: View {
                     if let error {
                         Text(error).font(.footnote).foregroundStyle(.red)
                     }
+
+                    VStack(alignment: .leading, spacing: 13) {
+                        HStack {
+                            Label("Remote tools", systemImage: "wrench.and.screwdriver")
+                                .font(.title3.bold())
+                            Spacer()
+                            Text(device.isOnline ? "Available" : "Offline")
+                                .font(.caption)
+                                .foregroundStyle(device.isOnline ? Color.green : Color.orange)
+                        }
+                        let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+                        LazyVGrid(columns: columns, spacing: 10) {
+                            ForEach(NativeDeviceTool.available(for: device)) { tool in
+                                Button { selectedTool = tool } label: {
+                                    VStack(spacing: 8) {
+                                        Image(systemName: tool.symbol)
+                                            .font(.system(size: 22))
+                                            .frame(height: 28)
+                                        Text(tool.title)
+                                            .font(.caption2.weight(.medium))
+                                            .multilineTextAlignment(.center)
+                                            .lineLimit(2)
+                                            .frame(height: 30, alignment: .top)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 11)
+                                    .padding(.horizontal, 5)
+                                    .background(Color(uiColor: .secondarySystemBackground),
+                                                in: RoundedRectangle(cornerRadius: 13))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!device.isOnline)
+                                .accessibilityLabel(tool.title + " on " + device.name)
+                            }
+                        }
+                    }
+
                     VStack(spacing: 0) {
                         detailRow("Reference", device.id)
                         detailRow("Operating system", device.platform)
@@ -406,6 +447,11 @@ struct NativeDeviceDetail: View {
             }
             .navigationTitle("Device details")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $selectedTool) { tool in
+                NativeDeviceToolScreen(device: device, tool: tool)
+                    .environmentObject(client)
+                    .presentationDragIndicator(.visible)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
