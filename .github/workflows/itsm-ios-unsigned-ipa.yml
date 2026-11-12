@@ -1,0 +1,60 @@
+name: ITSM iOS native unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/itsm-ios/**'
+      - '.github/workflows/itsm-ios-unsigned-ipa.yml'
+  pull_request:
+    paths:
+      - 'apps/itsm-ios/**'
+      - '.github/workflows/itsm-ios-unsigned-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate standalone ITSM Xcode project
+        working-directory: apps/itsm-ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile native iPhone application without developer certificate
+        working-directory: apps/itsm-ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Hi5CentralITSM.xcodeproj \
+            -scheme Hi5CentralITSM \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/Hi5ITSMBuild" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Package unsigned standalone IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Hi5ITSMBuild/Build/Products/Release-iphoneos/Hi5CentralITSM.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" | grep -Fx 'com.hi5central.itsm'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.1.0'
+          mkdir -p "$RUNNER_TEMP/Hi5ITSMIPABuild/Payload"
+          ditto "$APP" "$RUNNER_TEMP/Hi5ITSMIPABuild/Payload/Hi5CentralITSM.app"
+          cd "$RUNNER_TEMP/Hi5ITSMIPABuild"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Hi5CentralITSM-iOS-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/Hi5CentralITSM-iOS-unsigned.ipa"
+      - name: Upload IPA for Sideloadly
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5CentralITSM-iOS-v0.1.0-unsigned
+          path: Hi5CentralITSM-iOS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
