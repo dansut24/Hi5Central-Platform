@@ -17,6 +17,8 @@ struct ManagedDevice: Identifiable {
     let memory: Int?
     let disk: Int?
     let pendingPatches: Int?
+    // Deep inventory, storage, local users and sessions remain tenant-scoped.
+    let inventory: [String: Any]
 
     init(_ json: [String: Any]) {
         func string(_ key: String) -> String { (json[key] as? String) ?? "" }
@@ -38,6 +40,9 @@ struct ManagedDevice: Identifiable {
         memory = number("agent_memory_used_percent")
         disk = number("agent_disk_used_percent")
         pendingPatches = number("agent_patch_pending_count")
+        inventory = (json["inventory"] as? [String: Any])
+            ?? (json["agent_inventory"] as? [String: Any])
+            ?? [:]
     }
 
     var status: String {
@@ -365,6 +370,101 @@ final class RMMClient: ObservableObject {
     func nativeRead(_ resource: NativeResource) async throws -> [String: Any] {
         guard authenticated else { throw RMMNetworkError.unauthorized }
         return try await perform(resource.path)
+    }
+
+    /// Invoke only allowlisted actions on a currently online, authorised
+    /// Agent. Returns the final job payload without bypassing the RMM gateway.
+    func deviceAction(for device: ManagedDevice,
+                      type: String,
+                      payload: [String: Any] = [:]) async throws -> [String: Any] {
+        guard authenticated, device.isOnline, UUID(uuidString: device.agentId) != nil else {
+            throw RMMNetworkError.server("Select an online managed device.")
+        }
+        let actions: Set<String> = [
+            "processes.list", "process.kill", "process.restart",
+            "services.list", "services.start", "services.stop", "services.restart",
+            "services.set_start_type",
+            "registry.list", "registry.create_key", "registry.delete_key",
+            "registry.set_value", "registry.delete_value",
+            "events.list", "inventory.scan", "inventory.deep.scan"
+        ]
+        guard actions.contains(type) else {
+            throw RMMNetworkError.server("Unsupported device action.")
+        }
+        let initial = try await perform("/api/v1/rmm/devices/\(device.agentId)/actions",
+                                        method: "POST",
+                                        body: ["type": type, "payload": payload],
+                                        useRMMHost: true)
+        guard let job = initial["job"] as? [String: Any],
+              let id = job["id"] as? String,
+              UUID(uuidString: id) != nil else {
+            throw RMMNetworkError.invalidResponse
+        }
+        if ["completed", "failed", "cancelled"].contains(nativeString(job["status"])) {
+            return try verifiedJob(job)
+        }
+        for _ in 0..<420 {
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 450_000_000)
+            let updated = try await perform("/api/v1/rmm/device-actions/\(id)", useRMMHost: true)
+            guard let state = updated["job"] as? [String: Any] else { continue }
+            if ["completed", "failed", "cancelled"].contains(nativeString(state["status"])) {
+                return try verifiedJob(state)
+            }
+        }
+        throw RMMNetworkError.server("The action is still running. See Jobs for its final status.")
+    }
+
+    private func verifiedJob(_ job: [String: Any]) throws -> [String: Any] {
+        guard nativeString(job["status"]) == "completed" else {
+            let reason = nativeString(job["error_message"])
+            let result = job["result"] as? [String: Any] ?? [:]
+            throw RMMNetworkError.server(
+                reason.isEmpty ? nativeText(result, ["error"], fallback: "The remote action did not complete.") : reason
+            )
+        }
+        return job
+    }
+
+    struct LiveToolSession {
+        let websocketURL: URL
+        let sessionId: String
+        let tool: String
+    }
+
+    func openLiveTool(for device: ManagedDevice,
+                      tool: String,
+                      shell: String = "powershell",
+                      runAs: String = "system") async throws -> LiveToolSession {
+        guard authenticated, device.isOnline, UUID(uuidString: device.agentId) != nil,
+              ["terminal", "files"].contains(tool),
+              ["powershell", "cmd", "shell", "bash", "sh", "zsh"].contains(shell),
+              ["system", "user", "root"].contains(runAs) else {
+            throw RMMNetworkError.server("Invalid or offline device tool.")
+        }
+        let response = try await perform("/api/v1/rmm/devices/\(device.agentId)/tool-sessions",
+                                         method: "POST",
+                                         body: ["tool": tool, "shell": shell, "runAs": runAs],
+                                         useRMMHost: true)
+        guard let session = response["session"] as? [String: Any],
+              let sessionId = session["id"] as? String,
+              UUID(uuidString: sessionId) != nil,
+              let token = response["token"] as? String,
+              token.hasPrefix("h5t_"),
+              response["websocketPath"] as? String == "/rmm-tools/ws" else {
+            throw RMMNetworkError.invalidResponse
+        }
+        var url = URLComponents()
+        url.scheme = "wss"
+        url.host = "\(tenant)-rmm.hi5central.com"
+        url.path = "/rmm-tools/ws"
+        url.queryItems = [
+            URLQueryItem(name: "session_id", value: sessionId),
+            URLQueryItem(name: "token", value: token)
+        ]
+        guard let safeURL = url.url else { throw RMMNetworkError.invalidResponse }
+        // Token lives only in memory for the selected live tool session.
+        return LiveToolSession(websocketURL: safeURL, sessionId: sessionId, tool: tool)
     }
 
     func terminateRemoteSession(id: String) async throws {
