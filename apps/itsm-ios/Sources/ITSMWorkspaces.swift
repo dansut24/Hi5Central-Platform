@@ -217,6 +217,26 @@ struct ITSMGlobalSearch: View {
     @State private var text = ""
     @State private var selectedRecord: ITSMRecord?
     @State private var selectedArticle: ITSMArticle?
+    @State private var selectedDirectoryItem: ITSMDictionaryItem?
+    @State private var selectedCategory = "people"
+
+    private func matching(_ data: [[String: Any]], fields: [String]) -> [[String: Any]] {
+        guard !text.isEmpty else { return [] }
+        return Array(data.filter { row in
+            fields.map { itsmString(row[$0]) }.joined(separator: " ")
+                .localizedCaseInsensitiveContains(text)
+        }.prefix(25))
+    }
+
+    private var matchingPeople: [[String: Any]] {
+        matching(client.people, fields: ["name", "email", "role", "team", "location"])
+    }
+    private var matchingAssets: [[String: Any]] {
+        matching(client.cmdb, fields: ["reference", "name", "ciType", "serialNumber", "service"])
+    }
+    private var matchingProjects: [[String: Any]] {
+        matching(client.projects, fields: ["id", "name", "owner", "status", "team"])
+    }
 
     private var matchingRecords: [ITSMRecord] {
         guard !text.isEmpty else { return Array(client.records.prefix(8)) }
@@ -275,8 +295,49 @@ struct ITSMGlobalSearch: View {
                         }
                     }
                 }
+                if !matchingPeople.isEmpty {
+                    Section("People") {
+                        ForEach(Array(matchingPeople.enumerated()), id: \.offset) { pair in
+                            let person = pair.element
+                            Button {
+                                selectedCategory = "people"
+                                selectedDirectoryItem = ITSMDictionaryItem(person)
+                            } label: {
+                                Label(itsmString(person["name"]), systemImage: "person")
+                            }
+                        }
+                    }
+                }
+                if !matchingAssets.isEmpty {
+                    Section("CMDB") {
+                        ForEach(Array(matchingAssets.enumerated()), id: \.offset) { pair in
+                            let ci = pair.element
+                            Button {
+                                selectedCategory = "cmdb"
+                                selectedDirectoryItem = ITSMDictionaryItem(ci)
+                            } label: {
+                                Label(itsmString(ci["name"]), systemImage: "server.rack")
+                            }
+                        }
+                    }
+                }
+                if !matchingProjects.isEmpty {
+                    Section("Projects") {
+                        ForEach(Array(matchingProjects.enumerated()), id: \.offset) { pair in
+                            let project = pair.element
+                            Button {
+                                selectedCategory = "projects"
+                                selectedDirectoryItem = ITSMDictionaryItem(project)
+                            } label: {
+                                Label(itsmString(project["name"]), systemImage: "square.stack.3d.up")
+                            }
+                        }
+                    }
+                }
                 if !text.isEmpty && matchingRecords.isEmpty
-                    && matchingTasks.isEmpty && matchingArticles.isEmpty {
+                    && matchingTasks.isEmpty && matchingArticles.isEmpty
+                    && matchingPeople.isEmpty && matchingAssets.isEmpty
+                    && matchingProjects.isEmpty {
                     Label("No results for “\(text)”", systemImage: "magnifyingglass")
                         .foregroundStyle(.secondary)
                 }
@@ -293,6 +354,23 @@ struct ITSMGlobalSearch: View {
             }
             .sheet(item: $selectedArticle) { article in
                 ITSMKnowledgeDetail(article: article)
+            }
+            .sheet(item: $selectedDirectoryItem) { selected in
+                if selectedCategory == "projects" {
+                    ITSMProjectDetail(project: selected.value).environmentObject(client)
+                } else if selectedCategory == "cmdb" {
+                    ITSMMetadataDetail(title: itsmString(selected.value["name"]),
+                                       item: selected.value,
+                                       fields: [("Reference", "reference"), ("Type", "ciType"),
+                                                ("Status", "status"), ("Serial", "serialNumber"),
+                                                ("Service", "service"), ("RMM device", "linkedDeviceId")])
+                } else {
+                    ITSMMetadataDetail(title: itsmString(selected.value["name"]),
+                                       item: selected.value,
+                                       fields: [("Email", "email"), ("Phone", "phone"),
+                                                ("Role", "role"), ("Team", "team"),
+                                                ("Location", "location")])
+                }
             }
         }
     }
