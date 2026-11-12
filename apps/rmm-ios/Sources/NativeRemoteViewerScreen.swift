@@ -25,7 +25,11 @@ struct NativeRemoteViewerScreen: View {
     @State private var showChat = false
     @State private var showFiles = false
     @State private var showText = false
-    @State private var useSystemKeyboard = false
+    @State private var useSystemKeyboard = true
+    @AppStorage("h5c.rmm.keyboard.preference") private var keyboardPreference = "ios"
+    @AppStorage("h5c.rmm.keyboard.autoFocus") private var automaticKeyboardEnabled = true
+    @State private var keyboardWasAutoOpened = false
+    @State private var manuallyDismissedCurrentFocus = false
     @State private var showCAD = false
     @State private var showClose = false
     @State private var scale: CGFloat = 1
@@ -118,12 +122,12 @@ struct NativeRemoteViewerScreen: View {
                 if useSystemKeyboard {
                     VStack(spacing: 8) {
                         HStack(spacing: 8) {
-                            Button("Laptop") { useSystemKeyboard = false }
+                            Button("Laptop") { setKeyboardPreference("laptop") }
                                 .buttonStyle(.bordered)
                                 .accessibilityLabel("Return to Windows laptop keyboard")
                             NativeRemoteKeyboardInput(
                                 active: showText && canTypeOnRemote && useSystemKeyboard,
-                                kind: "text",
+                                kind: engine.remoteFocusKind,
                                 onInsert: { engine.typeText($0) },
                                 onDelete: { engine.keyPress("Backspace") },
                                 onReturn: { engine.keyPress("Enter") }
@@ -168,7 +172,7 @@ struct NativeRemoteViewerScreen: View {
                         onText: { engine.typeText($0) },
                         onKey: { engine.keyPress($0) },
                         onChord: { engine.keyChord($0) },
-                        onUseSystemKeyboard: { useSystemKeyboard = true },
+                        onUseSystemKeyboard: { setKeyboardPreference("ios") },
                         onHide: { hideKeyboard() }
                     )
                 }
@@ -178,6 +182,7 @@ struct NativeRemoteViewerScreen: View {
         .task {
             guard !didStart else { return }
             didStart = true
+            useSystemKeyboard = keyboardPreference != "laptop"
             guard let params = NativeViewerParameters(url: target.url) else {
                 engine.showError("Invalid session launch. Close and start a new session from Devices.")
                 return
@@ -191,9 +196,29 @@ struct NativeRemoteViewerScreen: View {
             )
         }
         .onChange(of: engine.connected) { connected in
-            if !connected && !engine.hasVideo { hideKeyboard() }
+            if !connected && !engine.hasVideo { hideKeyboard(manual: false) }
             if connected, let id = launch?.sessionId {
                 Task { await RemoteSessionActivity.shared.update(sessionId: id, state: "Connected") }
+            }
+        }
+        .onChange(of: engine.remoteFocusRevision) { _ in
+            guard automaticKeyboardEnabled && !isClosing else { return }
+            if engine.remoteFocusEditable == true {
+                if canTypeOnRemote && !manuallyDismissedCurrentFocus && !showText {
+                    openKeyboard(automatically: true)
+                }
+            } else if engine.remoteFocusEditable == false {
+                manuallyDismissedCurrentFocus = false
+                // Only close keyboards that were opened automatically.
+                // Manually opened native or laptop keyboards remain visible.
+                if keyboardWasAutoOpened { hideKeyboard(manual: false) }
+            }
+        }
+        .onChange(of: engine.hasVideo) { playing in
+            if playing && automaticKeyboardEnabled &&
+               engine.remoteFocusEditable == true && !showText &&
+               !manuallyDismissedCurrentFocus {
+                openKeyboard(automatically: true)
             }
         }
         // A temporary SwiftUI disappearance is not a remote-session close.
@@ -206,6 +231,10 @@ struct NativeRemoteViewerScreen: View {
                         .font(.subheadline)
                     Text("Input transport: \(engine.controlPath)")
                         .font(.caption).foregroundStyle(.secondary)
+                    Text("Windows text focus: \(engine.remoteFocusEditable == nil ? "Not reported" : (engine.remoteFocusEditable == true ? engine.remoteFocusKind : "Not editable"))")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Toggle("Automatic iPhone keyboard for Windows text fields", isOn: $automaticKeyboardEnabled)
+                        .font(.caption)
                     Text("ICE candidates: local \(engine.localIceCandidates), remote \(engine.remoteIceCandidates)")
                         .font(.caption).foregroundStyle(.secondary)
                     Text("TURN relay candidates: local \(engine.localRelayCandidates), remote \(engine.remoteRelayCandidates)")
@@ -394,14 +423,30 @@ struct NativeRemoteViewerScreen: View {
         .accessibilityLabel("Remote Windows " + label)
     }
 
-    private func openKeyboard() {
-        guard canTypeOnRemote else { return }
+    private func setKeyboardPreference(_ newValue: String) {
+        let native = newValue != "laptop"
+        keyboardPreference = native ? "ios" : "laptop"
+        useSystemKeyboard = native
+        // Switching styles keeps the remote Windows field focused.
         showText = true
     }
 
-    private func hideKeyboard() {
+    private func openKeyboard(automatically: Bool = false) {
+        guard canTypeOnRemote else { return }
+        if automatically && manuallyDismissedCurrentFocus { return }
+        useSystemKeyboard = keyboardPreference != "laptop"
+        showText = true
+        keyboardWasAutoOpened = automatically
+        if !automatically { manuallyDismissedCurrentFocus = false }
+    }
+
+    private func hideKeyboard(manual: Bool = true) {
+        if manual && engine.remoteFocusEditable == true {
+            // Do not instantly reopen from repeated focus updates.
+            manuallyDismissedCurrentFocus = true
+        }
         showText = false
-        useSystemKeyboard = false
+        keyboardWasAutoOpened = false
     }
 }
 
