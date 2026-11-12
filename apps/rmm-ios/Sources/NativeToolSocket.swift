@@ -40,6 +40,11 @@ final class NativeToolSocket: ObservableObject {
                                           delegate: bridge,
                                           delegateQueue: nil)
 
+    func showError(_ text: String) {
+        status = text
+        connected = false
+    }
+
     func connect(_ access: RMMClient.LiveToolSession,
                  initialPath: String = "") {
         disconnect()
