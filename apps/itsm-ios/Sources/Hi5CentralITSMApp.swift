@@ -88,7 +88,7 @@ struct ITSMRootView: View {
     private var workspace: some View {
         VStack(spacing: 0) {
             HStack(spacing: 9) {
-                ITSMBrand(size: 40)
+                ITSMBrand(size: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Hi5Central ITSM")
                         .font(.system(size: 15, weight: .bold))
@@ -116,7 +116,7 @@ struct ITSMRootView: View {
                 .accessibilityLabel("Refresh ITSM")
             }
             .padding(.horizontal, 15)
-            .frame(height: 54)
+            .frame(height: 52)
             Divider()
             TabView {
                 NavigationStack { ITSMDashboard() }
@@ -130,8 +130,11 @@ struct ITSMRootView: View {
                 NavigationStack { ITSMMoreView() }
                     .tabItem { Label("More", systemImage: "ellipsis.circle") }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbarBackground(Color(uiColor: .systemBackground), for: .tabBar)
         }
-        .background(Color(uiColor: .systemBackground))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .sheet(isPresented: $searching) {
             ITSMGlobalSearch().environmentObject(client)
         }
