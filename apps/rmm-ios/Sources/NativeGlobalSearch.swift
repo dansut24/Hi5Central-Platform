@@ -56,7 +56,8 @@ struct NativeGlobalSearch: View {
             List {
                 if !destinations.isEmpty {
                     Section("Pages & workspaces") {
-                        ForEach(destinations, id: \.0) { destination in
+                        ForEach(Array(destinations.enumerated()), id: \.offset) { item in
+                            let destination = item.element
                             Button {
                                 state.navigate(to: destination.3)
                                 dismiss()
@@ -102,7 +103,8 @@ struct NativeGlobalSearch: View {
 
                 if !activities.isEmpty {
                     Section("Recent activity") {
-                        ForEach(Array(activities.enumerated()), id: \.offset) { _, event in
+                        ForEach(Array(activities.enumerated()), id: \.offset) { item in
+                            let event = item.element
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(nativeText(event, ["summary"]))
                                     .font(.subheadline.weight(.medium))
@@ -114,7 +116,9 @@ struct NativeGlobalSearch: View {
                 }
 
                 if !cleanQuery.isEmpty && destinations.isEmpty && devices.isEmpty && activities.isEmpty {
-                    ContentUnavailableView.search(text: cleanQuery)
+                    Label("No matches for “\(cleanQuery)”", systemImage: "magnifyingglass")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             }
             .listStyle(.insetGrouped)
