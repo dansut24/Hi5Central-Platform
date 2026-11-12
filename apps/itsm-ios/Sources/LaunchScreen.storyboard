@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="23500" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" useTraitCollections="YES" useSafeAreas="YES" colorMatched="YES">
+    <device id="retina6_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="23500"/>
+        <capability name="Safe area layout guides" minToolsVersion="9.0"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="H5C-itsm-launch">
+            <objects>
+                <viewController id="H5C-itsm-launch-controller" sceneMemberID="viewController">
+                    <view key="view" contentMode="scaleToFill" id="H5C-itsm-launch-view">
+                        <viewLayoutGuide key="safeArea" id="H5C-itsm-safe-area"/>
+                        <color key="backgroundColor" red="0.027" green="0.045" blue="0.083" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="H5C-itsm-first-responder" sceneMemberID="firstResponder"/>
+            </objects>
+        </scene>
+    </scenes>
+</document>
