@@ -136,6 +136,8 @@ struct ITSMRecordDetail: View {
     @State private var changing = false
     @State private var message: String?
     @State private var showingResolveWarning = false
+    @State private var selectedApproval: ITSMPendingApproval?
+    @State private var selectedTask: ITSMTask?
 
     private var item: ITSMRecord { current ?? record }
 
@@ -172,6 +174,107 @@ struct ITSMRecordDetail: View {
                         detail("Updated", itsmDate(item.updatedAt))
                     }
                     .itsmPanel()
+
+                    if !item.sla.isEmpty {
+                        VStack(alignment: .leading, spacing: 11) {
+                            Label("Service level", systemImage: "clock")
+                                .font(.headline)
+                            let response = itsmDict(item.sla["response"])
+                            let resolution = itsmDict(item.sla["resolution"])
+                            if !response.isEmpty {
+                                detail("Response", itsmString(response["state"]).isEmpty
+                                       ? "Not reported" : itsmString(response["state"]))
+                                detail("Response deadline", itsmDate(itsmString(response["dueAt"])))
+                            }
+                            if !resolution.isEmpty {
+                                detail("Resolution", itsmString(resolution["state"]).isEmpty
+                                       ? "Not reported" : itsmString(resolution["state"]))
+                                detail("Resolution deadline", itsmDate(itsmString(resolution["dueAt"])))
+                            }
+                            if (item.sla["paused"] as? Bool) == true {
+                                Label("SLA paused", systemImage: "pause.circle")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
+                        }
+                        .itsmPanel()
+                    }
+
+                    if item.isServiceRequest && !item.approvals.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Approvals", systemImage: "checkmark.shield")
+                                .font(.headline)
+                            ForEach(Array(item.approvals.enumerated()), id: \.offset) { pair in
+                                let approval = pair.element
+                                Button {
+                                    selectedApproval = ITSMPendingApproval(record: item, raw: approval)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: itsmString(approval["status"]) == "Approved"
+                                              ? "checkmark.circle.fill" : "clock")
+                                            .foregroundStyle(.tint)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(itsmString(approval["label"]))
+                                                .font(.subheadline.weight(.medium))
+                                            Text(itsmString(approval["approver"]))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        Text(itsmString(approval["status"]))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .itsmPanel()
+                    }
+
+                    if !item.requestTasks.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Request tasks", systemImage: "checklist")
+                                .font(.headline)
+                            ForEach(Array(item.requestTasks.enumerated()), id: \.offset) { pair in
+                                let row = pair.element
+                                Button {
+                                    selectedTask = ITSMTask(row)
+                                } label: {
+                                    HStack {
+                                        Text(itsmString(row["title"]))
+                                            .font(.subheadline.weight(.medium))
+                                        Spacer()
+                                        Text(itsmString(row["status"]))
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .itsmPanel()
+                    }
+
+                    if !item.attachments.isEmpty {
+                        VStack(alignment: .leading, spacing: 11) {
+                            Label("Attachments", systemImage: "paperclip")
+                                .font(.headline)
+                            ForEach(Array(item.attachments.enumerated()), id: \.offset) { pair in
+                                let file = pair.element
+                                HStack {
+                                    Image(systemName: "doc")
+                                        .foregroundStyle(.tint)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(itsmString(file["fileName"]).isEmpty
+                                             ? itsmString(file["file_name"]) : itsmString(file["fileName"]))
+                                            .font(.subheadline)
+                                        Text(itsmDate(itsmString(file["createdAt"])))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            Text("Attachment downloads and uploads will be enabled after confirming the signed file-transfer endpoints.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .itsmPanel()
+                    }
 
                     if !item.description.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -290,6 +393,12 @@ struct ITSMRecordDetail: View {
             }
             .navigationTitle(item.id)
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(item: $selectedApproval) { approval in
+                ITSMApprovalDetail(approval: approval).environmentObject(client)
+            }
+            .sheet(item: $selectedTask) { task in
+                ITSMTaskDetail(task: task).environmentObject(client)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
