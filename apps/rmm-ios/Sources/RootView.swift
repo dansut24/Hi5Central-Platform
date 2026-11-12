@@ -6,6 +6,7 @@ struct RootView: View {
     @EnvironmentObject private var state: RMMState
     @EnvironmentObject private var client: RMMClient
     @State private var splash = true
+    @State private var showingGlobalSearch = false
     @AppStorage("hi5central.rmm.nativeViewer") private var nativeViewerEnabled = true
     @AppStorage("hi5central.rmm.appearance") private var appearance = "system"
 
@@ -53,13 +54,21 @@ struct RootView: View {
     private var applicationShell: some View {
         VStack(spacing: 0) {
             HStack(spacing: 11) {
-                Hi5Mark(size: 36)
+                Hi5Mark(size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Hi5Central RMM").font(.system(size: 15, weight: .bold))
                     Text(state.showingMore ? "Tools" : state.route.title)
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button {
+                    showingGlobalSearch = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .medium))
+                        .frame(width: 32, height: 36)
+                }
+                .accessibilityLabel("Search all Hi5Central workspaces")
                 if !state.showingMore {
                     Button {
                         Task { await client.refreshDevices() }
@@ -129,6 +138,11 @@ struct RootView: View {
         }
         .background(Color(uiColor: .systemBackground))
         .task { await client.prepareViewerCookies() }
+        .sheet(isPresented: $showingGlobalSearch) {
+            NativeGlobalSearch()
+                .environmentObject(client)
+                .environmentObject(state)
+        }
     }
 
     private func tab(_ text: String, icon: String, isActive: Bool,
