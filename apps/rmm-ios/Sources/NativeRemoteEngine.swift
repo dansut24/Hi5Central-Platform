@@ -108,6 +108,11 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
     @Published private(set) var isEnded = false
     @Published private(set) var connected = false
     @Published private(set) var hasVideo = false
+    // Windows Agent sends only editable focus state and keyboard type.
+    // Never transmits text, focused window titles, passwords or field values.
+    @Published private(set) var remoteFocusEditable: Bool? = nil
+    @Published private(set) var remoteFocusKind = "text"
+    @Published private(set) var remoteFocusRevision = 0
     @Published private(set) var chat: [NativeChatEntry] = []
     @Published private(set) var files: [NativeFileEntry] = []
     @Published private(set) var filePath = "/"
@@ -162,6 +167,9 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             self.remoteRelayCandidates = 0
             self.availableTurnServers = 0
             self.offeredTurnServers = 0
+            self.remoteFocusEditable = nil
+            self.remoteFocusKind = "text"
+            self.remoteFocusRevision = 0
         }
         event("Starting remote session")
         event("Launch ICE: raw \(launch.launchIceRawCount), raw TURN \(launch.launchIceTurnRawCount), parsed \(launch.iceServers.count)")
@@ -273,6 +281,24 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
             } else {
                 event("No ICE servers provided by signalling")
             }
+        case "session_state":
+            // Focus hints piggyback on the existing allowlisted WebRTC
+            // signalling session_state, so the RMM API requires no change.
+            // Unknown session states are left for the existing video/UX flow.
+            let state = message["state"] as? String ?? ""
+            if state == "input_focus_editable" || state == "input_focus_cleared" {
+                let kind = message["keyboard_kind"] as? String ?? "text"
+                updateRemoteFocus(editable: state == "input_focus_editable", kind: kind)
+            } else if state == "secure_desktop_entering" ||
+                      state == "desktop_handoff_entering" {
+                updateRemoteFocus(editable: false, kind: "text")
+            }
+        case "remote_focus_state":
+            // Compatibility with Agent focus-probe implementations that
+            // send an explicit message over the control data channel.
+            let editable = message["editable"] as? Bool ?? false
+            updateRemoteFocus(editable: editable,
+                              kind: message["keyboard_kind"] as? String ?? "text")
         case "viewer_error":
             let messageText = (message["error"] as? String ?? "Remote session error")
             // Never display token-bearing URLs or arbitrary server payloads.
@@ -640,8 +666,26 @@ final class NativeRemoteEngine: NSObject, ObservableObject {
         DispatchQueue.main.async {
             self.connected = false
             self.hasVideo = false
+            self.remoteFocusEditable = nil
+            self.remoteFocusKind = "text"
+            self.remoteFocusRevision = 0
             self.isEnded = markEnded
             self.status = reason
+        }
+    }
+
+    private func updateRemoteFocus(editable: Bool, kind: String) {
+        let safeKind = ["text", "url", "password", "email", "number"].contains(kind) ? kind : "text"
+        DispatchQueue.main.async {
+            // Signal a new focus event only when state or field type changes.
+            // Repeated Agent heartbeat updates must never reopen a keyboard
+            // that the technician explicitly dismissed.
+            if self.remoteFocusEditable != editable || self.remoteFocusKind != safeKind {
+                self.remoteFocusEditable = editable
+                self.remoteFocusKind = safeKind
+                self.remoteFocusRevision += 1
+                self.event("Windows editable focus: " + (editable ? safeKind : "none"))
+            }
         }
     }
 
@@ -740,7 +784,13 @@ extension NativeRemoteEngine: RTCDataChannelDelegate {
             }
         }
     }
-    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {}
+    func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
+        guard !buffer.isBinary,
+              let message = try? JSONSerialization.jsonObject(with: buffer.data) as? [String: Any],
+              let type = message["type"] as? String, type == "remote_focus_state" else { return }
+        updateRemoteFocus(editable: message["editable"] as? Bool ?? false,
+                          kind: message["keyboard_kind"] as? String ?? "text")
+    }
 }
 
 extension NativeRemoteEngine: RTCVideoViewDelegate {
