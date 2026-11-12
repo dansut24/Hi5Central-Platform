@@ -26,9 +26,15 @@ struct NativeFleetCharts: View {
         return Double(values.reduce(0, +)) / Double(values.count)
     }
 
-    private var resources: [(String, Double)] {
+    private struct ResourcePoint: Identifiable {
+        let name: String
+        let usage: Double
+        var id: String { name }
+    }
+
+    private var resources: [ResourcePoint] {
         [("CPU", mean(\.cpu)), ("Memory", mean(\.memory)), ("Disk", mean(\.disk))]
-            .compactMap { name, usage in usage.map { (name, $0) } }
+            .compactMap { name, usage in usage.map { ResourcePoint(name: name, usage: $0) } }
     }
 
     private var osMix: [SeriesPoint] {
@@ -53,10 +59,10 @@ struct NativeFleetCharts: View {
                 Text("Device availability")
                     .font(.subheadline.weight(.semibold))
                 if client.devices.isEmpty {
-                    ContentUnavailableView("No inventory yet",
-                        systemImage: "chart.bar",
-                        description: Text("Connect devices to see live estate charts."))
-                        .frame(height: 125)
+                    Label("Connect devices to see live estate charts.", systemImage: "chart.bar")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 125)
                 } else {
                     Chart(status) { item in
                         BarMark(
@@ -91,12 +97,12 @@ struct NativeFleetCharts: View {
                         .frame(maxWidth: .infinity, minHeight: 90, alignment: .leading)
                 } else {
                     Chart {
-                        ForEach(resources, id: \.0) { metric in
-                            BarMark(x: .value("Resource", metric.0),
-                                    y: .value("Usage", metric.1))
+                        ForEach(resources) { metric in
+                            BarMark(x: .value("Resource", metric.name),
+                                    y: .value("Usage", metric.usage))
                                 .foregroundStyle(Color.accentColor)
                                 .annotation(position: .top) {
-                                    Text("\(metric.1, specifier: "%.0f")%")
+                                    Text("\(metric.usage, specifier: "%.0f")%")
                                         .font(.caption2)
                                 }
                         }
