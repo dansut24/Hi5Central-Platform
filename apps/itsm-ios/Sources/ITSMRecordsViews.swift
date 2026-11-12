@@ -313,7 +313,40 @@ struct ITSMRecordDetail: View {
                                 .buttonStyle(.bordered)
                             }
                             .disabled(changing)
-                            Text("Resolution, approvals and reassignment will use their dedicated lifecycle workflows in a later release.")
+                            HStack(spacing: 9) {
+                                Menu {
+                                    ForEach(client.teams.filter { ($0["active"] as? Bool) != false },
+                                            id: \.self) { team in
+                                        let name = itsmString(team["name"])
+                                        Button(name) {
+                                            Task { await reassign(team: name) }
+                                        }
+                                    }
+                                } label: {
+                                    Label("Team", systemImage: "person.2")
+                                }
+                                .buttonStyle(.bordered)
+                                Menu {
+                                    Button("Unassigned") {
+                                        Task { await reassign(assignee: "Unassigned") }
+                                    }
+                                    ForEach(Array(client.people.filter {
+                                        ($0["active"] as? Bool) != false
+                                        && !itsmString($0["userId"]).isEmpty
+                                    }.enumerated()), id: \.offset) { pair in
+                                        let person = pair.element
+                                        let name = itsmString(person["name"])
+                                        Button(name) {
+                                            Task { await reassign(assignee: name) }
+                                        }
+                                    }
+                                } label: {
+                                    Label("Assign", systemImage: "person.crop.circle")
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .disabled(changing)
+                            Text("Resolution uses a separate lifecycle API and is not enabled until its versioned workflow is verified.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -444,6 +477,18 @@ struct ITSMRecordDetail: View {
             note = ""
             message = nil
         } catch { message = error.localizedDescription }
+    }
+
+    private func reassign(team: String? = nil, assignee: String? = nil) async {
+        guard !changing else { return }
+        changing = true
+        defer { changing = false }
+        do {
+            current = try await client.reassign(item, team: team, assignee: assignee)
+            message = nil
+        } catch {
+            message = error.localizedDescription
+        }
     }
 
     private func change(status: String? = nil, priority: String? = nil) async {
