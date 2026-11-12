@@ -45,16 +45,14 @@ struct ITSMDashboard: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Service Desk").font(.largeTitle.bold())
-                        Text(client.companyName)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    ITSMBrand(size: 48)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Service Desk")
+                        .font(.title2.weight(.bold))
+                    Text("Your service desk at a glance")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 if canReport {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 11) {
@@ -157,11 +155,12 @@ struct ITSMDashboard: View {
                 }
                 .itsmPanel()
             }
-            .padding(16)
+            .padding(.horizontal, 15)
+            .padding(.top, 10)
+            .padding(.bottom, 28)
         }
         .refreshable { await client.refreshAll() }
-        .navigationTitle("Home")
-        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $selected) { record in
             ITSMRecordDetail(record: record)
                 .environmentObject(client)
@@ -171,11 +170,11 @@ struct ITSMDashboard: View {
     private func metric(_ name: String, _ value: String, _ icon: String, _ colour: Color) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             Image(systemName: icon).font(.title3).foregroundStyle(colour)
-            Text(value).font(.system(size: 27, weight: .bold, design: .rounded))
+            Text(value).font(.system(.title2, design: .rounded, weight: .bold))
             Text(name).font(.caption).foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
-        .padding(15)
+        .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
+        .padding(13)
         .background(Color(uiColor: .secondarySystemBackground),
                     in: RoundedRectangle(cornerRadius: 16))
     }
