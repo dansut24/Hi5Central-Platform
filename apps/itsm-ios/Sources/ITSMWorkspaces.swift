@@ -3,6 +3,7 @@ import SwiftUI
 struct ITSMTasksView: View {
     @EnvironmentObject private var client: ITSMClient
     @State private var search = ""
+    @State private var selectedTask: ITSMTask?
 
     private var filtered: [ITSMTask] {
         client.tasks.filter {
@@ -23,7 +24,8 @@ struct ITSMTasksView: View {
             }
             Section("\(filtered.count) active tasks") {
                 ForEach(filtered) { task in
-                    VStack(alignment: .leading, spacing: 5) {
+                    Button { selectedTask = task } label: {
+                        VStack(alignment: .leading, spacing: 5) {
                         Text(task.title.isEmpty ? "Untitled task" : task.title)
                             .font(.subheadline.weight(.semibold))
                         HStack {
@@ -37,8 +39,10 @@ struct ITSMTasksView: View {
                             Label(task.assignedTo, systemImage: "person")
                                 .font(.caption2).foregroundStyle(.secondary)
                         }
+                        }
+                        .padding(.vertical, 5)
                     }
-                    .padding(.vertical, 5)
+                    .buttonStyle(.plain)
                 }
                 if filtered.isEmpty {
                     Text("No active tasks match your search.")
@@ -50,6 +54,9 @@ struct ITSMTasksView: View {
         .navigationTitle("Tasks")
         .searchable(text: $search, prompt: "Find a task")
         .refreshable { await client.refreshTasks() }
+        .sheet(item: $selectedTask) { task in
+            ITSMTaskDetail(task: task).environmentObject(client)
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -298,6 +305,33 @@ struct ITSMMoreView: View {
 
     var body: some View {
         List {
+            Section("ITSM workspaces") {
+                NavigationLink {
+                    ITSMApprovalsView()
+                } label: {
+                    Label("Approvals", systemImage: "checkmark.shield")
+                }
+                NavigationLink {
+                    ITSMDirectoryView()
+                } label: {
+                    Label("People and teams", systemImage: "person.2")
+                }
+                NavigationLink {
+                    ITSMCMDBView()
+                } label: {
+                    Label("CMDB", systemImage: "server.rack")
+                }
+                NavigationLink {
+                    ITSMProjectsView()
+                } label: {
+                    Label("Projects", systemImage: "square.stack.3d.up")
+                }
+                NavigationLink {
+                    ITSMCalendarView()
+                } label: {
+                    Label("Calendar", systemImage: "calendar")
+                }
+            }
             Section("My workspace") {
                 LabeledContent("Company", value: client.companyName)
                 LabeledContent("Account", value: client.userName)
@@ -328,7 +362,7 @@ struct ITSMMoreView: View {
                 }
             }
             Section {
-                Text("Hi5Central ITSM iOS v0.1.0 — native technician preview. MFA and tenant access are enforced by the existing Hi5Central API.")
+                Text("Hi5Central ITSM iOS v0.2.0 — native technician preview. MFA and tenant access are enforced by the existing Hi5Central API.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
