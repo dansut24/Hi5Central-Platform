@@ -441,7 +441,7 @@ final class ITSMClient: ObservableObject {
 
     func taskStatus(_ id: String, status: String,
                     completionNotes: String = "") async throws {
-        guard ["Ready", "In Progress", "Blocked", "Completed", "Cancelled"].contains(status) else {
+        guard ["Ready", "In Progress", "Blocked", "Completed"].contains(status) else {
             throw ITSMAPIError.invalidResponse
         }
         var payload: [String: Any] = ["status": status]
@@ -517,6 +517,21 @@ final class ITSMClient: ObservableObject {
         let encoded = try safeReference(record.id)
         let updated = try await request("/api/v1/itsm-records/\(encoded)",
                                         method: "PATCH", body: payload)
+        await refreshRecords()
+        return ITSMRecord(updated)
+    }
+
+    func reassign(_ record: ITSMRecord, team: String? = nil,
+                  assignee: String? = nil) async throws -> ITSMRecord {
+        guard !record.isServiceRequest else {
+            throw ITSMAPIError.forbidden("Service Requests use a separate fulfilment assignment workflow.")
+        }
+        var fields: [String: Any] = [:]
+        if let team { fields["team"] = team }
+        if let assignee { fields["assignee"] = assignee }
+        guard !fields.isEmpty else { return record }
+        let updated = try await request("/api/v1/itsm-records/\(safeReference(record.id))",
+                                        method: "PATCH", body: fields)
         await refreshRecords()
         return ITSMRecord(updated)
     }
