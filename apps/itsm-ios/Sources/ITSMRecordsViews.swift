@@ -315,8 +315,10 @@ struct ITSMRecordDetail: View {
                             .disabled(changing)
                             HStack(spacing: 9) {
                                 Menu {
-                                    ForEach(client.teams.filter { ($0["active"] as? Bool) != false },
-                                            id: \.self) { team in
+                                    ForEach(Array(client.teams.filter {
+                                        ($0["active"] as? Bool) != false
+                                    }.enumerated()), id: \.offset) { pair in
+                                        let team = pair.element
                                         let name = itsmString(team["name"])
                                         Button(name) {
                                             Task { await reassign(team: name) }
