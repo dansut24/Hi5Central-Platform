@@ -45,7 +45,10 @@ jobs:
           APP="$RUNNER_TEMP/Hi5ITSMBuild/Build/Products/Release-iphoneos/Hi5CentralITSM.app"
           test -d "$APP"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" | grep -Fx 'com.hi5central.itsm'
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.1.0'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.2.0'
+          # Require the launch storyboard to avoid compatibility-sized iPhone UI.
+          /usr/libexec/PlistBuddy -c "Print :UILaunchStoryboardName" "$APP/Info.plist" | grep -Fx 'LaunchScreen'
+          test -d "$APP/Base.lproj/LaunchScreen.storyboardc"
           mkdir -p "$RUNNER_TEMP/Hi5ITSMIPABuild/Payload"
           ditto "$APP" "$RUNNER_TEMP/Hi5ITSMIPABuild/Payload/Hi5CentralITSM.app"
           cd "$RUNNER_TEMP/Hi5ITSMIPABuild"
@@ -54,7 +57,7 @@ jobs:
       - name: Upload IPA for Sideloadly
         uses: actions/upload-artifact@v4
         with:
-          name: Hi5CentralITSM-iOS-v0.1.0-unsigned
+          name: Hi5CentralITSM-iOS-v0.2.0-fullscreen-native
           path: Hi5CentralITSM-iOS-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
