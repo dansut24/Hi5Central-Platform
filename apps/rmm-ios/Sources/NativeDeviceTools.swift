@@ -269,7 +269,7 @@ struct NativeDeviceActionScreen: View {
                 Spacer()
                 Text(nativeText(row, ["state"], fallback: "Unknown"))
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(nativeString(row["state"]) == "Running" ? .green : .secondary)
+                    .foregroundStyle(nativeString(row["state"]) == "Running" ? Color.green : Color.secondary)
             }
             Text("Start type: \(nativeText(row, ["start_mode"], fallback: "Unknown"))")
                 .font(.caption).foregroundStyle(.secondary)
@@ -309,7 +309,7 @@ struct NativeDeviceActionScreen: View {
                 Text(nativeText(row, ["level"], fallback: "Information"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(nativeString(row["level"]).lowercased().contains("error")
-                                     ? .red : .secondary)
+                                     ? Color.red : Color.secondary)
                 Spacer()
                 Text(nativeText(row, ["event_id"], fallback: "—"))
                     .font(.caption2.monospacedDigit())
