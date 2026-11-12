@@ -34,8 +34,18 @@ struct ITSMRecord: Identifiable {
     let updatedAt: String
     let activities: [[String: Any]]
     let isServiceRequest: Bool
+    let raw: [String: Any]
+    let sla: [String: Any]
+    let approvals: [[String: Any]]
+    let attachments: [[String: Any]]
+    let requestTasks: [[String: Any]]
 
     init(_ item: [String: Any], isServiceRequest: Bool = false) {
+        raw = item
+        sla = itsmDict(item["sla"])
+        approvals = itsmRows(item["requestApprovals"])
+        attachments = itsmRows(item["attachments"])
+        requestTasks = itsmRows(item["requestTasks"])
         id = itsmString(item["id"]).isEmpty ? itsmString(item["reference"]) : itsmString(item["id"])
         type = isServiceRequest ? "Service Request" : itsmString(item["type"])
         title = itsmString(item["title"])
@@ -125,7 +135,13 @@ final class ITSMClient: ObservableObject {
     @Published private(set) var tasks: [ITSMTask] = []
     @Published private(set) var articles: [ITSMArticle] = []
     @Published private(set) var notifications: [[String: Any]] = []
+    @Published private(set) var people: [[String: Any]] = []
+    @Published private(set) var teams: [[String: Any]] = []
+    @Published private(set) var cmdb: [[String: Any]] = []
+    @Published private(set) var projects: [[String: Any]] = []
+    @Published private(set) var calendar: [[String: Any]] = []
     @Published private(set) var report: [String: Any] = [:]
+    @Published private(set) var extraErrors: [String: String] = [:]
     @Published private(set) var challenge: String?
     @Published private(set) var setupSecret: String?
     @Published private(set) var setupURI: String?
@@ -137,6 +153,8 @@ final class ITSMClient: ObservableObject {
     @Published private(set) var lastRefreshed: Date?
 
     private(set) var tenant = ""
+    private(set) var currentUserId = ""
+    private(set) var isAdmin = false
     private let base = URL(string: "https://api.hi5central.com")!
 
     func setTenant(_ raw: String) {
@@ -196,6 +214,8 @@ final class ITSMClient: ObservableObject {
         guard !itsmString(onboarding["completedAt"]).isEmpty else {
             throw ITSMAPIError.forbidden("Complete Hi5Central onboarding in your browser first.")
         }
+        currentUserId = itsmString(user["id"])
+        isAdmin = ["owner", "admin"].contains(itsmString(user["tenantRole"]))
         companyName = itsmString(company["companyName"])
         userName = itsmString(user["name"]).isEmpty
             ? itsmString(user["email"]) : itsmString(user["name"])
@@ -288,7 +308,11 @@ final class ITSMClient: ObservableObject {
         async let tasks: Void = refreshTasks()
         async let knowledge: Void = refreshKnowledge()
         async let notifications: Void = refreshNotifications()
-        _ = await (summary, tasks, knowledge, notifications)
+        async let organisation: Void = refreshOrganisation()
+        async let assets: Void = refreshCMDB()
+        async let projects: Void = refreshProjects()
+        async let calendar: Void = refreshCalendar()
+        _ = await (summary, tasks, knowledge, notifications, organisation, assets, projects, calendar)
     }
 
     func refreshRecords() async {
@@ -354,6 +378,109 @@ final class ITSMClient: ObservableObject {
         if let data = try? await request("/api/v1/notifications?limit=60") {
             notifications = itsmRows(data["items"])
         }
+    }
+
+    func refreshOrganisation() async {
+        guard authenticated else { return }
+        do {
+            let json = try await request("/api/v1/organisation")
+            people = itsmRows(json["people"])
+            teams = itsmRows(json["teams"])
+            extraErrors.removeValue(forKey: "people")
+        } catch {
+            extraErrors["people"] = error.localizedDescription
+        }
+    }
+
+    func refreshCMDB() async {
+        guard authenticated else { return }
+        do {
+            let json = try await request("/api/v1/cmdb")
+            cmdb = itsmRows(json["items"])
+            extraErrors.removeValue(forKey: "cmdb")
+        } catch {
+            extraErrors["cmdb"] = error.localizedDescription
+        }
+    }
+
+    func refreshProjects() async {
+        guard authenticated else { return }
+        do {
+            let json = try await request("/api/v1/projects")
+            projects = itsmRows(json["items"])
+            extraErrors.removeValue(forKey: "projects")
+        } catch {
+            extraErrors["projects"] = error.localizedDescription
+        }
+    }
+
+    func refreshCalendar() async {
+        guard authenticated else { return }
+        do {
+            let json = try await request("/api/v1/projects/calendar")
+            calendar = itsmRows(json["items"])
+            extraErrors.removeValue(forKey: "calendar")
+        } catch {
+            extraErrors["calendar"] = error.localizedDescription
+        }
+    }
+
+    func taskDetail(_ id: String) async throws -> [String: Any] {
+        try await request("/api/v1/tasks/\(safeReference(id))")
+    }
+
+    func taskNote(_ id: String, text: String, customer: Bool = false) async throws {
+        let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw ITSMAPIError.invalidResponse }
+        _ = try await request("/api/v1/tasks/\(safeReference(id))/notes",
+                              method: "POST",
+                              body: ["text": clean,
+                                     "visibility": customer ? "customer" : "internal"])
+        await refreshTasks()
+    }
+
+    func taskStatus(_ id: String, status: String,
+                    completionNotes: String = "") async throws {
+        guard ["Ready", "In Progress", "Blocked", "Completed", "Cancelled"].contains(status) else {
+            throw ITSMAPIError.invalidResponse
+        }
+        var payload: [String: Any] = ["status": status]
+        if status == "Completed" { payload["completionNotes"] = completionNotes }
+        _ = try await request("/api/v1/tasks/\(safeReference(id))",
+                              method: "PATCH", body: payload)
+        await refreshTasks()
+        await refreshRecords()
+    }
+
+    func decision(for record: ITSMRecord, approvalId: String,
+                  accepted: Bool, note: String) async throws -> ITSMRecord {
+        guard record.isServiceRequest,
+              UUID(uuidString: approvalId) != nil else {
+            throw ITSMAPIError.invalidResponse
+        }
+        let clean = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !accepted && clean.isEmpty {
+            throw ITSMAPIError.forbidden("Enter a reason before rejecting an approval.")
+        }
+        _ = try await request(
+            "/api/v1/service-requests/\(safeReference(record.id))/approvals/\(approvalId)/decision",
+            method: "POST",
+            body: ["decision": accepted ? "Approved" : "Rejected", "note": clean])
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        return updated
+    }
+
+    func projectDetail(_ id: String) async throws -> [String: Any] {
+        try await request("/api/v1/projects/\(safeReference(id))")
+    }
+
+    func assetDetail(_ reference: String) async throws -> [String: Any] {
+        try await request("/api/v1/cmdb/\(safeReference(reference))")
+    }
+
+    func articleDetail(_ id: String) async throws -> [String: Any] {
+        try await request("/api/v1/knowledge/\(safeReference(id))")
     }
 
     func detail(for record: ITSMRecord) async throws -> ITSMRecord {
@@ -423,6 +550,14 @@ final class ITSMClient: ObservableObject {
         articles = []
         notifications = []
         report = [:]
+        people = []
+        teams = []
+        cmdb = []
+        projects = []
+        calendar = []
+        currentUserId = ""
+        isAdmin = false
+        extraErrors = [:]
         HTTPCookieStorage.shared.removeCookies(since: Date(timeIntervalSince1970: 0))
     }
 }
