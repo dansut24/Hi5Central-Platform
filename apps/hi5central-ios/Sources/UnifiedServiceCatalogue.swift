@@ -146,6 +146,27 @@ struct UnifiedRequestFormField: View {
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    private var catalogueDateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.isLenient = false
+        formatter.dateFormat = type == "datetime-local" ? "yyyy-MM-dd'T'HH:mm" : "yyyy-MM-dd"
+        return formatter
+    }
+
+    private var dateSelection: Binding<Date> {
+        Binding(
+            get: {
+                catalogueDateFormatter.date(from: itsmString(values[id])) ?? Date()
+            },
+            set: {
+                values[id] = catalogueDateFormatter.string(from: $0)
+            }
+        )
+    }
+
     private var textValue: Binding<String> {
         Binding(get: { itsmString(values[id]) }, set: { values[id] = $0 })
     }
@@ -164,7 +185,8 @@ struct UnifiedRequestFormField: View {
     static let supported = Set([
         "text", "textarea", "email", "number", "date", "select", "dropdown",
         "radio", "product", "checkbox", "checkbox-products",
-        "multiselect", "multi-select", "checkboxes", "lookup", "section"
+        "multiselect", "multi-select", "checkboxes", "lookup", "section",
+        "datetime-local"
     ])
 
     var body: some View {
@@ -191,6 +213,8 @@ struct UnifiedRequestFormField: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(title)
                 if lookupOptions.isEmpty {
                     Text("No matching \(itsmString(field["source"])) records available. Add them under People & Organisation, refresh and retry.")
                         .font(.caption).foregroundStyle(.orange)
@@ -211,6 +235,8 @@ struct UnifiedRequestFormField: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(title)
                 if choices.isEmpty {
                     Text("No choices available for this field. Update the catalogue or use the web workspace.")
                         .font(.caption).foregroundStyle(.orange)
@@ -225,15 +251,38 @@ struct UnifiedRequestFormField: View {
                     Text("No choices available for this field.")
                         .font(.caption).foregroundStyle(.orange)
                 }
-            case "text", "email", "number", "date":
+            case "date", "datetime-local":
+                if itsmString(values[id]).isEmpty {
+                    Button {
+                        values[id] = catalogueDateFormatter.string(from: Date())
+                    } label: {
+                        Label(type == "date" ? "Choose date" : "Choose date and time",
+                              systemImage: "calendar")
+                    }
+                    .accessibilityLabel(title)
+                } else {
+                    HStack {
+                        DatePicker(
+                            title,
+                            selection: dateSelection,
+                            displayedComponents: type == "date"
+                                ? [.date] : [.date, .hourAndMinute]
+                        )
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .accessibilityLabel(title)
+                        Spacer(minLength: 5)
+                        Button("Clear") { values[id] = "" }
+                            .font(.caption)
+                            .accessibilityLabel("Clear " + title)
+                    }
+                }
+            case "text", "email", "number":
                 TextField(title, text: textValue)
                     .textInputAutocapitalization(type == "email" ? .never : .sentences)
                     .keyboardType(type == "email" ? .emailAddress :
                                     type == "number" ? .decimalPad : .default)
                     .textFieldStyle(.roundedBorder)
-                if type == "date" {
-                    Text("Date format: YYYY-MM-DD").font(.caption2).foregroundStyle(.secondary)
-                }
             default:
                 Text("This field type (\(type)) is not yet supported in the iPhone form.")
                     .font(.caption).foregroundStyle(.orange)
@@ -256,6 +305,38 @@ struct UnifiedServiceRequestComposer: View {
     @State private var values: [String: Any] = [:]
     @State private var saving = false
     @State private var error: String?
+
+    /// Catalogue "section" markers become actual native Form sections rather than
+    /// unsupported input rows. Conditional fields remain in their original order.
+    private struct FormGroup: Identifiable {
+        let id: String
+        let title: String
+        let help: String
+        var fields: [[String: Any]]
+    }
+
+    private var formGroups: [FormGroup] {
+        var groups: [FormGroup] = []
+        for (index, field) in visibleFields.enumerated() {
+            let type = itsmString(field["type"]).lowercased()
+            if type == "section" {
+                groups.append(FormGroup(
+                    id: "section-\(index)",
+                    title: itsmString(field["label"]),
+                    help: itsmString(field["help"]),
+                    fields: []
+                ))
+            } else {
+                if groups.isEmpty {
+                    groups.append(FormGroup(
+                        id: "catalogue-start", title: "Catalogue form", help: "", fields: []
+                    ))
+                }
+                groups[groups.count - 1].fields.append(field)
+            }
+        }
+        return groups.filter { !$0.fields.isEmpty }
+    }
 
     private var visibleFields: [[String: Any]] {
         item.fields.filter { field in
@@ -283,35 +364,51 @@ struct UnifiedServiceRequestComposer: View {
             return itsmString(value).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }.map { itsmString($0["label"]) }
     }
-    private var unhandledFields: [String] {
+    private var unsupportedFields: [String] {
         visibleFields.filter { field in
             let type = itsmString(field["type"]).lowercased()
             if !UnifiedRequestFormField.supported.contains(type) { return true }
             if type == "lookup" {
+                return !UnifiedRequestFormField.lookupSources.contains(
+                    itsmString(field["source"]).lowercased()
+                )
+            }
+            return false
+        }.map { itsmString($0["label"]) }
+    }
+
+    private var missingRequiredOptions: [String] {
+        visibleFields.filter { field in
+            guard field["required"] as? Bool == true else { return false }
+            let type = itsmString(field["type"]).lowercased()
+            if type == "lookup" {
                 let source = itsmString(field["source"]).lowercased()
-                if !UnifiedRequestFormField.lookupSources.contains(source) { return true }
                 let rows: [[String: Any]]
                 switch source {
                 case "people": rows = client.people
                 case "departments": rows = client.departments
                 case "sites": rows = client.sites
                 case "teams": rows = client.teams
-                default: rows = []
+                default: return false // unknown source is reported as unsupported
                 }
-                if (field["required"] as? Bool == true) &&
-                    !rows.contains(where: { ($0["active"] as? Bool) != false &&
-                                           !itsmString($0["externalKey"]).isEmpty }) {
-                    return true
-                }
+                return !rows.contains(where: {
+                    ($0["active"] as? Bool) != false &&
+                    !itsmString($0["externalKey"]).isEmpty
+                })
             }
-            let optionsNeeded = ["select","dropdown","radio","product",
-                                 "checkbox-products","multiselect","multi-select","checkboxes"]
-            if optionsNeeded.contains(type), (field["options"] as? [Any] ?? []).isEmpty {
-                return true
-            }
-            return false
+            let optionsNeeded = [
+                "select", "dropdown", "radio", "product",
+                "checkbox-products", "multiselect", "multi-select", "checkboxes"
+            ]
+            return optionsNeeded.contains(type) &&
+                (field["options"] as? [Any] ?? []).isEmpty
         }.map { itsmString($0["label"]) }
     }
+
+    private var unhandledFields: [String] {
+        unsupportedFields + missingRequiredOptions
+    }
+
     private var selectablePeople: [[String: Any]] {
         client.people.filter { ($0["active"] as? Bool) != false &&
                                !itsmString($0["externalKey"]).isEmpty }
@@ -348,19 +445,35 @@ struct UnifiedServiceRequestComposer: View {
                         }
                     }
                 }
-                if !visibleFields.isEmpty {
-                    Section("Catalogue form") {
-                        ForEach(Array(visibleFields.enumerated()), id: \.offset) { pair in
+                ForEach(formGroups) { group in
+                    Section {
+                        ForEach(Array(group.fields.enumerated()), id: \.offset) { pair in
                             UnifiedRequestFormField(field: pair.element, values: $values)
+                        }
+                    } header: {
+                        Text(group.title)
+                    } footer: {
+                        if !group.help.isEmpty {
+                            Text(group.help)
                         }
                     }
                 }
-                if !unhandledFields.isEmpty {
+                if !unsupportedFields.isEmpty {
                     Section {
-                        Text("Some catalogue fields are not supported by this version: \(unhandledFields.joined(separator: ", ")). Use the web workspace to submit this form.")
+                        Text("Unsupported form fields: \(unsupportedFields.joined(separator: ", ")). Use the web workspace for these fields.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
-                } else if !missingRequired.isEmpty {
+                }
+                if !missingRequiredOptions.isEmpty {
+                    Section {
+                        Text("This company needs catalogue options or People & Organisation records before these required fields can be completed: \(missingRequiredOptions.joined(separator: ", ")).")
+                            .font(.footnote).foregroundStyle(.orange)
+                        Button("Refresh organisation") {
+                            Task { await client.refreshOrganisation() }
+                        }
+                    }
+                }
+                if unhandledFields.isEmpty && !missingRequired.isEmpty {
                     Section {
                         Text("Required fields: \(missingRequired.joined(separator: ", "))")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -387,6 +500,7 @@ struct UnifiedServiceRequestComposer: View {
                 }
             }
             .onAppear { if summary.isEmpty { summary = item.title } }
+            .task { await client.refreshOrganisation() }
             .overlay {
                 if saving { ProgressView("Submitting request…") }
             }
@@ -398,9 +512,16 @@ struct UnifiedServiceRequestComposer: View {
         saving = true
         defer { saving = false }
         do {
+            // Do not leak stale values from fields hidden by conditional rules.
+            let activeKeys = Set(visibleFields.compactMap { field -> String? in
+                guard itsmString(field["type"]).lowercased() != "section" else { return nil }
+                let key = itsmString(field["id"])
+                return key.isEmpty ? nil : key
+            })
+            let submittedValues = values.filter { activeKeys.contains($0.key) }
             let record = try await client.newServiceRequest(
                 itemKey: item.id, summary: summary, details: details,
-                priority: priority, values: values, requesterPersonId: requesterId)
+                priority: priority, values: submittedValues, requesterPersonId: requesterId)
             onCreated(record)
             dismiss()
         } catch { self.error = error.localizedDescription }
