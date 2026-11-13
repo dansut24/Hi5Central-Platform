@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Hi5Central.AppPortal/Broker/IAppPortalBroker.cs" Link="IAppPortalBroker.cs" />
+    <Compile Include="../Hi5Central.AppPortal/Broker/WindowsNamedPipeAppPortalBroker.cs" Link="WindowsNamedPipeAppPortalBroker.cs" />
+  </ItemGroup>
+</Project>
