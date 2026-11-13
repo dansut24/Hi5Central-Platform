@@ -9,8 +9,10 @@ import {
   publishAppPortalRevision,
   removeAppPortalAssignment,
   uploadAppPortalPackage,
+  uploadAppPortalLogo,
+  updateAppPortalDraft,
 } from '../../lib/rmmAppPortalApi.js'
-import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage } from '../../lib/appPortalDraft.js'
+import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage, inventoryDisplayName } from '../../lib/appPortalDraft.js'
 import './RmmAppPortal.css'
 
 const emptyAssignment = { appId: '', scopeType: 'Estate', scopeId: '*', scopeName: 'Entire estate', intent: 'available', priority: 0 }
@@ -29,6 +31,7 @@ export function RmmAppPortal() {
   const [catalogueId, setCatalogueId] = useState('')
   const [custom, setCustom] = useState(emptyCustom)
   const [uploadFile, setUploadFile] = useState(null)
+  const [logoFile, setLogoFile] = useState(null)
   const [editingDraft, setEditingDraft] = useState(null)
   const [assignment, setAssignment] = useState(emptyAssignment)
 
@@ -72,6 +75,7 @@ export function RmmAppPortal() {
     const form = formFromDraft(app, revision)
     setCustom(form)
     setUploadFile(null)
+    setLogoFile(null)
     setEditingDraft({
       appId: app.id,
       revisionId: revision?.id || null,
@@ -87,12 +91,19 @@ export function RmmAppPortal() {
     setEditingDraft(null)
     setCustom(emptyCustom)
     setUploadFile(null)
+    setLogoFile(null)
     setError('')
     setMessage('')
   }
 
   const saveCustom = (publish = false) => {
     if (!custom.name.trim()) return setError('Enter an application name.')
+    if (publish && !String(custom.expectedSigner || custom.publisher || '').trim()) {
+      return setError('Provide the Publisher or the installer signing name under Advanced options.')
+    }
+    if (logoFile && (logoFile.type !== 'image/png' || logoFile.size > 512 * 1024)) {
+      return setError('Choose a PNG logo smaller than 512 KB.')
+    }
     const payload = customRevisionPayload(custom)
     // Never overwrite a previously uploaded package while it is still the
     // package recorded for a draft. A replacement upload gets a new revision
@@ -115,6 +126,15 @@ export function RmmAppPortal() {
         })
         appId = created.app.id
         setEditingDraft({ appId, revisionId: null, fingerprint: null, hasPackage: false })
+      } else {
+        await updateAppPortalDraft(appId, {
+          name: custom.name, publisher: custom.publisher,
+          description: custom.description, category: custom.category,
+        })
+      }
+      if (logoFile) {
+        await uploadAppPortalLogo(appId, logoFile)
+        setLogoFile(null)
       }
       if (!revisionId) {
         const createdRevision = await createAppPortalRevision(appId, payload)
@@ -137,8 +157,17 @@ export function RmmAppPortal() {
         await publishAppPortalRevision(revisionId)
         setCustom(emptyCustom)
         setEditingDraft(null)
+        setLogoFile(null)
       }
     }, publish ? custom.name + ' published to App Portal.' : custom.name + ' draft saved. You can resume it later.')
+  }
+
+  const replaceLogo = (app, file) => {
+    if (!file) return
+    if (file.type !== 'image/png' || file.size > 512 * 1024) {
+      return setError('Choose a PNG logo smaller than 512 KB.')
+    }
+    run(() => uploadAppPortalLogo(app.id, file), app.name + ' logo updated.')
   }
 
   const addAssignment = () => {
