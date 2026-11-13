@@ -240,6 +240,12 @@ struct ITSMRecordDetail: View {
                         )
                     }
 
+                    #if HI5CENTRAL_UNIFIED
+                    if !item.isServiceRequest {
+                        UnifiedTicketLifecyclePanel(record: item, onUpdated: { current = $0 })
+                    }
+                    UnifiedTicketActivityPanel(record: item, onUpdated: { current = $0 })
+                    #else
                     VStack(alignment: .leading, spacing: 14) {
                         Label("Activity", systemImage: "text.bubble").font(.headline)
 
@@ -302,6 +308,7 @@ struct ITSMRecordDetail: View {
                         }
                     }
                     .itsmPanel()
+                    #endif
 
                     if let message {
                         Label(message, systemImage: "info.circle")

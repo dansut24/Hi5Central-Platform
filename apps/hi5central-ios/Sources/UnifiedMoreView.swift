@@ -116,7 +116,7 @@ struct UnifiedMoreView: View {
                 }
             }
             Section {
-                Text("Hi5Central Mobile v0.2.0 — native integrated ITSM + RMM. Access is controlled by your tenant subscription and staff permissions.")
+                Text("Hi5Central Mobile v0.4.0 — native integrated ITSM + RMM. Access is controlled by your tenant subscription and staff permissions.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
