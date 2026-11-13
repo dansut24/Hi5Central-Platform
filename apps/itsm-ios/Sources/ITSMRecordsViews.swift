@@ -152,6 +152,11 @@ struct ITSMRecordDetail: View {
     @State private var selectedApproval: ITSMPendingApproval?
     @State private var selectedTask: ITSMTask?
     @State private var editing = false
+    #if HI5CENTRAL_UNIFIED
+    @EnvironmentObject private var combinedAuth: UnifiedMobileAuth
+    @EnvironmentObject private var combinedRMM: RMMClient
+    @State private var showingDevicePicker = false
+    #endif
 
     private var item: ITSMRecord { current ?? record }
 
@@ -188,6 +193,26 @@ struct ITSMRecordDetail: View {
                         detail("Updated", itsmDate(item.updatedAt))
                     }
                     .itsmPanel()
+
+                    #if HI5CENTRAL_UNIFIED
+                    if combinedAuth.hasRMM && combinedRMM.authenticated {
+                        VStack(alignment: .leading, spacing: 9) {
+                            Label("Remote support", systemImage: "desktopcomputer")
+                                .font(.headline)
+                            Button {
+                                showingDevicePicker = true
+                            } label: {
+                                Label("Find device and open RMM tools",
+                                      systemImage: "arrow.up.right.square")
+                            }
+                            .buttonStyle(.bordered)
+                            Text("Search authorised company devices or open the explicitly linked endpoint.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .itsmPanel()
+                    }
+                    #endif
 
                     ITSMRecordSupportingSections(
                         record: item,
@@ -294,6 +319,11 @@ struct ITSMRecordDetail: View {
             .sheet(item: $selectedTask) { task in
                 ITSMTaskDetail(task: task).environmentObject(client)
             }
+            #if HI5CENTRAL_UNIFIED
+            .sheet(isPresented: $showingDevicePicker) {
+                UnifiedTicketDevicePicker(record: item)
+            }
+            #endif
             .sheet(isPresented: $editing) {
                 ITSMEditRecord(record: item, onUpdated: { updated in
                     current = updated
