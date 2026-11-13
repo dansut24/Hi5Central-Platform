@@ -131,6 +131,7 @@ struct UnifiedMobileRoot: View {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { showingApprovals = false }
                             }
+                        }
                 }
                 .environmentObject(itsm)
             }
