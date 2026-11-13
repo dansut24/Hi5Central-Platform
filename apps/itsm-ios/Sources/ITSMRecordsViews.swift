@@ -55,6 +55,7 @@ struct ITSMRecordsView: View {
     @State private var selected: ITSMRecord?
     @State private var search = ""
     @State private var filter = "All"
+    @State private var showingCreate = false
 
     private let filters = ["All", "Open", "Incident", "Service Request", "Problem", "Change"]
     private var visible: [ITSMRecord] {
@@ -111,7 +112,19 @@ struct ITSMRecordsView: View {
         .navigationTitle("Records")
         .searchable(text: $search, prompt: "Search reference, requester or title")
         .refreshable { await client.refreshRecords() }
+        .sheet(isPresented: $showingCreate) {
+            ITSMRecordComposer()
+                .environmentObject(client)
+        }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showingCreate = true
+                } label: {
+                    Label("New", systemImage: "plus")
+                }
+                .accessibilityLabel("Create a new ITSM record")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     Task { await client.refreshRecords() }
@@ -138,6 +151,7 @@ struct ITSMRecordDetail: View {
     @State private var showingResolveWarning = false
     @State private var selectedApproval: ITSMPendingApproval?
     @State private var selectedTask: ITSMTask?
+    @State private var editing = false
 
     private var item: ITSMRecord { current ?? record }
 
@@ -280,9 +294,20 @@ struct ITSMRecordDetail: View {
             .sheet(item: $selectedTask) { task in
                 ITSMTaskDetail(task: task).environmentObject(client)
             }
+            .sheet(isPresented: $editing) {
+                ITSMEditRecord(record: item, onUpdated: { updated in
+                    current = updated
+                })
+                .environmentObject(client)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                }
+                if !item.isServiceRequest {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Edit") { editing = true }
+                    }
                 }
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
