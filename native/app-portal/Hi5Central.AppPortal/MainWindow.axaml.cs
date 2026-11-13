@@ -298,7 +298,7 @@ public sealed partial class MainWindow : Window
         {
             "pending" => ("Awaiting approval", "#FFF4DE", "#A56400"),
             "approved" => ("Approved", "#E9F8F1", "#147A59"),
-            "fulfilled" => ("Installed", "#E9F8F1", "#147A59"),
+            "fulfilled" => ("Installation dispatched", "#EAF3FF", "#1769D2"),
             "rejected" => ("Request declined", "#FFF0F2", "#B63D4C"),
             "cancelled" => ("Cancelled", "#F2F4F7", "#64748B"),
             _ => ("Requested", "#EAF3FF", "#1769D2"),
@@ -521,6 +521,8 @@ public sealed partial class MainWindow : Window
         PortalInstallation? installation,
         PortalRequest? request)
     {
+        var requiresFreshInventory = string.Equals(
+            app.SourceType, "custom", StringComparison.OrdinalIgnoreCase);
         var requestIsCurrent = request is not null
             && (installation is null
                 || request.CreatedAt is null
@@ -557,7 +559,21 @@ public sealed partial class MainWindow : Window
                 return AppPortalStatus.Installing;
             }
 
-            if (app.Installed || lifecycle == "succeeded" || job == "completed")
+            if (requiresFreshInventory)
+            {
+                // An Agent job succeeding is not enough to certify a custom
+                // application. Only fresh matching Windows inventory can.
+                if (app.Installed && app.InventoryFresh)
+                {
+                    return AppPortalStatus.Installed;
+                }
+
+                if (!app.InventoryFresh || lifecycle == "succeeded" || job == "completed")
+                {
+                    return AppPortalStatus.VerificationPending;
+                }
+            }
+            else if (app.Installed || lifecycle == "succeeded" || job == "completed")
             {
                 return AppPortalStatus.Installed;
             }
@@ -567,6 +583,11 @@ public sealed partial class MainWindow : Window
             {
                 return app.Installed ? AppPortalStatus.Installed : AppPortalStatus.Failed;
             }
+        }
+
+        if (requiresFreshInventory && !app.InventoryFresh)
+        {
+            return AppPortalStatus.VerificationPending;
         }
 
         if (app.Installed)
