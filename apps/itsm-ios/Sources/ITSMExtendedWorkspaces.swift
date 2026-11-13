@@ -241,6 +241,9 @@ struct ITSMMetadataDetail: View {
     let item: [String: Any]
     let fields: [(String, String)]
     @Environment(\.dismiss) private var dismiss
+    #if HI5CENTRAL_UNIFIED
+    @Environment(\.openURL) private var openURL
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -251,6 +254,20 @@ struct ITSMMetadataDetail: View {
                         LabeledContent(name, value: value.isEmpty ? "—" : value)
                     }
                 }
+                #if HI5CENTRAL_UNIFIED
+                if let id = item["linkedDeviceId"] as? String,
+                   UUID(uuidString: id) != nil,
+                   let url = URL(string: "hi5central://device/\(id)") {
+                    Section("Remote Monitoring") {
+                        Button {
+                            dismiss()
+                            openURL(url)
+                        } label: {
+                            Label("Open linked device in RMM", systemImage: "desktopcomputer")
+                        }
+                    }
+                }
+                #endif
             }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
