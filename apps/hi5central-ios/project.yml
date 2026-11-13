@@ -30,8 +30,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central"
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "3"
         UILaunchStoryboardName: LaunchScreen
         NSSupportsLiveActivities: false
         CFBundleURLTypes:
