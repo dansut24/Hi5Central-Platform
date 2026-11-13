@@ -158,7 +158,9 @@ class NativeViewerActivity:Activity(),ViewerEvents {
     }
 
     override fun status(text:String){
-        runOnUiThread{if(::statusTextView.isInitialized)statusTextView.text="Hi5Central · "+text}
+        // The transport is created after statusTextView is initialised in onCreate.
+        // Avoid an ambiguous callable reference with the ViewerEvents.status method.
+        runOnUiThread { statusTextView.text = "Hi5Central · " + text }
     }
     override fun size(width:Int,height:Int){
         videoW=width;videoH=height
