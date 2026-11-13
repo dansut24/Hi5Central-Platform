@@ -21,12 +21,20 @@ export function findInstalledApp({ app, inventory, now = Date.now() }) {
     const publisher = normalized(item?.publisher)
     const nameOk = candidate === expectedName ||
       (candidate.startsWith(expectedName) && candidate.length <= expectedName.length + 22)
-    const publisherOk = !expectedPublisher || !publisher ||
-      publisher.includes(expectedPublisher) || expectedPublisher.includes(publisher)
+    const publisherOk = !expectedPublisher || (Boolean(publisher) && (
+      publisher.includes(expectedPublisher) || expectedPublisher.includes(publisher)))
     return nameOk && publisherOk
   })
-  const selected = matches.find(item => text(item.version) === text(app.version)) || matches[0]
-  if (!selected) return { installed: false, inventoryFresh: true, installedVersion: '', detection: 'not_detected' }
+  // Do not certify a different installed version as the published revision.
+  const requiredVersion = text(app.version)
+  const selected = requiredVersion
+    ? matches.find(item => text(item.version) === requiredVersion)
+    : matches[0]
+  if (!selected) return {
+    installed: false, inventoryFresh: true,
+    installedVersion: text(matches[0]?.version),
+    detection: matches.length ? 'version_mismatch' : 'not_detected',
+  }
   return {
     installed: true,
     inventoryFresh: true,
