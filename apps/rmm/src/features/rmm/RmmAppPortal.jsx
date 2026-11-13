@@ -161,11 +161,19 @@ export function RmmAppPortal() {
         })
         const inspection = uploaded.inspection || {}
         const detected = inspection.metadata || {}
+        const suggestedName = uploadFile.name.replace(/\.(msi|exe)$/i, '').replace(/[_-]+/g, ' ').trim()
         const enriched = {
           ...custom,
+          name: (!custom.name || custom.name === suggestedName) && detected.name ? detected.name : custom.name,
           publisher: custom.publisher || detected.publisher || '',
           version: custom.version || detected.version || '',
           expectedSigner: inspection.signer || '',
+        }
+        if (enriched.name !== custom.name) {
+          await updateAppPortalDraft(appId, {
+            name: enriched.name, publisher: enriched.publisher,
+            description: custom.description, category: custom.category,
+          })
         }
         setCustom(enriched)
         setUploadProgress({ percent: 100, name: uploadFile.name,
@@ -306,10 +314,16 @@ export function RmmAppPortal() {
                   if (file?.name) {
                     const type = file.name.toLowerCase().endsWith('.msi') ? 'msi'
                       : file.name.toLowerCase().endsWith('.exe') ? 'exe' : ''
-                    if (type && type !== custom.installerType) {
-                      setCustom((previous) => ({ ...previous, installerType: type }))
-                      setMessage('Installer type automatically set to ' + type.toUpperCase() + '. Check the silent install arguments before publishing.')
-                    }
+                    const suggestedName = file.name.replace(/\.(msi|exe)$/i, '').replace(/[_-]+/g, ' ').trim()
+                    setCustom((previous) => ({
+                      ...previous,
+                      name: previous.name || suggestedName,
+                      installerType: type || previous.installerType,
+                      installArguments: type === 'exe' && previous.installerType === 'msi' && previous.installArguments === '/qn /norestart'
+                        ? '' : (previous.installArguments || (type === 'msi' ? '/qn /norestart' : '')),
+                    }))
+                    if (type === 'msi') setMessage('MSI package selected. Hi5Central will read the product name, publisher, version, product code and signature automatically.')
+                    else if (type === 'exe') setMessage('EXE selected. Hi5Central will read available file metadata and signature automatically. Vendor-specific silent installation arguments may still be needed.')
                   }
                 }} />
                 <small>{uploadFile ? uploadFile.name + ' · ' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB · ready to upload'
