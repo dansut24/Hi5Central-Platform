@@ -60,3 +60,27 @@ export async function uploadAppPortalPackage(revisionId, file) {
   }
   return payload
 }
+
+
+export const updateAppPortalDraft = (appId, payload) => request('/api/v1/rmm/app-portal/apps/' + encodeURIComponent(appId), {
+  method: 'PATCH', body: JSON.stringify(payload),
+})
+
+export async function uploadAppPortalLogo(appId, file) {
+  if (!file || file.type !== 'image/png' || file.size > 512 * 1024) {
+    throw new Error('Choose a PNG logo smaller than 512 KB.')
+  }
+  const response = await fetch(API_BASE + '/api/v1/rmm/app-portal/apps/' + encodeURIComponent(appId) + '/icon', {
+    method: 'PUT', credentials: 'include', cache: 'no-store',
+    headers: { 'Content-Type': 'image/png' },
+    body: file,
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Logo upload failed.')
+    error.status = response.status
+    error.data = payload
+    throw error
+  }
+  return payload
+}
