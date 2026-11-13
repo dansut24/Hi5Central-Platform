@@ -101,9 +101,6 @@ export function RmmAppPortal() {
 
   const saveCustom = (publish = false) => {
     if (!custom.name.trim()) return setError('Enter an application name.')
-    if (publish && !String(custom.expectedSigner || custom.publisher || '').trim()) {
-      return setError('Provide the Publisher or the installer signing name under Advanced options.')
-    }
     if (logoFile && (logoFile.type !== 'image/png' || logoFile.size > 512 * 1024)) {
       return setError('Choose a PNG logo smaller than 512 KB.')
     }
@@ -159,14 +156,27 @@ export function RmmAppPortal() {
       }
       if (custom.sourceKind === 'upload' && uploadFile) {
         setUploadProgress({ percent: 0, name: uploadFile.name, state: 'uploading' })
-        await uploadAppPortalPackage(revisionId, uploadFile, (percent) => {
+        const uploaded = await uploadAppPortalPackage(revisionId, uploadFile, (percent) => {
           setUploadProgress({ percent, name: uploadFile.name, state: percent === 100 ? 'verifying' : 'uploading' })
         })
-        setUploadProgress({ percent: 100, name: uploadFile.name, state: 'complete' })
+        const inspection = uploaded.inspection || {}
+        const detected = inspection.metadata || {}
+        const enriched = {
+          ...custom,
+          publisher: custom.publisher || detected.publisher || '',
+          version: custom.version || detected.version || '',
+          expectedSigner: inspection.signer || '',
+        }
+        setCustom(enriched)
+        setUploadProgress({ percent: 100, name: uploadFile.name,
+          state: inspection.status === 'unsigned' ? 'unsigned' : inspection.status === 'pending_windows_trust' ? 'complete' : 'inspection_failed' })
         setUploadFile(null)
         setEditingDraft({
-          appId, revisionId, fingerprint: revisionFingerprint(custom), hasPackage: true,
+          appId, revisionId, fingerprint: revisionFingerprint(enriched), hasPackage: true,
         })
+        if (!publish && inspection.status === 'unsigned') {
+          setMessage('Package stored. This installer is unsigned, so publishing and installation remain blocked until a signed build is provided.')
+        }
       }
       if (publish) {
         await publishAppPortalRevision(revisionId)
@@ -265,8 +275,8 @@ export function RmmAppPortal() {
         {editingDraft && <p className="app-portal-draft-hint">Editing a saved application. Its details can be updated without creating another app. A changed installer revision needs a fresh package.</p>}
         <div className="app-portal-form-grid">
           <label>Name<input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
-          <label>Publisher<input value={custom.publisher} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
-          <label>Version<input value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
+          <label>Publisher (automatic)<input placeholder="Detected from installer" value={custom.publisher} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
+          <label>Version (automatic)<input placeholder="Detected from installer" value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
           <label>Installer<select value={custom.installerType} onChange={(e) => { setCustom({ ...custom, installerType: e.target.value }); setUploadFile(null) }}><option value="msi">MSI</option><option value="exe">EXE</option></select></label>
         </div>
         <label>Description<textarea rows="3" value={custom.description} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
@@ -306,8 +316,10 @@ export function RmmAppPortal() {
                   : 'Choose the original installer file. SHA-256 is calculated and checked automatically.'}</small>
               </label>
               {uploadProgress && <div className="app-portal-upload-progress" role="status" aria-live="polite">
-                <strong>{uploadProgress.state === 'complete' ? 'Package uploaded and verified'
-                  : uploadProgress.state === 'verifying' ? 'Transfer complete — awaiting server verification'
+                <strong>{uploadProgress.state === 'complete' ? 'Package saved — signer identified; Windows trust check runs on install'
+                  : uploadProgress.state === 'unsigned' ? 'Package saved — unsigned installer cannot be deployed'
+                  : uploadProgress.state === 'inspection_failed' ? 'Package saved — signer inspection could not be completed'
+                  : uploadProgress.state === 'verifying' ? 'Transfer complete — inspecting the installer'
                   : 'Uploading package to Hi5Central'}</strong>
                 <span>{uploadProgress.percent}% · {uploadProgress.name}</span>
                 <progress max="100" value={uploadProgress.percent} />
@@ -340,7 +352,7 @@ export function RmmAppPortal() {
             <label>Expected signing name (if different from Publisher)
               <input placeholder={custom.publisher || 'Authenticode signer organisation'}
                 value={custom.expectedSigner} onChange={(e) => setCustom({ ...custom, expectedSigner: e.target.value })} />
-              <small>The Windows Agent checks the installer's digital signature. If its signer differs from the Publisher, enter the actual signing name.</small>
+              <small>For uploaded MSI/EXE files this is identified by Hi5Central. Windows independently verifies certificate trust before executing the installer. Only external installer URLs may need an explicit value.</small>
             </label>
             <div className="app-portal-form-grid">
               <label>Execution<select value={custom.executionMode} onChange={(e) => setCustom({ ...custom, executionMode: e.target.value })}>

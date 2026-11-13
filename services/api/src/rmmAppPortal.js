@@ -13,6 +13,7 @@ import { softwarePatchPlan } from './rmmPatching.js'
 import { resolveSession } from './session.js'
 import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
 import { findInstalledApp } from './appPortalInventory.js'
+import { inspectUploadedPackage } from './appPortalPackageInspection.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -722,19 +723,61 @@ export function registerRmmAppPortalRoutes(app) {
     }
 
     const sha256 = digest.digest('hex').toUpperCase()
+    // Read MSI properties / EXE version resources and embedded Authenticode
+    // certificate only. Never run the uploaded binary to inspect its metadata.
+    // The endpoint's WinVerifyTrust remains the final trust check before any install.
+    let inspection
+    try {
+      inspection = await inspectUploadedPackage(absolute, revision.installer_type)
+    } catch (error) {
+      console.error('App Portal package inspection unavailable', revision.id, error)
+      inspection = { status: 'inspection_unavailable', signer: '', digestMatched: false,
+        metadata: { name: '', publisher: '', version: '', productCode: '' } }
+    }
+    const metadata = object(inspection.metadata)
     const sourceConfig = {
       storageKey,
       fileName,
       byteSize,
       contentType: clean(c.req.header('content-type') || 'application/octet-stream').slice(0, 150),
       uploadedAt: new Date().toISOString(),
+      inspection: {
+        status: inspection.status,
+        signer: clean(inspection.signer),
+        digestMatched: Boolean(inspection.digestMatched),
+        metadata,
+        inspectedAt: new Date().toISOString(),
+        finalWindowsTrustRequired: true,
+      },
     }
+    // Package identity is learned automatically where MSI metadata is available.
+    // Explicit administrator names/versions are never silently overwritten.
     await pool.query(
       `UPDATE rmm_app_portal_revisions
-          SET source_config=$3::jsonb,sha256=$4,validation='{}'::jsonb
+          SET source_config=$3::jsonb,sha256=$4,
+              expected_signer=CASE WHEN $5<>'' THEN $5 ELSE '' END,
+              version=CASE WHEN version='' AND $6<>'' THEN $6 ELSE version END,
+              verification=CASE
+                WHEN verification->>'method'='uninstall_registry' AND $7<>'' THEN
+                  jsonb_set(jsonb_set(verification,'{productCode}',to_jsonb($7::text)),
+                    '{displayNameContains}',to_jsonb($8::text))
+                ELSE verification END,
+              validation=$9::jsonb
         WHERE id=$1 AND tenant_id=$2`,
-      [revision.id, auth.session.tenant_id, JSON.stringify(sourceConfig), sha256])
-    return c.json({ success: true, sha256, byteSize, fileName })
+      [revision.id, auth.session.tenant_id, JSON.stringify(sourceConfig), sha256,
+       inspection.status === 'pending_windows_trust' ? clean(inspection.signer) : '',
+       clean(metadata.version), clean(metadata.productCode), clean(metadata.name),
+       JSON.stringify({ state: inspection.status, inspectedAt: new Date().toISOString() })])
+    await pool.query(
+      `UPDATE rmm_app_portal_apps
+          SET publisher=CASE WHEN publisher='' AND $3<>'' THEN $3 ELSE publisher END,
+              updated_at=now()
+        WHERE id=$1 AND tenant_id=$2`,
+      [revision.app_id, auth.session.tenant_id, clean(metadata.publisher)])
+    return c.json({
+      success: true, sha256, byteSize, fileName,
+      inspection: sourceConfig.inspection,
+    })
   })
 
   app.post('/api/v1/rmm/app-portal/revisions/:revisionId/publish', async (c) => {
@@ -767,6 +810,16 @@ export function registerRmmAppPortalRoutes(app) {
         expectedSigner: revision.expected_signer, installerType: revision.installer_type,
         execution: revision.execution, verification: revision.verification,
       })
+      if (revision.source_kind === 'upload') {
+        const inspection = object(object(revision.source_config).inspection)
+        if (inspection.status === 'unsigned') {
+          errors = errors.filter(error => error !== 'An expected Authenticode signer is required.')
+          errors.push('This installer is unsigned. Hi5Central cannot deploy it while Windows signature verification is mandatory.')
+        } else if (inspection.status !== 'pending_windows_trust' || !clean(inspection.signer)) {
+          errors = errors.filter(error => error !== 'An expected Authenticode signer is required.')
+          errors.push('The installer signing certificate could not be identified automatically. Please upload a valid signed installer.')
+        }
+      }
     }
     if (errors.length) {
       await pool.query(`UPDATE rmm_app_portal_revisions SET validation=$2::jsonb WHERE id=$1`,

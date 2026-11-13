@@ -68,9 +68,10 @@ export function customRevisionPayload(form) {
     sourceKind: form.sourceKind,
     sourceConfig: form.sourceKind === 'direct_url' ? { url: form.url } : {},
     sha256: form.sourceKind === 'direct_url' ? form.sha256 : '',
-    // Agent still requires a verified Authenticode signer. Start from the
-    // publisher field, allow an explicit override when the signing identity differs.
-    expectedSigner: String(form.expectedSigner || form.publisher || '').trim(),
+    // The uploaded installer is inspected server-side for its actual signer.
+    // Publisher is product metadata, not proof of an Authenticode identity.
+    // External URLs may still require an explicitly pinned signing name.
+    expectedSigner: String(form.expectedSigner || '').trim(),
     installerType: form.installerType,
     execution: {
       mode: form.executionMode,

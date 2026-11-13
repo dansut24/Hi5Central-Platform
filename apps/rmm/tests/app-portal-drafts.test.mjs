@@ -102,10 +102,10 @@ test('automatic detection needs no technical product-code or path from admins', 
   })
   assert.equal(inventoryDisplayName('7 Zip'), '7-Zip')
 })
-test('publisher is used as signing-name suggestion but never bypasses signer verification', () => {
+test('publisher is not misused as certificate signer; advanced override stays supported', () => {
   const form = { ...emptyCustom, name:'Sample', publisher:'Example Software Ltd', version:'1.0' }
   const payload = customRevisionPayload(form)
-  assert.equal(payload.expectedSigner,'Example Software Ltd')
+  assert.equal(payload.expectedSigner,'')
   form.expectedSigner='Example Code Signing LLC'
   assert.equal(customRevisionPayload(form).expectedSigner,'Example Code Signing LLC')
 })
