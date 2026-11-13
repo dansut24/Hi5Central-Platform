@@ -23,7 +23,7 @@ class NativeViewerActivity:Activity(),ViewerEvents {
     }
     private var transport:NativeViewerTransport?=null
     private var renderer:SurfaceViewRenderer?=null
-    private lateinit var status:TextView
+    private lateinit var statusTextView:TextView
     private var videoW=0
     private var videoH=0
     private val chatLog=mutableListOf<String>()
@@ -53,13 +53,13 @@ class NativeViewerActivity:Activity(),ViewerEvents {
             setPadding(14,8,10,8)
             setBackgroundColor(Color.rgb(25,30,42))
         }
-        status=TextView(this).apply{
+        statusTextView=TextView(this).apply{
             text="Hi5Central · Connecting"
             textSize=15f
             setTextColor(Color.WHITE)
             layoutParams=LinearLayout.LayoutParams(0,ViewGroup.LayoutParams.WRAP_CONTENT,1f)
         }
-        header.addView(status)
+        header.addView(statusTextView)
         val close=Button(this).apply{
             text="Close"
             setOnClickListener{
@@ -158,7 +158,7 @@ class NativeViewerActivity:Activity(),ViewerEvents {
     }
 
     override fun status(text:String){
-        runOnUiThread{if(::status.isInitialized)status.text="Hi5Central · "+text}
+        runOnUiThread{if(::statusTextView.isInitialized)statusTextView.text="Hi5Central · "+text}
     }
     override fun size(width:Int,height:Int){
         videoW=width;videoH=height
