@@ -1,0 +1,34 @@
+name: RMM device attention safety
+on:
+  push:
+    paths:
+      - 'apps/rmm/src/lib/deviceAttention.js'
+      - 'apps/rmm/src/features/rmm/RmmPlatformApp.jsx'
+      - 'apps/rmm/tests/device-attention.test.mjs'
+      - '.github/workflows/rmm-device-attention.yml'
+  pull_request:
+    paths:
+      - 'apps/rmm/src/lib/deviceAttention.js'
+      - 'apps/rmm/src/features/rmm/RmmPlatformApp.jsx'
+      - 'apps/rmm/tests/device-attention.test.mjs'
+      - '.github/workflows/rmm-device-attention.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  device-attention:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check device health observation contract
+        run: node --test apps/rmm/tests/device-attention.test.mjs
+      - name: Ensure static alert fixture is never used by the RMM workspace
+        run: |
+          if grep -q 'rmmAlerts' apps/rmm/src/features/rmm/RmmPlatformApp.jsx; then
+            echo "::error::RMM workspace must not use static rmmAlerts fixture"
+            exit 1
+          fi

@@ -51,10 +51,8 @@ import {
   X,
   Zap,
 } from 'lucide-react'
-import {
-  rmmAlerts,
-  rmmDevices,
-} from '../../data/rmmData.js'
+import { rmmDevices } from '../../data/rmmData.js'
+import { deviceAttentionItems } from '../../lib/deviceAttention.js'
 import { deploymentConfig } from '../../lib/deploymentConfig.js'
 import { describeInventoryAge } from '../../lib/inventoryFreshness.js'
 import { resolveTenantSurface, rmmDevicePath, rmmPath, rmmRouteFromLocation } from '../../lib/tenantSurface.js'
@@ -134,7 +132,7 @@ const pageMeta = {
   sites: ['Estate structure', 'Sites', 'Organise devices by location and define default management scope.'],
   groups: ['Estate structure', 'Device groups', 'Build static and dynamic scopes for policy and deployment targeting.'],
   'network-discovery': ['Network management', 'Network discovery', 'Discover and inventory SNMP devices through managed on-site Agent probes.'],
-  alerts: ['Monitoring', 'Alerts', 'Prioritise active monitoring conditions and device health exceptions.'],
+  alerts: ['Device health', 'Device attention', 'Review currently offline and unhealthy devices. Monitoring-policy event history requires a dedicated evaluator.'],
   remote: ['Support', 'Remote access', 'Connect to managed endpoints using remote desktop, terminal and file tools.'],
   connect: ['Support', 'Hi5Central Connect', 'Create one-time support codes for unmanaged Windows computers.'],
   patching: ['Maintenance', 'Patching', 'Track update compliance, maintenance rings and deployment failures.'],
@@ -223,11 +221,11 @@ function securityTone(value = '') {
   return 'neutral'
 }
 
-function RmmSidebar({ activeView, canAdmin = false, canAudit = false, canItsm = true, canRemote = false, collapsed = false, currentUser, mobileOpen, navigate, onClose, onToggleCollapse, tenantName }) {
+function RmmSidebar({ activeView, devices = [], canAdmin = false, canAudit = false, canItsm = true, canRemote = false, collapsed = false, currentUser, mobileOpen, navigate, onClose, onToggleCollapse, tenantName }) {
   const visibleNavigation = navigation.filter((item) => (!item.requiresAudit || canAudit) && (!item.requiresRemote || canRemote))
   const sections = [...new Set(visibleNavigation.map((item) => item.section))]
   const platform = deploymentConfig()
-  return <><button className={`rmm-sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} aria-label="Close navigation" onClick={onClose} type="button" /><aside className={`rmm-sidebar ${mobileOpen ? 'mobile-open' : ''}`}><div className="rmm-sidebar-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" /><div><strong>{tenantName}</strong><span>RMM</span></div><button className="rmm-mobile-close" onClick={onClose} type="button"><X size={19} /></button></div><nav className="rmm-nav">{sections.map((section) => <div className="rmm-nav-section" key={section}><span>{section}</span>{visibleNavigation.filter((item) => item.section === section).map(({ id, label, icon: Icon }) => <button className={activeView === id ? 'active' : ''} key={id} onClick={() => navigate(id)} type="button"><Icon size={17} /><span>{label}</span>{id === 'alerts' && <b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b>}</button>)}</div>)}</nav><div className="rmm-sidebar-footer"><div className="rmm-product-switches">{platform.appUrl && canItsm ? <a href={platform.appUrl}>ITSM</a> : null}{platform.adminUrl && canAdmin ? <a href={platform.adminUrl}>Admin</a> : null}</div><div className="rmm-sidebar-identity"><span>{String(currentUser?.name || currentUser?.username || 'HC').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join('') || 'HC'}</span><div><strong>{currentUser?.name || currentUser?.username || 'Hi5Central'}</strong><small>RMM workspace</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div></aside></>
+  return <><button className={`rmm-sidebar-backdrop ${mobileOpen ? 'is-open' : ''}`} aria-label="Close navigation" onClick={onClose} type="button" /><aside className={`rmm-sidebar ${mobileOpen ? 'mobile-open' : ''}`}><div className="rmm-sidebar-brand"><img src={`${import.meta.env.BASE_URL}hi5central-logo.png`} alt="Hi5Central" /><div><strong>{tenantName}</strong><span>RMM</span></div><button className="rmm-mobile-close" onClick={onClose} type="button"><X size={19} /></button></div><nav className="rmm-nav">{sections.map((section) => <div className="rmm-nav-section" key={section}><span>{section}</span>{visibleNavigation.filter((item) => item.section === section).map(({ id, label, icon: Icon }) => <button className={activeView === id ? 'active' : ''} key={id} onClick={() => navigate(id)} type="button"><Icon size={17} /><span>{label}</span>{id === 'alerts' && <b>{deviceAttentionItems(devices).length}</b>}</button>)}</div>)}</nav><div className="rmm-sidebar-footer"><div className="rmm-product-switches">{platform.appUrl && canItsm ? <a href={platform.appUrl}>ITSM</a> : null}{platform.adminUrl && canAdmin ? <a href={platform.adminUrl}>Admin</a> : null}</div><div className="rmm-sidebar-identity"><span>{String(currentUser?.name || currentUser?.username || 'HC').split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0]?.toUpperCase()).join('') || 'HC'}</span><div><strong>{currentUser?.name || currentUser?.username || 'Hi5Central'}</strong><small>RMM workspace</small></div></div><button className="rmm-sidebar-toggle" onClick={onToggleCollapse} title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} type="button">{collapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}<span>{collapsed ? 'Expand' : 'Collapse'}</span></button></div></aside></>
 }
 
 function RmmPageSkeleton() {
@@ -241,7 +239,7 @@ function RmmPageSkeleton() {
   </div>
 }
 
-function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, onOpenAccount, query, setQuery }) {
+function RmmTopbar({ activeView, devices = [], currentUser, navigate, onLogout, onMenu, onOpenAccount, query, setQuery }) {
   const [, title] = pageMeta[activeView] || pageMeta.dashboard
   const platform = deploymentConfig()
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
@@ -251,7 +249,7 @@ function RmmTopbar({ activeView, currentUser, navigate, onLogout, onMenu, onOpen
     <div className="rmm-topbar-title"><button className="rmm-menu-button" onClick={onMenu} type="button"><Menu size={19} /></button><div><span>RMM {platform.runtimeEnvironment !== 'live' ? <b className={`hi5-env-badge hi5-env-${platform.runtimeEnvironment}`}>{platform.runtimeEnvironment.toUpperCase()}{platform.featureMode === 'all_enabled' ? ' · ALL FEATURES' : ''}</b> : null}</span><strong>{title}</strong></div></div>
     <label className="rmm-global-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search devices, users, sites, groups, alerts…" /></label>
     <div className="rmm-topbar-actions">
-      <button className="rmm-notification-button" onClick={() => navigate('alerts')} title="Alerts" type="button"><Bell size={17} /><b>{rmmAlerts.filter((alert) => alert.status === 'Open').length}</b></button>
+      <button className="rmm-notification-button" onClick={() => navigate('alerts')} title="Device attention" type="button"><Bell size={17} /><b>{deviceAttentionItems(devices).length}</b></button>
       <button aria-expanded={profileMenuOpen} aria-haspopup="menu" className="rmm-profile-button" onClick={() => setProfileMenuOpen((open) => !open)} title="Profile" type="button"><span>{initials}</span></button>
       {profileMenuOpen ? <div className="rmm-profile-menu" role="menu">
         <div className="rmm-profile-summary"><span>{initials}</span><div><strong>{currentUser?.name || 'Hi5Central user'}</strong><small>{currentUser?.username || 'Hi5Central account'}</small></div></div>
@@ -353,8 +351,9 @@ function RmmDashboard({ canAudit = false, devices = [], navigate, openDevice }) 
   const warning = devices.filter((device) => device.health === 'Warning').length
   const criticalDevices = devices.filter((device) => device.health === 'Critical').length
   const attentionDevices = devices.filter((device) => device.health !== 'Healthy')
-  const criticalAlerts = rmmAlerts.filter((alert) => alert.severity === 'Critical' && alert.status === 'Open').length
-  const openAlerts = rmmAlerts.filter((alert) => alert.status === 'Open').length
+  const attentionItems = deviceAttentionItems(devices)
+  const criticalAlerts = attentionItems.filter((alert) => alert.severity === 'Critical').length
+  const openAlerts = attentionItems.length
   const patchReported = devices.filter((device) => Number.isFinite(Number(device.patchCompliance)))
   const compliance = patchReported.length ? Math.round(patchReported.reduce((sum, device) => sum + Number(device.patchCompliance), 0) / patchReported.length) : null
   const pendingPatches = devices.reduce((sum, device) => sum + (Number.isFinite(Number(device.pendingPatches)) ? Number(device.pendingPatches) : 0), 0)
@@ -411,7 +410,7 @@ function RmmDashboard({ canAudit = false, devices = [], navigate, openDevice }) 
       <PageHeading activeView="dashboard" action={<div className="rmm-dashboard-heading-actions"><span className="rmm-dashboard-live-state"><i /> Live estate</span><button className="rmm-primary compact" onClick={() => navigate('devices')} type="button"><Monitor size={16} /> View devices</button></div>} />
       <div className="rmm-metric-grid">
         <button onClick={() => navigate('devices')} type="button"><span className="rmm-metric-icon blue"><Monitor size={19} /></span><div><span>Managed devices</span><strong>{devices.length}</strong><small>{devices.length ? `${online} online · ${offline} offline` : 'No devices enrolled'}</small></div><ChevronRight size={16} /></button>
-        <button onClick={() => navigate('alerts')} type="button"><span className="rmm-metric-icon red"><AlertTriangle size={19} /></span><div><span>Critical alerts</span><strong>{criticalAlerts}</strong><small>{openAlerts ? `${openAlerts} open alert${openAlerts === 1 ? '' : 's'}` : 'No real alerts reported'}</small></div><ChevronRight size={16} /></button>
+        <button onClick={() => navigate('alerts')} type="button"><span className="rmm-metric-icon red"><AlertTriangle size={19} /></span><div><span>Critical device conditions</span><strong>{criticalAlerts}</strong><small>{openAlerts ? `${openAlerts} device condition${openAlerts === 1 ? '' : 's'} require attention` : 'No device conditions reported'}</small></div><ChevronRight size={16} /></button>
         <button onClick={() => navigate('patching')} type="button"><span className="rmm-metric-icon green"><ShieldCheck size={19} /></span><div><span>Patch compliance</span><strong>{compliance == null ? '—' : `${compliance}%`}</strong><small>{patchReported.length ? `${pendingPatches} pending update${pendingPatches === 1 ? '' : 's'}` : 'Not reported by enrolled devices'}</small></div><ChevronRight size={16} /></button>
         <button onClick={() => navigate('devices')} type="button"><span className="rmm-metric-icon violet"><Zap size={19} /></span><div><span>Active jobs</span><strong>{operationsLoading ? '—' : activeJobs}</strong><small>{operationsLoading ? 'Loading live execution state…' : recentJobs.length ? `${recentJobs.length} recent execution${recentJobs.length === 1 ? '' : 's'} loaded` : 'No queued or running device work'}</small></div><ChevronRight size={16} /></button>
       </div>
@@ -429,8 +428,8 @@ function RmmDashboard({ canAudit = false, devices = [], navigate, openDevice }) 
         </section>
 
         <section className="rmm-card">
-          <div className="rmm-card-heading"><div><span className="rmm-eyebrow">Monitoring</span><h2>Alerts requiring attention</h2></div><button onClick={() => navigate('alerts')} type="button">Open alerts <ChevronRight size={14} /></button></div>
-          <div className="rmm-alert-mini-list">{rmmAlerts.slice(0, 5).map((alert) => <article key={alert.id}><span className={`rmm-alert-dot ${healthClass(alert.severity)}`} /><div><strong>{alert.title}</strong><span>{alert.device}</span><small>{alert.raised} · {alert.policy}</small></div><StatusPill tone={healthClass(alert.severity)}>{alert.severity}</StatusPill></article>)}{!rmmAlerts.length && <div className="rmm-empty compact"><CheckCircle2 size={22} /><strong>No real alert records</strong><span>Alerts will appear here when monitoring reports a condition.</span></div>}</div>
+          <div className="rmm-card-heading"><div><span className="rmm-eyebrow">Monitoring</span><h2>Device conditions requiring attention</h2></div><button onClick={() => navigate('alerts')} type="button">Review devices <ChevronRight size={14} /></button></div>
+          <div className="rmm-alert-mini-list">{attentionItems.slice(0, 5).map((alert) => <article key={alert.id}><span className={`rmm-alert-dot ${healthClass(alert.severity)}`} /><div><strong>{alert.title}</strong><span>{alert.device}</span><small>{alert.raised} · {alert.policy}</small></div><StatusPill tone={healthClass(alert.severity)}>{alert.severity}</StatusPill></article>)}{!attentionItems.length && <div className="rmm-empty compact"><CheckCircle2 size={22} /><strong>No device-health exceptions shown</strong><span>These are live inventory conditions, not persisted monitoring-policy alerts. Configure Policies to define monitoring rules.</span></div>}</div>
         </section>
       </div>
 
@@ -682,7 +681,7 @@ function DeviceOverview({ device, deviceAlerts, monitoringResolution, patchPolic
         </section>
 
         <section className="rmm-card">
-          <div className="rmm-card-heading"><div><span className="rmm-eyebrow">Monitoring</span><h2>Current alerts</h2></div><button onClick={() => navigate('alerts')} type="button">All alerts <ChevronRight size={14} /></button></div>
+          <div className="rmm-card-heading"><div><span className="rmm-eyebrow">Monitoring</span><h2>Device health conditions</h2></div><button onClick={() => navigate('alerts')} type="button">Review conditions <ChevronRight size={14} /></button></div>
           <div className="rmm-alert-mini-list">
             {deviceAlerts.length ? deviceAlerts.map((alert) => (
               <article key={alert.id}>
@@ -690,7 +689,7 @@ function DeviceOverview({ device, deviceAlerts, monitoringResolution, patchPolic
                 <div><strong>{alert.title}</strong><span>{alert.detail}</span><small>{alert.raised} · {alert.policy}</small></div>
                 <div className="rmm-device-alert-actions"><StatusPill tone={healthClass(alert.severity)}>{alert.severity}</StatusPill><button onClick={() => onCreateIncident(alert)} type="button">Create incident</button></div>
               </article>
-            )) : <div className="rmm-empty compact"><CheckCircle2 size={24} /><strong>No active alerts</strong><span>This device currently passes its assigned monitoring policies.</span></div>}
+            )) : <div className="rmm-empty compact"><CheckCircle2 size={24} /><strong>No device-health conditions</strong><span>No offline or degraded status reported in the latest inventory. Monitoring-policy results are not displayed here.</span></div>}
           </div>
         </section>
       </div>
@@ -1918,7 +1917,7 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   const [monitoringResolution, setMonitoringResolution] = useState(null)
   const [patchPolicyResolution, setPatchPolicyResolution] = useState(null)
   const [patchPolicyLoading, setPatchPolicyLoading] = useState(true)
-  const deviceAlerts = rmmAlerts.filter((alert) => alert.deviceId === device.id)
+  const deviceAlerts = deviceAttentionItems([device])
   const relatedTickets = tickets.filter((ticket) => (
     ticket.rmmDeviceId === device.id
     || ticket.rmmDeviceName === device.name
@@ -2485,11 +2484,47 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   )
 }
 
-function RmmAlerts({ onCreateIncident, openDevice, query }) {
+function RmmAlerts({ devices = [], onCreateIncident, openDevice, query }) {
   const [severity, setSeverity] = useState('All')
   const normalized = query.trim().toLowerCase()
-  const visible = rmmAlerts.filter((alert) => (severity === 'All' || alert.severity === severity) && (!normalized || [alert.title, alert.device, alert.detail, alert.policy].join(' ').toLowerCase().includes(normalized)))
-  return <><PageHeading activeView="alerts" action={<button className="rmm-primary compact" type="button"><CheckCircle2 size={16} /> Acknowledge selected</button>} /><div className="rmm-list-toolbar"><div className="rmm-filter-pills">{['All', 'Critical', 'High', 'Medium'].map((value) => <button className={severity === value ? 'active' : ''} key={value} onClick={() => setSeverity(value)} type="button">{value}</button>)}</div><span>{visible.filter((alert) => alert.status === 'Open').length} open</span></div><div className="rmm-alert-list">{visible.map((alert) => <article className="rmm-card" key={alert.id}><div className={`rmm-alert-severity ${healthClass(alert.severity)}`}><AlertTriangle size={19} /></div><div className="rmm-alert-copy"><div><span className="rmm-eyebrow">{alert.id} · {alert.policy}</span><h2>{alert.title}</h2><p>{alert.detail}</p></div><button onClick={() => openDevice(rmmDevices.find((device) => device.id === alert.deviceId))} type="button"><Monitor size={14} /> {alert.device}</button></div><div className="rmm-alert-meta"><StatusPill tone={healthClass(alert.severity)}>{alert.severity}</StatusPill><span>{alert.raised}</span><button onClick={() => onCreateIncident?.({ alert, device: rmmDevices.find((device) => device.id === alert.deviceId) })} type="button">Create incident</button><button type="button">Acknowledge</button><button type="button"><MoreHorizontal size={16} /></button></div></article>)}</div></>
+  const items = deviceAttentionItems(devices)
+  const visible = items.filter((item) => (
+    (severity === 'All' || item.severity === severity) &&
+    (!normalized || [item.title, item.device, item.detail, item.policy].join(' ').toLowerCase().includes(normalized))
+  ))
+  return <>
+    <PageHeading activeView="alerts" />
+    <div className="rmm-card" role="status">
+      <strong>Live device-health observations</strong>
+      <p>Offline, critical and warning states are taken from the current RMM device inventory.
+        This view does not yet show evaluated monitoring-policy events or an acknowledgement history.
+        Configure and assign monitoring rules under Policies.</p>
+    </div>
+    <div className="rmm-list-toolbar">
+      <div className="rmm-filter-pills">{['All', 'Critical', 'High', 'Medium'].map((value) =>
+        <button className={severity === value ? 'active' : ''} key={value} onClick={() => setSeverity(value)} type="button">{value}</button>
+      )}</div>
+      <span>{visible.length} device condition{visible.length === 1 ? '' : 's'}</span>
+    </div>
+    <div className="rmm-alert-list">
+      {visible.map((item) => {
+        const device = devices.find((entry) => entry.id === item.deviceId)
+        return <article className="rmm-card" key={item.id}>
+          <div className={'rmm-alert-severity ' + healthClass(item.severity)}><AlertTriangle size={19} /></div>
+          <div className="rmm-alert-copy">
+            <div><span className="rmm-eyebrow">DEVICE HEALTH · {item.policy}</span><h2>{item.title}</h2><p>{item.detail}</p></div>
+            {device ? <button onClick={() => openDevice(device)} type="button"><Monitor size={14} /> {item.device}</button> : null}
+          </div>
+          <div className="rmm-alert-meta">
+            <StatusPill tone={healthClass(item.severity)}>{item.severity}</StatusPill>
+            <span>{item.raised}</span>
+            {device && onCreateIncident ? <button onClick={() => onCreateIncident({ alert: item, device })} type="button">Create incident</button> : null}
+          </div>
+        </article>
+      })}
+      {!visible.length && <div className="rmm-empty"><CheckCircle2 size={22} /><strong>No matching device-health conditions</strong><span>This does not confirm that monitoring policies have run successfully.</span></div>}
+    </div>
+  </>
 }
 
 function RmmSoftware({ devices = [] }) {
@@ -2774,13 +2809,13 @@ export function RmmPlatformApp({ accent, accountSession = null, canAdmin = false
   }
 
   function renderPage() {
-    if (dataLoading && !selectedDevice && ['dashboard','devices','sites','groups','network-discovery','patching','software','reports'].includes(activeView)) return <RmmPageSkeleton />
+    if (dataLoading && !selectedDevice && ['dashboard','devices','sites','groups','network-discovery','alerts','patching','software','reports'].includes(activeView)) return <RmmPageSkeleton />
     if (selectedDevice) return <RmmDeviceDetail canBackstageRemote={canBackstageRemote} canRemote={canRemote} device={selectedDevice} initialSection={selectedDeviceSection} initialTool={selectedDeviceTool} navigate={navigate} onDeviceRoute={(nextSection, nextTool = '') => { setSelectedDeviceSection(nextSection || 'overview'); setSelectedDeviceTool(nextTool || ''); window.history.pushState({}, '', rmmDevicePath(undefined, selectedDevice.id, nextSection || 'overview', nextTool || '')) }} onBack={() => { setSelectedDeviceId(''); setSelectedDeviceSection('overview'); setSelectedDeviceTool(''); window.history.pushState({}, '', rmmPath(undefined, 'devices')) }} onCreateIncident={createItsmIncident} tickets={tickets} />
     if (activeView === 'devices') return <RmmDeviceInventory devices={devices} sites={sites} openDevice={openDevice} query={query} preset={inventoryPreset} onPresetApplied={() => setInventoryPreset(null)} />
     if (activeView === 'sites') return <RmmSitesManagement devices={devices} query={query} sites={sites} onSitesChange={onSitesChange} onViewDevices={openScopedInventory} />
     if (activeView === 'groups') return <RmmDeviceGroupsManagement devices={devices} query={query} sites={sites} onViewDevices={openScopedInventory} />
     if (activeView === 'network-discovery') return <RmmNetworkDiscovery />
-    if (activeView === 'alerts') return <RmmAlerts onCreateIncident={createItsmIncident} openDevice={openDevice} query={query} />
+    if (activeView === 'alerts') return <RmmAlerts devices={devices} onCreateIncident={createItsmIncident} openDevice={openDevice} query={query} />
     if (activeView === 'connect') return <RmmConnect />
     if (activeView === 'remote') return <RmmDeviceInventory devices={devices} sites={sites} openDevice={openDevice} query={query} preset={inventoryPreset} onPresetApplied={() => setInventoryPreset(null)} />
     if (activeView === 'patching') return <RmmPatchingWorkspace devices={devices} />
@@ -2797,9 +2832,9 @@ export function RmmPlatformApp({ accent, accountSession = null, canAdmin = false
 
   return (
     <div className={`rmm-app sidebar-${sidebarMode}`} data-accent={accent} data-density={density} data-nav-side={navSide} data-theme={theme} style={rmmAccentStyle(accent)}>
-      <RmmSidebar activeView={visibleActiveView} canAdmin={canAdmin} canAudit={canAudit} canItsm={canItsm} canRemote={canRemote} collapsed={sidebarMode === 'collapsed'} currentUser={currentUser} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} onToggleCollapse={() => setSidebarMode?.(sidebarMode === 'collapsed' ? 'expanded' : 'collapsed')} tenantName={tenantName} />
+      <RmmSidebar devices={devices} activeView={visibleActiveView} canAdmin={canAdmin} canAudit={canAudit} canItsm={canItsm} canRemote={canRemote} collapsed={sidebarMode === 'collapsed'} currentUser={currentUser} mobileOpen={mobileOpen} navigate={navigate} onClose={() => setMobileOpen(false)} onToggleCollapse={() => setSidebarMode?.(sidebarMode === 'collapsed' ? 'expanded' : 'collapsed')} tenantName={tenantName} />
       <div className="rmm-shell-main">
-        <RmmTopbar activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} onOpenAccount={openAccount} query={query} setQuery={setQuery} />
+        <RmmTopbar devices={devices} activeView={visibleActiveView} currentUser={currentUser} navigate={navigate} onLogout={handleLogout} onMenu={() => setMobileOpen(true)} onOpenAccount={openAccount} query={query} setQuery={setQuery} />
         <main className={`rmm-main-scroll ${activeView === 'profile' ? 'rmm-account-mounted' : ''}`}><div className={`rmm-page ${activeView === 'profile' ? 'rmm-page-profile' : ''}`}>{renderPage()}</div></main>
       </div>
       {toast && <div className="rmm-toast"><CheckCircle2 size={16} />{toast}</div>}
