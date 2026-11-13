@@ -13,6 +13,10 @@ struct UnifiedHomeDashboard: View {
     let openDevices: () -> Void
     let openTasks: () -> Void
     let openAlerts: () -> Void
+    let newRecord: () -> Void
+    let findDevice: () -> Void
+    let openApprovals: () -> Void
+    let openSearch: () -> Void
 
     @State private var selectedRecord: ITSMRecord?
     @State private var selectedDevice: ManagedDevice?
@@ -61,12 +65,28 @@ struct UnifiedHomeDashboard: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Overview").font(.title2.weight(.bold))
-                    Text("Your service desk and devices, together")
+                    Text("Your workspace").font(.title2.weight(.bold))
+                    Text("Tickets, devices and today's priorities in one place")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                UnifiedQuickLaunch(
+                    hasITSM: showITSM,
+                    hasRMM: showRMM,
+                    newRecord: newRecord,
+                    findDevice: findDevice,
+                    approvals: openApprovals,
+                    search: openSearch
+                )
+
+                UnifiedAttentionPanel(
+                    hasITSM: showITSM,
+                    hasRMM: showRMM,
+                    showApprovals: openApprovals,
+                    showDevices: openDevices
+                )
 
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 11) {
                     if showITSM {
