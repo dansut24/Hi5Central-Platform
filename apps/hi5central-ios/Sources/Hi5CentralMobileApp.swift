@@ -37,6 +37,7 @@ struct UnifiedMobileRoot: View {
 
     @AppStorage("hi5central.mobile.company") private var savedTenant = ""
     @AppStorage("hi5central.mobile.lockedTenants") private var lockedTenants = ""
+    @AppStorage("hi5central.mobile.lockTimeouts") private var lockTimeouts = ""
     @AppStorage("hi5central.mobile.foregroundAlerts") private var foregroundAlerts = false
     @AppStorage("hi5central.mobile.workspaceFocus") private var workspaceFocus = "all"
     @AppStorage("hi5central.mobile.appearance") private var appearance = "system"
@@ -58,6 +59,7 @@ struct UnifiedMobileRoot: View {
     @State private var isLocked = false
     @State private var unlockBusy = false
     @State private var unlockIssue: String?
+    @State private var lastBackgroundAt: Date?
     @State private var itsmReady = false
     @State private var rmmReady = false
 
@@ -204,6 +206,7 @@ struct UnifiedMobileRoot: View {
                 pendingLink = nil
                 linkedRecord = nil
                 unlockIssue = nil
+                lastBackgroundAt = nil
                 itsm.clearLocalSession()
                 rmm.clearLocalSession()
                 loadedTenant = ""
@@ -245,9 +248,12 @@ struct UnifiedMobileRoot: View {
             if !loading { openPendingLink() }
         }
         .onChange(of: scenePhase) { phase in
-            if phase == .background && auth.authenticated &&
-               UnifiedSecurityRules.isLocked(tenant: auth.tenant, settings: lockedTenants) {
-                isLocked = true
+            guard auth.authenticated,
+                  UnifiedSecurityRules.isLocked(tenant: auth.tenant, settings: lockedTenants)
+            else { return }
+            if phase == .background {
+                lastBackgroundAt = Date()
+                // Remote sessions must not remain unattended in the grace period.
                 rmmState.viewer = nil
                 linkedDevice = nil
                 linkedRecord = nil
@@ -256,6 +262,16 @@ struct UnifiedMobileRoot: View {
                 showingFindDevice = false
                 showingApprovals = false
                 searching = false
+                if UnifiedSecurityRules.timeout(tenant: auth.tenant, settings: lockTimeouts) == 0 {
+                    isLocked = true
+                }
+            } else if phase == .active, let backgroundAt = lastBackgroundAt {
+                lastBackgroundAt = nil
+                let allowance = UnifiedSecurityRules.timeout(
+                    tenant: auth.tenant, settings: lockTimeouts)
+                if Date().timeIntervalSince(backgroundAt) >= Double(allowance) {
+                    isLocked = true
+                }
             }
         }
         .task(id: "\(auth.tenant)|\(auth.authenticated)|\(scenePhase == .active)|\(foregroundAlerts)") {

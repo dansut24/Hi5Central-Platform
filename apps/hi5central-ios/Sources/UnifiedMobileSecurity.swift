@@ -7,6 +7,34 @@ enum UnifiedSecurityRules {
     static func isLocked(tenant: String, settings: String) -> Bool {
         settings.split(separator: ",").contains { String($0) == tenant }
     }
+    /// Per-company grace period, expressed in seconds. Unrecognised values fail closed.
+    static let allowedTimeouts: [Int] = [0, 60, 300, 900, 1800]
+
+    static func timeout(tenant: String, settings: String) -> Int {
+        guard !tenant.isEmpty else { return 0 }
+        let entry = settings.split(separator: ";").first {
+            $0.split(separator: "=", maxSplits: 1).first.map(String.init) == tenant
+        }
+        let raw = entry?.split(separator: "=", maxSplits: 1).last
+        guard let raw, let value = Int(raw),
+              allowedTimeouts.contains(value) else { return 0 }
+        return value
+    }
+
+    static func setTimeout(tenant: String, settings: String, seconds: Int) -> String {
+        guard !tenant.isEmpty, allowedTimeouts.contains(seconds) else { return settings }
+        var entries: [String: Int] = [:]
+        for entry in settings.split(separator: ";") {
+            let parts = entry.split(separator: "=", maxSplits: 1)
+            if parts.count == 2, let value = Int(parts[1]),
+               allowedTimeouts.contains(value) {
+                entries[String(parts[0])] = value
+            }
+        }
+        entries[tenant] = seconds
+        return entries.keys.sorted().map { "\($0)=\(entries[$0] ?? 0)" }.joined(separator: ";")
+    }
+
     static func updated(tenant: String, settings: String, enabled: Bool) -> String {
         var tenants = Set(settings.split(separator: ",").map(String.init))
         if enabled { tenants.insert(tenant) } else { tenants.remove(tenant) }
@@ -72,6 +100,7 @@ struct UnifiedPrivacyLockScreen: View {
 struct UnifiedPrivacyAndAlertsView: View {
     @EnvironmentObject private var auth: UnifiedMobileAuth
     @AppStorage("hi5central.mobile.lockedTenants") private var lockedTenants = ""
+    @AppStorage("hi5central.mobile.lockTimeouts") private var lockTimeouts = ""
     @AppStorage("hi5central.mobile.foregroundAlerts") private var foregroundAlerts = false
     @State private var issue: String?
     @State private var busy = false
@@ -87,11 +116,27 @@ struct UnifiedPrivacyAndAlertsView: View {
                     Task { await changeLock() }
                 }
                 .disabled(busy)
+                Picker("Require unlock after", selection: Binding<Int>(
+                    get: {
+                        UnifiedSecurityRules.timeout(tenant: auth.tenant, settings: lockTimeouts)
+                    },
+                    set: { newTimeout in
+                        lockTimeouts = UnifiedSecurityRules.setTimeout(
+                            tenant: auth.tenant, settings: lockTimeouts, seconds: newTimeout)
+                    }
+                )) {
+                    Text("Immediately").tag(0)
+                    Text("1 minute").tag(60)
+                    Text("5 minutes").tag(300)
+                    Text("15 minutes").tag(900)
+                    Text("30 minutes").tag(1800)
+                }
+                .disabled(!appLockEnabled)
                 LabeledContent("Current company", value: auth.companyName.isEmpty ? auth.tenant : auth.companyName)
             } header: {
                 Text("Privacy")
             } footer: {
-                Text("Optional Face ID, Touch ID or device passcode protects the open app on return from the background. The server still requires your staff session and MFA. Leaving the app closes any active remote viewer when this lock is enabled.")
+                Text("When the app stays in the background longer than the chosen time, Face ID, Touch ID or your device passcode is required again. The default is immediate. Remote viewing is closed when you leave the app, even during the grace period. MFA and server session expiry still apply.")
             }
             Section {
                 Button(foregroundAlerts ? "Disable foreground alerts" : "Enable foreground alerts") {
@@ -120,10 +165,11 @@ struct UnifiedPrivacyAndAlertsView: View {
         busy = true
         defer { busy = false }
         if await UnifiedDeviceAuthentication.confirm("Confirm changes to your Hi5Central app lock.") {
+            let next = !appLockEnabled
             lockedTenants = UnifiedSecurityRules.updated(
-                tenant: auth.tenant, settings: lockedTenants, enabled: !appLockEnabled)
-            issue = appLockEnabled ? "App lock is enabled for this company." :
-                "App lock preference updated."
+                tenant: auth.tenant, settings: lockedTenants, enabled: next)
+            issue = next ? "App lock enabled. Your chosen grace period applies after leaving the app." :
+                "App lock disabled for this company."
         } else {
             issue = "Device authentication was unavailable or cancelled. No settings were changed."
         }
