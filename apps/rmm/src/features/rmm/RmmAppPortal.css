@@ -64,3 +64,10 @@
 .app-portal-custom small{font-weight:450;font-size:11px;line-height:1.55;color:var(--rmm-muted,#667085)}
 @media(min-width:901px){.app-portal-app-row{grid-template-columns:42px minmax(0,1fr) auto auto auto auto}}
 @media(max-width:900px){.app-portal-logo-action{grid-column:2;justify-self:start}}
+
+.app-portal-upload-progress{display:grid;gap:5px;border:1px solid var(--rmm-border,#dfe5ec);border-radius:10px;padding:10px 12px;font-size:12px}
+.app-portal-upload-progress progress{height:7px;width:100%;accent-color:var(--rmm-accent,#2177d4)}
+.app-portal-upload-progress span{font-size:11px;color:var(--rmm-muted,#667085)}
+
+.app-portal-package-ready{color:#18845d!important;font-weight:650!important}
+.app-portal-package-missing{color:#b65b1b!important;font-weight:650!important}

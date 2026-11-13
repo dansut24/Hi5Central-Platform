@@ -31,6 +31,7 @@ export function RmmAppPortal() {
   const [catalogueId, setCatalogueId] = useState('')
   const [custom, setCustom] = useState(emptyCustom)
   const [uploadFile, setUploadFile] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(null)
   const [logoFile, setLogoFile] = useState(null)
   const [editingDraft, setEditingDraft] = useState(null)
   const [assignment, setAssignment] = useState(emptyAssignment)
@@ -75,6 +76,7 @@ export function RmmAppPortal() {
     const form = formFromDraft(app, revision)
     setCustom(form)
     setUploadFile(null)
+    setUploadProgress(null)
     setLogoFile(null)
     setEditingDraft({
       appId: app.id,
@@ -91,6 +93,7 @@ export function RmmAppPortal() {
     setEditingDraft(null)
     setCustom(emptyCustom)
     setUploadFile(null)
+    setUploadProgress(null)
     setLogoFile(null)
     setError('')
     setMessage('')
@@ -103,6 +106,14 @@ export function RmmAppPortal() {
     }
     if (logoFile && (logoFile.type !== 'image/png' || logoFile.size > 512 * 1024)) {
       return setError('Choose a PNG logo smaller than 512 KB.')
+    }
+    if (uploadFile && custom.sourceKind === 'upload') {
+      const suffix = '.' + custom.installerType
+      if (!uploadFile.name.toLowerCase().endsWith(suffix)) {
+        return setError('Installer type mismatch: choose a ' + suffix.toUpperCase() + ' file, or change the Installer type.')
+      }
+      if (!uploadFile.size) return setError('This installer file is empty. Choose the original MSI or EXE.')
+      if (uploadFile.size > 2 * 1024 * 1024 * 1024) return setError('Installer exceeds the 2 GB upload limit.')
     }
     const payload = customRevisionPayload(custom)
     // Never overwrite a previously uploaded package while it is still the
@@ -147,7 +158,11 @@ export function RmmAppPortal() {
         setLogoFile(null)
       }
       if (custom.sourceKind === 'upload' && uploadFile) {
-        await uploadAppPortalPackage(revisionId, uploadFile)
+        setUploadProgress({ percent: 0, name: uploadFile.name, state: 'uploading' })
+        await uploadAppPortalPackage(revisionId, uploadFile, (percent) => {
+          setUploadProgress({ percent, name: uploadFile.name, state: percent === 100 ? 'verifying' : 'uploading' })
+        })
+        setUploadProgress({ percent: 100, name: uploadFile.name, state: 'complete' })
         setUploadFile(null)
         setEditingDraft({
           appId, revisionId, fingerprint: revisionFingerprint(custom), hasPackage: true,
@@ -207,7 +222,15 @@ export function RmmAppPortal() {
               ? <img src={app.icon_url} alt="" loading="lazy" className="app-portal-logo" />
               : <PackagePlus size={19} />}</span>
             <span className="app-portal-app-main"><strong>{app.name}</strong>
-              <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small></span>
+              <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small>
+              {app.source_type === 'custom' && app.publish_state === 'draft' &&
+                <small className={draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
+                  ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
+                  {draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
+                    ? 'Installer uploaded — package ready'
+                    : 'Installer not uploaded — select Edit draft to upload an MSI or EXE'}
+                </small>}
+            </span>
             <span className={'app-portal-state ' + (app.status === 'published' ? 'good' : '')}>{stateLabel(app)}</span>
             <span className="app-portal-count">{bundle.assignments.filter((row) => row.app_id === app.id).length} assignments</span>
             <label className="app-portal-logo-action" aria-label={'Upload logo for ' + app.name}>
@@ -264,9 +287,32 @@ export function RmmAppPortal() {
               <label>Expected SHA-256 (external URL only)<input placeholder="64-character hash" value={custom.sha256} onChange={(e) => setCustom({ ...custom, sha256: e.target.value })} />
                 <small>Required for externally hosted URLs because the vendor might replace the file. Uploads are hashed automatically.</small></label>
             </>
-          : <label>Installer package<input type="file" accept={custom.installerType === 'msi' ? '.msi' : '.exe'} onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-              <small>{uploadFile ? uploadFile.name + ' · ' + Math.ceil(uploadFile.size / 1024 / 1024) + ' MB' : 'Stored privately. SHA-256 is calculated and checked automatically.'}</small>
-            </label>}
+          : <>
+              <label>Installer package (MSI or EXE)
+                <input type="file" accept=".msi,.exe" onChange={(e) => {
+                  const file = e.target.files?.[0] || null
+                  setUploadFile(file)
+                  setUploadProgress(null)
+                  if (file?.name) {
+                    const type = file.name.toLowerCase().endsWith('.msi') ? 'msi'
+                      : file.name.toLowerCase().endsWith('.exe') ? 'exe' : ''
+                    if (type && type !== custom.installerType) {
+                      setCustom((previous) => ({ ...previous, installerType: type }))
+                      setMessage('Installer type automatically set to ' + type.toUpperCase() + '. Check the silent install arguments before publishing.')
+                    }
+                  }
+                }} />
+                <small>{uploadFile ? uploadFile.name + ' · ' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB · ready to upload'
+                  : 'Choose the original installer file. SHA-256 is calculated and checked automatically.'}</small>
+              </label>
+              {uploadProgress && <div className="app-portal-upload-progress" role="status" aria-live="polite">
+                <strong>{uploadProgress.state === 'complete' ? 'Package uploaded and verified'
+                  : uploadProgress.state === 'verifying' ? 'Transfer complete — awaiting server verification'
+                  : 'Uploading package to Hi5Central'}</strong>
+                <span>{uploadProgress.percent}% · {uploadProgress.name}</span>
+                <progress max="100" value={uploadProgress.percent} />
+              </div>}
+            </>}
         <label>Silent install arguments
           <input placeholder={custom.installerType === 'msi' ? '/qn /norestart' : '/S'}
             disabled={custom.executionMode !== 'arguments'}
@@ -311,7 +357,7 @@ export function RmmAppPortal() {
           </div>
         </details>
         <div className="app-portal-draft-actions">
-          <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {editingDraft ? 'Save / retry upload' : 'Save draft'}</button>
+          <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {uploadFile ? 'Upload installer & save draft' : editingDraft ? 'Save draft' : 'Save draft'}</button>
           <button className="rmm-primary" disabled={busy} onClick={() => saveCustom(true)} type="button"><CheckCircle2 size={15} /> {editingDraft ? 'Publish this application' : 'Create & publish revision'}</button>
         </div>
       </section>
