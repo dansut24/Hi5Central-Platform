@@ -611,6 +611,164 @@ final class ITSMClient: ObservableObject {
         return key
     }
 
+    // MARK: - Service Catalogue and Service Request operations
+    // All requests reuse the authenticated tenant session and server-side permissions.
+
+    func mobileServiceCatalogue() async throws -> [[String: Any]] {
+        let data = try await request("/api/v1/catalogue")
+        return itsmRows(data["items"]).filter { item in
+            (item["active"] as? Bool) != false &&
+            itsmString(item["kind"]) == "request-form" &&
+            itsmString(item["requestType"]) == "Service Request" &&
+            itsmString(item["visibility"]) != "hidden"
+        }
+    }
+
+    func newServiceRequest(itemKey: String, summary: String, details: String,
+                           priority: String, values: [String: Any],
+                           requesterPersonId: String = "") async throws -> ITSMRecord {
+        guard !itemKey.isEmpty,
+              summary.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3,
+              summary.count <= 240, details.count <= 20_000,
+              ["Low","Medium","High","Critical"].contains(priority) else {
+            throw ITSMAPIError.forbidden("Enter a valid request summary, description and priority.")
+        }
+        var body: [String: Any] = [
+            "catalogueItemId": itemKey,
+            "summary": summary.trimmingCharacters(in: .whitespacesAndNewlines),
+            "fields": values,
+            "details": ["text": details],
+            "urgency": priority
+        ]
+        if !requesterPersonId.isEmpty { body["requesterPersonId"] = requesterPersonId }
+        let created = try await request("/api/v1/service-requests", method: "POST", body: body)
+        await refreshRecords()
+        return ITSMRecord(created, isServiceRequest: true)
+    }
+
+    func postServiceRequestNote(for record: ITSMRecord, body: String,
+                                customer: Bool) async throws -> ITSMRecord {
+        guard record.isServiceRequest,
+              !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              body.count <= 20_000 else { throw ITSMAPIError.invalidResponse }
+        let id = try safeReference(record.id)
+        _ = try await request("/api/v1/service-requests/\(id)/activities",
+                              method: "POST",
+                              body: ["kind": customer ? "customer" : "work", "text": body])
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        return updated
+    }
+
+    func updateServiceRequest(_ record: ITSMRecord, priority: String? = nil,
+                              team: String? = nil, assignee: String? = nil) async throws -> ITSMRecord {
+        guard record.isServiceRequest else { throw ITSMAPIError.invalidResponse }
+        var fields: [String: Any] = [:]
+        if let priority { fields["priority"] = priority }
+        if let team { fields["team"] = team }
+        if let assignee { fields["assignee"] = assignee }
+        guard !fields.isEmpty else { return record }
+        _ = try await request("/api/v1/service-requests/\(safeReference(record.id))",
+                              method: "PATCH", body: fields)
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        return updated
+    }
+
+    func transitionServiceRequest(_ record: ITSMRecord, to target: String,
+                                  values: [String: Any] = [:]) async throws -> ITSMRecord {
+        guard record.isServiceRequest else { throw ITSMAPIError.invalidResponse }
+        _ = try await request("/api/v1/service-requests/\(safeReference(record.id))/transition",
+                              method: "POST", body: [
+            "targetStatus": target,
+            "values": values
+        ])
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        return updated
+    }
+
+    func updateServiceRequestTask(_ record: ITSMRecord, taskKey: String,
+                                  status: String, completionNotes: String = "") async throws -> ITSMRecord {
+        guard record.isServiceRequest,
+              ["Ready","In Progress","Completed","Blocked"].contains(status) else {
+            throw ITSMAPIError.invalidResponse
+        }
+        var fields: [String: Any] = ["status": status]
+        if status == "Completed" {
+            guard !completionNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ITSMAPIError.forbidden("Add task completion notes.")
+            }
+            fields["completionNotes"] = completionNotes
+        }
+        _ = try await request(
+            "/api/v1/service-requests/\(safeReference(record.id))/tasks/\(safeReference(taskKey))",
+            method: "PATCH", body: fields)
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        await refreshTasks()
+        return updated
+    }
+
+    func uploadServiceRequestAttachment(_ record: ITSMRecord, fileURL: URL,
+                                        customer: Bool) async throws -> ITSMRecord {
+        guard record.isServiceRequest else { throw ITSMAPIError.invalidResponse }
+        let access = fileURL.startAccessingSecurityScopedResource()
+        defer { if access { fileURL.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: fileURL)
+        guard !data.isEmpty && data.count <= 6 * 1024 * 1024 else {
+            throw ITSMAPIError.forbidden("Select a file under 6 MB. Your tenant may enforce a lower limit.")
+        }
+        let mime = "application/octet-stream"
+        _ = try await request(
+            "/api/v1/service-requests/\(safeReference(record.id))/attachments",
+            method: "POST", body: [
+                "fileName": fileURL.lastPathComponent,
+                "mimeType": mime,
+                "contentBase64": data.base64EncodedString(),
+                "visibility": customer ? "customer" : "internal"
+            ])
+        let updated = try await detail(for: record)
+        await refreshRecords()
+        return updated
+    }
+
+    func downloadServiceRequestAttachment(_ record: ITSMRecord,
+                                          attachment: [String: Any]) async throws -> URL {
+        guard record.isServiceRequest else { throw ITSMAPIError.invalidResponse }
+        try checkTenant()
+        let reference = try safeReference(record.id)
+        let attachmentId = itsmString(attachment["id"])
+        guard UUID(uuidString: attachmentId) != nil else { throw ITSMAPIError.invalidResponse }
+        let path = "/api/v1/service-requests/\(reference)/attachments/\(attachmentId)"
+        guard let url = URL(string: path, relativeTo: base)?.absoluteURL,
+              url.scheme == "https", url.host == base.host else { throw ITSMAPIError.invalidResponse }
+        var req = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData,
+                             timeoutInterval: 45)
+        req.httpMethod = "GET"
+        req.setValue("https://\(tenant).hi5central.com", forHTTPHeaderField: "Origin")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode) else {
+            throw ITSMAPIError.forbidden("Unable to download this attachment.")
+        }
+        guard !data.isEmpty && data.count <= 25 * 1024 * 1024 else {
+            throw ITSMAPIError.forbidden("Attachment is empty or too large to export from mobile.")
+        }
+        let sourceName = itsmString(attachment["fileName"])
+        let safeName = sourceName.replacingOccurrences(
+            of: #"[^A-Za-z0-9._ -]"#, with: "_", options: .regularExpression)
+        let finalName = safeName.isEmpty || safeName == "." || safeName == ".."
+            ? "attachment" : safeName
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hi5central-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory,
+                                                withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent(finalName)
+        try data.write(to: target, options: .atomic)
+        return target
+    }
+
     /// Clear old tenant state synchronously before a different company signs in.
     func clearLocalSession() {
         authenticated = false
