@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -11,6 +11,7 @@ import { agentSocketForDevice, authenticateAgent, sendAgentMessage } from './rmm
 import { recordRmmActivity } from './rmmActivity.js'
 import { softwarePatchPlan } from './rmmPatching.js'
 import { resolveSession } from './session.js'
+import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -477,6 +478,91 @@ export function registerRmmAppPortalRoutes(app) {
         'X-Hi5-SHA256': clean(row.sha256),
       },
     })
+  })
+
+
+  // Public raster assets at 192-bit unguessable URLs so Windows Self Service
+  // can load images over HTTPS without having a technician login cookie.
+  app.get('/api/v1/rmm/app-portal/icons/:token', async (c) => {
+    const token = clean(c.req.param('token'))
+    if (!/^[a-f0-9]{48}$/.test(token)) return c.json({ error: 'Logo not found.' }, 404)
+    const url = String(deployment.apiUrl || ('https://api.' + deployment.rootDomain))
+      .replace(/\/$/, '') + '/api/v1/rmm/app-portal/icons/' + token
+    const exists = await pool.query(
+      'SELECT 1 FROM rmm_app_portal_apps WHERE icon_url=$1 AND status<>$2 LIMIT 1',
+      [url, 'archived'])
+    if (!exists.rowCount) return c.json({ error: 'Logo not found.' }, 404)
+    const filename = path.join(packageRoot, '_icons', token + '.png')
+    let info
+    try { info = await stat(filename) } catch { return c.json({ error: 'Logo not found.' }, 404) }
+    if (!info.isFile() || info.size <= 0 || info.size > MAX_APP_PORTAL_ICON_BYTES) {
+      return c.json({ error: 'Logo unavailable.' }, 404)
+    }
+    return new Response(Readable.toWeb(createReadStream(filename)), {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Length': String(info.size),
+        'Cache-Control': 'public, max-age=86400, immutable',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+      },
+    })
+  })
+
+  app.put('/api/v1/rmm/app-portal/apps/:appId/icon', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    const appId = clean(c.req.param('appId'))
+    if (!uuid(appId)) return c.json({ error: 'Application id is invalid.' }, 400)
+    const found = await pool.query(
+      "SELECT id,icon_url FROM rmm_app_portal_apps WHERE id=$1 AND tenant_id=$2 AND status<>'archived' LIMIT 1",
+      [appId, auth.session.tenant_id])
+    if (!found.rowCount) return c.json({ error: 'Application was not found.' }, 404)
+    if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'image/png') {
+      return c.json({ error: 'Choose a PNG logo.' }, 415)
+    }
+    const length = Number(c.req.header('content-length') || 0)
+    if (length > MAX_APP_PORTAL_ICON_BYTES) {
+      return c.json({ error: 'Logo exceeds the 512 KB limit.' }, 413)
+    }
+    if (!c.req.raw.body) return c.json({ error: 'Logo file is required.' }, 400)
+    let total = 0
+    const chunks = []
+    try {
+      for await (const chunk of Readable.fromWeb(c.req.raw.body)) {
+        total += chunk.byteLength
+        if (total > MAX_APP_PORTAL_ICON_BYTES) {
+          return c.json({ error: 'Logo exceeds the 512 KB limit.' }, 413)
+        }
+        chunks.push(Buffer.from(chunk))
+      }
+    } catch {
+      return c.json({ error: 'Logo upload was interrupted.' }, 400)
+    }
+    const data = Buffer.concat(chunks)
+    const validation = inspectAppPortalIcon(data)
+    if (validation.error) return c.json({ error: validation.error }, 400)
+
+    const token = randomBytes(24).toString('hex')
+    const folder = path.join(packageRoot, '_icons')
+    const filePath = path.join(folder, token + '.png')
+    const url = String(deployment.apiUrl || ('https://api.' + deployment.rootDomain))
+      .replace(/\/$/, '') + '/api/v1/rmm/app-portal/icons/' + token
+    await mkdir(folder, { recursive: true })
+    try {
+      await writeFile(filePath, data, { flag: 'wx', mode: 0o600 })
+      const updated = await pool.query(
+        "UPDATE rmm_app_portal_apps SET icon_url=$3,updated_by_user_id=$4,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND status<>'archived' RETURNING id,icon_url",
+        [appId, auth.session.tenant_id, url, auth.session.user_id])
+      if (!updated.rowCount) throw new Error('Application not found.')
+    } catch (error) {
+      await rm(filePath, { force: true }).catch(() => null)
+      console.error('App Portal logo upload failed', appId, error)
+      return c.json({ error: 'Unable to save the application logo.' }, 500)
+    }
+    return c.json({ success: true, iconUrl: url, width: validation.width, height: validation.height })
   })
 
   app.get('/api/v1/rmm/app-portal', async (c) => {
