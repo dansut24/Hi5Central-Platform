@@ -98,17 +98,34 @@ struct ITSMDashboard: View {
                     VStack(alignment: .leading, spacing: 11) {
                         Label("Records created · last 30 days", systemImage: "chart.xyaxis.line")
                             .font(.headline)
-                        Chart {
-                            ForEach(Array(trend.enumerated()), id: \.offset) { item in
-                                LineMark(x: .value("Day", item.element.0),
-                                         y: .value("New records", item.element.1))
-                                    .foregroundStyle(itsmAccent)
-                                PointMark(x: .value("Day", item.element.0),
-                                          y: .value("New records", item.element.1))
-                                    .foregroundStyle(itsmAccent)
+                        if trend.count >= 2 {
+                            Chart {
+                                ForEach(Array(trend.enumerated()), id: \.offset) { item in
+                                    LineMark(x: .value("Day", item.element.0),
+                                             y: .value("New records", item.element.1))
+                                        .foregroundStyle(itsmAccent)
+                                    PointMark(x: .value("Day", item.element.0),
+                                              y: .value("New records", item.element.1))
+                                        .foregroundStyle(itsmAccent)
+                                }
                             }
+                            .frame(height: 145)
+                        } else if let point = trend.first {
+                            HStack(spacing: 14) {
+                                Image(systemName: "calendar.badge.plus")
+                                    .font(.title2)
+                                    .foregroundStyle(itsmAccent)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("\(point.1) records created")
+                                        .font(.headline)
+                                    Text(point.0)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 12)
                         }
-                        .frame(height: 145)
                         Text("Actual daily counts from Hi5Central reporting. Days with no reported records are omitted.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
