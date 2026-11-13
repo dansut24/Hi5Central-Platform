@@ -1,0 +1,66 @@
+name: Hi5Central unified native iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/hi5central-ios/**'
+      - 'apps/itsm-ios/**'
+      - 'apps/rmm-ios/**'
+      - '.github/workflows/hi5central-ios-unified-ipa.yml'
+  pull_request:
+    paths:
+      - 'apps/hi5central-ios/**'
+      - 'apps/itsm-ios/**'
+      - 'apps/rmm-ios/**'
+      - '.github/workflows/hi5central-ios-unified-ipa.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate unified native iPhone project
+        working-directory: apps/hi5central-ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile native ITSM and RMM with real WebRTC framework
+        working-directory: apps/hi5central-ios
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Hi5CentralMobile.xcodeproj \
+            -scheme Hi5CentralMobile \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/Hi5UnifiedBuild" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Verify full-screen app and package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Hi5UnifiedBuild/Build/Products/Release-iphoneos/Hi5CentralMobile.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" | grep -Fx 'com.hi5central.mobile'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.1.0'
+          /usr/libexec/PlistBuddy -c "Print :UILaunchStoryboardName" "$APP/Info.plist" | grep -Fx 'LaunchScreen'
+          test -d "$APP/LaunchScreen.storyboardc"
+          mkdir -p "$RUNNER_TEMP/Hi5UnifiedIPA/Payload"
+          ditto "$APP" "$RUNNER_TEMP/Hi5UnifiedIPA/Payload/Hi5CentralMobile.app"
+          cd "$RUNNER_TEMP/Hi5UnifiedIPA"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/Hi5CentralMobile-iOS-unified-native.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/Hi5CentralMobile-iOS-unified-native.ipa"
+      - name: Upload combined-app IPA for Sideloadly
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5CentralMobile-iOS-v0.1.0-ITSM-RMM
+          path: Hi5CentralMobile-iOS-unified-native.ipa
+          if-no-files-found: error
+          retention-days: 14
