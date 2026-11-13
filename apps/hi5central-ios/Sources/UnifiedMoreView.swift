@@ -74,7 +74,7 @@ struct UnifiedMoreView: View {
             if hasRMM {
                 Section("Remote Monitoring") {
                     NavigationLink {
-                        NativeDeviceList()
+                        UnifiedDeviceHub()
                     } label: {
                         Label("Device inventory", systemImage: "desktopcomputer")
                     }
