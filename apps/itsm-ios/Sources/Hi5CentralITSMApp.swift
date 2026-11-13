@@ -1,5 +1,6 @@
 import SwiftUI
 
+#if !HI5CENTRAL_UNIFIED
 @main
 struct Hi5CentralITSMApp: App {
     @StateObject private var client = ITSMClient()
@@ -12,6 +13,8 @@ struct Hi5CentralITSMApp: App {
         }
     }
 }
+
+#endif
 
 struct ITSMRootView: View {
     @EnvironmentObject private var client: ITSMClient
