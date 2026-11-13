@@ -93,7 +93,7 @@ struct UnifiedServiceCatalogueView: View {
             items = try await client.mobileServiceCatalogue()
                 .map { UnifiedCatalogueItem(raw: $0) }
             error = nil
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 }
 
@@ -343,6 +343,6 @@ struct UnifiedServiceRequestComposer: View {
                 priority: priority, values: values, requesterPersonId: requesterId)
             onCreated(record)
             dismiss()
-        } catch { error = error.localizedDescription }
+        } catch { self.error = error.localizedDescription }
     }
 }
