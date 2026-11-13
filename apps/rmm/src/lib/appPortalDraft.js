@@ -2,7 +2,7 @@
 // Published revisions remain immutable. Edits create a new revision within the
 // same application; unchanged drafts keep their existing revision and package.
 export const emptyCustom = {
-  name: '', publisher: '', description: '', category: 'Company software', sourceKind: 'direct_url',
+  name: '', publisher: '', description: '', category: 'Company software', sourceKind: 'upload',
   version: '', url: '', sha256: '', expectedSigner: '', installerType: 'msi',
   executionMode: 'arguments', installArguments: '', script: '', timeoutSeconds: 600,
   verificationMethod: 'auto', productCode: '', displayNameContains: '', filePath: '',
