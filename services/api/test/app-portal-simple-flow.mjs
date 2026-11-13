@@ -73,3 +73,16 @@ test('software not reported cannot be shown as installed',()=>{
   assert.equal(got.installed,false)
   assert.equal(got.detection,'not_detected')
 })
+
+test('older installed software version is not a verified current installation',()=>{
+  const got=findInstalledApp({app,inventory:inventory([
+    {name:'7-Zip 25.01 (x64)',publisher:'Igor Pavlov',version:'25.01'}]),now})
+  assert.equal(got.installed,false)
+  assert.equal(got.detection,'version_mismatch')
+  assert.equal(got.installedVersion,'25.01')
+})
+test('publisher must be reported and match when an expected publisher is set',()=>{
+  const got=findInstalledApp({app,inventory:inventory([
+    {name:'7-Zip 26.06 (x64)',publisher:'',version:'26.06'}]),now})
+  assert.equal(got.installed,false)
+})
