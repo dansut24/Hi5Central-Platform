@@ -92,6 +92,11 @@ struct UnifiedMoreView: View {
             }
 
             Section("Account") {
+                NavigationLink {
+                    UnifiedPrivacyAndAlertsView()
+                } label: {
+                    Label("Privacy & notifications", systemImage: "lock.shield")
+                }
                 LabeledContent("Company", value: auth.companyName)
                 LabeledContent("Signed in as", value: auth.userName)
                 HStack {
@@ -116,7 +121,7 @@ struct UnifiedMoreView: View {
                 }
             }
             Section {
-                Text("Hi5Central Mobile v0.4.0 — native integrated ITSM + RMM. Access is controlled by your tenant subscription and staff permissions.")
+                Text("Hi5Central Mobile v0.5.0 — native integrated ITSM + RMM. Access is controlled by your tenant subscription and staff permissions.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

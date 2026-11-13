@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import Combine
 
 @main
 struct Hi5CentralMobileApp: App {
@@ -9,7 +10,7 @@ struct Hi5CentralMobileApp: App {
     @StateObject private var rmmState = RMMState()
 
     init() {
-        UNUserNotificationCenter.current().delegate = NativeNotificationPresenter.shared
+        UNUserNotificationCenter.current().delegate = UnifiedNotificationPresenter.shared
     }
 
     var body: some Scene {
@@ -28,12 +29,15 @@ struct Hi5CentralMobileApp: App {
 /// optional display preference; subscription and permission checks still
 /// come from the authenticated server session.
 struct UnifiedMobileRoot: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var auth: UnifiedMobileAuth
     @EnvironmentObject private var itsm: ITSMClient
     @EnvironmentObject private var rmm: RMMClient
     @EnvironmentObject private var rmmState: RMMState
 
     @AppStorage("hi5central.mobile.company") private var savedTenant = ""
+    @AppStorage("hi5central.mobile.lockedTenants") private var lockedTenants = ""
+    @AppStorage("hi5central.mobile.foregroundAlerts") private var foregroundAlerts = false
     @AppStorage("hi5central.mobile.workspaceFocus") private var workspaceFocus = "all"
     @AppStorage("hi5central.mobile.appearance") private var appearance = "system"
     @AppStorage("hi5central.rmm.nativeViewer") private var nativeViewer = true
@@ -49,6 +53,11 @@ struct UnifiedMobileRoot: View {
     @State private var showingApprovals = false
     @State private var linkedDevice: ManagedDevice?
     @State private var deepLinkMessage: String?
+    @State private var linkedRecord: ITSMRecord?
+    @State private var pendingLink: URL?
+    @State private var isLocked = false
+    @State private var unlockBusy = false
+    @State private var unlockIssue: String?
     @State private var itsmReady = false
     @State private var rmmReady = false
 
@@ -71,6 +80,12 @@ struct UnifiedMobileRoot: View {
                 UnifiedLaunchView()
             } else if !auth.authenticated {
                 UnifiedMobileLogin()
+            } else if isLocked {
+                UnifiedPrivacyLockScreen(
+                    tenant: auth.tenant, busy: unlockBusy, issue: unlockIssue,
+                    unlock: { Task { await unlockSession() } },
+                    signOut: { Task { await auth.signOut() } }
+                )
             } else if loadingModules {
                 UnifiedLaunchView(message: "Preparing your workspaces…")
             } else if canITSM || canRMM {
@@ -136,6 +151,9 @@ struct UnifiedMobileRoot: View {
                 .environmentObject(itsm)
             }
         }
+        .sheet(item: $linkedRecord) { record in
+            ITSMRecordDetail(record: record).environmentObject(itsm)
+        }
         .sheet(item: $linkedDevice) { device in
             NativeDeviceDetail(device: device)
                 .environmentObject(rmm)
@@ -168,14 +186,26 @@ struct UnifiedMobileRoot: View {
         }
         .task {
             await auth.restore(savedTenant)
-            if auth.authenticated { await loadModules() }
+            if auth.authenticated {
+                isLocked = UnifiedSecurityRules.isLocked(
+                    tenant: auth.tenant, settings: lockedTenants)
+                await loadModules()
+            }
             initializing = false
         }
         .onChange(of: auth.authenticated) { signedIn in
             if signedIn {
                 savedTenant = auth.tenant
+                isLocked = UnifiedSecurityRules.isLocked(
+                    tenant: auth.tenant, settings: lockedTenants)
                 Task { await loadModules() }
             } else {
+                isLocked = false
+                pendingLink = nil
+                linkedRecord = nil
+                unlockIssue = nil
+                itsm.clearLocalSession()
+                rmm.clearLocalSession()
                 loadedTenant = ""
                 itsmReady = false
                 rmmReady = false
@@ -206,7 +236,30 @@ struct UnifiedMobileRoot: View {
             }
         }
         .onOpenURL { url in
-            openLinkedDevice(url)
+            receiveLink(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UnifiedNotificationPresenter.routeNotification)) { event in
+            if let url = event.object as? URL { receiveLink(url) }
+        }
+        .onChange(of: loadingModules) { loading in
+            if !loading { openPendingLink() }
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .background && auth.authenticated &&
+               UnifiedSecurityRules.isLocked(tenant: auth.tenant, settings: lockedTenants) {
+                isLocked = true
+                rmmState.viewer = nil
+                linkedDevice = nil
+                linkedRecord = nil
+                showingNotifications = false
+                showingCreateRecord = false
+                showingFindDevice = false
+                showingApprovals = false
+                searching = false
+            }
+        }
+        .task(id: "\(auth.tenant)|\(auth.authenticated)|\(scenePhase == .active)|\(foregroundAlerts)") {
+            await monitorForegroundAlerts()
         }
     }
 
@@ -422,6 +475,123 @@ struct UnifiedMobileRoot: View {
             ITSMDashboard()
         } else if canRMM {
             NativeOverview()
+        }
+    }
+
+    private func unlockSession() async {
+        guard !unlockBusy else { return }
+        unlockBusy = true
+        defer { unlockBusy = false }
+        if await UnifiedDeviceAuthentication.confirm("Unlock your Hi5Central workspace.") {
+            isLocked = false
+            unlockIssue = nil
+            openPendingLink()
+        } else {
+            unlockIssue = "Device authentication was cancelled or unavailable."
+        }
+    }
+
+    private func receiveLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "hi5central" else { return }
+        if !auth.authenticated || isLocked || loadingModules {
+            pendingLink = url
+        } else {
+            openDeepLink(url)
+        }
+    }
+
+    private func openPendingLink() {
+        guard auth.authenticated, !isLocked, !loadingModules,
+              canITSM || canRMM, let url = pendingLink else { return }
+        pendingLink = nil
+        openDeepLink(url)
+    }
+
+    private func openDeepLink(_ url: URL) {
+        guard url.scheme?.lowercased() == "hi5central" else { return }
+        let requestedTenant = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first(where: { $0.name == "tenant" })?.value
+        if let requestedTenant, requestedTenant != auth.tenant {
+            deepLinkMessage = "This link belongs to a different company. Switch companies and sign in again."
+            return
+        }
+        guard let target = url.host?.lowercased() else { return }
+        if target == "device" {
+            openLinkedDevice(url)
+        } else if target == "record" {
+            guard canITSM,
+                  let reference = url.pathComponents.dropFirst().first,
+                  reference.range(of: #"^[A-Za-z0-9-]{1,80}$"#,
+                                  options: .regularExpression) != nil else {
+                deepLinkMessage = "This record link cannot be opened for the signed-in account."
+                return
+            }
+            Task {
+                await itsm.refreshRecords()
+                guard canITSM else { return }
+                if let match = itsm.records.first(where: {
+                    $0.id.caseInsensitiveCompare(reference) == .orderedSame
+                }) {
+                    linkedRecord = match
+                } else {
+                    deepLinkMessage = "The record is not in your authorised ITSM workspace."
+                }
+            }
+        }
+    }
+
+    /// Visible-only polling. This does NOT provide APNs or notifications when the app is closed.
+    private func monitorForegroundAlerts() async {
+        guard foregroundAlerts, auth.authenticated, scenePhase == .active else { return }
+        for _ in 0..<25 {
+            if Task.isCancelled || !auth.authenticated { return }
+            if !loadingModules && (canITSM || canRMM) { break }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        guard canITSM || canRMM else { return }
+        var knownNotices = Set(itsm.notifications.compactMap {
+            itsmString($0["id"]).isEmpty ? nil : itsmString($0["id"])
+        })
+        var offline = Set(rmm.offlineDevices.map(\.id))
+        let initialTenant = auth.tenant
+        while !Task.isCancelled && auth.authenticated &&
+              auth.tenant == initialTenant && scenePhase == .active {
+            do { try await Task.sleep(nanoseconds: 60_000_000_000) }
+            catch { return }
+            guard !Task.isCancelled, foregroundAlerts, auth.authenticated,
+                  auth.tenant == initialTenant else { return }
+            if canITSM {
+                await itsm.refreshNotifications()
+                for notice in itsm.notifications {
+                    let id = itsmString(notice["id"])
+                    guard !id.isEmpty else { continue }
+                    let isNew = knownNotices.insert(id).inserted
+                    guard isNew, (notice["read"] as? Bool) != true else { continue }
+                    let reference = ["recordReference", "recordId", "reference"]
+                        .map { itsmString(notice[$0]) }.first { !$0.isEmpty } ?? ""
+                    let valid = reference.range(of: #"^[A-Za-z0-9-]{1,80}$"#,
+                                                options: .regularExpression) != nil
+                    let link = valid ? URL(string: "hi5central://record/\(reference)?tenant=\(initialTenant)") : nil
+                    try? await UnifiedLocalNotification.send(
+                        title: "Hi5Central Service Desk",
+                        message: "You have new activity in your service desk.",
+                        url: link)
+                }
+            }
+            if canRMM {
+                await rmm.refreshDevices()
+                let nowOffline = Set(rmm.offlineDevices.map(\.id))
+                for device in rmm.offlineDevices where !offline.contains(device.id) {
+                    let id = UUID(uuidString: device.agentId) != nil ? device.agentId : device.id
+                    let link = UUID(uuidString: id) == nil ? nil :
+                        URL(string: "hi5central://device/\(id)?tenant=\(initialTenant)")
+                    try? await UnifiedLocalNotification.send(
+                        title: "Hi5Central Remote Monitoring",
+                        message: "A managed device has gone offline.",
+                        url: link)
+                }
+                offline = nowOffline
+            }
         }
     }
 

@@ -611,6 +611,30 @@ final class ITSMClient: ObservableObject {
         return key
     }
 
+    /// Clear old tenant state synchronously before a different company signs in.
+    func clearLocalSession() {
+        authenticated = false
+        records = []
+        tasks = []
+        articles = []
+        notifications = []
+        people = []
+        teams = []
+        cmdb = []
+        projects = []
+        calendar = []
+        report = [:]
+        extraErrors = [:]
+        currentUserId = ""
+        companyName = ""
+        userName = ""
+        challenge = nil
+        setupSecret = nil
+        setupURI = nil
+        recoveryCodes = []
+        tenant = ""
+    }
+
     func signOut() async {
         _ = try? await request("/api/v1/auth/logout", method: "POST", body: [:])
         authenticated = false

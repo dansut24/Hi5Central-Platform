@@ -482,6 +482,22 @@ final class RMMClient: ObservableObject {
                               body: ["agentDeviceIds": [device.agentId]])
     }
 
+    /// Drop all tenant-scoped device data immediately at combined-app sign-out.
+    func clearLocalSession() {
+        authenticated = false
+        restored = false
+        devices = []
+        userName = ""
+        companyName = ""
+        challengeToken = nil
+        setupSecret = nil
+        setupURI = nil
+        recoveryCodes = []
+        errorMessage = nil
+        alertFeedback = nil
+        lastUpdated = nil
+    }
+
     func signOut() async {
         _ = try? await perform("/api/v1/auth/logout", method: "POST", body: [:])
         for cookie in HTTPCookieStorage.shared.cookies ?? [] where cookie.name.hasPrefix("hi5central_")

@@ -30,8 +30,8 @@ targets:
       path: Sources/Info.plist
       properties:
         CFBundleDisplayName: "Hi5Central"
-        CFBundleShortVersionString: "0.4.0"
-        CFBundleVersion: "4"
+        CFBundleShortVersionString: "0.5.0"
+        CFBundleVersion: "5"
         UILaunchStoryboardName: LaunchScreen
         NSSupportsLiveActivities: false
         CFBundleURLTypes:
@@ -46,6 +46,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        NSFaceIDUsageDescription: "Unlock the Hi5Central app with Face ID when app lock is enabled."
         NSCameraUsageDescription: "Camera access may be used when you choose attended remote support."
         NSMicrophoneUsageDescription: "Microphone access may be used when you enable it during remote support."
     settings:
