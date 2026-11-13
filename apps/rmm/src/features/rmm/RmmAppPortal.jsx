@@ -94,7 +94,11 @@ export function RmmAppPortal() {
   const saveCustom = (publish = false) => {
     if (!custom.name.trim()) return setError('Enter an application name.')
     const payload = customRevisionPayload(custom)
-    const unchanged = Boolean(editingDraft?.revisionId && editingDraft.fingerprint === revisionFingerprint(custom))
+    // Never overwrite a previously uploaded package while it is still the
+    // package recorded for a draft. A replacement upload gets a new revision
+    // in the SAME app, preserving the old file if the new transfer fails.
+    const replacingPackage = Boolean(editingDraft?.hasPackage && uploadFile && custom.sourceKind === 'upload')
+    const unchanged = Boolean(!replacingPackage && editingDraft?.revisionId && editingDraft.fingerprint === revisionFingerprint(custom))
     const packageAlreadyStored = unchanged && editingDraft?.hasPackage && custom.sourceKind === 'upload'
     if (publish && custom.sourceKind === 'upload' && !uploadFile && !packageAlreadyStored) {
       return setError('Choose an MSI or EXE package before publishing this draft.')
@@ -110,6 +114,7 @@ export function RmmAppPortal() {
           description: custom.description, category: custom.category,
         })
         appId = created.app.id
+        setEditingDraft({ appId, revisionId: null, fingerprint: null, hasPackage: false })
       }
       if (!revisionId) {
         const createdRevision = await createAppPortalRevision(appId, payload)
