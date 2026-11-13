@@ -364,35 +364,51 @@ struct UnifiedServiceRequestComposer: View {
             return itsmString(value).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }.map { itsmString($0["label"]) }
     }
-    private var unhandledFields: [String] {
+    private var unsupportedFields: [String] {
         visibleFields.filter { field in
             let type = itsmString(field["type"]).lowercased()
             if !UnifiedRequestFormField.supported.contains(type) { return true }
             if type == "lookup" {
+                return !UnifiedRequestFormField.lookupSources.contains(
+                    itsmString(field["source"]).lowercased()
+                )
+            }
+            return false
+        }.map { itsmString($0["label"]) }
+    }
+
+    private var missingRequiredOptions: [String] {
+        visibleFields.filter { field in
+            guard field["required"] as? Bool == true else { return false }
+            let type = itsmString(field["type"]).lowercased()
+            if type == "lookup" {
                 let source = itsmString(field["source"]).lowercased()
-                if !UnifiedRequestFormField.lookupSources.contains(source) { return true }
                 let rows: [[String: Any]]
                 switch source {
                 case "people": rows = client.people
                 case "departments": rows = client.departments
                 case "sites": rows = client.sites
                 case "teams": rows = client.teams
-                default: rows = []
+                default: return false // unknown source is reported as unsupported
                 }
-                if (field["required"] as? Bool == true) &&
-                    !rows.contains(where: { ($0["active"] as? Bool) != false &&
-                                           !itsmString($0["externalKey"]).isEmpty }) {
-                    return true
-                }
+                return !rows.contains(where: {
+                    ($0["active"] as? Bool) != false &&
+                    !itsmString($0["externalKey"]).isEmpty
+                })
             }
-            let optionsNeeded = ["select","dropdown","radio","product",
-                                 "checkbox-products","multiselect","multi-select","checkboxes"]
-            if optionsNeeded.contains(type), (field["options"] as? [Any] ?? []).isEmpty {
-                return true
-            }
-            return false
+            let optionsNeeded = [
+                "select", "dropdown", "radio", "product",
+                "checkbox-products", "multiselect", "multi-select", "checkboxes"
+            ]
+            return optionsNeeded.contains(type) &&
+                (field["options"] as? [Any] ?? []).isEmpty
         }.map { itsmString($0["label"]) }
     }
+
+    private var unhandledFields: [String] {
+        unsupportedFields + missingRequiredOptions
+    }
+
     private var selectablePeople: [[String: Any]] {
         client.people.filter { ($0["active"] as? Bool) != false &&
                                !itsmString($0["externalKey"]).isEmpty }
@@ -442,12 +458,22 @@ struct UnifiedServiceRequestComposer: View {
                         }
                     }
                 }
-                if !unhandledFields.isEmpty {
+                if !unsupportedFields.isEmpty {
                     Section {
-                        Text("Some catalogue fields are not supported by this version: \(unhandledFields.joined(separator: ", ")). Use the web workspace to submit this form.")
+                        Text("Unsupported form fields: \(unsupportedFields.joined(separator: ", ")). Use the web workspace for these fields.")
                             .font(.footnote).foregroundStyle(.orange)
                     }
-                } else if !missingRequired.isEmpty {
+                }
+                if !missingRequiredOptions.isEmpty {
+                    Section {
+                        Text("This company needs catalogue options or People & Organisation records before these required fields can be completed: \(missingRequiredOptions.joined(separator: ", ")).")
+                            .font(.footnote).foregroundStyle(.orange)
+                        Button("Refresh organisation") {
+                            Task { await client.refreshOrganisation() }
+                        }
+                    }
+                }
+                if unhandledFields.isEmpty && !missingRequired.isEmpty {
                     Section {
                         Text("Required fields: \(missingRequired.joined(separator: ", "))")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -486,9 +512,16 @@ struct UnifiedServiceRequestComposer: View {
         saving = true
         defer { saving = false }
         do {
+            // Do not leak stale values from fields hidden by conditional rules.
+            let activeKeys = Set(visibleFields.compactMap { field -> String? in
+                guard itsmString(field["type"]).lowercased() != "section" else { return nil }
+                let key = itsmString(field["id"])
+                return key.isEmpty ? nil : key
+            })
+            let submittedValues = values.filter { activeKeys.contains($0.key) }
             let record = try await client.newServiceRequest(
                 itemKey: item.id, summary: summary, details: details,
-                priority: priority, values: values, requesterPersonId: requesterId)
+                priority: priority, values: submittedValues, requesterPersonId: requesterId)
             onCreated(record)
             dismiss()
         } catch { self.error = error.localizedDescription }
