@@ -220,6 +220,19 @@ struct ITSMRecordDetail: View {
                         selectedTask: $selectedTask
                     )
 
+                    #if HI5CENTRAL_UNIFIED
+                    if item.isServiceRequest {
+                        UnifiedServiceRequestWorkflowPanel(
+                            record: item, onUpdated: { current = $0 })
+                        if !item.requestTasks.isEmpty {
+                            UnifiedServiceRequestTasksPanel(
+                                record: item, onUpdated: { current = $0 })
+                        }
+                        UnifiedServiceRequestAttachmentsPanel(
+                            record: item, onUpdated: { current = $0 })
+                    }
+                    #endif
+
                     if !item.description.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Label("Description", systemImage: "text.alignleft").font(.headline)

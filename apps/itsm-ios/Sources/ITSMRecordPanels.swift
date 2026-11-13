@@ -11,8 +11,13 @@ struct ITSMRecordSupportingSections: View {
         VStack(alignment: .leading, spacing: 15) {
             if !record.sla.isEmpty { slaPanel }
             if record.isServiceRequest && !record.approvals.isEmpty { approvalsPanel }
+            #if HI5CENTRAL_UNIFIED
+            if !record.isServiceRequest && !record.requestTasks.isEmpty { tasksPanel }
+            if !record.isServiceRequest && !record.attachments.isEmpty { attachmentsPanel }
+            #else
             if !record.requestTasks.isEmpty { tasksPanel }
             if !record.attachments.isEmpty { attachmentsPanel }
+            #endif
         }
     }
 

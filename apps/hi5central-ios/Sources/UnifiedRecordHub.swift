@@ -10,6 +10,7 @@ struct UnifiedRecordHub: View {
     @State private var type = "Any"
     @State private var selected: ITSMRecord?
     @State private var creating = false
+    @State private var showingCatalogue = false
 
     private var records: [ITSMRecord] {
         itsm.records.filter { item in
@@ -118,16 +119,31 @@ struct UnifiedRecordHub: View {
         .refreshable { await itsm.refreshRecords() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    creating = true
+                Menu {
+                    Button {
+                        creating = true
+                    } label: {
+                        Label("New Incident, Problem or Change", systemImage: "ticket")
+                    }
+                    Button {
+                        showingCatalogue = true
+                    } label: {
+                        Label("New Service Request", systemImage: "shippingbox")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Create a new record")
+                .accessibilityLabel("Create a new record or Service Request")
             }
         }
         .sheet(isPresented: $creating) {
             ITSMRecordComposer().environmentObject(itsm)
+        }
+        .sheet(isPresented: $showingCatalogue) {
+            NavigationStack {
+                UnifiedServiceCatalogueView()
+            }
+            .environmentObject(itsm)
         }
         .sheet(item: $selected) { record in
             ITSMRecordDetail(record: record).environmentObject(itsm)

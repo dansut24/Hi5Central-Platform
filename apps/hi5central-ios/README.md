@@ -1,31 +1,37 @@
-# Hi5Central Mobile v0.5.0 — privacy and foreground alerts
+# Hi5Central Mobile v0.6.0 — Face ID timeout + Service Requests
 
-Branch: feature/hi5central-ios-v050-privacy-notifications
-IPA artifact: Hi5CentralMobile-iOS-v0.5.0-privacy-notifications
-Built on v0.4 native record workflow branch. Bundle: com.hi5central.mobile.
+Branch: feature/hi5central-ios-v060-lock-grace-service-requests
+IPA artifact: Hi5CentralMobile-iOS-v0.6.0-service-requests-faceid-timeout
+Combined app ID: com.hi5central.mobile. Updates v0.5 without replacing standalone apps.
 
-## Implemented
-- Optional per-tenant Face ID/Touch ID/device-passcode app lock using LocalAuthentication.
-- Lock on background; closing active remote viewer and detail sheets when this optional setting is enabled.
-- Device authentication unlocks only an already valid server session. It does NOT replace mandatory MFA, act as a passkey or silently sign into the backend.
-- Immediate clearing of ITSM and RMM tenant-scoped in-memory data on sign-out.
-- Authorised custom URL deep links for ITSM records and RMM devices, with tenant matching, record reference/UUID validation, and permission-bound inventory lookup.
-- Pending deep links are held during sign-in/app lock and resolved only after workspace is available.
-- Opt-in native iPhone local notifications for new ITSM in-app notices and RMM agent offline transitions while the app is in the foreground, with 60-second polling.
-- Notification tap routes to authorised native record/device views. Local test alert available in More > Privacy & notifications.
-- Preserves v0.4 native workflow actions and untouched remote streaming/codec engine.
+## Face ID grace
+- Per-company settings under More > Privacy & notifications.
+- Unlock after Immediately (default), 1, 5, 15 or 30 minutes *away from the app*.
+- If back in the app before timeout, previous unlocked session is retained.
+- On cold launch/restart with a valid server session, unlock required (fail closed).
+- Remote viewing closes whenever a protected app is backgrounded, even during grace.
+- Server MFA, session expiry and permissions are unchanged; this is local privacy unlock, not passkey authentication.
+- Test immediate, 1-minute grace and crossing the threshold, force quit/relaunch and switching tenants.
 
-## Not yet supported
-- True APNs background/closed-app remote push: requires Apple push entitlements, a signed provisioned app and secure backend token registration, rotation and delivery. Sideloadly unsigned builds are not a substitute.
-- WebAuthn/passkey authentication: requires credential endpoints and an associated domain plus provisioning. Optional app lock is NOT passkey sign-in.
-- Attachment upload/download and native Service Request comments remain blocked on absent verified API operations.
+## Native Service Requests
+- Existing Records already includes Service Request records alongside Incident/Problem/Change.
+- New Service Request via Records (+) > New Service Request or More > Service Request catalogue.
+- Catalogue is queried from authenticated /api/v1/catalogue and filters to active visible request forms with Service Request type.
+- Native dynamic form: text, textarea, number, email, date, checkbox, select/dropdown/radio, product and checkbox product selection. Conditional showWhen, required fields and standard priority. Unsupported forms fail safely rather than blindly submitting.
+- Creation uses /api/v1/service-requests with catalogueItemId/fields/details/urgency; backend enforces pricing and approval plans.
+- Service Request detail supports internal notes and customer-visible replies; approvals remain visible with existing decision UI.
+- Native fulfilment transitions via /transition with completion notes and reopen reason, preserving server rules.
+- Assignment/priority updates, fulfilment task start/complete with notes via dedicated endpoints.
+- Attachment upload (base64 JSON; 6 MB app cap, server policy may be lower) and authorised download/share.
+- Existing ITSM-to-RMM device picker and native viewer retained.
+- Server routes verified in services/api/src/serviceRequestOperations.js, serviceRequests.js and catalogue.js. No VPS or Agent changes.
 
-## Device QA
-1. Install IPA on top of v0.4. Keep standalone apps installed.
-2. Enrol per-company Face ID/passcode from More, background app and unlock. Confirm remote session closes when optional lock is enabled.
-3. Sign out and switch tenants; ensure prior records/devices are not visible.
-4. Enable foreground notifications in More; use test alert and tap it.
-5. Test hi5central://record/INC-xxxxx?tenant=company and device URL. Links for other tenants must be blocked.
-6. Wait for a genuinely new ITSM notification or RMM offline transition while foregrounded; confirm native alert and drilldown.
-7. Retest incident resolution and ITSM-to-RMM native viewer/keyboard/codec.
-8. Build passing does not replace live-device tests.
+## QA on iPhone
+1. Install via Sideloadly; sign in to combined tenant.
+2. More > Privacy & notifications: enable Face ID and choose 5 minutes; background 1 minute, then 6 minutes, check lock behaviour.
+3. Records > + > New Service Request: choose form, complete required fields and submit. Confirm reference.
+4. Open request: customer and internal comments, pending approvals, SLA, tasks, start/complete fulfilment, attachments, completion/reopen.
+5. Try unsupported form fields and permission-restricted user; app must show errors, not fabricate success.
+6. Re-test native Lenovo RMM session, keyboard, codec and ITSM-only/RMM-only navigation.
+
+A green IPA build confirms compile/package, not live API behaviour. Apple APNs background push and passkey login remain separate work.

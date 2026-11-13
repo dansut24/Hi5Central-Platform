@@ -180,11 +180,7 @@ struct UnifiedTicketActivityPanel: View {
                 .padding(.vertical, 5)
                 Divider()
             }
-            if record.isServiceRequest {
-                Text("Service Request comments require a separate verified API.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            } else {
-                Text("New activity").font(.subheadline.weight(.semibold))
+            Text("New activity").font(.subheadline.weight(.semibold))
                 Picker("Visibility", selection: $visibility) {
                     Text("Internal note").tag("Internal")
                     Text("Customer reply").tag("Customer")
@@ -208,7 +204,6 @@ struct UnifiedTicketActivityPanel: View {
                               note.count > 20_000 || busy)
                 }
                 if busy { ProgressView("Posting…") }
-            }
             if let issue {
                 Label(issue, systemImage: "exclamationmark.triangle")
                     .font(.footnote).foregroundStyle(.orange)
@@ -223,8 +218,13 @@ struct UnifiedTicketActivityPanel: View {
         busy = true
         defer { busy = false }
         do {
-            onUpdated(try await client.postNote(
-                for: record, body: clean, customer: visibility == "Customer"))
+            if record.isServiceRequest {
+                onUpdated(try await client.postServiceRequestNote(
+                    for: record, body: clean, customer: visibility == "Customer"))
+            } else {
+                onUpdated(try await client.postNote(
+                    for: record, body: clean, customer: visibility == "Customer"))
+            }
             note = ""
             issue = nil
         } catch { issue = error.localizedDescription }
