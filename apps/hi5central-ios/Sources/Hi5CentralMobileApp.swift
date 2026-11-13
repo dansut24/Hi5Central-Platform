@@ -273,7 +273,10 @@ struct UnifiedMobileRoot: View {
             case 0: rmmState.navigate(to: .dashboard)
             case 1: rmmState.navigate(to: .devices)
             case 2: rmmState.navigate(to: .alerts)
-            default: rmmState.showingMore = true
+            default:
+                if [.dashboard, .devices, .alerts].contains(rmmState.route) {
+                    rmmState.showingMore = true
+                }
             }
         }
     }
@@ -345,11 +348,12 @@ private struct UnifiedRMMMore: View {
                             ("Automation", "bolt", RMMRoute.automation),
                             ("Reports", "chart.bar", RMMRoute.reports),
                             ("Settings", "gearshape", RMMRoute.settings)
-                        ], id: \.0) { name, symbol, route in
+                        ].enumerated().map { $0 }, id: \.offset) { item in
+                            let destination = item.element
                             Button {
-                                state.navigate(to: route)
+                                state.navigate(to: destination.2)
                             } label: {
-                                Label(name, systemImage: symbol)
+                                Label(destination.0, systemImage: destination.1)
                             }
                         }
                     }
