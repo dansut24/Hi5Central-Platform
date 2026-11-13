@@ -137,6 +137,8 @@ final class ITSMClient: ObservableObject {
     @Published private(set) var notifications: [[String: Any]] = []
     @Published private(set) var people: [[String: Any]] = []
     @Published private(set) var teams: [[String: Any]] = []
+    @Published private(set) var departments: [[String: Any]] = []
+    @Published private(set) var sites: [[String: Any]] = []
     @Published private(set) var cmdb: [[String: Any]] = []
     @Published private(set) var projects: [[String: Any]] = []
     @Published private(set) var calendar: [[String: Any]] = []
@@ -386,6 +388,8 @@ final class ITSMClient: ObservableObject {
             let json = try await request("/api/v1/organisation")
             people = itsmRows(json["people"])
             teams = itsmRows(json["teams"])
+            departments = itsmRows(json["departments"])
+            sites = itsmRows(json["sites"])
             extraErrors.removeValue(forKey: "people")
         } catch {
             extraErrors["people"] = error.localizedDescription
@@ -778,6 +782,8 @@ final class ITSMClient: ObservableObject {
         notifications = []
         people = []
         teams = []
+        departments = []
+        sites = []
         cmdb = []
         projects = []
         calendar = []
@@ -807,6 +813,8 @@ final class ITSMClient: ObservableObject {
         report = [:]
         people = []
         teams = []
+        departments = []
+        sites = []
         cmdb = []
         projects = []
         calendar = []

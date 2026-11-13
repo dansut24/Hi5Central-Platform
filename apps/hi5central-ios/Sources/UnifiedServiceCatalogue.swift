@@ -100,6 +100,7 @@ struct UnifiedServiceCatalogueView: View {
 /// Render common catalogue field types, and block unknown required inputs rather
 /// than submitting incomplete or misleading forms.
 struct UnifiedRequestFormField: View {
+    @EnvironmentObject private var client: ITSMClient
     let field: [String: Any]
     @Binding var values: [String: Any]
     var id: String { itsmString(field["id"]) }
@@ -125,6 +126,26 @@ struct UnifiedRequestFormField: View {
         }
     }
 
+    static let lookupSources = Set(["people", "departments", "sites", "teams"])
+
+    private var lookupOptions: [Option] {
+        let source = itsmString(field["source"]).lowercased()
+        let rows: [[String: Any]]
+        switch source {
+        case "people": rows = client.people
+        case "departments": rows = client.departments
+        case "sites": rows = client.sites
+        case "teams": rows = client.teams
+        default: rows = []
+        }
+        return rows.compactMap { row in
+            guard (row["active"] as? Bool) != false else { return nil }
+            let key = itsmString(row["externalKey"])
+            let name = itsmString(row["name"])
+            return key.isEmpty || name.isEmpty ? nil : Option(id: key, name: name)
+        }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
     private var textValue: Binding<String> {
         Binding(get: { itsmString(values[id]) }, set: { values[id] = $0 })
     }
@@ -143,16 +164,37 @@ struct UnifiedRequestFormField: View {
     static let supported = Set([
         "text", "textarea", "email", "number", "date", "select", "dropdown",
         "radio", "product", "checkbox", "checkbox-products",
-        "multiselect", "multi-select", "checkboxes"
+        "multiselect", "multi-select", "checkboxes", "lookup", "section"
     ])
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            HStack {
-                Text(title.isEmpty ? id : title).font(.subheadline.weight(.semibold))
-                if required { Text("Required").font(.caption2).foregroundStyle(.red) }
+            if type != "section" {
+                HStack {
+                    Text(title.isEmpty ? id : title).font(.subheadline.weight(.semibold))
+                    if required { Text("Required").font(.caption2).foregroundStyle(.red) }
+                }
             }
             switch type {
+            case "section":
+                Text(title.isEmpty ? "Request details" : title)
+                    .font(.headline).padding(.top, 8)
+                let help = itsmString(field["help"])
+                if !help.isEmpty {
+                    Text(help).font(.caption).foregroundStyle(.secondary)
+                }
+            case "lookup":
+                Picker(title, selection: textValue) {
+                    Text("Select…").tag("")
+                    ForEach(lookupOptions) { option in
+                        Text(option.name).tag(option.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                if lookupOptions.isEmpty {
+                    Text("No matching \(itsmString(field["source"])) records available. Add them under People & Organisation, refresh and retry.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
             case "textarea":
                 TextEditor(text: textValue)
                     .frame(minHeight: 85)
@@ -232,7 +274,8 @@ struct UnifiedServiceRequestComposer: View {
     }
     private var missingRequired: [String] {
         visibleFields.filter { field in
-            guard field["required"] as? Bool == true else { return false }
+            guard field["required"] as? Bool == true,
+                  itsmString(field["type"]).lowercased() != "section" else { return false }
             let id = itsmString(field["id"])
             let value = values[id]
             if let bool = value as? Bool { return !bool }
@@ -244,6 +287,23 @@ struct UnifiedServiceRequestComposer: View {
         visibleFields.filter { field in
             let type = itsmString(field["type"]).lowercased()
             if !UnifiedRequestFormField.supported.contains(type) { return true }
+            if type == "lookup" {
+                let source = itsmString(field["source"]).lowercased()
+                if !UnifiedRequestFormField.lookupSources.contains(source) { return true }
+                let rows: [[String: Any]]
+                switch source {
+                case "people": rows = client.people
+                case "departments": rows = client.departments
+                case "sites": rows = client.sites
+                case "teams": rows = client.teams
+                default: rows = []
+                }
+                if (field["required"] as? Bool == true) &&
+                    !rows.contains(where: { ($0["active"] as? Bool) != false &&
+                                           !itsmString($0["externalKey"]).isEmpty }) {
+                    return true
+                }
+            }
             let optionsNeeded = ["select","dropdown","radio","product",
                                  "checkbox-products","multiselect","multi-select","checkboxes"]
             if optionsNeeded.contains(type), (field["options"] as? [Any] ?? []).isEmpty {
