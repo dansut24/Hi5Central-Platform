@@ -42,6 +42,9 @@ jobs:
         run: dotnet restore Hi5Central.AppPortal/Hi5Central.AppPortal.csproj
       - name: Build
         run: dotnet build Hi5Central.AppPortal/Hi5Central.AppPortal.csproj -c Release --no-restore
+      - name: Exercise Windows Agent named-pipe protocol
+        if: matrix.rid == 'win-x64'
+        run: dotnet run --project tests/AppPortalBrokerSmoke.csproj -c Release
       - name: Publish self-contained
         shell: pwsh
         run: |
