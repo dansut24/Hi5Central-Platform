@@ -203,11 +203,18 @@ export function RmmAppPortal() {
         <div className="app-portal-card-title"><div><h3>Published applications</h3><p>Immutable revisions with server-side assignment enforcement.</p></div></div>
         <div className="app-portal-app-list">
           {bundle.apps.map((app) => <article className="app-portal-app-row" key={app.id}>
-            <span className="app-portal-app-icon"><PackagePlus size={19} /></span>
+            <span className="app-portal-app-icon">{app.icon_url
+              ? <img src={app.icon_url} alt="" loading="lazy" className="app-portal-logo" />
+              : <PackagePlus size={19} />}</span>
             <span className="app-portal-app-main"><strong>{app.name}</strong>
               <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small></span>
             <span className={'app-portal-state ' + (app.status === 'published' ? 'good' : '')}>{stateLabel(app)}</span>
             <span className="app-portal-count">{bundle.assignments.filter((row) => row.app_id === app.id).length} assignments</span>
+            <label className="app-portal-logo-action" aria-label={'Upload logo for ' + app.name}>
+              <span>Logo</span>
+              <input type="file" accept="image/png" disabled={busy}
+                onChange={(e) => { replaceLogo(app, e.target.files?.[0]); e.target.value = '' }} />
+            </label>
             {app.source_type === 'custom' && app.publish_state === 'draft' &&
               <button className="app-portal-edit-action" type="button" disabled={busy}
                 aria-label={'Edit draft ' + app.name} onClick={() => editExistingDraft(app)}><Pencil size={14} /> Edit draft</button>}
@@ -228,51 +235,81 @@ export function RmmAppPortal() {
       <section className="app-portal-card app-portal-custom" id="app-portal-custom-form">
         <div className="app-portal-card-title"><div>
           <h3>{editingDraft ? 'Edit existing draft' : 'Custom application'}</h3>
-          <p>{editingDraft ? 'Resume the saved draft. A changed installer configuration creates a new revision of the same application.' : 'Direct HTTPS source with pinned hash, signer and independent detection.'}</p>
+          <p>{editingDraft ? 'Resume the saved draft. A changed installer configuration creates a new revision of the same application.' : 'Add an approved MSI or EXE. Checksums and installed-software detection are automatic.'}</p>
         </div>{editingDraft
           ? <button className="app-portal-edit-action" type="button" onClick={cancelEditing} disabled={busy}><X size={14} /> Cancel</button>
           : <Globe2 size={20} />}</div>
-        {editingDraft && <p className="app-portal-draft-hint">Editing an existing application. Its name, publisher, category and description are retained. Installer options can be changed; a replacement package is required when creating a new upload revision.</p>}
+        {editingDraft && <p className="app-portal-draft-hint">Editing a saved application. Its details can be updated without creating another app. A changed installer revision needs a fresh package.</p>}
         <div className="app-portal-form-grid">
-          <label>Name<input value={custom.name} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
-          <label>Publisher<input value={custom.publisher} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
+          <label>Name<input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
+          <label>Publisher<input value={custom.publisher} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
           <label>Version<input value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
           <label>Installer<select value={custom.installerType} onChange={(e) => { setCustom({ ...custom, installerType: e.target.value }); setUploadFile(null) }}><option value="msi">MSI</option><option value="exe">EXE</option></select></label>
         </div>
-        <label>Description<textarea rows="3" value={custom.description} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
+        <label>Description<textarea rows="3" value={custom.description} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
         <div className="app-portal-form-grid">
           <label>Package source<select value={custom.sourceKind} onChange={(e) => { setCustom({ ...custom, sourceKind: e.target.value }); setUploadFile(null) }}>
-            <option value="direct_url">Direct HTTPS URL</option><option value="upload">Private upload</option>
+            <option value="upload">Upload installer (recommended)</option><option value="direct_url">Direct HTTPS URL (advanced)</option>
           </select></label>
-          <label>Category<input value={custom.category} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
+          <label>Category<input value={custom.category} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
         </div>
+
+        <label>Application logo (optional)
+          <input type="file" accept="image/png" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+          <small>{logoFile ? logoFile.name + ' · selected' : 'PNG, up to 512 KB. Displays in the portal and on Windows devices.'}</small>
+        </label>
         {custom.sourceKind === 'direct_url'
           ? <>
               <label>Direct download URL<input placeholder="https://vendor.example/app.msi" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} /></label>
-              <label>SHA-256<input placeholder="64-character hash" value={custom.sha256} onChange={(e) => setCustom({ ...custom, sha256: e.target.value })} /></label>
+              <label>Expected SHA-256 (external URL only)<input placeholder="64-character hash" value={custom.sha256} onChange={(e) => setCustom({ ...custom, sha256: e.target.value })} />
+                <small>Required for externally hosted URLs because the vendor might replace the file. Uploads are hashed automatically.</small></label>
             </>
           : <label>Installer package<input type="file" accept={custom.installerType === 'msi' ? '.msi' : '.exe'} onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-              <small>{uploadFile ? uploadFile.name + ' · ' + Math.ceil(uploadFile.size / 1024 / 1024) + ' MB' : 'Stored privately by Hi5Central. SHA-256 is calculated server-side.'}</small>
+              <small>{uploadFile ? uploadFile.name + ' · ' + Math.ceil(uploadFile.size / 1024 / 1024) + ' MB' : 'Stored privately. SHA-256 is calculated and checked automatically.'}</small>
             </label>}
-        <label>Expected Authenticode signer<input value={custom.expectedSigner} onChange={(e) => setCustom({ ...custom, expectedSigner: e.target.value })} /></label>
-        <div className="app-portal-form-grid">
-          <label>Execution<select value={custom.executionMode} onChange={(e) => setCustom({ ...custom, executionMode: e.target.value })}>
-            <option value="arguments">Installer arguments</option><option value="powershell">PowerShell script</option><option value="batch">Batch script</option>
-          </select></label>
-          <label>Timeout (seconds)<input type="number" min="30" max="3600" value={custom.timeoutSeconds} onChange={(e) => setCustom({ ...custom, timeoutSeconds: e.target.value })} /></label>
-        </div>
-        {custom.executionMode === 'arguments'
-          ? <label>Silent install arguments<input placeholder="/qn /norestart" value={custom.installArguments} onChange={(e) => setCustom({ ...custom, installArguments: e.target.value })} /></label>
-          : <label>Install script<textarea rows="7" placeholder={custom.executionMode === 'powershell' ? 'Use $env:HI5_INSTALLER and $env:HI5_WORKDIR' : 'Use %HI5_INSTALLER% and %HI5_WORKDIR%'} value={custom.script} onChange={(e) => setCustom({ ...custom, script: e.target.value })} /></label>}
-        <div className="app-portal-form-grid">
-          <label>Verification<select value={custom.verificationMethod} onChange={(e) => setCustom({ ...custom, verificationMethod: e.target.value })}>
-            <option value="uninstall_registry">Uninstall registry</option><option value="file_version">File version</option>
-          </select></label>
-          {custom.verificationMethod === 'file_version'
-            ? <label>Verification file<input placeholder="C:\Program Files\Company\App.exe" value={custom.filePath} onChange={(e) => setCustom({ ...custom, filePath: e.target.value })} /></label>
-            : <label>Display name contains<input value={custom.displayNameContains} onChange={(e) => setCustom({ ...custom, displayNameContains: e.target.value })} /></label>}
-        </div>
-        {custom.verificationMethod === 'uninstall_registry' && <label>MSI product code (optional)<input value={custom.productCode} onChange={(e) => setCustom({ ...custom, productCode: e.target.value })} /></label>}
+        <label>Silent install arguments
+          <input placeholder={custom.installerType === 'msi' ? '/qn /norestart' : '/S'}
+            disabled={custom.executionMode !== 'arguments'}
+            value={custom.installArguments} onChange={(e) => setCustom({ ...custom, installArguments: e.target.value })} />
+          <small>MSI normally uses /qn /norestart. EXE switches depend on the vendor.</small>
+        </label>
+        <label>Installation detection
+          <select value={custom.verificationMethod} onChange={(e) => setCustom({ ...custom, verificationMethod: e.target.value })}>
+            <option value="auto">Automatic — installed-software inventory</option>
+            <option value="uninstall_registry">Advanced — registry identity</option>
+            <option value="file_version">Advanced — file version</option>
+          </select>
+        </label>
+        {custom.verificationMethod === 'auto' &&
+          <div className="app-portal-auto-info">Uses the Windows installed-programs inventory. Suggested identity: <strong>{inventoryDisplayName(custom.name) || 'Enter an application name'}</strong>. Installation is checked by the Agent; updates to the general inventory can take time.</div>}
+        {custom.verificationMethod === 'uninstall_registry' && <>
+          <label>Installed-programs display name<input placeholder="Exact installed program name" value={custom.displayNameContains} onChange={(e) => setCustom({ ...custom, displayNameContains: e.target.value })} /></label>
+          <label>MSI product code (optional)<input value={custom.productCode} onChange={(e) => setCustom({ ...custom, productCode: e.target.value })} /></label>
+        </>}
+        {custom.verificationMethod === 'file_version' &&
+          <label>Verification file<input placeholder="C:\Program Files\Company\App.exe" value={custom.filePath} onChange={(e) => setCustom({ ...custom, filePath: e.target.value })} /></label>}
+        <details className="app-portal-advanced">
+          <summary>Advanced installation &amp; security options</summary>
+          <div className="app-portal-advanced-fields">
+            <label>Expected signing name (if different from Publisher)
+              <input placeholder={custom.publisher || 'Authenticode signer organisation'}
+                value={custom.expectedSigner} onChange={(e) => setCustom({ ...custom, expectedSigner: e.target.value })} />
+              <small>The Windows Agent checks the installer's digital signature. If its signer differs from the Publisher, enter the actual signing name.</small>
+            </label>
+            <div className="app-portal-form-grid">
+              <label>Execution<select value={custom.executionMode} onChange={(e) => setCustom({ ...custom, executionMode: e.target.value })}>
+                <option value="arguments">Standard installer arguments</option>
+                <option value="powershell">PowerShell script</option>
+                <option value="batch">Batch script</option>
+              </select></label>
+              <label>Timeout (seconds)<input type="number" min="30" max="3600" value={custom.timeoutSeconds} onChange={(e) => setCustom({ ...custom, timeoutSeconds: e.target.value })} /></label>
+            </div>
+            {custom.executionMode !== 'arguments' &&
+              <label>Install script<textarea rows="7"
+                placeholder={custom.executionMode === 'powershell' ? 'Use $env:HI5_INSTALLER and $env:HI5_WORKDIR' : 'Use %HI5_INSTALLER% and %HI5_WORKDIR%'}
+                value={custom.script} onChange={(e) => setCustom({ ...custom, script: e.target.value })} /></label>}
+          </div>
+        </details>
         <div className="app-portal-draft-actions">
           <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {editingDraft ? 'Save / retry upload' : 'Save draft'}</button>
           <button className="rmm-primary" disabled={busy} onClick={() => saveCustom(true)} type="button"><CheckCircle2 size={15} /> {editingDraft ? 'Publish this application' : 'Create & publish revision'}</button>
