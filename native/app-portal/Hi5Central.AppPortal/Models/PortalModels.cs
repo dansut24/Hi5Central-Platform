@@ -61,6 +61,15 @@ public sealed class PortalApp
     [JsonPropertyName("installed")]
     public bool Installed { get; init; }
 
+    [JsonPropertyName("inventoryFresh")]
+    public bool InventoryFresh { get; init; } = true;
+
+    [JsonPropertyName("detection")]
+    public string Detection { get; init; } = string.Empty;
+
+    [JsonPropertyName("installedVersion")]
+    public string InstalledVersion { get; init; } = string.Empty;
+
     [JsonPropertyName("version")]
     public string Version { get; init; } = string.Empty;
 
@@ -266,6 +275,7 @@ public enum AppPortalStatus
     ApprovalPending,
     ApprovalRejected,
     Installing,
+    VerificationPending,
     Installed,
     Failed,
 }
@@ -317,6 +327,7 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request declined",
         AppPortalStatus.Installing => "Installing",
+        AppPortalStatus.VerificationPending => "Verification pending",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Failed",
         _ => "Available",
@@ -328,6 +339,7 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request again",
         AppPortalStatus.Installing => "Installing...",
+        AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Retry",
         _ => "Install",
@@ -342,6 +354,7 @@ public sealed class AppCard : INotifyPropertyChanged
     {
         AppPortalStatus.Installed => "#E9F8F1",
         AppPortalStatus.Installing => "#EEF4FF",
+        AppPortalStatus.VerificationPending => "#FFF6E5",
         AppPortalStatus.ApprovalPending => "#FFF6E5",
         AppPortalStatus.ApprovalRequired => "#FFF6E5",
         AppPortalStatus.ApprovalRejected => "#FFF0F2",
@@ -352,6 +365,7 @@ public sealed class AppCard : INotifyPropertyChanged
     public string StatusForeground => Status switch
     {
         AppPortalStatus.Installed => "#146B50",
+        AppPortalStatus.VerificationPending => "#9A6400",
         AppPortalStatus.ApprovalPending => "#9A6400",
         AppPortalStatus.ApprovalRequired => "#9A6400",
         AppPortalStatus.ApprovalRejected => "#B63D4C",
