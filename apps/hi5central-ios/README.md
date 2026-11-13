@@ -1,77 +1,82 @@
-# Hi5Central Mobile — v0.2.0 unified native navigation
+# Hi5Central Mobile — v0.3.0 native technician command centre
 
-Branch: feature/hi5central-ios-v020-unified-navigation
+Branch: feature/hi5central-ios-v030-command-centre
 
-The combined app (com.hi5central.mobile) is a third, separately sideloadable
-iPhone application. Standalone Hi5Central ITSM and RMM apps remain intact.
+A separate combined iPhone application with bundle ID com.hi5central.mobile.
+Standalone ITSM and RMM applications remain unchanged.
 
-## Implemented in v0.2.0
+## What changed from combined v0.2.0
 
-- Single native tab bar replaces the permanent top ITSM/RMM switcher:
-  - Both products, combined focus: Home, Records, Devices, Tasks, More.
-  - ITSM-only, or ITSM focus: Home, Records, Tasks, Knowledge, More.
-  - RMM-only, or RMM focus: Home, Devices, Alerts, Tools, More.
-- Combined Home reports real open ITSM work, accessible tasks, online/offline
-  RMM devices, and recent tickets and devices requiring attention. Charts use
-  permission-filtered data, never fabricated historical trends.
-- Global Search across ITSM records, tasks, knowledge, People, CMDB, Projects
-  and RMM devices; the results are limited to authorised modules.
-- More provides ITSM and RMM modules, unified theme and sign-out, and optional
-  Combined / Service Desk / Remote Monitoring navigation preference.
-  Navigation preference never overrides tenant product entitlements.
-- ITSM -> RMM: A record can search authorised RMM devices and open a native
-  device management panel and remote session. Explicit linkedDeviceId,
-  rmmDeviceId or deviceId values are considered links ONLY if they match the
-  authenticated tenant's RMM device list. Otherwise choose manually; no
-  association is guessed. Existing CMDB hi5central://device/uuid link remains.
-- Remote viewer unchanged: the native WebRTC/codec/Windows keyboard code from
-  the previously working RMM app is reused unmodified.
-- No VPS API, Windows Agent, standalone RMM or standalone ITSM deployment.
+- One unified native navigation retained: Home / Records / Devices / Tasks / More
+  for dual-module companies. Permission-limited and workspace-focus navigation
+  still adapt to the server-authorised modules.
+- Action-first Home: Quick actions for New ticket, Remote support, Approvals and
+  Global search. Attention panel shows visible High/Critical records, pending
+  Service Request approvals and offline agents, with deep links into native UI.
+- Records workbench: All/Open/Mine filters, record-type filter, search, count
+  display, create button, native ITSM record details and editor.
+- Devices workbench: Online/Offline/Inventory filters, name/site/assignee search,
+  Online-first sorting, device detail and a swipe-to-remote action on online agents.
+- Activity inbox: ITSM in-app notifications plus RMM *connectivity* warnings,
+  segmented filters for dual-module tenants, drill-downs and pull-to-refresh.
+  RMM policy alert history and actual APNs push are not yet included.
+- Universal header quick-actions menu with New ticket, Approvals, Find device
+  and Search, visible only for modules enabled by the server's access policy.
+- Existing global search, CMDB-to-RMM links, ITSM ticket remote-support picker,
+  MFA login, light/dark mode and native five-tab UI are retained.
 
-## Build and install
+## Build / installation
 
 Workflow: .github/workflows/hi5central-ios-unified-ipa.yml
-Artifact: Hi5CentralMobile-iOS-v0.2.0-unified-navigation
+Artifact: Hi5CentralMobile-iOS-v0.3.0-command-centre
 IPA inside artifact: Hi5CentralMobile-iOS-unified-native.ipa
 
-Install using Sideloadly. This upgrades the combined v0.1.0 installation
-without replacing the separate ITSM and RMM apps. GitHub green confirms only
-compilation and packaging; real-device runtime tests are required.
+Sideloadly installs over combined v0.2.0 without replacing standalone apps.
+A green GitHub build only proves successful Swift compilation and IPA packaging;
+it does not prove live remote connectivity or iPhone UI behaviour.
 
-## Required iPhone test matrix
+## Real iPhone QA checklist
 
-1. Dual-product tenant: tenant/email/password/MFA; expect Home, Records,
-   Devices, Tasks and More with NO top ITSM/RMM switcher.
-2. Home: chart and stat tiles, recent tickets, offline device actions.
-3. Global search: search a ticket, RMM device, person, CMDB item, project,
-   task and knowledge article; open results in native screens.
-4. Ticket -> Find device and open RMM tools -> Lenovo -> start a remote
-   session. Check full-resolution video, automatic iPhone keyboard on Windows
-   text focus, file tools, input and safe session close.
-5. CMDB with linked RMM device: open native device using deep link; confirm
-   unlicensed/restricted accounts cannot access it.
-6. More -> Navigation focus: Combined / Service Desk / Remote Monitoring.
-   Verify five bottom tabs adapt; no cross-module permission bypass.
-7. ITSM-only: no RMM tabs/search; RMM-only: no ITSM tabs/search.
-8. Restricted staff account and requester: enforce server permissions. Do
-   not show either staff workspace to requester.
-9. Portrait, landscape, large dynamic type, dark/light mode and safe areas.
-10. Sign out, change tenant and check no old tenant records are displayed.
+1. On a tenant with both products, confirm Home/Records/Devices/Tasks/More,
+   correct full-screen layout, one native tab bar and no product switch at top.
+2. Tap Home quick actions: New ticket opens correct editor; Remote support
+   opens device selector; Approvals opens approval list; Search opens both
+   product results.
+3. Home attention rows open the correct ticket/device; count labels reflect
+   only accessible records. Test tenant with zero data.
+4. Records tab: All/Open/Mine and record-type filters, keyboard search, create
+   Incident and open ticket details. Check existing permission checks.
+5. Devices tab: Online/Offline/Inventory filters, sorting, device info, and
+   swipe Remote on an online Lenovo endpoint.
+6. Start native WebRTC session; confirm codec/resolution, auto iPhone keyboard,
+   touch and mouse, Windows UAC/CAD transitions and safe close. No changes
+   were made to the streaming engine or viewer.
+7. Bell: segmented ITSM/RMM feed, mark ITSM notice read, open a linked ticket,
+   and open an RMM offline device. Connectivity warning is not policy history.
+8. Test ITSM-only and RMM-only tenant; hidden product modules MUST NOT appear
+   in Home, Search, Activity, shortcuts, deep links or More.
+9. Sign out and log in with another tenant, verify no previous company data,
+   and test portrait/landscape, Dynamic Type, dark and light appearance.
 
-## Known remaining enhancements
+## Next suggested releases
 
-- Record/device relational mapping needs explicit linked device IDs from the
-  ITSM API; otherwise manual device selection is intentional.
-- Search uses data returned by existing permission-filtered API requests, not
-  an unbounded server-side search beyond their current result limits.
-- APNs push, passkeys, true offline caching, verified attachments and advanced
-  ITSM workflow parity remain follow-up work.
+- v0.4: Native ticket activity composer redesign, richer record resolution and
+  full workflow parity, reliable attachment upload/download and Service Request
+  catalogue/fulfilment.
+- v0.5: Notification deep links, real APNs push through a managed backend
+  device-token flow (requires Apple capability support), passkeys/Face ID
+  enrolment and secure per-tenant session lifecycle.
+- Later: native People/CMDB/Projects editing, Calendar and Knowledge features,
+  offline-safe drafts, more advanced RMM alerts and an intentional, supported
+  link between ITSM configuration items and RMM devices.
 
-## Recovery / project continuation
+## Handover / recovery
 
-- Working unified v0.1.0 Actions run: 43386388903.
-- Working standalone ITSM v0.3.0 Actions run: 43386385591.
-- Working standalone RMM v0.5.16 Actions run: 43303475212.
-- Lenovo Windows Agent v1.0.506, backend, TURN and VPS left unchanged.
-- If runtime navigation fails, revert the combined-app branch only. Do not
-  modify codec, RTP, ICE, TURN or Agent to correct iPhone navigation.
+Previous combined v0.2.0 green Actions run: 43412656456
+Previous combined v0.2.0 final documentation run: 43412947756
+Original unified v0.1.0: 43386388903
+Standalone ITSM v0.3.0: 43386385591
+Standalone RMM v0.5.16: 43303475212
+
+Do not modify WebRTC codec, RTP, ICE, TURN, Windows Agent, server deploy,
+standalone app sources or Caddy to fix combined iPhone navigation.
