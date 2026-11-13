@@ -44,6 +44,9 @@ struct UnifiedMobileRoot: View {
     @State private var activeTab = "home"
     @State private var searching = false
     @State private var showingNotifications = false
+    @State private var showingCreateRecord = false
+    @State private var showingFindDevice = false
+    @State private var showingApprovals = false
     @State private var linkedDevice: ManagedDevice?
     @State private var deepLinkMessage: String?
     @State private var itsmReady = false
@@ -95,12 +98,41 @@ struct UnifiedMobileRoot: View {
                 .environmentObject(rmmState)
         }
         .sheet(isPresented: $showingNotifications) {
-            NavigationStack {
-                if canITSM {
-                    ITSMNotificationsView().environmentObject(itsm)
-                } else {
-                    NativeAlerts().environmentObject(rmm)
+            UnifiedActivityInbox()
+                .environmentObject(auth)
+                .environmentObject(itsm)
+                .environmentObject(rmm)
+                .environmentObject(rmmState)
+        }
+        .sheet(isPresented: $showingCreateRecord) {
+            if canITSM {
+                ITSMRecordComposer().environmentObject(itsm)
+            }
+        }
+        .sheet(isPresented: $showingFindDevice) {
+            if canRMM {
+                NavigationStack {
+                    NativeDeviceList()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { showingFindDevice = false }
+                            }
+                        }
                 }
+                .environmentObject(rmm)
+                .environmentObject(rmmState)
+            }
+        }
+        .sheet(isPresented: $showingApprovals) {
+            if canITSM {
+                NavigationStack {
+                    ITSMApprovalsView()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { showingApprovals = false }
+                            }
+                }
+                .environmentObject(itsm)
             }
         }
         .sheet(item: $linkedDevice) { device in
@@ -148,6 +180,11 @@ struct UnifiedMobileRoot: View {
                 rmmReady = false
                 activeTab = "home"
                 linkedDevice = nil
+                showingNotifications = false
+                showingCreateRecord = false
+                showingFindDevice = false
+                showingApprovals = false
+                searching = false
                 rmmState.viewer = nil
             }
         }
@@ -230,10 +267,41 @@ struct UnifiedMobileRoot: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Menu {
+                    if canITSM {
+                        Button {
+                            showingCreateRecord = true
+                        } label: {
+                            Label("New ticket", systemImage: "plus.app")
+                        }
+                        Button {
+                            showingApprovals = true
+                        } label: {
+                            Label("Approvals", systemImage: "checkmark.shield")
+                        }
+                    }
+                    if canRMM {
+                        Button {
+                            showingFindDevice = true
+                        } label: {
+                            Label("Find a device", systemImage: "desktopcomputer")
+                        }
+                    }
+                    Button {
+                        searching = true
+                    } label: {
+                        Label("Search all workspaces", systemImage: "magnifyingglass")
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 22))
+                        .frame(width: 34, height: 36)
+                }
+                .accessibilityLabel("Quick actions")
                 Button { searching = true } label: {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 19))
-                        .frame(width: 34, height: 36)
+                        .frame(width: 32, height: 36)
                 }
                 .accessibilityLabel("Search across Hi5Central")
                 Button { showingNotifications = true } label: {
@@ -241,9 +309,9 @@ struct UnifiedMobileRoot: View {
                         .font(.system(size: 18))
                         .frame(width: 34, height: 36)
                         .overlay(alignment: .topTrailing) {
-                            if canITSM && itsm.notifications.contains(where: {
+                            if (canITSM && itsm.notifications.contains(where: {
                                 ($0["read"] as? Bool) != true
-                            }) {
+                            })) || (canRMM && !rmm.offlineDevices.isEmpty) {
                                 Circle()
                                     .fill(.red)
                                     .frame(width: 7, height: 7)
@@ -343,7 +411,11 @@ struct UnifiedMobileRoot: View {
                 openRecords: { activeTab = "records" },
                 openDevices: { activeTab = "devices" },
                 openTasks: { activeTab = "tasks" },
-                openAlerts: { showingNotifications = true }
+                openAlerts: { showingNotifications = true },
+                newRecord: { showingCreateRecord = true },
+                findDevice: { showingFindDevice = true },
+                openApprovals: { showingApprovals = true },
+                openSearch: { searching = true }
             )
         } else if effectiveFocus == "itsm" && canITSM {
             ITSMDashboard()
