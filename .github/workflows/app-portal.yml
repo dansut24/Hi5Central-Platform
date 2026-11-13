@@ -42,6 +42,9 @@ jobs:
         run: dotnet restore Hi5Central.AppPortal/Hi5Central.AppPortal.csproj
       - name: Build
         run: dotnet build Hi5Central.AppPortal/Hi5Central.AppPortal.csproj -c Release --no-restore
+      - name: Exercise Windows Agent named-pipe protocol
+        if: matrix.rid == 'win-x64'
+        run: dotnet run --project tests/AppPortalBrokerSmoke.csproj -c Release
       - name: Publish self-contained
         shell: pwsh
         run: |
@@ -54,6 +57,34 @@ jobs:
             /p:DebugType=None `
             /p:DebugSymbols=false
           if ($LASTEXITCODE -ne 0) { throw 'App Portal publish failed.' }
+      - name: Package Windows per-user installer
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $compiler)) {
+            $compiler = "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $compiler)) { throw 'Inno Setup compiler is missing.' }
+          $bin = Join-Path $env:RUNNER_TEMP 'hi5-app-portal\Hi5CentralAppPortal.exe'
+          if (-not (Test-Path $bin)) { throw 'Published App Portal executable is missing.' }
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-self-service-installer'
+          New-Item -Force -ItemType Directory $out | Out-Null
+          & $compiler "/DAppPortalExePath=$bin" "/DOutputDir=$out" "installer\Hi5CentralSelfServiceSetup.iss"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed.' }
+          $setup = Join-Path $out 'Hi5CentralSelfServiceSetup.exe'
+          if (-not (Test-Path $setup)) { throw 'Windows installer is missing.' }
+          Write-Output ("Windows Self Service installer size: " + (Get-Item $setup).Length)
+      - name: Upload Windows setup
+        if: matrix.rid == 'win-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Self-Service-Setup-Windows
+          path: ${{ runner.temp }}/hi5-self-service-installer/Hi5CentralSelfServiceSetup.exe
+          retention-days: 14
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
