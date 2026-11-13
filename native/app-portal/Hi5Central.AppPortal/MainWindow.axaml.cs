@@ -29,6 +29,10 @@ public sealed partial class MainWindow : Window
     private string _appSection = "all";
     private bool _busy;
     private bool _loadFailed;
+    private bool _windowClosed;
+    private DateTimeOffset _lastSuccessfulRefresh = DateTimeOffset.MinValue;
+    private static readonly TimeSpan IdleRefreshInterval = TimeSpan.FromSeconds(60);
+    private int _statusRevision;
 
     public MainWindow()
     {
@@ -52,17 +56,21 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Opened(object? sender, EventArgs e)
     {
+        _windowClosed = false;
         await RefreshCatalogueAsync(showLoading: true);
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
+        _windowClosed = true;
         _pollTimer.Stop();
     }
 
     private async void PollTimer_Tick(object? sender, EventArgs e)
     {
-        if (_busy || (!_loadFailed && !NeedsPolling())) return;
+        if (_busy || _windowClosed) return;
+        var idleRefreshDue = DateTimeOffset.UtcNow - _lastSuccessfulRefresh >= IdleRefreshInterval;
+        if (!_loadFailed && !NeedsPolling() && !idleRefreshDue) return;
         await RefreshCatalogueAsync(showLoading: false, quiet: true);
     }
 
@@ -95,6 +103,7 @@ public sealed partial class MainWindow : Window
             _requests = response.Requests;
             _device = response.Device;
             _updates = response.Updates;
+            _lastSuccessfulRefresh = DateTimeOffset.UtcNow;
             var recoveredFromLoadFailure = _loadFailed;
             _loadFailed = false;
             RebuildCategories();
@@ -746,14 +755,14 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePollState()
     {
-        if (_loadFailed || NeedsPolling())
-        {
-            if (!_pollTimer.IsEnabled) _pollTimer.Start();
-        }
-        else
+        // Company admins may publish or revoke applications while this window
+        // remains open; sync at least once per minute even with no pending jobs.
+        if (_windowClosed)
         {
             _pollTimer.Stop();
+            return;
         }
+        if (!_pollTimer.IsEnabled) _pollTimer.Start();
     }
 
     private void ShowEmptyStateForError(string message)
@@ -772,6 +781,7 @@ public sealed partial class MainWindow : Window
         bool isError,
         bool autoHide)
     {
+        var revision = ++_statusRevision;
         StatusTitle.Text = title;
         StatusMessage.Text = message;
         StatusBanner.Background = new Avalonia.Media.SolidColorBrush(
@@ -785,12 +795,16 @@ public sealed partial class MainWindow : Window
         if (autoHide)
         {
             await Task.Delay(TimeSpan.FromSeconds(5));
-            StatusBanner.IsVisible = false;
+            if (!_windowClosed && revision == _statusRevision)
+            {
+                StatusBanner.IsVisible = false;
+            }
         }
     }
 
     private void DismissStatus_Click(object? sender, RoutedEventArgs e)
     {
+        ++_statusRevision;
         StatusBanner.IsVisible = false;
     }
 
@@ -798,6 +812,7 @@ public sealed partial class MainWindow : Window
     {
         return exception switch
         {
+            TimeoutException => exception.Message,
             OperationCanceledException =>
                 "Hi5Central did not respond in time. Self Service will retry automatically.",
             JsonException =>
