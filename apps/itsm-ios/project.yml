@@ -16,8 +16,8 @@ targets:
       properties:
         CFBundleDisplayName: "Hi5Central ITSM"
         UILaunchStoryboardName: LaunchScreen
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "0.3.0"
+        CFBundleVersion: "3"
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
