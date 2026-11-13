@@ -22,6 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
+      - name: Verify device Self Service PowerShell syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            'services/api/src/appPortalDeviceReconcile.ps1',
+            [ref]$tokens,
+            [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'Self Service reconciliation PowerShell failed syntax checks'
+          }
       - name: Build patched Windows PatchHost with static CRT
         shell: pwsh
         run: |

@@ -15,6 +15,7 @@ import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon
 import { findInstalledApp } from './appPortalInventory.js'
 import { inspectUploadedPackage } from './appPortalPackageInspection.js'
 import { approvalMatches, allowedUnsignedScope, isUnsignedUpload, unsignedManifestApproval } from './appPortalUnsignedApproval.js'
+import { registerAppPortalDeviceRoutes } from './appPortalDeviceRoutes.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -509,6 +510,10 @@ async function dispatchCatalogueInstall(agent, app, identity) {
 }
 
 export function registerRmmAppPortalRoutes(app) {
+  registerAppPortalDeviceRoutes(app, {
+    pool, requireManage, agentSocketForDevice, sendAgentMessage, recordRmmActivity,
+  })
+
   app.get('/api/v1/agent/app-portal/packages/:token', async (c) => {
     const token = clean(c.req.param('token'))
     if (token.length < 40 || token.length > 100) return c.json({ error: 'Package token is invalid.' }, 404)
