@@ -48,7 +48,7 @@ export function inspectAppPortalIcon(bytes) {
           || width / height > 5 || height / width > 5) {
         return { error: 'Use a logo between 16 and 1024 pixels, with maximum aspect ratio 5:1.' }
       }
-      if (bytes[position + 20] !== 8 || ![0,2,4,6].includes(bytes[position + 21])) {
+      if (bytes[position + 16] !== 8 || ![0,2,4,6].includes(bytes[position + 17])) {
         return { error: 'Use an ordinary 8-bit PNG logo.' }
       }
       first = false
