@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, ChevronRight, Globe2, PackagePlus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
+import { CheckCircle2, ChevronRight, Globe2, PackagePlus, Pencil, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   assignAppPortalApp,
   createAppPortalApp,
@@ -10,14 +10,9 @@ import {
   removeAppPortalAssignment,
   uploadAppPortalPackage,
 } from '../../lib/rmmAppPortalApi.js'
+import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage } from '../../lib/appPortalDraft.js'
 import './RmmAppPortal.css'
 
-const emptyCustom = {
-  name: '', publisher: '', description: '', category: 'Company software', sourceKind: 'direct_url',
-  version: '', url: '', sha256: '', expectedSigner: '', installerType: 'msi',
-  executionMode: 'arguments', installArguments: '', script: '', timeoutSeconds: 600,
-  verificationMethod: 'uninstall_registry', productCode: '', displayNameContains: '', filePath: '',
-}
 const emptyAssignment = { appId: '', scopeType: 'Estate', scopeId: '*', scopeName: 'Entire estate', intent: 'available', priority: 0 }
 
 function stateLabel(app) {
@@ -34,6 +29,7 @@ export function RmmAppPortal() {
   const [catalogueId, setCatalogueId] = useState('')
   const [custom, setCustom] = useState(emptyCustom)
   const [uploadFile, setUploadFile] = useState(null)
+  const [editingDraft, setEditingDraft] = useState(null)
   const [assignment, setAssignment] = useState(emptyAssignment)
 
   const refresh = async () => {
@@ -49,6 +45,9 @@ export function RmmAppPortal() {
       setMessage(successMessage)
       await refresh()
     } catch (err) {
+      // A failed package upload still creates a resumable server-side draft.
+      // Refresh the visible list without hiding the real error from the user.
+      try { setBundle(await loadAppPortal()) } catch {}
       setError(err.data?.errors?.join(' ') || err.message)
     } finally { setBusy(false) }
   }
@@ -66,39 +65,75 @@ export function RmmAppPortal() {
     }, item.canonical_name + ' published to App Portal.')
   }
 
-  const addCustom = () => {
+  const editExistingDraft = (app) => {
+    const revision = bundle.revisions.find((row) => row.id === app.current_revision_id
+      && row.app_id === app.id && row.publish_state === 'draft')
+      || bundle.revisions.find((row) => row.app_id === app.id && row.publish_state === 'draft')
+    const form = formFromDraft(app, revision)
+    setCustom(form)
+    setUploadFile(null)
+    setEditingDraft({
+      appId: app.id,
+      revisionId: revision?.id || null,
+      fingerprint: revision ? revisionFingerprint(form) : null,
+      hasPackage: draftHasUploadedPackage(revision),
+    })
+    setError('')
+    setMessage('Editing ' + app.name + '. Changes to installer settings save as a new revision of this application, not a duplicate app.')
+    document.getElementById('app-portal-custom-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const cancelEditing = () => {
+    setEditingDraft(null)
+    setCustom(emptyCustom)
+    setUploadFile(null)
+    setError('')
+    setMessage('')
+  }
+
+  const saveCustom = (publish = false) => {
     if (!custom.name.trim()) return setError('Enter an application name.')
-    if (custom.sourceKind === 'upload' && !uploadFile) return setError('Choose an MSI or EXE to upload.')
+    const payload = customRevisionPayload(custom)
+    const unchanged = Boolean(editingDraft?.revisionId && editingDraft.fingerprint === revisionFingerprint(custom))
+    const packageAlreadyStored = unchanged && editingDraft?.hasPackage && custom.sourceKind === 'upload'
+    if (publish && custom.sourceKind === 'upload' && !uploadFile && !packageAlreadyStored) {
+      return setError('Choose an MSI or EXE package before publishing this draft.')
+    }
+    // A draft may be saved before the installer is ready. Publishing still
+    // requires the signed/hash-pinned installer and server-side validation.
     run(async () => {
-      const created = await createAppPortalApp({
-        sourceType: 'custom', name: custom.name, publisher: custom.publisher,
-        description: custom.description, category: custom.category,
+      let appId = editingDraft?.appId
+      let revisionId = unchanged ? editingDraft.revisionId : null
+      if (!appId) {
+        const created = await createAppPortalApp({
+          sourceType: 'custom', name: custom.name, publisher: custom.publisher,
+          description: custom.description, category: custom.category,
+        })
+        appId = created.app.id
+      }
+      if (!revisionId) {
+        const createdRevision = await createAppPortalRevision(appId, payload)
+        revisionId = createdRevision.revision.id
+      }
+      // Persist the app/revision IDs BEFORE the network upload so a failed
+      // attempt can be retried without making another application/revision.
+      setEditingDraft({
+        appId, revisionId, fingerprint: revisionFingerprint(custom),
+        hasPackage: Boolean(packageAlreadyStored),
       })
-      const verification = custom.verificationMethod === 'file_version'
-        ? { method: 'file_version', filePath: custom.filePath, targetVersion: custom.version }
-        : { method: 'uninstall_registry', productCode: custom.productCode,
-            displayNameContains: custom.displayNameContains, targetVersion: custom.version }
-      const revision = await createAppPortalRevision(created.app.id, {
-        version: custom.version,
-        sourceKind: custom.sourceKind,
-        sourceConfig: custom.sourceKind === 'direct_url' ? { url: custom.url } : {},
-        sha256: custom.sourceKind === 'direct_url' ? custom.sha256 : '',
-        expectedSigner: custom.expectedSigner,
-        installerType: custom.installerType,
-        execution: {
-          mode: custom.executionMode,
-          arguments: custom.installArguments,
-          script: custom.script,
-          timeoutSeconds: Number(custom.timeoutSeconds || 600),
-          successExitCodes: [0, 1641, 3010],
-        },
-        verification,
-      })
-      if (custom.sourceKind === 'upload') await uploadAppPortalPackage(revision.revision.id, uploadFile)
-      await publishAppPortalRevision(revision.revision.id)
-      setCustom(emptyCustom)
-      setUploadFile(null)
-    }, custom.name + ' published to App Portal.')
+      if (custom.sourceKind === 'upload' && uploadFile) {
+        await uploadAppPortalPackage(revisionId, uploadFile)
+        setUploadFile(null)
+        setEditingDraft({
+          appId, revisionId, fingerprint: revisionFingerprint(custom), hasPackage: true,
+        })
+      }
+      if (publish) {
+        await publishAppPortalRevision(revisionId)
+        setCustom(emptyCustom)
+        setEditingDraft(null)
+      }
+    }, publish ? custom.name + ' published to App Portal.' : custom.name + ' draft saved. You can resume it later.')
   }
 
   const addAssignment = () => {
@@ -139,6 +174,9 @@ export function RmmAppPortal() {
               <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small></span>
             <span className={'app-portal-state ' + (app.status === 'published' ? 'good' : '')}>{stateLabel(app)}</span>
             <span className="app-portal-count">{bundle.assignments.filter((row) => row.app_id === app.id).length} assignments</span>
+            {app.source_type === 'custom' && app.publish_state === 'draft' &&
+              <button className="app-portal-edit-action" type="button" disabled={busy}
+                aria-label={'Edit draft ' + app.name} onClick={() => editExistingDraft(app)}><Pencil size={14} /> Edit draft</button>}
           </article>)}
           {!bundle.apps.length && <div className="app-portal-empty">No applications have been published yet.</div>}
         </div>
@@ -153,20 +191,26 @@ export function RmmAppPortal() {
         <button className="rmm-primary" disabled={busy || !catalogueId} onClick={addCatalogue} type="button"><PackagePlus size={15} /> Publish application</button>
       </section>
 
-      <section className="app-portal-card app-portal-custom">
-        <div className="app-portal-card-title"><div><h3>Custom application</h3><p>Direct HTTPS source with pinned hash, signer and independent detection.</p></div><Globe2 size={20} /></div>
+      <section className="app-portal-card app-portal-custom" id="app-portal-custom-form">
+        <div className="app-portal-card-title"><div>
+          <h3>{editingDraft ? 'Edit existing draft' : 'Custom application'}</h3>
+          <p>{editingDraft ? 'Resume the saved draft. A changed installer configuration creates a new revision of the same application.' : 'Direct HTTPS source with pinned hash, signer and independent detection.'}</p>
+        </div>{editingDraft
+          ? <button className="app-portal-edit-action" type="button" onClick={cancelEditing} disabled={busy}><X size={14} /> Cancel</button>
+          : <Globe2 size={20} />}</div>
+        {editingDraft && <p className="app-portal-draft-hint">Editing an existing application. Its name, publisher, category and description are retained. Installer options can be changed; a replacement package is required when creating a new upload revision.</p>}
         <div className="app-portal-form-grid">
-          <label>Name<input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
-          <label>Publisher<input value={custom.publisher} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
+          <label>Name<input value={custom.name} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
+          <label>Publisher<input value={custom.publisher} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
           <label>Version<input value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
           <label>Installer<select value={custom.installerType} onChange={(e) => { setCustom({ ...custom, installerType: e.target.value }); setUploadFile(null) }}><option value="msi">MSI</option><option value="exe">EXE</option></select></label>
         </div>
-        <label>Description<textarea rows="3" value={custom.description} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
+        <label>Description<textarea rows="3" value={custom.description} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
         <div className="app-portal-form-grid">
           <label>Package source<select value={custom.sourceKind} onChange={(e) => { setCustom({ ...custom, sourceKind: e.target.value }); setUploadFile(null) }}>
             <option value="direct_url">Direct HTTPS URL</option><option value="upload">Private upload</option>
           </select></label>
-          <label>Category<input value={custom.category} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
+          <label>Category<input value={custom.category} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
         </div>
         {custom.sourceKind === 'direct_url'
           ? <>
@@ -195,7 +239,10 @@ export function RmmAppPortal() {
             : <label>Display name contains<input value={custom.displayNameContains} onChange={(e) => setCustom({ ...custom, displayNameContains: e.target.value })} /></label>}
         </div>
         {custom.verificationMethod === 'uninstall_registry' && <label>MSI product code (optional)<input value={custom.productCode} onChange={(e) => setCustom({ ...custom, productCode: e.target.value })} /></label>}
-        <button className="rmm-primary" disabled={busy} onClick={addCustom} type="button"><CheckCircle2 size={15} /> Create & publish revision</button>
+        <div className="app-portal-draft-actions">
+          <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {editingDraft ? 'Save / retry upload' : 'Save draft'}</button>
+          <button className="rmm-primary" disabled={busy} onClick={() => saveCustom(true)} type="button"><CheckCircle2 size={15} /> {editingDraft ? 'Publish this application' : 'Create & publish revision'}</button>
+        </div>
       </section>
       <section className="app-portal-card">
         <div className="app-portal-card-title"><div><h3>Assignment</h3><p>Most-specific scope wins: Device → User → Group → Site → Estate.</p></div><ChevronRight size={20} /></div>
