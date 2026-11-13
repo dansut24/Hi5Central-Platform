@@ -112,7 +112,7 @@ struct UnifiedMobileRoot: View {
         .sheet(isPresented: $showingFindDevice) {
             if canRMM {
                 NavigationStack {
-                    NativeDeviceList()
+                    UnifiedDeviceHub()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { showingFindDevice = false }
@@ -349,7 +349,7 @@ struct UnifiedMobileRoot: View {
 
             if canITSM && effectiveFocus != "rmm" {
                 NavigationStack {
-                    ITSMRecordsView()
+                    UnifiedRecordHub()
                 }
                 .tabItem { Label("Records", systemImage: "tray.full") }
                 .tag("records")
@@ -357,7 +357,7 @@ struct UnifiedMobileRoot: View {
 
             if canRMM && effectiveFocus != "itsm" {
                 NavigationStack {
-                    NativeDeviceList()
+                    UnifiedDeviceHub()
                 }
                 .tabItem { Label("Devices", systemImage: "desktopcomputer") }
                 .tag("devices")
