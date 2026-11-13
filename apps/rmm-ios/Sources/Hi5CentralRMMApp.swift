@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 
+#if !HI5CENTRAL_UNIFIED
 @main
 struct Hi5CentralRMMApp: App {
     @StateObject private var state = RMMState()
@@ -19,3 +20,5 @@ struct Hi5CentralRMMApp: App {
         }
     }
 }
+
+#endif
