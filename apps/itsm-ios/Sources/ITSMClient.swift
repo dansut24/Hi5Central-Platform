@@ -492,6 +492,64 @@ final class ITSMClient: ObservableObject {
         return ITSMRecord(try await request("/api/v1/itsm-records/\(encoded)"))
     }
 
+    func createRecord(type: String, title: String, description: String,
+                      priority: String, requesterId: String,
+                      team: String, assignee: String, service: String,
+                      category: String) async throws -> ITSMRecord {
+        guard ["Incident", "Problem", "Change"].contains(type) else {
+            throw ITSMAPIError.forbidden("Use the Service Catalogue to create a Service Request.")
+        }
+        let summary = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard summary.count >= 3, summary.count <= 240 else {
+            throw ITSMAPIError.forbidden("Enter a summary between 3 and 240 characters.")
+        }
+        guard ["Low", "Medium", "High", "Critical"].contains(priority),
+              description.count <= 20_000 else {
+            throw ITSMAPIError.invalidResponse
+        }
+        var payload: [String: Any] = [
+            "type": type,
+            "title": summary,
+            "description": description,
+            "priority": priority,
+            "source": "mobile",
+            "service": service,
+            "category": category
+        ]
+        if !requesterId.isEmpty { payload["requesterId"] = requesterId }
+        if !team.isEmpty { payload["team"] = team }
+        if !assignee.isEmpty && assignee != "Unassigned" { payload["assignee"] = assignee }
+        let data = try await request("/api/v1/itsm-records",
+                                     method: "POST", body: payload)
+        let record = ITSMRecord(data)
+        await refreshRecords()
+        await refreshReport()
+        return record
+    }
+
+    func editDetails(_ record: ITSMRecord, title: String,
+                     description: String, service: String,
+                     category: String) async throws -> ITSMRecord {
+        guard !record.isServiceRequest else {
+            throw ITSMAPIError.forbidden("Service Requests use separate fulfilment workflows.")
+        }
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleanTitle.count >= 3, cleanTitle.count <= 240,
+              description.count <= 20_000 else {
+            throw ITSMAPIError.forbidden("Provide a valid summary and description.")
+        }
+        let updated = try await request("/api/v1/itsm-records/\(safeReference(record.id))",
+                                        method: "PATCH",
+                                        body: [
+                                            "title": cleanTitle,
+                                            "description": description,
+                                            "service": service,
+                                            "category": category
+                                        ])
+        await refreshRecords()
+        return ITSMRecord(updated)
+    }
+
     func postNote(for record: ITSMRecord, body: String,
                   customer: Bool) async throws -> ITSMRecord {
         guard !record.isServiceRequest else {
