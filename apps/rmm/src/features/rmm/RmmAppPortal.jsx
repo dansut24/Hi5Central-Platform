@@ -132,10 +132,6 @@ export function RmmAppPortal() {
           description: custom.description, category: custom.category,
         })
       }
-      if (logoFile) {
-        await uploadAppPortalLogo(appId, logoFile)
-        setLogoFile(null)
-      }
       if (!revisionId) {
         const createdRevision = await createAppPortalRevision(appId, payload)
         revisionId = createdRevision.revision.id
@@ -146,6 +142,10 @@ export function RmmAppPortal() {
         appId, revisionId, fingerprint: revisionFingerprint(custom),
         hasPackage: Boolean(packageAlreadyStored),
       })
+      if (logoFile) {
+        await uploadAppPortalLogo(appId, logoFile)
+        setLogoFile(null)
+      }
       if (custom.sourceKind === 'upload' && uploadFile) {
         await uploadAppPortalPackage(revisionId, uploadFile)
         setUploadFile(null)
