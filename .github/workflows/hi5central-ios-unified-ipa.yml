@@ -49,7 +49,7 @@ jobs:
           APP="$RUNNER_TEMP/Hi5UnifiedBuild/Build/Products/Release-iphoneos/Hi5CentralMobile.app"
           test -d "$APP"
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist" | grep -Fx 'com.hi5central.mobile'
-          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.6.1'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist" | grep -Fx '0.6.2'
           /usr/libexec/PlistBuddy -c "Print :UILaunchStoryboardName" "$APP/Info.plist" | grep -Fx 'LaunchScreen'
           test -d "$APP/LaunchScreen.storyboardc"
           mkdir -p "$RUNNER_TEMP/Hi5UnifiedIPA/Payload"
@@ -60,7 +60,7 @@ jobs:
       - name: Upload combined-app IPA for Sideloadly
         uses: actions/upload-artifact@v4
         with:
-          name: Hi5CentralMobile-iOS-v0.6.1-service-requests-lookup-fields
+          name: Hi5CentralMobile-iOS-v0.6.2-service-catalogue-native-forms
           path: Hi5CentralMobile-iOS-unified-native.ipa
           if-no-files-found: error
           retention-days: 14

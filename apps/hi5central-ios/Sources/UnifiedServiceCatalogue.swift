@@ -146,6 +146,27 @@ struct UnifiedRequestFormField: View {
         }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    private var catalogueDateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
+        formatter.isLenient = false
+        formatter.dateFormat = type == "datetime-local" ? "yyyy-MM-dd'T'HH:mm" : "yyyy-MM-dd"
+        return formatter
+    }
+
+    private var dateSelection: Binding<Date> {
+        Binding(
+            get: {
+                catalogueDateFormatter.date(from: itsmString(values[id])) ?? Date()
+            },
+            set: {
+                values[id] = catalogueDateFormatter.string(from: $0)
+            }
+        )
+    }
+
     private var textValue: Binding<String> {
         Binding(get: { itsmString(values[id]) }, set: { values[id] = $0 })
     }
@@ -164,7 +185,8 @@ struct UnifiedRequestFormField: View {
     static let supported = Set([
         "text", "textarea", "email", "number", "date", "select", "dropdown",
         "radio", "product", "checkbox", "checkbox-products",
-        "multiselect", "multi-select", "checkboxes", "lookup", "section"
+        "multiselect", "multi-select", "checkboxes", "lookup", "section",
+        "datetime-local"
     ])
 
     var body: some View {
@@ -191,6 +213,8 @@ struct UnifiedRequestFormField: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(title)
                 if lookupOptions.isEmpty {
                     Text("No matching \(itsmString(field["source"])) records available. Add them under People & Organisation, refresh and retry.")
                         .font(.caption).foregroundStyle(.orange)
@@ -211,6 +235,8 @@ struct UnifiedRequestFormField: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(title)
                 if choices.isEmpty {
                     Text("No choices available for this field. Update the catalogue or use the web workspace.")
                         .font(.caption).foregroundStyle(.orange)
@@ -225,15 +251,38 @@ struct UnifiedRequestFormField: View {
                     Text("No choices available for this field.")
                         .font(.caption).foregroundStyle(.orange)
                 }
-            case "text", "email", "number", "date":
+            case "date", "datetime-local":
+                if itsmString(values[id]).isEmpty {
+                    Button {
+                        values[id] = catalogueDateFormatter.string(from: Date())
+                    } label: {
+                        Label(type == "date" ? "Choose date" : "Choose date and time",
+                              systemImage: "calendar")
+                    }
+                    .accessibilityLabel(title)
+                } else {
+                    HStack {
+                        DatePicker(
+                            title,
+                            selection: dateSelection,
+                            displayedComponents: type == "date"
+                                ? [.date] : [.date, .hourAndMinute]
+                        )
+                        .datePickerStyle(.compact)
+                        .labelsHidden()
+                        .accessibilityLabel(title)
+                        Spacer(minLength: 5)
+                        Button("Clear") { values[id] = "" }
+                            .font(.caption)
+                            .accessibilityLabel("Clear " + title)
+                    }
+                }
+            case "text", "email", "number":
                 TextField(title, text: textValue)
                     .textInputAutocapitalization(type == "email" ? .never : .sentences)
                     .keyboardType(type == "email" ? .emailAddress :
                                     type == "number" ? .decimalPad : .default)
                     .textFieldStyle(.roundedBorder)
-                if type == "date" {
-                    Text("Date format: YYYY-MM-DD").font(.caption2).foregroundStyle(.secondary)
-                }
             default:
                 Text("This field type (\(type)) is not yet supported in the iPhone form.")
                     .font(.caption).foregroundStyle(.orange)
@@ -256,6 +305,38 @@ struct UnifiedServiceRequestComposer: View {
     @State private var values: [String: Any] = [:]
     @State private var saving = false
     @State private var error: String?
+
+    /// Catalogue "section" markers become actual native Form sections rather than
+    /// unsupported input rows. Conditional fields remain in their original order.
+    private struct FormGroup: Identifiable {
+        let id: String
+        let title: String
+        let help: String
+        var fields: [[String: Any]]
+    }
+
+    private var formGroups: [FormGroup] {
+        var groups: [FormGroup] = []
+        for (index, field) in visibleFields.enumerated() {
+            let type = itsmString(field["type"]).lowercased()
+            if type == "section" {
+                groups.append(FormGroup(
+                    id: "section-\(index)",
+                    title: itsmString(field["label"]),
+                    help: itsmString(field["help"]),
+                    fields: []
+                ))
+            } else {
+                if groups.isEmpty {
+                    groups.append(FormGroup(
+                        id: "catalogue-start", title: "Catalogue form", help: "", fields: []
+                    ))
+                }
+                groups[groups.count - 1].fields.append(field)
+            }
+        }
+        return groups.filter { !$0.fields.isEmpty }
+    }
 
     private var visibleFields: [[String: Any]] {
         item.fields.filter { field in
@@ -348,10 +429,16 @@ struct UnifiedServiceRequestComposer: View {
                         }
                     }
                 }
-                if !visibleFields.isEmpty {
-                    Section("Catalogue form") {
-                        ForEach(Array(visibleFields.enumerated()), id: \.offset) { pair in
+                ForEach(formGroups) { group in
+                    Section {
+                        ForEach(Array(group.fields.enumerated()), id: \.offset) { pair in
                             UnifiedRequestFormField(field: pair.element, values: $values)
+                        }
+                    } header: {
+                        Text(group.title)
+                    } footer: {
+                        if !group.help.isEmpty {
+                            Text(group.help)
                         }
                     }
                 }
@@ -387,6 +474,7 @@ struct UnifiedServiceRequestComposer: View {
                 }
             }
             .onAppear { if summary.isEmpty { summary = item.title } }
+            .task { await client.refreshOrganisation() }
             .overlay {
                 if saving { ProgressView("Submitting request…") }
             }

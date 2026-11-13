@@ -1,20 +1,25 @@
-# Hi5Central Mobile v0.6.1 — Default Service Catalogue compatibility
+# Hi5Central Mobile v0.6.2 — native Service Catalogue forms
 
-Branch: `fix/ios-v061-service-catalogue-lookups-20261113` (inherits full v0.6.0 combined ITSM/RMM app).
-IPA artifact: Hi5CentralMobile-iOS-v0.6.1-service-requests-lookup-fields.
+Base: v0.6.1 Service Request lookups, Face ID grace periods, native RMM viewer and ITSM workflows unchanged.
 
-## Changes
-- Support `section` catalogue fields (headings/help), without falsely marking them as unhandled.
-- Support `lookup` to the existing authenticated organisation directory for people, departments, sites and teams. Use external keys as request form values, as the web catalogue expects.
-- Fetch departments/sites in the existing tenant-scoped `/api/v1/organisation` API and clear them with all other tenant data on logout.
-- Block submission of unhandled lookup types or missing required directory options rather than submitting invalid Service Requests.
-- Retain v0.6.0 Face ID grace periods, activities, fulfilment, attachment transfers and native RMM viewer unchanged.
+## Live schema audit (companycustom, 13 Nov 2026)
+- select 25
+- textarea 18
+- lookup 17 (people/departments/sites/teams)
+- text 14
+- section 14
+- date 10
+- datetime-local 1
+- multiselect 1
 
-## Acceptance test
-1. Sign in to a company with published Default Catalogue v2 forms and populated People/Departments/Sites.
-2. Open Service Requests > New Starter, select Department, Manager and Site lookups, complete conditional fields.
-3. Submit; confirm correct request and fulfilment flow on web, portal and iOS.
-4. Test empty required lookups, wrong tenant, logout and subsequent login; no old organisation options may persist.
-5. Retest RMM native viewer, Face ID timeout and separate ITSM/RMM selection.
+All eight live field types have corresponding native controls. Section markers now render real SwiftUI Form sections with heading/help. Date fields use the native date picker; the Leaver / Account Closure datetime-local field uses the native date + time picker, submitted in local HTML form format YYYY-MM-DDTHH:mm. Optional dates remain empty unless explicitly chosen. Picker values no longer display a duplicate field label. Required/conditional validation and unknown-type safe blocking remain in place. The composer refreshes tenant-scoped People/Department/Site options on open.
 
-A green unsigned IPA verifies compilation, not runtime service request submission or approval outcomes.
+## QA
+1. Install the unsigned Hi5CentralMobile-iOS-v0.6.2-service-catalogue-native-forms IPA with Sideloadly.
+2. Sign in to `companycustom`. Open Service Requests > General IT Request; no unsupported section warnings or duplicate picker titles.
+3. Test New Starter sections, required Department/Site/Manager lookups (these lists are currently unconfigured in companycustom: add via ITSM before full submission testing), and conditional "Copy access" / "Equipment" choices.
+4. Test Leaver / Account Closure: specific-date-and-time choice; verify stored `YYYY-MM-DDTHH:mm` value and conditional fields.
+5. Test Requests submitted to web ITSM with approvals, assignments, fulfilment tasks and close, including clearing a date and hiding conditional fields.
+6. Confirm Face ID grace, navigation and RMM viewer remain functional.
+
+Note: CI compilation does not establish a real submitted/approved request. No VPS, database, Agent, codec or release-worker changes in this commit.
