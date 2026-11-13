@@ -1,0 +1,32 @@
+name: RMM App Portal Draft Recovery
+on:
+  push:
+    paths:
+      - 'apps/rmm/**'
+      - '.github/workflows/rmm-app-portal-drafts.yml'
+  pull_request:
+    paths:
+      - 'apps/rmm/**'
+      - '.github/workflows/rmm-app-portal-drafts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  draft-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: apps/rmm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/rmm/package-lock.json
+      - run: npm ci
+      - name: Test draft restoration, fingerprints and upload retry
+        run: node --test tests/app-portal-drafts.test.mjs
+      - name: Build RMM frontend
+        run: npm run build
