@@ -42,3 +42,8 @@ jobs:
         run: node --check ../../services/api/src/rmmAppPortal.js
       - name: Build RMM frontend
         run: npm run build
+      - name: Build bundled RMM API with new App Portal routes
+        working-directory: services/api
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:runtime
