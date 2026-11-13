@@ -1,37 +1,20 @@
-# Hi5Central Mobile v0.6.0 — Face ID timeout + Service Requests
+# Hi5Central Mobile v0.6.1 — Default Service Catalogue compatibility
 
-Branch: feature/hi5central-ios-v060-lock-grace-service-requests
-IPA artifact: Hi5CentralMobile-iOS-v0.6.0-service-requests-faceid-timeout
-Combined app ID: com.hi5central.mobile. Updates v0.5 without replacing standalone apps.
+Branch: `fix/ios-v061-service-catalogue-lookups-20261113` (inherits full v0.6.0 combined ITSM/RMM app).
+IPA artifact: Hi5CentralMobile-iOS-v0.6.1-service-requests-lookup-fields.
 
-## Face ID grace
-- Per-company settings under More > Privacy & notifications.
-- Unlock after Immediately (default), 1, 5, 15 or 30 minutes *away from the app*.
-- If back in the app before timeout, previous unlocked session is retained.
-- On cold launch/restart with a valid server session, unlock required (fail closed).
-- Remote viewing closes whenever a protected app is backgrounded, even during grace.
-- Server MFA, session expiry and permissions are unchanged; this is local privacy unlock, not passkey authentication.
-- Test immediate, 1-minute grace and crossing the threshold, force quit/relaunch and switching tenants.
+## Changes
+- Support `section` catalogue fields (headings/help), without falsely marking them as unhandled.
+- Support `lookup` to the existing authenticated organisation directory for people, departments, sites and teams. Use external keys as request form values, as the web catalogue expects.
+- Fetch departments/sites in the existing tenant-scoped `/api/v1/organisation` API and clear them with all other tenant data on logout.
+- Block submission of unhandled lookup types or missing required directory options rather than submitting invalid Service Requests.
+- Retain v0.6.0 Face ID grace periods, activities, fulfilment, attachment transfers and native RMM viewer unchanged.
 
-## Native Service Requests
-- Existing Records already includes Service Request records alongside Incident/Problem/Change.
-- New Service Request via Records (+) > New Service Request or More > Service Request catalogue.
-- Catalogue is queried from authenticated /api/v1/catalogue and filters to active visible request forms with Service Request type.
-- Native dynamic form: text, textarea, number, email, date, checkbox, select/dropdown/radio, product and checkbox product selection. Conditional showWhen, required fields and standard priority. Unsupported forms fail safely rather than blindly submitting.
-- Creation uses /api/v1/service-requests with catalogueItemId/fields/details/urgency; backend enforces pricing and approval plans.
-- Service Request detail supports internal notes and customer-visible replies; approvals remain visible with existing decision UI.
-- Native fulfilment transitions via /transition with completion notes and reopen reason, preserving server rules.
-- Assignment/priority updates, fulfilment task start/complete with notes via dedicated endpoints.
-- Attachment upload (base64 JSON; 6 MB app cap, server policy may be lower) and authorised download/share.
-- Existing ITSM-to-RMM device picker and native viewer retained.
-- Server routes verified in services/api/src/serviceRequestOperations.js, serviceRequests.js and catalogue.js. No VPS or Agent changes.
+## Acceptance test
+1. Sign in to a company with published Default Catalogue v2 forms and populated People/Departments/Sites.
+2. Open Service Requests > New Starter, select Department, Manager and Site lookups, complete conditional fields.
+3. Submit; confirm correct request and fulfilment flow on web, portal and iOS.
+4. Test empty required lookups, wrong tenant, logout and subsequent login; no old organisation options may persist.
+5. Retest RMM native viewer, Face ID timeout and separate ITSM/RMM selection.
 
-## QA on iPhone
-1. Install via Sideloadly; sign in to combined tenant.
-2. More > Privacy & notifications: enable Face ID and choose 5 minutes; background 1 minute, then 6 minutes, check lock behaviour.
-3. Records > + > New Service Request: choose form, complete required fields and submit. Confirm reference.
-4. Open request: customer and internal comments, pending approvals, SLA, tasks, start/complete fulfilment, attachments, completion/reopen.
-5. Try unsupported form fields and permission-restricted user; app must show errors, not fabricate success.
-6. Re-test native Lenovo RMM session, keyboard, codec and ITSM-only/RMM-only navigation.
-
-A green IPA build confirms compile/package, not live API behaviour. Apple APNs background push and passkey login remain separate work.
+A green unsigned IPA verifies compilation, not runtime service request submission or approval outcomes.
