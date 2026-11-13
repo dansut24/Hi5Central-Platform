@@ -11,6 +11,8 @@ import {
   uploadAppPortalPackage,
   uploadAppPortalLogo,
   updateAppPortalDraft,
+  approveUnsignedAppPortalRevision,
+  revokeUnsignedAppPortalApproval,
 } from '../../lib/rmmAppPortalApi.js'
 import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage, inventoryDisplayName } from '../../lib/appPortalDraft.js'
 import './RmmAppPortal.css'
@@ -24,7 +26,10 @@ function stateLabel(app) {
 }
 
 export function RmmAppPortal() {
-  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [] })
+  const [bundle, setBundle] = useState({
+    apps: [], revisions: [], assignments: [], requests: [], catalogue: [],
+    unsignedApprovals: [], devices: [], canApproveUnsigned: false,
+  })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -203,6 +208,34 @@ export function RmmAppPortal() {
     run(() => uploadAppPortalLogo(app.id, file), app.name + ' logo updated.')
   }
 
+  const activeRevision = (app) => bundle.revisions.find((row) => row.id === app?.current_revision_id)
+  const unsignedStatus = (app) => {
+    const revision = activeRevision(app)
+    const unsigned = revision?.source_kind === 'upload' && revision?.source_config?.inspection?.status === 'unsigned'
+    const approved = unsigned && bundle.unsignedApprovals.some((item) =>
+      item.revision_id === revision.id
+      && item.package_sha256 === revision.sha256 && !item.revoked_at)
+    return { revision, unsigned, approved }
+  }
+  const approveUnsigned = (app) => {
+    const { revision, unsigned } = unsignedStatus(app)
+    if (!unsigned || !revision) return setError('This revision is not an unsigned uploaded package.')
+    const hash = revision.sha256 || ''
+    if (!window.confirm('Approve this unsigned package?\n\n' + app.name
+      + '\nSHA-256 ' + hash.slice(0, 16) + '…'
+      + '\n\nOnly explicitly assigned managed devices can receive it. Windows will verify the full hash before installation.')) return
+    run(async () => {
+      await approveUnsignedAppPortalRevision(revision.id, 'Tenant owner explicitly approved an unsigned, SHA-256-pinned installer for device-scoped self-service.')
+      if (app.publish_state === 'draft') await publishAppPortalRevision(revision.id)
+    }, app.name + ' unsigned package approved' + (app.publish_state === 'draft' ? ' and published.' : '.'))
+  }
+  const revokeUnsigned = (app) => {
+    const { revision, approved } = unsignedStatus(app)
+    if (!approved || !revision) return
+    if (!window.confirm('Revoke the approved unsigned package? New downloads and installations will be blocked.')) return
+    run(() => revokeUnsignedAppPortalApproval(revision.id), app.name + ' unsigned approval revoked.')
+  }
+
   const addAssignment = () => {
     if (!assignment.appId) return setError('Choose an application to assign.')
     const payload = {
@@ -211,7 +244,12 @@ export function RmmAppPortal() {
       scopeName: assignment.scopeType === 'Estate' ? 'Entire estate' : assignment.scopeName,
       priority: Number(assignment.priority || 0),
     }
-    if (payload.scopeType !== 'Estate' && !payload.scopeId.trim()) return setError('Enter the scope identifier.')
+    const chosenApp = bundle.apps.find((row) => row.id === payload.appId)
+    if (unsignedStatus(chosenApp).unsigned && (payload.scopeType !== 'Device'
+        || !['available', 'approval_required'].includes(payload.intent))) {
+      return setError('Unsigned apps can only be assigned to an individual Device as Available or Approval required.')
+    }
+    if (payload.scopeType !== 'Estate' && !payload.scopeId.trim()) return setError('Choose a device or enter a scope identifier.')
     run(() => assignAppPortalApp(assignment.appId, payload), 'Assignment saved.')
   }
 
@@ -241,6 +279,12 @@ export function RmmAppPortal() {
               : <PackagePlus size={19} />}</span>
             <span className="app-portal-app-main"><strong>{app.name}</strong>
               <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small>
+              {unsignedStatus(app).unsigned && <small className={unsignedStatus(app).approved
+                ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
+                {unsignedStatus(app).approved
+                  ? 'Unsigned installer · Owner approved · SHA-256 pinned · Device only'
+                  : 'Unsigned installer · Tenant-owner approval required'}
+              </small>}
               {app.source_type === 'custom' && app.publish_state === 'draft' &&
                 <small className={draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
                   ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
@@ -256,6 +300,12 @@ export function RmmAppPortal() {
               <input type="file" accept="image/png" disabled={busy}
                 onChange={(e) => { replaceLogo(app, e.target.files?.[0]); e.target.value = '' }} />
             </label>
+            {unsignedStatus(app).unsigned && !unsignedStatus(app).approved && bundle.canApproveUnsigned &&
+              <button className="app-portal-edit-action" type="button" disabled={busy}
+                onClick={() => approveUnsigned(app)}><ShieldCheck size={14} /> Approve unsigned</button>}
+            {unsignedStatus(app).approved && bundle.canApproveUnsigned &&
+              <button className="app-portal-edit-action" type="button" disabled={busy}
+                onClick={() => revokeUnsigned(app)}>Revoke approval</button>}
             {app.source_type === 'custom' && app.publish_state === 'draft' &&
               <button className="app-portal-edit-action" type="button" disabled={busy}
                 aria-label={'Edit draft ' + app.name} onClick={() => editExistingDraft(app)}><Pencil size={14} /> Edit draft</button>}
@@ -389,20 +439,47 @@ export function RmmAppPortal() {
       </section>
       <section className="app-portal-card">
         <div className="app-portal-card-title"><div><h3>Assignment</h3><p>Most-specific scope wins: Device → User → Group → Site → Estate.</p></div><ChevronRight size={20} /></div>
-        <label>Application<select value={assignment.appId} onChange={(e) => setAssignment({ ...assignment, appId: e.target.value })}>
+        <label>Application<select value={assignment.appId} onChange={(e) => {
+          const selected = bundle.apps.find((app) => app.id === e.target.value)
+          const deviceOnly = unsignedStatus(selected).unsigned
+          setAssignment({
+            ...assignment, appId: e.target.value,
+            scopeType: deviceOnly ? 'Device' : 'Estate',
+            scopeId: deviceOnly ? '' : '*',
+            scopeName: deviceOnly ? '' : 'Entire estate',
+            intent: 'available',
+          })
+        }}>
           <option value="">Choose application…</option>{bundle.apps.filter((app) => app.status === 'published').map((app) => <option key={app.id} value={app.id}>{app.name}</option>)}
         </select></label>
         <div className="app-portal-form-grid">
           <label>Scope<select value={assignment.scopeType} onChange={(e) => setAssignment({
             ...assignment, scopeType: e.target.value,
             scopeId: e.target.value === 'Estate' ? '*' : '', scopeName: e.target.value === 'Estate' ? 'Entire estate' : '',
-          })}>{['Estate','Site','Group','User','Device'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          })}>{(unsignedStatus(bundle.apps.find((app) => app.id === assignment.appId)).unsigned
+              ? ['Device'] : ['Estate','Site','Group','User','Device']).map((value) => <option key={value}>{value}</option>)}</select></label>
           <label>Behaviour<select value={assignment.intent} onChange={(e) => setAssignment({ ...assignment, intent: e.target.value })}>
             <option value="available">Available</option><option value="approval_required">Approval required</option><option value="hidden">Hidden</option>
           </select></label>
         </div>
-        {assignment.scopeType !== 'Estate' && <><label>Scope identifier<input placeholder={assignment.scopeType === 'User' ? 'user@company.com or SID' : assignment.scopeType + ' id / reference'} value={assignment.scopeId} onChange={(e) => setAssignment({ ...assignment, scopeId: e.target.value })} /></label>
-          <label>Display name<input value={assignment.scopeName} onChange={(e) => setAssignment({ ...assignment, scopeName: e.target.value })} /></label></>}
+        {assignment.scopeType === 'Device' ? <label>Managed device
+          <select value={assignment.scopeId} onChange={(e) => {
+            const device = bundle.devices.find((row) => row.id === e.target.value)
+            setAssignment({ ...assignment, scopeId: e.target.value,
+              scopeName: device ? [device.name, device.manufacturer].filter(Boolean).join(' · ') : '' })
+          }}>
+            <option value="">Choose one managed device…</option>
+            {bundle.devices.map((device) => <option key={device.id} value={device.id}>
+              {[device.name || device.reference, device.manufacturer, device.model].filter(Boolean).join(' · ')}
+            </option>)}
+          </select>
+          <small>Unsigned apps are never assigned to the entire estate.</small>
+        </label> : assignment.scopeType !== 'Estate' && <>
+          <label>Scope identifier<input value={assignment.scopeId}
+            placeholder={assignment.scopeType === 'User' ? 'user@company.com or SID' : assignment.scopeType + ' id / reference'}
+            onChange={(e) => setAssignment({ ...assignment, scopeId: e.target.value })} /></label>
+          <label>Display name<input value={assignment.scopeName} onChange={(e) => setAssignment({ ...assignment, scopeName: e.target.value })} /></label>
+        </>}
         <button className="rmm-primary" disabled={busy} onClick={addAssignment} type="button">Save assignment</button>
       </section>
     </div>

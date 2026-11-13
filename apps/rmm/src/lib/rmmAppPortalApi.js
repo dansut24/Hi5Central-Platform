@@ -106,3 +106,14 @@ export async function uploadAppPortalLogo(appId, file) {
   }
   return payload
 }
+
+
+export const approveUnsignedAppPortalRevision = (revisionId, reason) =>
+  request('/api/v1/rmm/app-portal/revisions/' + encodeURIComponent(revisionId) + '/unsigned-approval', {
+    method: 'POST', body: JSON.stringify({ acknowledgeUnsigned: true, reason }),
+  })
+
+export const revokeUnsignedAppPortalApproval = (revisionId) =>
+  request('/api/v1/rmm/app-portal/revisions/' + encodeURIComponent(revisionId) + '/unsigned-approval', {
+    method: 'DELETE',
+  })

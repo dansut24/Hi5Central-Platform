@@ -14,6 +14,7 @@ import { resolveSession } from './session.js'
 import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
 import { findInstalledApp } from './appPortalInventory.js'
 import { inspectUploadedPackage } from './appPortalPackageInspection.js'
+import { approvalMatches, allowedUnsignedScope, isUnsignedUpload, unsignedManifestApproval } from './appPortalUnsignedApproval.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -26,6 +27,21 @@ function validHttps(value = '') {
 }
 const packageRoot = path.resolve(process.env.APP_PORTAL_PACKAGE_DIR || '/srv/app-portal-packages')
 const maxPackageBytes = 2 * 1024 * 1024 * 1024
+// Separate storage checksum from metadata and owner approval. Neither a mutable
+// file name nor a certificate-subject string can stand in for a pinned hash.
+async function hashStoredPackage(filePath) {
+  const digest = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) digest.update(chunk)
+  return digest.digest('hex').toUpperCase()
+}
+async function currentUnsignedApproval(tenantId, revisionId) {
+  const result = await pool.query(
+    `SELECT * FROM rmm_app_portal_unsigned_approvals
+      WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL LIMIT 1`,
+    [tenantId, revisionId])
+  return result.rows[0] || null
+}
+
 
 function packageAbsolutePath(storageKey = '') {
   const key = clean(storageKey).replaceAll('\\', '/')
@@ -96,7 +112,7 @@ async function rememberIdentity(agent, identity) {
   )
 }
 async function adminBundle(tenantId) {
-  const [apps, revisions, assignments, requests, catalogue] = await Promise.all([
+  const [apps, revisions, assignments, requests, catalogue, unsignedApprovals, devices] = await Promise.all([
     pool.query(
       `SELECT a.*,r.revision AS current_revision,r.version,r.source_kind,r.publish_state,r.validation
          FROM rmm_app_portal_apps a
@@ -122,6 +138,18 @@ async function adminBundle(tenantId) {
         WHERE status='active' AND (tenant_id=$1 OR tenant_id IS NULL)
           AND qualification_state IN ('qualified','qualified_limited')
         ORDER BY lower(canonical_name) LIMIT 1000`, [tenantId]),
+    pool.query(
+      `SELECT id,tenant_id,app_id,revision_id,package_sha256,approved_by_user_id,
+              reason,approved_at,revoked_at
+         FROM rmm_app_portal_unsigned_approvals
+        WHERE tenant_id=$1 AND revoked_at IS NULL ORDER BY approved_at DESC`, [tenantId]),
+    pool.query(
+      `SELECT d.id,d.inventory_id,i.name,i.manufacturer,i.model,i.reference,
+              d.agent_version,d.websocket_status
+         FROM rmm_agent_devices d
+         JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+        WHERE d.tenant_id=$1 AND d.disabled_at IS NULL
+        ORDER BY lower(i.name) LIMIT 2000`, [tenantId]),
   ])
   return {
     apps: apps.rows,
@@ -129,6 +157,8 @@ async function adminBundle(tenantId) {
     assignments: assignments.rows,
     requests: requests.rows,
     catalogue: catalogue.rows,
+    unsignedApprovals: unsignedApprovals.rows,
+    devices: devices.rows,
   }
 }
 function validateCustomRevision(body = {}) {
@@ -206,15 +236,23 @@ async function resolvedApps(agent, identity) {
                FROM rmm_app_portal_installations i
               WHERE i.tenant_id=a.tenant_id AND i.app_id=a.id AND i.status='succeeded') AS install_count,
             r.id AS revision_id,r.revision,r.version,r.source_kind,r.publish_state,
+            r.source_config,
             x.id AS assignment_id,x.scope_type,x.scope_id,x.scope_name,x.intent,x.priority
        FROM rmm_app_portal_apps a
        JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id AND r.publish_state='published'
        JOIN rmm_app_portal_assignments x ON x.app_id=a.id AND x.tenant_id=a.tenant_id AND x.enabled=true
       WHERE a.tenant_id=$1 AND a.status='published'
+        AND (r.source_kind<>'upload'
+          OR COALESCE(r.source_config->'inspection'->>'status','')<>'unsigned'
+          OR EXISTS (SELECT 1 FROM rmm_app_portal_unsigned_approvals ua
+              WHERE ua.tenant_id=r.tenant_id AND ua.revision_id=r.id
+                AND ua.revoked_at IS NULL AND ua.package_sha256=r.sha256))
       ORDER BY lower(a.name),x.priority DESC`, [agent.tenant_id],
   )
   const byApp = new Map()
   for (const row of result.rows) {
+    if (row.source_kind === 'upload' && object(object(row.source_config).inspection).status === 'unsigned'
+      && !allowedUnsignedScope(row.scope_type, row.intent)) continue
     if (!assignmentMatches(row, context)) continue
     const score = scopeRank(row.scope_type) * 100000 + Number(row.priority || 0)
     const current = byApp.get(row.id)
@@ -265,6 +303,32 @@ async function dispatchCustomInstall(agent, app, identity) {
   const source = object(app.source_config)
   const execution = object(app.execution)
   const mode = lower(execution.mode || 'arguments')
+  let unsignedApproval = null
+  if (source.inspection?.status === 'unsigned') {
+    if (app.source_kind !== 'upload') return { error: 'Unsigned HTTPS URLs are not supported.', status: 409 }
+    const approved = await currentUnsignedApproval(agent.tenant_id, app.revision_id)
+    const revisionIdentity = { ...app, tenant_id: agent.tenant_id }
+    if (!approvalMatches(revisionIdentity, approved)) {
+      return { error: 'The unsigned package approval was revoked or does not match this revision and hash.', status: 409 }
+    }
+    // Enforce device-only scope again at dispatch time, not just catalogue view.
+    const allowedDevice = await pool.query(
+      `SELECT 1 FROM rmm_app_portal_assignments x
+         JOIN rmm_agent_devices d ON d.tenant_id=x.tenant_id AND d.id=$3
+         LEFT JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+        WHERE x.tenant_id=$1 AND x.app_id=$2 AND x.enabled=true AND x.scope_type='Device'
+          AND x.intent IN ('available','approval_required')
+          AND lower(x.scope_id) IN (lower(d.id::text),lower(d.inventory_id::text),lower(i.reference))
+        LIMIT 1`, [agent.tenant_id, app.app_id, agent.id])
+    if (!allowedDevice.rowCount) return { error: 'Unsigned software may only be assigned to an individual managed device.', status: 403 }
+    if (object(object(state.patch_capabilities).vendorDirect).approvedUnsigned !== true) {
+      return { error: 'This device needs a Hi5Central Agent with approved unsigned-package support before installation.', status: 409 }
+    }
+    unsignedApproval = unsignedManifestApproval(revisionIdentity, approved, agent.id)
+    if (!unsignedApproval || mode !== 'arguments') {
+      return { error: 'Unsigned approval does not cover this installer or execution mode.', status: 409 }
+    }
+  }
   if (mode !== 'arguments') {
     const vendorDirect = object(object(state.patch_capabilities).vendorDirect)
     if (vendorDirect.customExecution !== true) {
@@ -313,6 +377,7 @@ async function dispatchCustomInstall(agent, app, identity) {
     installerType: lower(app.installer_type),
     installerTechnology: lower(app.installer_type) === 'msi' ? 'msi' : clean(execution.installerTechnology || 'generic'),
     expectedSigner: clean(app.expected_signer),
+    ...(unsignedApproval ? { unsignedApproval } : {}),
     installArguments: mode === 'arguments' ? clean(execution.arguments) : '',
     customExecution: mode === 'arguments' ? null : {
       mode,
@@ -449,7 +514,7 @@ export function registerRmmAppPortalRoutes(app) {
     if (token.length < 40 || token.length > 100) return c.json({ error: 'Package token is invalid.' }, 404)
     const tokenHash = packageTokenHash(token)
     const found = await pool.query(
-      `SELECT t.id,t.expires_at,r.source_config,r.sha256,r.installer_type
+      `SELECT t.id,t.expires_at,t.tenant_id,t.revision_id,r.source_config,r.sha256,r.installer_type
          FROM rmm_app_portal_package_tokens t
          JOIN rmm_app_portal_revisions r ON r.id=t.revision_id AND r.tenant_id=t.tenant_id
         WHERE t.token_hash=$1 AND t.expires_at>now() AND r.source_kind='upload'
@@ -458,6 +523,12 @@ export function registerRmmAppPortalRoutes(app) {
     const row = found.rows[0]
     if (!row) return c.json({ error: 'Package token is invalid or expired.' }, 404)
     const source = object(row.source_config)
+    if (object(source.inspection).status === 'unsigned') {
+      const approval = await currentUnsignedApproval(row.tenant_id, row.revision_id)
+      if (!approvalMatches({ ...row, id: row.revision_id }, approval)) {
+        return c.json({ error: 'Unsigned approval was revoked; package download blocked.' }, 403)
+      }
+    }
     const absolute = packageAbsolutePath(source.storageKey)
     if (!absolute) return c.json({ error: 'Package is unavailable.' }, 404)
     let info
@@ -570,7 +641,10 @@ export function registerRmmAppPortalRoutes(app) {
   app.get('/api/v1/rmm/app-portal', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
-    return c.json(await adminBundle(auth.session.tenant_id))
+    return c.json({
+      ...await adminBundle(auth.session.tenant_id),
+      canApproveUnsigned: auth.session.tenant_role === 'owner',
+    })
   })
   app.post('/api/v1/rmm/app-portal/apps', async (c) => {
     const auth = await requireManage(c)
@@ -753,6 +827,10 @@ export function registerRmmAppPortalRoutes(app) {
     // Package identity is learned automatically where MSI metadata is available.
     // Explicit administrator names/versions are never silently overwritten.
     await pool.query(
+      `UPDATE rmm_app_portal_unsigned_approvals SET revoked_at=now()
+        WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL`,
+      [auth.session.tenant_id, revision.id])
+    await pool.query(
       `UPDATE rmm_app_portal_revisions
           SET source_config=$3::jsonb,sha256=$4,
               expected_signer=CASE WHEN $5<>'' THEN $5 ELSE '' END,
@@ -778,6 +856,107 @@ export function registerRmmAppPortalRoutes(app) {
       success: true, sha256, byteSize, fileName,
       inspection: sourceConfig.inspection,
     })
+  })
+
+  // Only a tenant owner can explicitly approve the exact SHA-256 of an
+  // unsigned, already-uploaded draft. Approval is separately audited and can
+  // never be carried to a different revision or a replacement package.
+  app.post('/api/v1/rmm/app-portal/revisions/:revisionId/unsigned-approval', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    if (auth.session.tenant_role !== 'owner') {
+      return c.json({ error: 'Only the tenant owner can approve unsigned installer packages.' }, 403)
+    }
+    const body = await c.req.json().catch(() => ({}))
+    if (body.acknowledgeUnsigned !== true) {
+      return c.json({ error: 'Explicit acknowledgement of unsigned installer risk is required.' }, 400)
+    }
+    const reason = clean(body.reason)
+    if (reason.length < 12 || reason.length > 1000) {
+      return c.json({ error: 'Provide an approval reason between 12 and 1000 characters.' }, 400)
+    }
+    const revisionId = clean(c.req.param('revisionId'))
+    const result = await pool.query(
+      `SELECT r.*,a.name AS app_name
+         FROM rmm_app_portal_revisions r
+         JOIN rmm_app_portal_apps a ON a.id=r.app_id AND a.tenant_id=r.tenant_id
+        WHERE r.id=$1 AND r.tenant_id=$2 AND a.source_type='custom'
+          AND a.current_revision_id=r.id AND a.status='draft'
+          AND r.publish_state='draft' LIMIT 1`,
+      [revisionId, auth.session.tenant_id])
+    const revision = result.rows[0]
+    if (!revision) return c.json({ error: 'Current unsigned draft was not found.' }, 404)
+    if (!isUnsignedUpload(revision) || !validSha256(revision.sha256)) {
+      return c.json({ error: 'Only an uploaded package positively classified as unsigned can use this approval.' }, 409)
+    }
+    if (!['msi','exe'].includes(lower(revision.installer_type))) {
+      return c.json({ error: 'Unsigned approval is limited to MSI and EXE packages.' }, 409)
+    }
+    if (lower(object(revision.execution).mode || 'arguments') !== 'arguments') {
+      return c.json({ error: 'Unsigned packages cannot run custom scripts.' }, 409)
+    }
+    const storage = object(revision.source_config)
+    const filePath = packageAbsolutePath(storage.storageKey)
+    if (!filePath) return c.json({ error: 'Package storage is invalid.' }, 409)
+    try {
+      const info = await stat(filePath)
+      if (!info.isFile() || info.size !== Number(storage.byteSize)
+        || await hashStoredPackage(filePath) !== clean(revision.sha256).toUpperCase()) {
+        return c.json({ error: 'Stored package differs from its recorded SHA-256 and cannot be approved.' }, 409)
+      }
+    } catch {
+      return c.json({ error: 'Stored package is unavailable for verification.' }, 409)
+    }
+    const existing = await currentUnsignedApproval(auth.session.tenant_id, revision.id)
+    if (existing && approvalMatches(revision, existing)) {
+      return c.json({ success: true, approval: existing, alreadyApproved: true })
+    }
+    const inserted = await pool.query(
+      `INSERT INTO rmm_app_portal_unsigned_approvals
+        (tenant_id,app_id,revision_id,package_sha256,approved_by_user_id,reason)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (tenant_id,revision_id) WHERE revoked_at IS NULL DO NOTHING
+        RETURNING *`,
+      [auth.session.tenant_id, revision.app_id, revision.id, clean(revision.sha256).toUpperCase(),
+       auth.session.user_id, reason])
+    const approval = inserted.rows[0] || await currentUnsignedApproval(auth.session.tenant_id, revision.id)
+    if (!approvalMatches(revision, approval)) {
+      return c.json({ error: 'Unsigned approval conflicted with a different package hash.' }, 409)
+    }
+    await recordRmmActivity({
+      tenantId: auth.session.tenant_id, actorUserId: auth.session.user_id,
+      actorType: 'technician', actorLabel: auth.session.name || auth.session.email,
+      eventType: 'app_portal.unsigned.approved', category: 'software',
+      summary: 'Tenant owner approved an unsigned App Portal revision',
+      detail: revision.app_name + ' · SHA-256 ' + revision.sha256 + ' · ' + reason,
+      outcome: 'success', metadata: { appId: revision.app_id, revisionId: revision.id,
+        approvalId: approval.id, sha256: revision.sha256 },
+    }).catch(error => console.error('Unsigned approval activity record failed', error))
+    return c.json({ success: true, approval }, 201)
+  })
+
+  app.delete('/api/v1/rmm/app-portal/revisions/:revisionId/unsigned-approval', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    if (auth.session.tenant_role !== 'owner') {
+      return c.json({ error: 'Only the tenant owner can revoke an unsigned package approval.' }, 403)
+    }
+    const result = await pool.query(
+      `UPDATE rmm_app_portal_unsigned_approvals SET revoked_at=now(),revoked_by_user_id=$3
+         WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL
+         RETURNING id,app_id,package_sha256`,
+      [auth.session.tenant_id, clean(c.req.param('revisionId')), auth.session.user_id])
+    if (!result.rowCount) return c.json({ error: 'There is no active approval to revoke.' }, 404)
+    await recordRmmActivity({
+      tenantId: auth.session.tenant_id, actorUserId: auth.session.user_id,
+      actorType: 'technician', actorLabel: auth.session.name || auth.session.email,
+      eventType: 'app_portal.unsigned.revoked', category: 'software',
+      summary: 'Tenant owner revoked unsigned package approval',
+      detail: 'SHA-256 ' + result.rows[0].package_sha256,
+      outcome: 'success', metadata: { appId: result.rows[0].app_id,
+        revisionId: clean(c.req.param('revisionId')), approvalId: result.rows[0].id },
+    }).catch(error => console.error('Unsigned revocation activity record failed', error))
+    return c.json({ success: true, revoked: true })
   })
 
   app.post('/api/v1/rmm/app-portal/revisions/:revisionId/publish', async (c) => {
@@ -818,6 +997,28 @@ export function registerRmmAppPortalRoutes(app) {
         } else if (inspection.status !== 'pending_windows_trust' || !clean(inspection.signer)) {
           errors = errors.filter(error => error !== 'An expected Authenticode signer is required.')
           errors.push('The installer signing certificate could not be identified automatically. Please upload a valid signed installer.')
+        }
+      }
+    }
+    if (revision.source_type === 'custom' && isUnsignedUpload(revision)) {
+      const approved = await currentUnsignedApproval(auth.session.tenant_id, revisionId)
+      errors = errors.filter(error => error !== 'An expected Authenticode signer is required.'
+        && !error.startsWith('This installer is unsigned.'))
+      if (!approvalMatches(revision, approved)) {
+        errors.push('This unsigned revision requires explicit tenant-owner approval of its exact SHA-256 before publishing.')
+      } else if (lower(object(revision.execution).mode || 'arguments') !== 'arguments') {
+        errors.push('Approved unsigned packages cannot execute custom scripts.')
+      } else {
+        const source = object(revision.source_config)
+        const storagePath = packageAbsolutePath(source.storageKey)
+        try {
+          const info = storagePath ? await stat(storagePath) : null
+          if (!info?.isFile() || info.size !== Number(source.byteSize)
+            || await hashStoredPackage(storagePath) !== clean(revision.sha256).toUpperCase()) {
+            errors.push('Stored unsigned package differs from its approved SHA-256.')
+          }
+        } catch {
+          errors.push('The approved unsigned package could not be verified on storage.')
         }
       }
     }
@@ -863,9 +1064,35 @@ export function registerRmmAppPortalRoutes(app) {
       return c.json({ error: 'Assignment intent is invalid.' }, 400)
     }
     const exists = await pool.query(
-      `SELECT 1 FROM rmm_app_portal_apps WHERE id=$1 AND tenant_id=$2 LIMIT 1`,
+      `SELECT a.id,a.source_type,r.id AS revision_id,r.source_kind,r.source_config,
+              r.sha256,r.tenant_id,r.publish_state
+         FROM rmm_app_portal_apps a
+         LEFT JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id
+        WHERE a.id=$1 AND a.tenant_id=$2 LIMIT 1`,
       [appId, auth.session.tenant_id])
     if (!exists.rowCount) return c.json({ error: 'Application was not found.' }, 404)
+    const revision = exists.rows[0]
+    if (isUnsignedUpload(revision)) {
+      if (revision.publish_state !== 'published') {
+        return c.json({ error: 'The unsigned package must be approved and published before assignment.' }, 409)
+      }
+      const approval = await currentUnsignedApproval(auth.session.tenant_id, revision.revision_id)
+      if (!approvalMatches(revision, approval)) {
+        return c.json({ error: 'The unsigned package approval is missing, revoked or no longer matches the file hash.' }, 409)
+      }
+      if (!allowedUnsignedScope(scopeType, intent)) {
+        return c.json({ error: 'Approved unsigned packages may only be made available or approval-required to an individual Device.' }, 403)
+      }
+      const knownDevice = await pool.query(
+        `SELECT 1 FROM rmm_agent_devices d
+           LEFT JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+          WHERE d.tenant_id=$1 AND d.disabled_at IS NULL
+            AND lower($2) IN (lower(d.id::text),lower(d.inventory_id::text),lower(i.reference))
+          LIMIT 1`, [auth.session.tenant_id, scopeId])
+      if (!knownDevice.rowCount) {
+        return c.json({ error: 'Choose a registered device from this tenant; other scopes are not permitted for unsigned software.' }, 403)
+      }
+    }
     const result = await pool.query(
       `INSERT INTO rmm_app_portal_assignments
         (tenant_id,app_id,scope_type,scope_id,scope_name,intent,priority,created_by_user_id)
