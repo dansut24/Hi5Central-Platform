@@ -615,6 +615,23 @@ export function registerRmmAppPortalRoutes(app) {
     return c.json({ success: true, app: created }, 201)
   })
 
+  // Draft metadata can be corrected without creating a duplicate application.
+  app.patch('/api/v1/rmm/app-portal/apps/:appId', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    const appId = clean(c.req.param('appId'))
+    if (!uuid(appId)) return c.json({ error: 'Application id is invalid.' }, 400)
+    const body = await c.req.json().catch(() => ({}))
+    const name = clean(body.name).slice(0, 255)
+    if (!name) return c.json({ error: 'Application name is required.' }, 400)
+    const result = await pool.query(
+      "UPDATE rmm_app_portal_apps SET name=$3,publisher=$4,description=$5,category=$6,updated_by_user_id=$7,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND source_type='custom' AND status='draft' RETURNING *",
+      [appId, auth.session.tenant_id, name, clean(body.publisher).slice(0, 255),
+        clean(body.description).slice(0, 4000), clean(body.category || 'Company software').slice(0, 120), auth.session.user_id])
+    if (!result.rowCount) return c.json({ error: 'Only an existing custom draft can be edited.' }, 409)
+    return c.json({ success: true, app: result.rows[0] })
+  })
+
   app.post('/api/v1/rmm/app-portal/apps/:appId/revisions', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
