@@ -440,7 +440,7 @@ struct ITSMMoreView: View {
                 }
             }
             Section {
-                Text("Hi5Central ITSM iOS v0.2.0 — native technician preview. MFA and tenant access are enforced by the existing Hi5Central API.")
+                Text("Hi5Central ITSM iOS v0.3.0 — native technician preview. MFA and tenant access are enforced by the existing Hi5Central API.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
