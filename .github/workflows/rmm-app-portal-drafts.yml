@@ -3,10 +3,18 @@ on:
   push:
     paths:
       - 'apps/rmm/**'
+      - 'services/api/src/appPortalIcon.js'
+      - 'services/api/src/appPortalInventory.js'
+      - 'services/api/src/rmmAppPortal.js'
+      - 'services/api/test/app-portal-simple-flow.mjs'
       - '.github/workflows/rmm-app-portal-drafts.yml'
   pull_request:
     paths:
       - 'apps/rmm/**'
+      - 'services/api/src/appPortalIcon.js'
+      - 'services/api/src/appPortalInventory.js'
+      - 'services/api/src/rmmAppPortal.js'
+      - 'services/api/test/app-portal-simple-flow.mjs'
       - '.github/workflows/rmm-app-portal-drafts.yml'
   workflow_dispatch:
 permissions:
@@ -28,5 +36,9 @@ jobs:
       - run: npm ci
       - name: Test draft restoration, fingerprints and upload retry
         run: node --test tests/app-portal-drafts.test.mjs
+      - name: Test logo validation and inventory auto-detection
+        run: node --test ../../services/api/test/app-portal-simple-flow.mjs
+      - name: Check API route source syntax
+        run: node --check ../../services/api/src/rmmAppPortal.js
       - name: Build RMM frontend
         run: npm run build
