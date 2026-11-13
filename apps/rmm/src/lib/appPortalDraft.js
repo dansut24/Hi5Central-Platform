@@ -12,7 +12,7 @@ export const emptyCustom = {
 // inventory name. This is a suggestion, not a claim of installed state.
 export function inventoryDisplayName(name = '') {
   const cleaned = String(name || '').trim()
-  if (/^7[\\s-]?zip$/i.test(cleaned)) return '7-Zip'
+  if (/^7[\s-]?zip$/i.test(cleaned)) return '7-Zip'
   return cleaned
 }
 
