@@ -12,6 +12,7 @@ import { recordRmmActivity } from './rmmActivity.js'
 import { softwarePatchPlan } from './rmmPatching.js'
 import { resolveSession } from './session.js'
 import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
+import { findInstalledApp } from './appPortalInventory.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -921,7 +922,7 @@ export function registerRmmAppPortalRoutes(app) {
             AND catalogue_id IS NOT NULL AND installed_version<>''`,
         [auth.agent.tenant_id, auth.agent.inventory_id]),
       pool.query(
-        `SELECT i.name,i.manufacturer,i.model,i.operating_system,i.os_version,i.is_encrypted,
+        `SELECT i.name,i.manufacturer,i.model,i.operating_system,i.os_version,i.is_encrypted,i.source_payload,
                 i.storage_total_bytes,i.storage_free_bytes,i.user_display_name,i.user_principal_name,
                 i.compliance_state,d.agent_version,d.websocket_status,d.last_telemetry_at,d.active_user
            FROM rmm_device_inventory i
@@ -944,10 +945,18 @@ export function registerRmmAppPortalRoutes(app) {
         [auth.agent.tenant_id, auth.agent.inventory_id]),
     ])
     const installedCatalogueIds = new Set(installed.rows.map((row) => clean(row.catalogue_id)))
-    const enrichedApps = apps.map((app) => ({
-      ...app,
-      installed: Boolean(app.catalogueId && installedCatalogueIds.has(clean(app.catalogueId))),
-    }))
+    const { source_payload: softwareInventory, ...publicDevice } = device.rows[0] || {}
+    const enrichedApps = apps.map((app) => {
+      const detected = app.sourceType === 'custom'
+        ? findInstalledApp({ app, inventory: softwareInventory })
+        : null
+      return {
+        ...app,
+        installed: detected ? detected.installed
+          : Boolean(app.catalogueId && installedCatalogueIds.has(clean(app.catalogueId))),
+        ...(detected || {}),
+      }
+    })
     const requests = identity.sid || identity.upn
       ? await pool.query(
         `SELECT id,app_id,revision_id,status,requested_by_sid,requested_by_upn,
@@ -961,7 +970,7 @@ export function registerRmmAppPortalRoutes(app) {
       : { rows: [] }
     const deviceRow = device.rows[0]
       ? {
-        ...device.rows[0],
+        ...publicDevice,
         storage_total_bytes: device.rows[0].storage_total_bytes == null
           ? null
           : Number(device.rows[0].storage_total_bytes),
