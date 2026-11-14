@@ -59,3 +59,12 @@ test('Destructive local-account removal requires a second independent administra
   assert.ok(ui.includes('alternativeAdminConfirmed'))
   assert.ok(ui.includes('another working administrator login'))
 })
+
+test('Permanent LAPS removal uses a distinct privilege rather than password-rotation permission',()=>{
+  const api=readFileSync(new URL('../src/rmmLocalAdminVault.js',import.meta.url),'utf8')
+  const access=readFileSync(new URL('../src/access.js',import.meta.url),'utf8')
+  assert.ok(access.includes('rmm.security.local_admin.remove'))
+  assert.ok(api.includes("canRemove:hasPermission(session.access,'rmm.security.local_admin.remove')"))
+  assert.equal(api.split("authorize(c,'rmm.security.local_admin.remove')").length-1,2)
+  assert.ok(api.includes("authorize(c,'rmm.security.local_admin.rotate')"))
+})

@@ -45,3 +45,5 @@ API/web are additive to existing RMM, policy profiles and self-service broker. K
 7. Test wrong SID, native Windows LAPS collision, disconnection and unconfirmed-delete paths on a **disposable test account**, not the working recovery account.
 
 Extra safety guard: requesting live Windows local-admin deletion additionally requires a checked acknowledgment confirming a separate tested administrator login; the server independently enforces the Boolean flag, not only the UI. This protects against accidentally removing the sole recovery route. No credential rotation or account removal occurs during the deployment itself.
+
+Security: deleting the Windows account or unregistering a dedicated vault record additionally requires the separate rmm.security.local_admin.remove permission. Read-only viewing, password rotation and password reveal remain distinct capabilities. The earlier extra five-minute MFA re-verification was not reinstated.

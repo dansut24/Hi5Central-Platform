@@ -126,7 +126,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     return c.json({accounts:result.rows.map((a)=>exposedAccount(a,a.rotation_state?{id:a.current_rotation_id,state:a.rotation_state,escrowed_at:a.escrowed_at,activated_at:a.activated_at,reveal_count:a.reveal_count,revealed_at:a.revealed_at,created_at:a.rotation_created_at}:null)),
       availableDevices:deviceRows.rows.map((row)=>({id:row.agent_device_id,name:row.name,version:row.agent_version,online:row.websocket_status==='Connected'&&row.last_telemetry_at&&Date.now()-new Date(row.last_telemetry_at).getTime()<90000})),
       canRotate:hasPermission(session.access,'rmm.security.local_admin.rotate'),
-      canRemove:hasPermission(session.access,'rmm.security.local_admin.rotate'),
+      canRemove:hasPermission(session.access,'rmm.security.local_admin.remove'),
       canReveal:hasPermission(session.access,'rmm.security.local_admin.read'),
       vaultMode:'hi5central-managed-separate-from-native-windows-laps'})
   }))
@@ -213,7 +213,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
   // Registered-but-never-created account can be removed without touching
   // Windows. Active accounts must use the dedicated SID-verifying Agent job.
   app.post('/api/v1/rmm/local-admin/accounts/:accountId/unregister',safe(async(c)=>{
-    const session=await authorize(c,'rmm.security.local_admin.rotate')
+    const session=await authorize(c,'rmm.security.local_admin.remove')
     const body=await c.req.json().catch(()=>({}))
     const reason=clean(body.reason,500)
     if (reason.length<12) throw fail('A removal reason of at least 12 characters is required.')
@@ -239,7 +239,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     return c.json({removed:true,windowsAccountTouched:false})
   }))
   app.post('/api/v1/rmm/local-admin/accounts/:accountId/remove',safe(async(c)=>{
-    const session=await authorize(c,'rmm.security.local_admin.rotate')
+    const session=await authorize(c,'rmm.security.local_admin.remove')
     const body=await c.req.json().catch(()=>({}))
     const reason=clean(body.reason,500)
     if (reason.length<12) throw fail('Enter a removal justification of at least 12 characters.')
