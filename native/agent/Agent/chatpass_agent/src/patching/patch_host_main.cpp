@@ -714,7 +714,7 @@ json InspectWindowsPackageIdentity(const std::filesystem::path& path) {
     if (identity.is_discarded() || identity.value("name", std::string()).empty() || identity.value("publisher", std::string()).empty() || identity.value("version", std::string()).empty()) return { { "valid", false }, { "error", "package_identity_missing" } };
     return { { "valid", true }, { "identity", identity } };
 }
-bool VerifyAuthenticodeTrust(const std::filesystem::path& path, std::string& signerName) {
+bool VerifyAuthenticodeTrust(const std::filesystem::path& path, std::string& signerName, LONG* trustStatus = nullptr) {
     signerName.clear();
 
     WINTRUST_FILE_INFO fileInfo{};
@@ -732,6 +732,7 @@ bool VerifyAuthenticodeTrust(const std::filesystem::path& path, std::string& sig
 
     GUID action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
     const LONG status = WinVerifyTrust(nullptr, &action, &trustData);
+    if (trustStatus) *trustStatus = status;
 
     if (status == ERROR_SUCCESS && trustData.hWVTStateData) {
         CRYPT_PROVIDER_DATA* providerData = WTHelperProvDataFromStateData(trustData.hWVTStateData);
@@ -884,6 +885,8 @@ json Capabilities() {
             { "httpsOnly", true },
             { "sha256Required", true },
             { "authenticodeRequired", true },
+            { "approvedUnsigned", true },
+            { "approvedUnsignedPolicy", "app_portal_owner_hash_pinned_device_only" },
             { "artifactInspection", true },
             { "installerTypes", json::array({ "msi", "exe", "msix", "msixbundle", "appx", "appxbundle" }) },
             { "windowsPackageInspection", true },
@@ -1336,9 +1339,34 @@ bool ManifestValid(const json& manifest, std::string& error) {
         if (Lower(url).rfind("https://", 0) != 0) { error = "vendor_url_not_https"; return false; }
         if (sha.size() != 64) { error = "vendor_sha256_missing"; return false; }
         if (type != "msi" && type != "exe") { error = "unsupported_installer_type"; return false; }
-        if (manifest.value("expectedSigner", std::string()).empty()) { error = "expected_signer_missing"; return false; }
+        const json unsignedApproval = manifest.value("unsignedApproval", json());
+        const bool hasUnsignedApproval = unsignedApproval.is_object() && !unsignedApproval.empty();
+        if (!hasUnsignedApproval && manifest.value("expectedSigner", std::string()).empty()) {
+            error = "expected_signer_missing";
+            return false;
+        }
+        if (hasUnsignedApproval) {
+            const std::string pinnedSha = unsignedApproval.value("sha256", std::string());
+            const bool shaValid = sha.size() == 64 && std::all_of(sha.begin(), sha.end(),
+                [](unsigned char ch) { return std::isxdigit(ch) != 0; });
+            if (!shaValid || Lower(pinnedSha) != Lower(sha)
+                || unsignedApproval.value("kind", std::string()) != "hi5_app_portal_unsigned_v1"
+                || unsignedApproval.value("approvalId", std::string()).empty()
+                || unsignedApproval.value("revisionId", std::string()).empty()
+                || unsignedApproval.value("tenantId", std::string()).empty()
+                || unsignedApproval.value("deviceId", std::string()) != manifest.value("deviceId", std::string())
+                || !manifest.value("expectedSigner", std::string()).empty()
+                || intent != "install") {
+                error = "unsigned_approval_invalid";
+                return false;
+            }
+        }
 
         const json customExecution = manifest.value("customExecution", json());
+        if (hasUnsignedApproval && customExecution.is_object() && !customExecution.empty()) {
+            error = "unsigned_custom_execution_forbidden";
+            return false;
+        }
         const bool hasCustomExecution = customExecution.is_object() && !customExecution.empty();
         if (hasCustomExecution) {
             const std::string mode = Lower(customExecution.value("mode", std::string()));
@@ -1879,13 +1907,29 @@ json ExecuteManifest(const std::filesystem::path& encryptedManifestPath) {
                 result["error"] = "sha256_mismatch";
             } else {
                 std::string signer;
-                if (!VerifyAuthenticodeTrust(installerPath, signer)) {
+                LONG winTrustStatus = TRUST_E_NOSIGNATURE;
+                const bool trustedSignature = VerifyAuthenticodeTrust(installerPath, signer, &winTrustStatus);
+                const json unsignedApproval = manifest.value("unsignedApproval", json());
+                // A tenant owner's server-issued exception is valid ONLY for
+                // the exact downloaded SHA and for a genuinely unsigned file.
+                // Revoked, malformed and tampered signatures NEVER get bypassed.
+                const bool approvedUnsigned = !trustedSignature
+                    && winTrustStatus == TRUST_E_NOSIGNATURE
+                    && unsignedApproval.is_object() && !unsignedApproval.empty()
+                    && Lower(unsignedApproval.value("sha256", std::string())) == Lower(expectedSha)
+                    && Lower(actualSha) == Lower(expectedSha);
+                if (!trustedSignature && !approvedUnsigned) {
                     result["error"] = "authenticode_invalid";
                 } else {
                     result["signer"] = signer;
+                    result["unsignedApprovalVerified"] = approvedUnsigned;
+                    if (approvedUnsigned) {
+                        result["unsignedApprovalId"] = unsignedApproval.value("approvalId", std::string());
+                    }
                     const std::string expectedSigner = manifest.value("expectedSigner", std::string());
-                    result["signatureVerified"] = !signer.empty() && ContainsInsensitive(signer, expectedSigner);
-                    if (!result["signatureVerified"].get<bool>()) {
+                    result["signatureVerified"] = trustedSignature && !signer.empty()
+                        && ContainsInsensitive(signer, expectedSigner);
+                    if (!result["signatureVerified"].get<bool>() && !approvedUnsigned) {
                         result["error"] = "unexpected_signer";
                     } else if (manifest.value("customExecution", json()).is_object()
                         && !manifest.value("customExecution", json()).empty()) {

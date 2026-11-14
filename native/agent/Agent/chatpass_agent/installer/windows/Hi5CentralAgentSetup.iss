@@ -30,6 +30,9 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\Hi5Central\Agent
+; Never inherit old Hi5Tech installation locations on upgrades. All supported
+; Windows agents live under Program Files\Hi5Central\Agent.
+UsePreviousAppDir=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
@@ -316,10 +319,21 @@ begin
   HardenAgentConfig(ConfigPath);
 end;
 
+procedure AssertCanonicalAgentDirectory;
+var
+  CanonicalDir: String;
+begin
+  CanonicalDir := ExpandConstant('{autopf}\Hi5Central\Agent');
+  if CompareText(RemoveBackslashUnlessRoot(ExpandConstant('{app}')),
+                 RemoveBackslashUnlessRoot(CanonicalDir)) <> 0 then
+    RaiseException('Hi5Central Agent must be installed in: ' + CanonicalDir);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssInstall then
   begin
+    AssertCanonicalAgentDirectory;
     StopExistingService;
     ForceDirectories(ExpandConstant('{commonappdata}\Hi5Central\Agent'));
     ForceDirectories(ExpandConstant('{commonappdata}\Hi5Central\Agent\Logs'));

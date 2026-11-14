@@ -69,6 +69,7 @@ import { RmmMonitoringPolicies } from './RmmMonitoringPolicies.jsx'
 import { RmmNetworkDiscovery } from './RmmNetworkDiscovery.jsx'
 import { RmmPatching as RmmPatchingWorkspace } from './RmmPatching.jsx'
 import { RmmAppPortal } from './RmmAppPortal.jsx'
+import { RmmDeviceSelfService } from './RmmDeviceSelfService.jsx'
 import { RmmAgentDeployment } from './RmmAgentDeployment.jsx'
 import { RmmAutomation, RmmDeviceAutomationPanel } from './RmmAutomationWorkspace.jsx'
 import { RmmConnect } from './RmmConnect.jsx'
@@ -2051,6 +2052,7 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
     ['hardware', 'Hardware', Cpu],
     ['windows', 'Windows', Settings],
     ['software', 'Software', Package],
+    ['self-service', 'Self Service', PackageCheck],
     ['patching', 'Patching', ShieldCheck],
     ['security', 'Security', ShieldCheck],
     ['tools', 'Tools', TerminalSquare],
@@ -2399,6 +2401,7 @@ function RmmDeviceDetail({ canBackstageRemote = false, canRemote = false, device
   if (section === 'hardware') content = <DeviceHardware device={device} />
   else if (section === 'windows') content = <DeviceWindows device={device} />
   else if (section === 'software') content = <DeviceSoftware device={device} />
+  else if (section === 'self-service') content = <RmmDeviceSelfService device={device} />
   else if (section === 'patching') content = <DevicePatching device={device} />
   else if (section === 'security') content = <DeviceSecurity device={device} />
   else if (section === 'tools') content = <RmmDeviceToolWorkspace device={device} embedded initialTool={tool} key={device.id + ':' + (tool || 'tool-launcher')} onToolChange={(nextTool) => { setTool(nextTool); onDeviceRoute?.('tools', nextTool) }} />

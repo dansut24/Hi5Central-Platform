@@ -6,4 +6,5 @@ public interface IAppPortalBroker
 {
     Task<JsonDocument> GetCatalogueAsync(CancellationToken cancellationToken = default);
     Task<JsonDocument> InstallAsync(string appId, CancellationToken cancellationToken = default);
+    Task<JsonDocument> UninstallAsync(string appId, CancellationToken cancellationToken = default);
 }

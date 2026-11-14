@@ -13,8 +13,17 @@ public sealed class PortalCatalogueResponse
     [JsonPropertyName("error")]
     public string Error { get; init; } = string.Empty;
 
+    [JsonPropertyName("independentBrokerConnected")]
+    public bool IndependentBrokerConnected { get; init; }
+
+    [JsonPropertyName("supportPortalUrl")]
+    public string SupportPortalUrl { get; init; } = string.Empty;
+
     [JsonPropertyName("apps")]
     public List<PortalApp> Apps { get; init; } = [];
+
+    [JsonPropertyName("installedSoftware")]
+    public List<PortalInstalledProgram> InstalledSoftware { get; init; } = [];
 
     [JsonPropertyName("installations")]
     public List<PortalInstallation> Installations { get; init; } = [];
@@ -29,6 +38,32 @@ public sealed class PortalCatalogueResponse
     public PortalUpdates Updates { get; init; } = new();
 }
 
+public sealed class PortalInstalledProgram
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("publisher")]
+    public string Publisher { get; init; } = string.Empty;
+
+    [JsonPropertyName("observed_at")]
+    public DateTimeOffset? ObservedAt { get; init; }
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+}
+
+public sealed class InstalledSoftwareItem
+{
+    public required string Name { get; init; }
+    public required string Version { get; init; }
+    public required string Publisher { get; init; }
+    public required string Source { get; init; }
+}
+
 public sealed class PortalApp
 {
     [JsonPropertyName("id")]
@@ -36,6 +71,15 @@ public sealed class PortalApp
 
     [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("revisionId")]
+    public string RevisionId { get; init; } = string.Empty;
+
+    [JsonPropertyName("uninstallAvailable")]
+    public bool UninstallAvailable { get; init; }
+
+    [JsonPropertyName("uninstallStatus")]
+    public string UninstallStatus { get; init; } = string.Empty;
 
     [JsonPropertyName("publisher")]
     public string Publisher { get; init; } = string.Empty;
@@ -60,6 +104,15 @@ public sealed class PortalApp
 
     [JsonPropertyName("installed")]
     public bool Installed { get; init; }
+
+    [JsonPropertyName("inventoryFresh")]
+    public bool InventoryFresh { get; init; } = true;
+
+    [JsonPropertyName("detection")]
+    public string Detection { get; init; } = string.Empty;
+
+    [JsonPropertyName("installedVersion")]
+    public string InstalledVersion { get; init; } = string.Empty;
 
     [JsonPropertyName("version")]
     public string Version { get; init; } = string.Empty;
@@ -207,6 +260,12 @@ public sealed class PortalInstallation
     [JsonPropertyName("app_id")]
     public string AppId { get; init; } = string.Empty;
 
+    [JsonPropertyName("revision_id")]
+    public string RevisionId { get; init; } = string.Empty;
+
+    [JsonPropertyName("result")]
+    public PortalJobResult? Result { get; init; }
+
     [JsonPropertyName("installation_status")]
     public string InstallationStatus { get; init; } = string.Empty;
 
@@ -221,6 +280,42 @@ public sealed class PortalInstallation
 
     [JsonPropertyName("completed_at")]
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>
+    /// PatchHost has already checked the installed application directly in
+    /// Windows and validated its target version. The main RMM inventory is
+    /// not involved: the independent broker works even if Agent is stopped.
+    /// A verified result is bound to the exact published app revision.
+    /// </summary>
+    public bool HasVerifiedCurrentRevision(PortalApp app) =>
+        string.Equals(InstallationStatus, "succeeded", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(JobStatus, "completed", StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(app.RevisionId)
+        && string.Equals(RevisionId, app.RevisionId, StringComparison.OrdinalIgnoreCase)
+        && Result?.Success == true
+        && Result.VerificationPassed
+        && Result.Verification?.MeetsTarget == true;
+}
+
+public sealed class PortalJobResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; init; }
+
+    [JsonPropertyName("verificationPassed")]
+    public bool VerificationPassed { get; init; }
+
+    [JsonPropertyName("verifiedVersion")]
+    public string VerifiedVersion { get; init; } = string.Empty;
+
+    [JsonPropertyName("verification")]
+    public PortalJobVerification? Verification { get; init; }
+}
+
+public sealed class PortalJobVerification
+{
+    [JsonPropertyName("meetsTarget")]
+    public bool MeetsTarget { get; init; }
 }
 
 public sealed class PortalRequest
@@ -265,7 +360,10 @@ public enum AppPortalStatus
     ApprovalRequired,
     ApprovalPending,
     ApprovalRejected,
+    Queued,
     Installing,
+    Uninstalling,
+    VerificationPending,
     Installed,
     Failed,
 }
@@ -276,6 +374,7 @@ public sealed class AppCard : INotifyPropertyChanged
 
     public required PortalApp App { get; init; }
     public required AppPortalStatus Status { get; init; }
+    public bool LiveAgentAvailable { get; init; } = true;
     public PortalRequest? Request { get; init; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -309,6 +408,8 @@ public sealed class AppCard : INotifyPropertyChanged
     public string Version => string.IsNullOrWhiteSpace(App.Version)
         ? "Current release"
         : App.Version;
+    public bool IsScript => Category.Contains("script", StringComparison.OrdinalIgnoreCase)
+        || Category.Contains("automation", StringComparison.OrdinalIgnoreCase);
     public string Initials => BuildInitials(Name);
 
     public string StatusText => Status switch
@@ -316,7 +417,10 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Approval required",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request declined",
+        AppPortalStatus.Queued => "Queued for device",
         AppPortalStatus.Installing => "Installing",
+        AppPortalStatus.Uninstalling => "Removing",
+        AppPortalStatus.VerificationPending => "Verification pending",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Failed",
         _ => "Available",
@@ -327,21 +431,30 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Request approval",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request again",
+        AppPortalStatus.Queued => "Waiting for device",
         AppPortalStatus.Installing => "Installing...",
+        AppPortalStatus.Uninstalling => "Removing...",
+        AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Retry",
-        _ => "Install",
+        _ => IsScript ? "Run" : "Install",
     };
 
-    public bool CanInstall => Status is AppPortalStatus.Available
+    public bool CanUninstall => LiveAgentAvailable && App.UninstallAvailable
+        && Status == AppPortalStatus.Installed;
+
+    public bool CanInstall => LiveAgentAvailable
+        && Status is (AppPortalStatus.Available
         or AppPortalStatus.ApprovalRequired
         or AppPortalStatus.ApprovalRejected
-        or AppPortalStatus.Failed;
+        or AppPortalStatus.Failed);
 
     public string StatusBackground => Status switch
     {
         AppPortalStatus.Installed => "#E9F8F1",
+        AppPortalStatus.Queued => "#FFF6E5",
         AppPortalStatus.Installing => "#EEF4FF",
+        AppPortalStatus.VerificationPending => "#FFF6E5",
         AppPortalStatus.ApprovalPending => "#FFF6E5",
         AppPortalStatus.ApprovalRequired => "#FFF6E5",
         AppPortalStatus.ApprovalRejected => "#FFF0F2",
@@ -352,6 +465,7 @@ public sealed class AppCard : INotifyPropertyChanged
     public string StatusForeground => Status switch
     {
         AppPortalStatus.Installed => "#146B50",
+        AppPortalStatus.VerificationPending => "#9A6400",
         AppPortalStatus.ApprovalPending => "#9A6400",
         AppPortalStatus.ApprovalRequired => "#9A6400",
         AppPortalStatus.ApprovalRejected => "#B63D4C",
