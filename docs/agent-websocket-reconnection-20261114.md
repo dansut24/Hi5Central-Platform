@@ -33,3 +33,17 @@ The Lenovo had approximately 28 historical Hi5Central scheduled upgrade/recovery
 8. Once stable, continue the dedicated Hi5Recovery escrow/rotation/MFA-reveal test. Do not change administrator passwords in the course of this reconnection test.
 
 Rollback: reinstall the retained trusted 1.0.507 artifact if 1.0.508 misbehaves. Note that 1.0.507 has the known WebSocket-shutdown defect and must not be treated as a production-stable baseline.
+
+## Live validation completed (2026-11-14, 16:57 UTC)
+
+- Windows CI: `Agent deployment installers` workflow run **43616356492**, Windows job **success**. Release artifact `Hi5Central-Windows-Agent-1.0.508-WSReconnect`.
+- Installer `https://downloads.hi5central.com/rmm-agent/1.0.508/Hi5CentralAgentSetup.exe`, SHA-256 `30a4b92d5ceee062173abec425e876341f5711d067cba76ad86398eee28e02df`, staged and verified on original VPS.
+- Newtest Lenovo `DESKTOP-Q9LTF1M` upgraded by RMM job `7081985a-0a94-40e1-bd50-0b92dba8c1f4` at 16:51, status `succeeded_after_reconnect`, Agent version 1.0.508 independently recorded by RMM API. Previous 1.0.507 installer retained.
+- **Separate crash caution:** Windows recorded an Agent `0xc0000005` Application Error at 16:52:50 during the upgrade/restart period, and Service Control Manager Event 7031 at 16:52:55. The replacement service process started 16:52:56, PID **14900**, and was stable through subsequent tests. This crash is not evidence that the reconnection fix failed; the precise native crash cause remains unresolved.
+- Before controlled API interruption (16:56:11 UTC), PostgreSQL confirmed **zero active remote/tool sessions** and just one freshly authenticated Agent (Newtest Lenovo).
+- Original RMM API container intentionally restarted at 16:56:11–16:56:22 UTC; it returned healthy with HTTP 200.
+- Lenovo log: `16:56:22 websocket disconnected; keep Windows service running and reconnect`; `16:56:25 websocket unavailable; reconnecting in place without stopping Agent`; `16:56:25 websocket connected` followed by `hello sent`.
+- Agent continued reporting telemetry and accepting `custom.command` jobs; subsequent audit job `29d71db1-76cf-4084-b605-cb008b584c23` succeeded.
+- Post-test Windows read-only audit at 16:57:17 UTC: Hi5CentralAgent **Running**, PID **14900**, process start **16:52:56.246Z** (same as before the API restart); independent Hi5CentralSelfServiceBroker **Running**, PID **17556**; no new SCM Event 7031/7034 and no new WER Event 1000/1001 after 16:56. **Live WebSocket reconnection without service stop is verified.**
+- Current feature status: original WebSocket-close clean-stop defect **resolved and proven** on 1.0.508. Separate historical and upgrade-time native `0xc0000005` crashes still require root-cause analysis with matching symbol files and repeated stability tests; do not claim all crash issues are fixed.
+- No local administrator account password changes or LAPS rotations occurred in this test.
