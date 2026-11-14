@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { effectiveAuditSettings, assessmentSignature, assessDevicePolicy, rollupCompliance, shouldQueueAutomaticAudit } from '../src/rmmEndpointCompliance.js'
+import { effectiveAuditSettings, assessmentSignature, assessDevicePolicy, rollupCompliance, shouldQueueAutomaticAudit, AUTOMATIC_ASSESSMENT_CADENCE_MS } from '../src/rmmEndpointCompliance.js'
 import { buildWindowsPolicyCommand, parseWindowsPolicyResult, WINDOWS_POLICY_WRITE_KEYS } from '../src/rmmEndpointWindowsDriver.js'
 
 const profile={id:'aaaaaaaa-0000-4000-8000-000000000001',revision:2,status:'ready'}
@@ -81,4 +81,14 @@ test('automatic read-only audit requeues after any newer apply or restore, not o
   assert.equal(shouldQueueAutomaticAudit([audit],assessmentSignature(3,desired),now),true)
   assert.equal(shouldQueueAutomaticAudit([{...audit,status:'claimed'}],signature,now),false)
   assert.equal(shouldQueueAutomaticAudit([],signature,now),true)
+})
+
+test('automatic drift discovery reassesses after ten minutes rather than waiting 24 hours',()=>{
+  assert.equal(AUTOMATIC_ASSESSMENT_CADENCE_MS,10*60*1000)
+  const last={...job(true),created_at:new Date(now-11*60*1000).toISOString(),
+    completed_at:new Date(now-11*60*1000+1000).toISOString()}
+  const signature=assessmentSignature(profile.revision,desired)
+  assert.equal(shouldQueueAutomaticAudit([last],signature,now),true)
+  assert.equal(shouldQueueAutomaticAudit([{...last,created_at:new Date(now-9*60*1000).toISOString()}],signature,now),false)
+  assert.equal(shouldQueueAutomaticAudit([{...last,status:'claimed'}],signature,now),false)
 })

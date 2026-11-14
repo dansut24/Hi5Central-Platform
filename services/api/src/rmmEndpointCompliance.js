@@ -9,6 +9,8 @@ export const SUPPORTED_WINDOWS_CHECKS = Object.freeze([
   'windows.laps.backup_directory',
 ])
 export const ASSESSMENT_MAX_AGE_MS = 24*60*60*1000
+// A 10-minute read-only sweep must not be throttled by the 24-hour UI freshness limit.
+export const AUTOMATIC_ASSESSMENT_CADENCE_MS = 10*60*1000
 
 export function effectiveAuditSettings(resolution) {
   return (resolution?.applicable ? resolution.settings : [])
@@ -30,7 +32,7 @@ export function shouldQueueAutomaticAudit(jobs,signature,now=Date.now()) {
   if(changedSince)return true
   if(latest.request_metadata?.assessment_signature!==signature)return true
   const created=now-new Date(latest.created_at).getTime()
-  return created>=(latest.status==='completed'?ASSESSMENT_MAX_AGE_MS:3600000)
+  return created>=(latest.status==='completed'?AUTOMATIC_ASSESSMENT_CADENCE_MS:3600000)
 }
 export function readAssessmentReport(job, parseResult) {
   const parsed=parseResult(job?.result?.output)
