@@ -67,9 +67,7 @@ $brokerName = 'Hi5CentralSelfServiceBroker'
 $brokerSvc = Get-CimInstance Win32_Service -Filter "Name='$brokerName'" -ErrorAction SilentlyContinue
 # Windows will lock a running service executable. Only the independent
 # broker is stopped for its own SHA-pinned upgrade; NEVER the RMM Agent.
-if ($brokerSvc -and $brokerSvc.State -eq 'Running'
-    -and (Test-Path -LiteralPath $brokerDest)
-    -and (Get-FileHash -LiteralPath $brokerDest -Algorithm SHA256).Hash -ne $brokerHash) {
+if ($brokerSvc -and $brokerSvc.State -eq 'Running' -and (Test-Path -LiteralPath $brokerDest) -and ((Get-FileHash -LiteralPath $brokerDest -Algorithm SHA256).Hash -ne $brokerHash)) {
   if (Get-Process -Name 'Hi5CentralPatchHost' -ErrorAction SilentlyContinue) {
     throw 'App installation is active; defer broker upgrade to next reconciliation'
   }
