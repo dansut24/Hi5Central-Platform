@@ -125,7 +125,7 @@ const navigation = [
   { id: 'automation', label: 'Automation', icon: Code2, section: 'Operate' },
   { id: 'policies', label: 'Policies', icon: SlidersHorizontal, section: 'Configure' },
   { id: 'endpoint-management', label: 'Endpoint management', icon: ShieldCheck, section: 'Configure' },
-  { id: 'elevation-requests', label: 'Elevation requests', icon: ShieldCheck, section: 'Configure' },
+  { id: 'elevation-requests', label: 'Elevation requests', icon: ShieldCheck, section: 'Configure', requiresPilot: true },
   { id: 'reports', label: 'Reports', icon: BarChart3, section: 'Insights' },
   { id: 'activity-audit', label: 'Activity audit', icon: History, section: 'Administration', requiresAudit: true },
   { id: 'agent-deployment', label: 'Agent deployment', icon: Download, section: 'Administration' },
