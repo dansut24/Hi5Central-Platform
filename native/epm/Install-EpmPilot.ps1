@@ -13,12 +13,15 @@ $target = Join-Path $root 'Hi5CentralEpmPilot.exe'
 $svc = Get-Service Hi5CentralEpmPilot -ErrorAction SilentlyContinue
 if ($svc) { Stop-Service Hi5CentralEpmPilot -Force -ErrorAction Stop }
 Copy-Item -LiteralPath $Executable -Destination $target -Force
+$imagePath = '"' + $target + '" --service'
 if (-not $svc) {
-  & sc.exe create Hi5CentralEpmPilot binPath= ('"' + $target + '" --service') start= auto obj= LocalSystem DisplayName= 'Hi5Central Endpoint Privilege Management Pilot'
-  if ($LASTEXITCODE -ne 0) { throw 'Could not register EPM broker service' }
+  New-Service -Name 'Hi5CentralEpmPilot' -BinaryPathName $imagePath `
+    -DisplayName 'Hi5Central Endpoint Privilege Management Pilot' `
+    -StartupType Automatic -ErrorAction Stop | Out-Null
 } else {
-  & sc.exe config Hi5CentralEpmPilot binPath= ('"' + $target + '" --service') start= auto
-  if ($LASTEXITCODE -ne 0) { throw 'Could not update EPM broker service' }
+  Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Hi5CentralEpmPilot' `
+    -Name ImagePath -Value $imagePath -ErrorAction Stop
+  Set-Service -Name 'Hi5CentralEpmPilot' -StartupType Automatic -ErrorAction Stop
 }
 $menu = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\exefile\shell\Hi5CentralElevate'
 New-Item -Path $menu -Force | Out-Null
