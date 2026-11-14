@@ -23,6 +23,8 @@ static bool IsHi5LocalAdminName(const std::string& name) {
 static bool IsNativeLapsCurrentlyManagingAccounts() {
     constexpr const wchar_t* policyRoots[] = {
         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\LAPS",
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\LAPS\\Config",
+        L"SOFTWARE\\Microsoft\\PolicyManager\\current\\device\\LAPS",
         L"SOFTWARE\\Microsoft\\Policies\\LAPS",
         L"SOFTWARE\\Policies\\Microsoft\\Windows\\LAPS",
     };
@@ -157,7 +159,7 @@ static json RotateDedicatedLocalAdmin(const AgentIdentity& ident, const std::str
         newUser.usri1_name=const_cast<LPWSTR>(accountWide.c_str());
         newUser.usri1_password=passwordWide.data();
         newUser.usri1_priv=USER_PRIV_USER;
-        newUser.usri1_flags=UF_SCRIPT | UF_DONT_EXPIRE_PASSWD;
+        newUser.usri1_flags=UF_NORMAL_ACCOUNT | UF_SCRIPT | UF_DONT_EXPIRE_PASSWD;
         DWORD parameterError=0;
         changeStatus=NetUserAdd(nullptr,1,reinterpret_cast<LPBYTE>(&newUser),&parameterError);
         if (changeStatus==NERR_Success) {

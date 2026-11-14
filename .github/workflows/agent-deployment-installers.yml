@@ -47,7 +47,7 @@ jobs:
           $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $repo = (Resolve-Path 'native/agent/Agent/chatpass_agent').Path
           $script = Join-Path $repo 'installer\windows\Build-AgentInstaller.ps1'
-          $agentVersion = '1.0.' + (20 + [int]'${{ github.run_number }}')
+          $agentVersion = '1.0.' + [Math]::Max(507, (20 + [int]'${{ github.run_number }}'))
           Write-Host "Windows Agent version: $agentVersion"
           $cmd = 'call "' + $devcmd + '" -arch=x64 -host_arch=x64 && powershell -NoProfile -ExecutionPolicy Bypass -File "' + $script + '" -Clean -Generator "Visual Studio 18 2026" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "' + $agentVersion + '"'
           cmd.exe /d /s /c $cmd
@@ -61,6 +61,16 @@ jobs:
           New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
           Copy-Item $built "$payloadDir/Hi5CentralAgentSetup.exe"
           Write-Host "Current Agent setup size: $((Get-Item $built).Length) bytes"
+          $hash = (Get-FileHash -Path $built -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Windows Agent setup SHA-256: $hash"
+
+      - name: Upload tested Windows Agent setup (LAPS rotation)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Windows-Agent-1.0.507-LAPS
+          path: native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Build native single-file Windows installer template
         shell: pwsh
