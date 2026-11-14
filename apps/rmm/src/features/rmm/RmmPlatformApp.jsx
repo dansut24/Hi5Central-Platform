@@ -66,6 +66,7 @@ import {
   RmmSitesManagement,
 } from './RmmEstateManagement.jsx'
 import { RmmMonitoringPolicies } from './RmmMonitoringPolicies.jsx'
+import { RmmEndpointManagement } from './RmmEndpointManagement.jsx'
 import { RmmNetworkDiscovery } from './RmmNetworkDiscovery.jsx'
 import { RmmPatching as RmmPatchingWorkspace } from './RmmPatching.jsx'
 import { RmmAppPortal } from './RmmAppPortal.jsx'
@@ -122,6 +123,7 @@ const navigation = [
   { id: 'software', label: 'Software', icon: PackageCheck, section: 'Operate' },
   { id: 'automation', label: 'Automation', icon: Code2, section: 'Operate' },
   { id: 'policies', label: 'Policies', icon: SlidersHorizontal, section: 'Configure' },
+  { id: 'endpoint-management', label: 'Endpoint management', icon: ShieldCheck, section: 'Configure' },
   { id: 'reports', label: 'Reports', icon: BarChart3, section: 'Insights' },
   { id: 'activity-audit', label: 'Activity audit', icon: History, section: 'Administration', requiresAudit: true },
   { id: 'agent-deployment', label: 'Agent deployment', icon: Download, section: 'Administration' },
@@ -141,6 +143,7 @@ const pageMeta = {
   software: ['Applications', 'Software', 'Understand installed software and manage application deployments.'],
   automation: ['Automation', 'Scripts & automation', 'Run trusted scripts, recurring maintenance and remediation actions.'],
   policies: ['Configuration', 'Policies', 'Control monitoring, maintenance, agent and security settings by scope.'],
+  'endpoint-management': ['Windows configuration', 'Endpoint management', 'Create granular Windows baselines, configuration profiles and LAPS settings with per-setting exceptions.'],
   reports: ['Insights', 'Reports', 'Fleet health, patch compliance, software and operational reporting.'],
   'activity-audit': ['Administration', 'Activity audit', 'Search the tenant-wide RMM operational and technician audit history.'],
   'agent-deployment': ['Administration', 'Agent deployment', 'Download the Windows agent and create secure, expiring enrollment packages.'],
@@ -2787,6 +2790,7 @@ export function RmmPlatformApp({ accent, accountSession = null, canAdmin = false
     if (activeView === 'software') return <RmmSoftware devices={devices} />
     if (activeView === 'automation') return <RmmAutomation />
     if (activeView === 'policies') return <RmmMonitoringPolicies devices={devices} openDevice={openDevice} sites={sites} />
+    if (activeView === 'endpoint-management') return <RmmEndpointManagement />
     if (activeView === 'reports') return <RmmReports devices={devices} />
     if (activeView === 'activity-audit') return canAudit ? <RmmAuditActivity activityCategory={selectedActivityCategory} activityId={selectedActivityId} devices={devices} /> : <RmmDashboard canAudit={canAudit} devices={devices} navigate={navigate} openDevice={openDevice} />
     if (activeView === 'agent-deployment') return <RmmAgentDeployment />
