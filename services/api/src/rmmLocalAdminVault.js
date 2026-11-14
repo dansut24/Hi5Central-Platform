@@ -62,6 +62,7 @@ function exposedAccount(a,rotation=null) {
     name:a.account_name,sid:a.account_sid,mode:a.mode,state:a.state,
     lastRotatedAt:a.last_rotated_at,nextRotationAt:a.next_rotation_at,
     lastError:a.last_error,agentVersion:a.agent_version,
+    removalJobId:a.removal_job_id,removedAt:a.removed_at,
     agentConnected:a.websocket_status==='Connected' &&
       Boolean(a.last_telemetry_at) && Date.now()-new Date(a.last_telemetry_at).getTime()<90000,
     currentRotation:rotationMetadata(rotation),
@@ -90,15 +91,42 @@ export function registerRmmLocalAdminVaultRoutes(app) {
         "AND j.status IN ('cancelled','failed')",
         [session.tenant_id])
     })
+    // No blind retry of an account-deletion job: a lost acknowledgement may
+    // mean Windows already removed the user. Queued/never-claimed jobs can be
+    // safely reverted to the previous managed state; claimed timeouts cannot.
+    await withTransaction(async(client)=>{
+      const unsettled=await client.query(
+        "SELECT a.id,a.tenant_id,a.state,j.id AS job_id,j.status,j.claimed_at,j.request_metadata FROM rmm_local_admin_accounts a JOIN rmm_agent_jobs j ON j.id=a.removal_job_id WHERE a.tenant_id=$1 AND a.state='removing' AND j.job_type='laps.remove' AND (j.status IN ('failed','cancelled') OR (j.status='claimed' AND j.claimed_at<now()-interval '20 minutes')) FOR UPDATE OF a",
+        [session.tenant_id])
+      for(const item of unsettled.rows){
+        if(item.status==='cancelled' && !item.claimed_at){
+          const previous=['active','disabled'].includes(item.request_metadata?.previous_state)?item.request_metadata.previous_state:'disabled'
+          await client.query("UPDATE rmm_local_admin_accounts SET state=$2,removal_job_id=NULL,last_error='Removal request expired before device claim; no account deletion was sent.',updated_at=now() WHERE id=$1",[item.id,previous])
+          await audited(client,{tenantId:item.tenant_id,accountId:item.id,eventType:'removal.not_dispatched',actorKind:'system',detail:{jobId:item.job_id}})
+        }else{
+          await client.query("UPDATE rmm_local_admin_accounts SET state='removal_uncertain',last_error='Windows account removal cannot be confirmed. Check device account SID before retrying.',updated_at=now() WHERE id=$1",[item.id])
+          await audited(client,{tenantId:item.tenant_id,accountId:item.id,eventType:'removal.uncertain',actorKind:'system',detail:{jobId:item.job_id}})
+          if(item.status==='claimed')
+            await client.query("UPDATE rmm_agent_jobs SET status='failed',error_message='Removal acknowledgement timed out; do not automatically replay account deletion.',updated_at=now(),completed_at=now() WHERE id=$1 AND status='claimed'",[item.job_id])
+        }
+      }
+    })
+    // If a result callback succeeded but its reconciliation was interrupted,
+    // complete the same verified receipt on the next authenticated read.
+    const unprocessed=await pool.query(
+      "SELECT j.* FROM rmm_local_admin_accounts a JOIN rmm_agent_jobs j ON j.id=a.removal_job_id WHERE a.tenant_id=$1 AND a.state='removing' AND j.job_type='laps.remove' AND j.status='completed' LIMIT 20",
+      [session.tenant_id])
+    for(const job of unprocessed.rows) await reconcileLocalAdminJobResult(job,true)
     const result=await pool.query(
       'SELECT a.*,i.name AS device_name,d.agent_version,d.websocket_status,d.last_telemetry_at,r.state AS rotation_state,r.escrowed_at,r.activated_at,r.reveal_count,r.revealed_at,r.created_at AS rotation_created_at FROM rmm_local_admin_accounts a JOIN rmm_agent_devices d ON d.id=a.agent_device_id JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=a.tenant_id LEFT JOIN rmm_local_admin_rotations r ON r.id=a.current_rotation_id WHERE a.tenant_id=$1 AND d.disabled_at IS NULL ORDER BY i.name',
       [session.tenant_id])
     const deviceRows=await pool.query(
-      "SELECT a.id AS agent_device_id,i.name,i.platform,a.agent_version,a.last_telemetry_at,a.websocket_status FROM rmm_agent_devices a JOIN rmm_device_inventory i ON i.id=a.inventory_id WHERE a.tenant_id=$1 AND a.disabled_at IS NULL AND i.active=true AND i.platform ILIKE '%windows%' AND NOT EXISTS(SELECT 1 FROM rmm_local_admin_accounts m WHERE m.tenant_id=a.tenant_id AND m.agent_device_id=a.id) ORDER BY i.name",
+      "SELECT a.id AS agent_device_id,i.name,i.platform,a.agent_version,a.last_telemetry_at,a.websocket_status FROM rmm_agent_devices a JOIN rmm_device_inventory i ON i.id=a.inventory_id WHERE a.tenant_id=$1 AND a.disabled_at IS NULL AND i.active=true AND i.platform ILIKE '%windows%' AND NOT EXISTS(SELECT 1 FROM rmm_local_admin_accounts m WHERE m.tenant_id=a.tenant_id AND m.agent_device_id=a.id AND m.state<>'removed') ORDER BY i.name",
       [session.tenant_id])
     return c.json({accounts:result.rows.map((a)=>exposedAccount(a,a.rotation_state?{id:a.current_rotation_id,state:a.rotation_state,escrowed_at:a.escrowed_at,activated_at:a.activated_at,reveal_count:a.reveal_count,revealed_at:a.revealed_at,created_at:a.rotation_created_at}:null)),
       availableDevices:deviceRows.rows.map((row)=>({id:row.agent_device_id,name:row.name,version:row.agent_version,online:row.websocket_status==='Connected'&&row.last_telemetry_at&&Date.now()-new Date(row.last_telemetry_at).getTime()<90000})),
       canRotate:hasPermission(session.access,'rmm.security.local_admin.rotate'),
+      canRemove:hasPermission(session.access,'rmm.security.local_admin.rotate'),
       canReveal:hasPermission(session.access,'rmm.security.local_admin.read'),
       vaultMode:'hi5central-managed-separate-from-native-windows-laps'})
   }))
@@ -114,7 +142,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     if (!agent.rowCount || !/windows/i.test(agent.rows[0].platform||'')) throw fail('This device does not have an active Windows agent.',409)
     const saved=await withTransaction(async(client)=>{
       const result=await client.query(
-        "INSERT INTO rmm_local_admin_accounts(tenant_id,agent_device_id,inventory_id,account_name,created_by_user_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,agent_device_id) DO NOTHING RETURNING *",
+        "INSERT INTO rmm_local_admin_accounts(tenant_id,agent_device_id,inventory_id,account_name,created_by_user_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant_id,agent_device_id) DO UPDATE SET account_name=EXCLUDED.account_name,account_sid=NULL,state='pending',current_rotation_id=NULL,last_rotated_at=NULL,next_rotation_at=NULL,last_error=NULL,removal_job_id=NULL,removed_at=NULL,created_by_user_id=EXCLUDED.created_by_user_id,updated_at=now() WHERE rmm_local_admin_accounts.state='removed' RETURNING *",
         [session.tenant_id,agentDeviceId,agent.rows[0].inventory_id,name,session.user_id])
       if (!result.rowCount) throw fail('This device already has a registered managed local administrator account.',409)
       const row=result.rows[0]
@@ -129,7 +157,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     const reason=clean(body.reason,500)
     if (reason.length<10) throw fail('Provide a business reason for password rotation.')
     const account=await accountFor(session.tenant_id,c.req.param('accountId'))
-    if (account.state==='disabled') throw fail('Account management is disabled.',409)
+    if (!['pending','active','error'].includes(account.state)) throw fail('Local admin management is paused, being removed, or already removed.',409)
     if (account.websocket_status!=='Connected'||!account.last_telemetry_at||Date.now()-new Date(account.last_telemetry_at).getTime()>90000) throw fail('The device must be online for immediate rotation.',409)
     const version=String(account.agent_version||'').match(/(?:^|\D)(\d+)\.(\d+)\.(\d+)/)
     if (!version || Number(version[1])!==1 || Number(version[2])!==0 || Number(version[3])<509) throw fail('Hi5Central Agent 1.0.509 or newer is required for secure local administrator rotation.',409)
@@ -154,6 +182,98 @@ export function registerRmmLocalAdminVaultRoutes(app) {
       return {jobId,rotationId:rotation.rows[0].id}
     })
     return c.json({state:'queued',...saved},202)
+  }))
+  // Pausing is reversible and intentionally preserves the Windows account,
+  // the current escrow and historical audit; it only blocks future rotations.
+  app.post('/api/v1/rmm/local-admin/accounts/:accountId/management',safe(async(c)=>{
+    const session=await authorize(c,'rmm.security.local_admin.rotate')
+    const body=await c.req.json().catch(()=>({}))
+    const action=clean(body.action,24)
+    const reason=clean(body.reason,500)
+    if (!['pause','resume'].includes(action)) throw fail('Choose pause or resume.')
+    if (reason.length<10) throw fail('Enter a business reason of at least 10 characters.')
+    const account=await accountFor(session.tenant_id,c.req.param('accountId'))
+    if (action==='pause' && !['pending','active','error'].includes(account.state)) throw fail('This account cannot be paused in its current state.',409)
+    if (action==='resume' && account.state!=='disabled') throw fail('This account is not paused.',409)
+    const updated=await withTransaction(async(client)=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[session.tenant_id+':laps:'+account.id])
+      const locked=await accountFor(session.tenant_id,account.id,client)
+      if (locked.state!==account.state) throw fail('Account changed. Refresh before continuing.',409)
+      const pending=await client.query("SELECT id FROM rmm_local_admin_rotations WHERE tenant_id=$1 AND account_id=$2 AND state IN ('queued','escrowed','uncertain') LIMIT 1",
+        [session.tenant_id,account.id])
+      if (pending.rowCount) throw fail('Resolve the unfinished rotation before changing management state.',409)
+      const newState=action==='pause'?'disabled':locked.account_sid?'active':'pending'
+      await client.query("UPDATE rmm_local_admin_accounts SET state=$2,last_error=NULL,updated_at=now() WHERE id=$1",[account.id,newState])
+      await audited(client,{tenantId:session.tenant_id,accountId:account.id,eventType:action==='pause'?'management.paused':'management.resumed',
+        actorId:session.user_id,reason,detail:{windowsAccountPreserved:true,credentialPreserved:true}})
+      return newState
+    })
+    return c.json({state:updated,windowsAccountPreserved:true,credentialPreserved:true})
+  }))
+  // Registered-but-never-created account can be removed without touching
+  // Windows. Active accounts must use the dedicated SID-verifying Agent job.
+  app.post('/api/v1/rmm/local-admin/accounts/:accountId/unregister',safe(async(c)=>{
+    const session=await authorize(c,'rmm.security.local_admin.rotate')
+    const body=await c.req.json().catch(()=>({}))
+    const reason=clean(body.reason,500)
+    if (reason.length<12) throw fail('A removal reason of at least 12 characters is required.')
+    const account=await accountFor(session.tenant_id,c.req.param('accountId'))
+    if (body.confirmName!==account.account_name) throw fail('Type the exact account name to confirm.',409)
+    if (account.account_sid||account.current_rotation_id) throw fail('This account exists on Windows or has an active credential. Use verified device removal.',409)
+    if (!['pending','error','disabled'].includes(account.state)) throw fail('This registration cannot be removed while a credential operation is in progress.',409)
+    await withTransaction(async(client)=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[session.tenant_id+':laps:'+account.id])
+      const pending=await client.query("SELECT id FROM rmm_local_admin_rotations WHERE tenant_id=$1 AND account_id=$2 AND state IN ('queued','escrowed','uncertain') LIMIT 1",
+        [session.tenant_id,account.id])
+      if (pending.rowCount) throw fail('Finish the pending rotation before unregistering.',409)
+      const protectedCredential=await client.query("SELECT 1 FROM rmm_local_admin_rotations WHERE tenant_id=$1 AND account_id=$2 AND credential_ciphertext IS NOT NULL LIMIT 1",
+        [session.tenant_id,account.id])
+      if (protectedCredential.rowCount) throw fail('This account still has protected credentials; do not unregister without verified Windows removal.',409)
+      const row=await client.query(
+        "UPDATE rmm_local_admin_accounts SET state='removed',removed_at=now(),last_error=NULL,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND account_sid IS NULL AND current_rotation_id IS NULL RETURNING id",
+        [account.id,session.tenant_id])
+      if (!row.rowCount) throw fail('The account registration changed; refresh.',409)
+      await audited(client,{tenantId:session.tenant_id,accountId:account.id,eventType:'registration.removed',
+        actorId:session.user_id,reason,detail:{windowsAccountTouched:false}})
+    })
+    return c.json({removed:true,windowsAccountTouched:false})
+  }))
+  app.post('/api/v1/rmm/local-admin/accounts/:accountId/remove',safe(async(c)=>{
+    const session=await authorize(c,'rmm.security.local_admin.rotate')
+    const body=await c.req.json().catch(()=>({}))
+    const reason=clean(body.reason,500)
+    if (reason.length<12) throw fail('Enter a removal justification of at least 12 characters.')
+    const account=await accountFor(session.tenant_id,c.req.param('accountId'))
+    if (body.confirmName!==('REMOVE '+account.account_name)) throw fail('Type REMOVE followed by the exact managed account name.',409)
+    if(body.confirmedAlternativeAdmin!==true) throw fail('Confirm that another working administrator login is available before deleting the recovery account.',409)
+    if (!account.account_sid||!account.current_rotation_id) throw fail('This registration has no activated Windows account; unregister it instead.',409)
+    if (!['active','disabled'].includes(account.state)) throw fail('This account is being changed or requires a manual security review.',409)
+    if (account.websocket_status!=='Connected'||!account.last_telemetry_at||
+        Date.now()-new Date(account.last_telemetry_at).getTime()>90000) throw fail('The device must be online to verify account removal.',409)
+    const v=String(account.agent_version||'').match(/(?:^|\D)(\d+)\.(\d+)\.(\d+)/)
+    if (!v||Number(v[1])!==1||Number(v[2])!==0||Number(v[3])<510)
+      throw fail('Hi5Central Agent 1.0.510 or newer is required for SID-verified removal.',409)
+    const queued=await withTransaction(async(client)=>{
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[session.tenant_id+':laps:'+account.id])
+      const locked=await accountFor(session.tenant_id,account.id,client)
+      if (locked.state!==account.state||locked.account_sid!==account.account_sid) throw fail('Account changed before removal. Refresh.',409)
+      const pending=await client.query("SELECT id FROM rmm_local_admin_rotations WHERE tenant_id=$1 AND account_id=$2 AND state IN ('queued','escrowed','uncertain') LIMIT 1",
+        [session.tenant_id,account.id])
+      if (pending.rowCount) throw fail('Resolve pending rotation before removal.',409)
+      const job=await client.query(
+        "INSERT INTO rmm_agent_jobs(tenant_id,agent_device_id,job_type,payload,queued_by_user_id,initiated_by,initiated_by_label,request_metadata) VALUES($1,$2,'laps.remove',$3::jsonb,$4,'technician',$5,$6::jsonb) RETURNING id",
+        [session.tenant_id,account.agent_device_id,JSON.stringify({account_id:account.id,account_name:account.account_name,expected_sid:account.account_sid}),
+          session.user_id,clean(session.name||session.email||'Technician',120),
+          JSON.stringify({source:'local_admin_vault',action:'remove',account_id:account.id,previous_state:account.state,
+            expires_at:new Date(Date.now()+180000).toISOString()})])
+      await client.query(
+        "UPDATE rmm_local_admin_accounts SET state='removing',removal_job_id=$2,last_error=NULL,updated_at=now() WHERE id=$1",
+        [account.id,job.rows[0].id])
+      await audited(client,{tenantId:session.tenant_id,accountId:account.id,eventType:'removal.requested',
+        actorId:session.user_id,reason,detail:{jobId:job.rows[0].id,verifiedWindowsRemovalRequired:true}})
+      return job.rows[0].id
+    })
+    return c.json({jobId:queued,state:'removing'},202)
   }))
   app.get('/api/v1/rmm/local-admin/accounts/:accountId/rotations',safe(async(c)=>{
     const session=await authorize(c,'rmm.security.local_admin.view')
@@ -242,7 +362,37 @@ export function registerRmmLocalAdminVaultRoutes(app) {
 }
 // Called only after a dedicated non-secret agent job result.
 export async function reconcileLocalAdminJobResult(job,success) {
-  if (job.job_type!=='laps.rotate'||job.request_metadata?.source!=='local_admin_vault') return
+  if (job.request_metadata?.source!=='local_admin_vault') return
+  if (job.job_type==='laps.remove') {
+    await withTransaction(async(client)=>{
+      const result=await client.query(
+        "SELECT id,tenant_id,account_sid,agent_device_id FROM rmm_local_admin_accounts WHERE tenant_id=$1 AND agent_device_id=$2 AND removal_job_id=$3 AND state='removing' FOR UPDATE",
+        [job.tenant_id,job.agent_device_id,job.id])
+      if(!result.rowCount)return
+      const a=result.rows[0]
+      const receipt=job.result||{}
+      const verified=success && receipt.status==='removed' && receipt.verified_absent===true
+        && receipt.account_sid===a.account_sid && a.account_sid
+      if (verified){
+        await client.query(
+          "UPDATE rmm_local_admin_rotations SET credential_ciphertext=NULL,retired_at=COALESCE(retired_at,now()),state=CASE WHEN state='active' THEN 'superseded' ELSE state END,updated_at=now() WHERE tenant_id=$1 AND account_id=$2",
+          [job.tenant_id,a.id])
+        await client.query(
+          "UPDATE rmm_local_admin_accounts SET state='removed',account_sid=NULL,current_rotation_id=NULL,next_rotation_at=NULL,removal_job_id=NULL,removed_at=now(),last_error=NULL,updated_at=now() WHERE id=$1",
+          [a.id])
+        await audited(client,{tenantId:job.tenant_id,accountId:a.id,eventType:'removal.verified',
+          actorKind:'agent',detail:{jobId:job.id,windowsAccountAbsent:true,escrowRetired:true}})
+      } else {
+        await client.query(
+          "UPDATE rmm_local_admin_accounts SET state='removal_uncertain',last_error='The Windows account removal result was not verified. Inspect the device SID before any retry.',updated_at=now() WHERE id=$1",
+          [a.id])
+        await audited(client,{tenantId:job.tenant_id,accountId:a.id,eventType:'removal.uncertain',
+          actorKind:'agent',detail:{jobId:job.id,receiptVerified:false}})
+      }
+    })
+    return
+  }
+  if (job.job_type!=='laps.rotate') return
   await withTransaction(async(client)=>{
     const result=await client.query(
       'SELECT r.id,r.state,r.account_id FROM rmm_local_admin_rotations r WHERE r.job_id=$1 AND r.tenant_id=$2 AND r.agent_device_id=$3 FOR UPDATE',

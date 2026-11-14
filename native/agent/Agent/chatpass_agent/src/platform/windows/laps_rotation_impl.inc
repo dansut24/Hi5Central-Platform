@@ -137,6 +137,31 @@ static LocalAdminSensitivePassword GenerateManagedPassword() {
     SecureZeroMemory(randomData.data(),randomData.size());
     return password;
 }
+// Device-side verification is mandatory before the server can erase the vault.
+// Never use a generic PowerShell command to delete administrator accounts.
+static json RemoveDedicatedLocalAdmin(const json& payload) {
+    const std::string accountName = payload.value("account_name", std::string());
+    const std::string expectedSid = payload.value("expected_sid", std::string());
+    const std::string accountId = payload.value("account_id", std::string());
+    if (!IsHi5LocalAdminName(accountName) || accountId.size() != 36 ||
+        expectedSid.rfind("S-1-5-21-", 0) != 0 || expectedSid.size() < 20 ||
+        (expectedSid.size() >= 4 && expectedSid.substr(expectedSid.size()-4) == "-500"))
+        throw std::runtime_error("Invalid dedicated local administrator removal configuration");
+    if (IsWindowsDomainController())
+        throw std::runtime_error("Local administrator removal is unsupported on domain controllers");
+    if (IsNativeLapsCurrentlyManagingAccounts())
+        throw std::runtime_error("Windows LAPS is active; refusing to remove a potentially directory-managed account");
+    const std::wstring accountWide = Utf8ToWide(accountName);
+    const std::string observedSid = ManagedAccountSid(accountWide);
+    if (observedSid.empty() || observedSid != expectedSid)
+        throw std::runtime_error("Local administrator identity does not match the registered SID; refusing removal");
+    const NET_API_STATUS rc = NetUserDel(nullptr, accountWide.c_str());
+    if (rc != NERR_Success)
+        throw std::runtime_error("Windows rejected dedicated account removal (code " + std::to_string(rc) + ")");
+    if (!ManagedAccountSid(accountWide).empty())
+        throw std::runtime_error("Account deletion reported success, but the dedicated SID remains; manual review required");
+    return json{{"status","removed"},{"account_sid",observedSid},{"verified_absent",true}};
+}
 static json RotateDedicatedLocalAdmin(const AgentIdentity& ident, const std::string& jobId, const json& payload) {
     if (ident.apiBaseUrl.rfind("https://",0) != 0)
         throw std::runtime_error("Local administrator escrow requires HTTPS");

@@ -13,6 +13,7 @@ export const endpointApi = {
   list: () => request(''),
   create: (profile) => request('/profiles', { method: 'POST', body: JSON.stringify(profile) }),
   update: (profile) => request('/profiles/' + encodeURIComponent(profile.id), { method: 'PUT', body: JSON.stringify(profile) }),
+  removeProfile: (id,revision,reason,confirmName) => request('/profiles/' + encodeURIComponent(id), { method: 'DELETE', body: JSON.stringify({revision,reason,confirmName}) }),
   setException: (profileId, exception) => request('/profiles/' + encodeURIComponent(profileId) + '/exceptions', { method: 'POST', body: JSON.stringify(exception) }),
   removeException: (profileId, id) => request('/profiles/' + encodeURIComponent(profileId) + '/exceptions/' + encodeURIComponent(id), { method: 'DELETE' }),
   preview: (profileId, deviceId) => request('/profiles/' + encodeURIComponent(profileId) + '/effective/' + encodeURIComponent(deviceId)),

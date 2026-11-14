@@ -39,6 +39,9 @@ export function RmmEndpointManagement() {
   const [draft, setDraft] = useState(null)
   const [exception, setException] = useState(blankException)
   const [editingException, setEditingException] = useState(false)
+  const [removingProfile, setRemovingProfile] = useState(false)
+  const [removeReason, setRemoveReason] = useState('')
+  const [removeConfirmName, setRemoveConfirmName] = useState('')
   const [previewDevice, setPreviewDevice] = useState('')
   const [preview, setPreview] = useState(null)
   const [runId, setRunId] = useState('')
@@ -51,7 +54,7 @@ export function RmmEndpointManagement() {
   const reload = useCallback(async () => {
     const next = await endpointApi.list()
     setData(next)
-    setSelectedId((current) => current || next.profiles[0]?.id || '')
+    setSelectedId((current) => next.profiles.some((profile)=>profile.id===current) ? current : next.profiles[0]?.id || '')
     setPreviewDevice((current) => current || next.devices[0]?.id || '')
     setRevision((current) => current + 1)
     return next
@@ -90,10 +93,10 @@ export function RmmEndpointManagement() {
   function selectProfile(item) {
     setSelectedId(item.id)
     setDraft({ id: item.id, revision: item.revision, name: item.name, description: item.description, kind: item.kind, status: item.status, scopeType: item.scope_type, scopeId: item.scope_id, settings: item.settings })
-    setEditingException(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
+    setEditingException(false);setRemovingProfile(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
   }
   function createProfile(kind) {
-    setSelectedId(''); setEditingException(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
+    setSelectedId('');setRemovingProfile(false); setEditingException(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
     setDraft({ name: kind === 'laps' ? 'Windows LAPS management' : kind === 'baseline' ? 'Windows 11 baseline' : 'Windows configuration', description: '', kind, status: 'draft', scopeType: 'estate', scopeId: '', settings: defaults[kind].map(([key, value]) => ({ key, value })) })
   }
   async function saveProfile() {
@@ -106,6 +109,23 @@ export function RmmEndpointManagement() {
       if (saved) selectProfile(saved)
       setNotice('Profile saved. Agent evaluation is available manually for supported Windows settings.')
     } catch (e) { setError(e.message) } finally { setPending(false) }
+  }
+  function beginRemoveProfile() {
+    if(!selected)return
+    setRemoveReason('');setRemoveConfirmName('');setRemovingProfile(true);setError('');setNotice('')
+  }
+  async function removeProfile(event) {
+    event.preventDefault()
+    if(!selected||pending)return
+    setPending(true);setError('');setNotice('')
+    try {
+      await endpointApi.removeProfile(selected.id,selected.revision,removeReason.trim(),removeConfirmName.trim())
+      setDraft(null);setSelectedId('')
+      setRemovingProfile(false)
+      await reload()
+      setNotice('Policy removed from active management. Audit history is retained. No unrelated device settings were changed.')
+    } catch(e) {setError(e.message);setRemovingProfile(false)}
+    finally {setPending(false)}
   }
   async function addException(event) {
     event.preventDefault()
@@ -163,7 +183,7 @@ export function RmmEndpointManagement() {
       <div className="rmm-page-heading">
         <div><span className="rmm-eyebrow">Windows endpoint management</span><h1>Configuration & security</h1><p>Build Windows policies with exceptions to individual settings for devices, device groups and assigned users.</p></div>
       </div>
-      <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Manual agent evaluation is available.</strong> Windows firewall, SMBv1 and LAPS are currently audit-only. Win32 long-path support can be applied and restored with verification. Automatic enforcement, wider security controls and native LAPS password management are not enabled.</span></div>
+      <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Managed policy removal is now available.</strong> Exclude stops future enforcement, Override changes the effective value, and Remove withdraws a setting or profile after any supported device restoration. Native Windows LAPS settings, firewall and SMBv1 are still audit-only; the separate Hi5Central local administrator vault manages actual passwords.</span></div>
       <nav className="rmm-endpoint-tabbar" aria-label="Endpoint management sections">
         <button type="button" className={screen === 'library' ? 'selected' : ''} onClick={()=>setScreen('library')}>All Windows settings</button>
         <button type="button" className={screen === 'profiles' ? 'selected' : ''} onClick={()=>setScreen('profiles')}>Profiles & setting exceptions</button>
@@ -210,7 +230,7 @@ export function RmmEndpointManagement() {
                 return <div className="rmm-endpoint-setting" key={item.key}>
                   <div><strong>{meta.label}</strong><small>{meta.category} · {item.key}</small>{meta.description && <small>{meta.description}</small>}</div>
                   <ValueEditor setting={meta} value={item.value} onChange={(value) => setField('settings', draft.settings.map((entry) => entry.key === item.key ? { ...entry, value } : entry))}/>
-                  <button type="button" title="Remove setting from profile" aria-label={'Remove ' + meta.label} onClick={() => setField('settings', draft.settings.filter((entry) => entry.key !== item.key))}><CircleOff size={17}/></button>
+                  <button type="button" title="Remove setting from profile" aria-label={'Remove ' + meta.label} onClick={() => {if(window.confirm('Remove '+meta.label+' from this profile draft? Save to withdraw it. If it was applied to Windows, restore the original value first.'))setField('settings', draft.settings.filter((entry) => entry.key !== item.key))}}><CircleOff size={17}/></button>
                   {draft.id && <button type="button" title={'Add per-setting exception for ' + meta.label} onClick={() => beginException(item)}>Exception</button>}
                 </div>
               })}
@@ -219,7 +239,19 @@ export function RmmEndpointManagement() {
               const setting = settings.find((item) => item.key === e.target.value)
               if (setting && !draft.settings.some((item) => item.key === setting.key)) setField('settings', [...draft.settings, { key: setting.key, value: setting.defaultValue }])
             }}><option value="">Select a setting…</option>{settings.filter((setting) => (draft.kind === 'laps' ? setting.category === 'Windows LAPS' : draft.kind === 'baseline' ? setting.category === 'Security baseline' : setting.category !== 'Windows LAPS') && !draft.settings.some((item) => item.key === setting.key)).map((setting) => <option key={setting.key} value={setting.key}>{setting.label}</option>)}</select></label>
-            <div className="rmm-endpoint-save"><button type="button" disabled={pending || !draft.settings.length} onClick={saveProfile}>{pending ? 'Saving…' : 'Save profile'}</button><span>Saving does not automatically deploy to devices.</span></div>
+            <div className="rmm-endpoint-save"><button type="button" disabled={pending || !draft.settings.length} onClick={saveProfile}>{pending ? 'Saving…' : 'Save profile'}</button><span>Saving updates desired configuration; it does not automatically restore settings previously applied to Windows. To remove the last setting, remove the profile.</span></div>
+            {selected && <div className="rmm-endpoint-remove-profile">
+              <div><strong>Remove or withdraw this policy</strong><p>Remove unassigns this profile and its exceptions, while retaining audit history. It does not delete a Windows account or silently reset Windows settings.</p></div>
+              <button type="button" disabled={pending} onClick={beginRemoveProfile}><Trash2 size={16}/> Remove policy</button>
+            </div>}
+            {selected?.restorationRequired?.length>0 && <div className="rmm-endpoint-restore-needed">
+              <strong>Device restoration needed before withdrawing this policy</strong>
+              <p>Restore each previously applied Windows setting to its saved original value and verify the result before removing the policy, unassigning it, disabling it or deleting that setting.</p>
+              {selected.restorationRequired.map((entry,i)=><div key={entry.deviceId+':'+entry.settingKey+':'+i}>
+                <span>{data.devices.find((device)=>device.id===entry.deviceId)?.name||entry.deviceId} · {settings.find((setting)=>setting.key===entry.settingKey)?.label||entry.settingKey}</span>
+                <button type="button" onClick={()=>{setPreviewDevice(entry.deviceId);setNotice('Use Restore original in the effective configuration panel below.')}}>Select device</button>
+              </div>)}
+            </div>}
           </>}
         </section>
       </div>
@@ -249,6 +281,16 @@ export function RmmEndpointManagement() {
             {runReport.report?.results?.filter((item)=>item.action !== 'audit').map((item) => <div key={item.key}><strong>{item.key}</strong><span>{item.status} · {human(item.before)} → {human(item.observed)}</span></div>)}
           </section>}
         </section>
+      </div>}
+      {removingProfile && selected && <div className="rmm-endpoint-dialog-backdrop">
+        <form className="rmm-endpoint-dialog" onSubmit={removeProfile}>
+          <div className="rmm-endpoint-editor-title"><div><span className="rmm-eyebrow">Endpoint policy withdrawal</span><h2>Remove {selected.name}</h2></div><button type="button" aria-label="Close" onClick={()=>setRemovingProfile(false)}><XCircle size={20}/></button></div>
+          <p>Remove this profile from active management, revoke its setting exceptions and cancel pending evaluations. History is kept. This does not automatically undo device settings or delete a managed Windows administrator.</p>
+          {selected.restorationRequired?.length>0&&<p className="rmm-endpoint-message error">Restore the original Windows settings on affected devices first. Removal is blocked until verified restorations are recorded.</p>}
+          <label>Reason for removal<textarea value={removeReason} onChange={(e)=>setRemoveReason(e.target.value)} required minLength={10} rows={3} placeholder="Why should this policy be withdrawn?"/></label>
+          <label>Type the exact profile name to confirm<input value={removeConfirmName} onChange={(e)=>setRemoveConfirmName(e.target.value)} required placeholder={selected.name}/></label>
+          <div className="rmm-endpoint-save"><button type="submit" disabled={pending||removeReason.trim().length<10||removeConfirmName.trim()!==selected.name||Boolean(selected.restorationRequired?.length)}>Remove policy</button><button type="button" className="secondary" onClick={()=>setRemovingProfile(false)}>Cancel</button></div>
+        </form>
       </div>}
       {editingException && selected && <div className="rmm-endpoint-dialog-backdrop"><form className="rmm-endpoint-dialog" onSubmit={addException}>
         <div className="rmm-endpoint-editor-title"><div><span className="rmm-eyebrow">Policy exception</span><h2>{currentExceptionSetting?.label}</h2></div><button type="button" aria-label="Close" onClick={() => setEditingException(false)}><XCircle size={20}/></button></div>

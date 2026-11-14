@@ -1,5 +1,5 @@
 import { useCallback,useEffect,useMemo,useState } from 'react'
-import { AlertTriangle,CheckCircle2,Eye,EyeOff,KeyRound,RefreshCw,ShieldCheck } from 'lucide-react'
+import { AlertTriangle,CheckCircle2,Eye,EyeOff,KeyRound,RefreshCw,ShieldCheck,Trash2,PauseCircle,PlayCircle } from 'lucide-react'
 import { localAdminApi } from '../../lib/rmmLocalAdminApi.js'
 import './RmmLocalAdminVault.css'
 
@@ -15,6 +15,9 @@ export function RmmLocalAdminVault() {
   const [busy,setBusy]=useState(false)
   const [error,setError]=useState('')
   const [notice,setNotice]=useState('')
+  const [removeOpen,setRemoveOpen]=useState(false)
+  const [removeConfirm,setRemoveConfirm]=useState('')
+  const [alternativeAdminConfirmed,setAlternativeAdminConfirmed]=useState(false)
   const refresh=useCallback(async()=>{
     const result=await localAdminApi.list()
     setData(result)
@@ -47,6 +50,7 @@ export function RmmLocalAdminVault() {
   const account=useMemo(()=>accounts.find((a)=>a.id===selected),[accounts,selected])
   const agentPatchVersion=Number(String(account?.agentVersion||'').match(/^1\.0\.(\d+)/)?.[1]||0)
   const agentSupportsRotation=Boolean(account&&agentPatchVersion>=509)
+  const agentSupportsRemoval=Boolean(account&&agentPatchVersion>=510)
   async function enrol() {
     if(!device)return
     if(!window.confirm('Register a dedicated Hi5Central local administrator account on this device? No Windows password changes will occur until the first authorised rotation.'))return
@@ -68,6 +72,51 @@ export function RmmLocalAdminVault() {
       await localAdminApi.rotate(account.id,reason.trim())
       await refresh()
       setNotice('Rotation requested. The device will securely escrow and then apply its new password.')
+      setReason('')
+    }catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
+  async function pauseOrResume(action) {
+    if(!account||!data?.canRotate)return
+    if(reason.trim().length<10){setError('Enter a business reason of at least 10 characters.');return}
+    const message=action==='pause'
+      ?'Stop managing '+account.name+' on '+account.deviceName+'? Windows account and vaulted password will be preserved, but automatic/on-demand rotations will be blocked.'
+      :'Resume managing the existing '+account.name+' account? No Windows password change will occur now.'
+    if(!window.confirm(message))return
+    setBusy(true);setError('');setNotice('');setVisible(null)
+    try {
+      await localAdminApi.management(account.id,action,reason.trim())
+      await refresh()
+      setNotice(action==='pause'
+        ?'Management paused. The existing Windows account and escrowed password have been preserved.'
+        :'Management resumed. No password changed.')
+      setReason('')
+    } catch(e){setError(e.message)}
+    finally{setBusy(false)}
+  }
+  function beginRemoval() {
+    if(!account||!data?.canRemove)return
+    setRemoveConfirm('');setAlternativeAdminConfirmed(false);setRemoveOpen(true);setError('');setVisible(null)
+  }
+  async function confirmRemoval(event) {
+    event.preventDefault()
+    if(!account||busy)return
+    if(reason.trim().length<12){setError('A removal justification of at least 12 characters is required.');return}
+    const isManaged=Boolean(account.sid||account.currentRotation?.id)
+    const name=isManaged?'REMOVE '+account.name:account.name
+    if(removeConfirm.trim()!==name){setError('Type the exact confirmation phrase.');return}
+    if(!window.confirm(isManaged
+      ?'FINAL CHECK: Delete '+account.name+' from Windows on '+account.deviceName+' and permanently retire its encrypted password only AFTER the Agent verifies the account is absent?'
+      :'Remove the unused Hi5Central account registration? No Windows account will be modified.'))return
+    setBusy(true);setError('');setNotice('');setVisible(null)
+    try {
+      if(isManaged) await localAdminApi.remove(account.id,reason.trim(),name,alternativeAdminConfirmed)
+      else await localAdminApi.unregister(account.id,reason.trim(),name)
+      await refresh()
+      setRemoveOpen(false)
+      setNotice(isManaged
+        ?'Windows account removal requested. The escrow remains protected until Windows confirms deletion.'
+        :'Unused vault registration removed. No Windows account was changed.')
       setReason('')
     }catch(e){setError(e.message)}
     finally{setBusy(false)}
@@ -114,14 +163,35 @@ export function RmmLocalAdminVault() {
             <p className="rmm-local-admin-hint">Enter a reason before each action (at least 10 characters for rotation, 12 for reveal). A password marked uncertain may not work on Windows.</p>
             {error&&<p className="rmm-local-admin-error" role="alert">{error}</p>}
             <div className="rmm-local-admin-buttons">
-              <button type="button" disabled={busy||!account.agentConnected||!agentSupportsRotation||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
+              <button type="button" disabled={busy||!['pending','active','error'].includes(account.state)||!account.agentConnected||!agentSupportsRotation||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
             </div>
             {!agentSupportsRotation&&<p className="rmm-local-admin-warning">Agent 1.0.509 or newer is required before another local administrator rotation. Existing installations remain untouched.</p>}
+            <div className="rmm-local-admin-management">
+              <strong>Protection management</strong>
+              <p>Pausing stops future rotation without touching the Windows account or its stored password. Removing the account is a separate, verified and audited operation.</p>
+              <div className="rmm-local-admin-buttons">
+                {['active','pending','error'].includes(account.state)&&<button type="button" disabled={busy||!data.canRotate} onClick={()=>pauseOrResume('pause')}><PauseCircle size={15}/> Stop managing</button>}
+                {account.state==='disabled'&&<button type="button" disabled={busy||!data.canRotate} onClick={()=>pauseOrResume('resume')}><PlayCircle size={15}/> Resume management</button>}
+                {['active','disabled','pending','error'].includes(account.state)&&<button className="rmm-local-admin-danger" disabled={busy||!data.canRemove||Boolean(account.sid)&&(!account.agentConnected||!agentSupportsRemoval)} type="button" onClick={beginRemoval}><Trash2 size={15}/>{account.sid?'Remove Windows account & vault':'Remove registration'}</button>}
+              </div>
+              {Boolean(account.sid)&&!agentSupportsRemoval&&<p className="rmm-local-admin-warning">Agent 1.0.510 or newer is required to verify Windows account removal by SID. The existing account remains available.</p>}
+              {account.state==='removing'&&<p>Removal is in progress. The vault remains protected until the Agent verifies the Windows account no longer exists.</p>}
+              {account.state==='removal_uncertain'&&<p className="rmm-local-admin-warning">Windows account deletion is unconfirmed. Do not request another removal until the device SID has been checked.</p>}
+              {account.state==='removed'&&<p className="rmm-local-admin-notice">Management removed. Historical rotation and audit entries are retained, but previous encrypted credentials are no longer recoverable.</p>}
+            </div>
+            {removeOpen && <form className="rmm-local-admin-remove-dialog" onSubmit={confirmRemoval}>
+              <strong>{account.sid?'Remove Windows recovery account':'Remove unused registration'}</strong>
+              <p>{account.sid?'Windows will delete the dedicated recovery account. After verification, Hi5Central will permanently discard its encrypted password. Existing Windows sign-ins may be disrupted and this cannot be undone.':'The account has not been activated on Windows, so only the Hi5Central registration is withdrawn.'}</p>
+              <label>Confirmation phrase<input value={removeConfirm} onChange={(e)=>setRemoveConfirm(e.target.value)} placeholder={account.sid?'REMOVE '+account.name:account.name}/></label>
+              {Boolean(account.sid)&&<label className="rmm-local-admin-risk-ack"><input type="checkbox" checked={alternativeAdminConfirmed} onChange={(e)=>setAlternativeAdminConfirmed(e.target.checked)}/> I have verified another working administrator login on this device. Removing this recovery account will revoke its password.</label>}
+              <p>Use the reason above (minimum 12 characters) and type the exact phrase to confirm.</p>
+              <div className="rmm-local-admin-buttons"><button type="submit" className="rmm-local-admin-danger" disabled={busy||removeConfirm.trim()!==(account.sid?'REMOVE '+account.name:account.name)||reason.trim().length<12||(Boolean(account.sid)&&!alternativeAdminConfirmed)}>Confirm removal</button><button type="button" onClick={()=>setRemoveOpen(false)}>Cancel</button></div>
+            </form>}
             {account.lastError&&<p className="rmm-local-admin-error">{account.lastError}</p>}
             <h4>Rotation history</h4>
             {history.map((r)=><div className="rmm-local-admin-history" key={r.id}>
               <span><strong>{r.state}</strong><small>{friendlyTime(r.activatedAt||r.createdAt)}{r.escrowedAt?' · Escrowed':''}</small></span>
-              {['active','escrowed','uncertain'].includes(r.state)&&<button disabled={busy||!data.canReveal} type="button" onClick={()=>reveal(r)}><Eye size={15}/> Reveal</button>}
+              {account.state!=='removed'&&['active','escrowed','uncertain'].includes(r.state)&&<button disabled={busy||!data.canReveal} type="button" onClick={()=>reveal(r)}><Eye size={15}/> Reveal</button>}
             </div>)}
             {!history.length&&<p>No rotation history yet.</p>}
             {visible && <div className="rmm-local-admin-secret"><strong>{visible.accountName} · {visible.status}</strong><code>{visible.password}</code><button type="button" onClick={()=>setVisible(null)}><EyeOff size={15}/> Hide now</button>{visible.warning&&<p>{visible.warning}</p>}</div>}

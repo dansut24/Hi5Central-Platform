@@ -2500,6 +2500,7 @@ export function registerRmmAgentRoutes(app) {
           WHERE agent_device_id=$1 AND status='claimed'
             AND job_type<>'network.discovery.scan'
             AND job_type<>'laps.rotate'
+            AND job_type<>'laps.remove'
             AND claimed_at < now() - CASE
               WHEN job_type='patch.software.bulk' THEN interval '6 hours'
               WHEN job_type='windows_update.install' THEN interval '3 hours'
@@ -2521,6 +2522,7 @@ export function registerRmmAgentRoutes(app) {
         `WITH picked AS (
            SELECT id FROM rmm_agent_jobs
             WHERE agent_device_id=$1 AND status='queued'
+              AND job_type<>'app_portal.uninstall'
             ORDER BY created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 10

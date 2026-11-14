@@ -3956,6 +3956,11 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                         PostJobResult(ident,jobId,true,result);
                         return;
                     }
+                    if (jobType == "laps.remove") {
+                        json result = RemoveDedicatedLocalAdmin(payload);
+                        PostJobResult(ident,jobId,true,result);
+                        return;
+                    }
                     if (jobType == "custom.command") {
                         const std::string command = payload.value("command", std::string("whoami"));
                         const int timeoutSeconds = std::max(5, std::min(3600, payload.value("timeout_seconds", 120)));

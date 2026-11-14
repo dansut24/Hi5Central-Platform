@@ -56,3 +56,12 @@
 .rmm-endpoint-tabbar{display:flex;gap:6px;border-bottom:1px solid var(--rmm-border,rgba(128,146,166,.3));padding-bottom:8px;flex-wrap:wrap}
 .rmm-endpoint-tabbar button{border:1px solid transparent;border-radius:9px;padding:10px 14px;font-size:13px;background:transparent;color:inherit;cursor:pointer;font-weight:600}
 .rmm-endpoint-tabbar button.selected{border-color:var(--rmm-accent,#3b82f6);background:var(--rmm-accent-soft,rgba(59,130,246,.12))}
+
+.rmm-endpoint-remove-profile{display:flex;gap:14px;align-items:center;justify-content:space-between;padding:16px 0;margin-top:18px;border-top:1px solid var(--rmm-border,rgba(128,146,166,.3))}
+.rmm-endpoint-remove-profile strong,.rmm-endpoint-restore-needed strong{font-size:13px}
+.rmm-endpoint-remove-profile p,.rmm-endpoint-restore-needed p{font-size:12px;line-height:1.55;opacity:.75;margin:5px 0}
+.rmm-endpoint-remove-profile button{display:flex;align-items:center;gap:6px;padding:9px 11px;border:1px solid rgba(220,75,75,.45);color:#c15353;background:transparent;border-radius:9px;cursor:pointer;flex-shrink:0}
+.rmm-endpoint-restore-needed{border:1px solid rgba(206,149,38,.35);border-radius:12px;padding:14px;margin-top:14px}
+.rmm-endpoint-restore-needed>div{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;font-size:12px}
+.rmm-endpoint-restore-needed button{border:1px solid var(--rmm-border,rgba(128,146,166,.4));border-radius:8px;padding:6px 10px;background:transparent;color:inherit;cursor:pointer}
+@media(max-width:560px){.rmm-endpoint-remove-profile,.rmm-endpoint-restore-needed>div{align-items:flex-start;flex-direction:column}}

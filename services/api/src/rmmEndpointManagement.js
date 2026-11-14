@@ -5,6 +5,7 @@ import { resolveSession } from './session.js'
 import { scopeDeviceRows, loadGroups } from './rmmScope.js'
 import { ENDPOINT_SETTINGS, endpointSetting, highRiskEndpointOverride, settingAllowedInProfile, validateSettings, validateSettingValue, resolveEndpointProfile } from './rmmEndpointPolicyModel.js'
 import { buildWindowsPolicyCommand, parseWindowsPolicyResult, WINDOWS_POLICY_READ_KEYS, WINDOWS_POLICY_WRITE_KEYS } from './rmmEndpointWindowsDriver.js'
+import { unresolvedEndpointRestores } from './rmmEndpointRemoval.js'
 
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -52,7 +53,7 @@ async function scopeExists(tenantId, scope) {
 }
 async function profileById(tenantId, profileId) {
   if (!idPattern.test(profileId)) throw bad('Invalid profile ID.')
-  const result = await pool.query('SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 AND id=$2', [tenantId, profileId])
+  const result = await pool.query('SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 AND id=$2 AND archived_at IS NULL', [tenantId, profileId])
   if (!result.rowCount) throw bad('Profile not found.', 404)
   return result.rows[0]
 }
@@ -85,6 +86,33 @@ async function cancelQueuedEndpointJobs(client, tenantId, profileId, settingKey 
     "AND request_metadata->>'endpoint_profile_id'=$2 AND ($3='' OR request_metadata->>'setting_key'=$3 OR request_metadata->>'setting_key'='audit')",
     [tenantId,profileId,settingKey])
 }
+async function outstandingRestoreTargets(tenantId, profileId) {
+  const runs = await pool.query(
+    "SELECT status,result,request_metadata,created_at FROM rmm_agent_jobs WHERE tenant_id=$1 AND request_metadata->>'source'='endpoint_management' AND request_metadata->>'endpoint_profile_id'=$2 AND request_metadata->>'action' IN ('apply','restore') AND status='completed' ORDER BY created_at DESC LIMIT 5001",
+    [tenantId,profileId])
+  // A truncated audit history must NEVER be interpreted as proof of restoration.
+  if (runs.rowCount>5000) throw bad('Too many policy executions to safely prove rollback. Contact Hi5Central support for a device-side reconciliation.',409)
+  return unresolvedEndpointRestores(runs.rows.map((job)=>{
+    const meta=job.request_metadata||{}
+    const report=parseWindowsPolicyResult(job.result?.output)
+    return {...job,verifiedRestore:meta.action==='restore'&&Boolean(report?.results?.some((r)=>
+      r.key===meta.setting_key && r.action==='restore' && r.status==='verified'))}
+  }))
+}
+async function rejectUnrestoredSettings(tenantId, profileId, settingKeys = []) {
+  // Claimed device writes can complete AFTER desired policy is withdrawn.
+  // Refuse removal rather than invalidating an in-flight write's provenance.
+  const inFlight=await pool.query(
+    "SELECT 1 FROM rmm_agent_jobs WHERE tenant_id=$1 AND request_metadata->>'source'='endpoint_management' AND request_metadata->>'endpoint_profile_id'=$2 AND status='claimed' AND request_metadata->>'action'='apply' AND ($3::text[] IS NULL OR request_metadata->>'setting_key'=ANY($3::text[])) LIMIT 1",
+    [tenantId,profileId,settingKeys.length?settingKeys:null])
+  if(inFlight.rowCount) throw bad('A Windows apply job is still running. Wait for verified completion or resolution before withdrawing the policy.',409)
+  const outstanding=(await outstandingRestoreTargets(tenantId,profileId))
+    .filter((item)=>!settingKeys.length||settingKeys.includes(item.settingKey))
+  if (outstanding.length) {
+    const summary=outstanding.slice(0,3).map((item)=>item.settingKey+' on '+item.deviceId).join('; ')
+    throw bad('Restore the original Windows setting on affected devices before removing or unassigning this policy: '+summary,409)
+  }
+}
 async function exceptionsFor(tenantId, profileId) {
   const result = await pool.query('SELECT * FROM rmm_endpoint_setting_exceptions WHERE tenant_id=$1 AND profile_id=$2 AND revoked_at IS NULL ORDER BY created_at DESC',
     [tenantId, profileId])
@@ -94,7 +122,7 @@ export function registerRmmEndpointManagementRoutes(app) {
   app.get('/api/v1/rmm/endpoint-management', wrap(async (c) => {
     const session = await auth(c)
     const [profiles, exceptions, devices] = await Promise.all([
-      pool.query('SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 ORDER BY updated_at DESC', [session.tenant_id]),
+      pool.query('SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 AND archived_at IS NULL ORDER BY updated_at DESC', [session.tenant_id]),
       pool.query('SELECT * FROM rmm_endpoint_setting_exceptions WHERE tenant_id=$1 AND revoked_at IS NULL ORDER BY updated_at DESC', [session.tenant_id]),
       scopeDeviceRows(session.tenant_id),
     ])
@@ -103,7 +131,9 @@ export function registerRmmEndpointManagementRoutes(app) {
       const email = text(device.user_principal_name || device.assigned_person_email, 256).toLowerCase()
       return [email, { email, name: device.assigned_person_name || device.user_display_name || email }]
     }).filter(([email]) => emailPattern.test(email))).values()]
-    return c.json({ catalogue: ENDPOINT_SETTINGS, profiles: profiles.rows, exceptions: exceptions.rows, devices: devices.map((device) => ({ id: device.id, reference: device.reference, name: device.name, user: device.user_principal_name || device.assigned_person_email, os: device.operating_system })), groups: groups.map(({ id, name, mode, devices }) => ({ id, name, mode, devices })), users, phase: 'policy-preview', deviceEnforcement: false })
+    const restoreItems=await Promise.all(profiles.rows.map((profile)=>outstandingRestoreTargets(session.tenant_id,profile.id)))
+    const profilesWithRestore=profiles.rows.map((profile,i)=>({...profile,restorationRequired:restoreItems[i]}))
+    return c.json({ catalogue: ENDPOINT_SETTINGS, profiles: profilesWithRestore, exceptions: exceptions.rows, devices: devices.map((device) => ({ id: device.id, reference: device.reference, name: device.name, user: device.user_principal_name || device.assigned_person_email, os: device.operating_system })), groups: groups.map(({ id, name, mode, devices }) => ({ id, name, mode, devices })), users, phase: 'policy-preview', deviceEnforcement: false })
   }))
   app.post('/api/v1/rmm/endpoint-management/profiles', wrap(async (c) => {
     const session = await auth(c, true)
@@ -125,12 +155,17 @@ export function registerRmmEndpointManagementRoutes(app) {
     const body = await c.req.json()
     if (!Number.isInteger(body.revision) || body.revision !== previous.revision) throw bad('Profile was edited elsewhere. Refresh before saving.', 409)
     const input = profileInput(body)
+    const removedSettingKeys=previous.settings.filter((entry)=>!input.settings.some((next)=>next.key===entry.key)).map((entry)=>entry.key)
+    const withdrawal=(input.status==='disabled'&&previous.status!=='disabled') ||
+      input.scope.type!==previous.scope_type || input.scope.id!==previous.scope_id
+    if (withdrawal) await rejectUnrestoredSettings(session.tenant_id,previous.id)
+    else if (removedSettingKeys.length) await rejectUnrestoredSettings(session.tenant_id,previous.id,removedSettingKeys)
     if (!await scopeExists(session.tenant_id, input.scope)) throw bad('Assignment target is not in this tenant.')
     const saved = await withTransaction(async (client) => {
       const result = await client.query(`UPDATE rmm_endpoint_profiles
          SET name=$3,description=$4,kind=$5,status=$6,scope_type=$7,scope_id=$8,settings=$9::jsonb,
              revision=revision+1,updated_by_user_id=$10,updated_at=now()
-         WHERE tenant_id=$1 AND id=$2 AND revision=$11 RETURNING *`,
+         WHERE tenant_id=$1 AND id=$2 AND revision=$11 AND archived_at IS NULL RETURNING *`,
         [session.tenant_id,previous.id,input.name,input.description,input.kind,input.status,input.scope.type,input.scope.id,JSON.stringify(input.settings),session.user_id,body.revision])
       if (!result.rowCount) throw bad('Profile was edited elsewhere.', 409)
       await cancelQueuedEndpointJobs(client,session.tenant_id,previous.id)
@@ -145,6 +180,36 @@ export function registerRmmEndpointManagementRoutes(app) {
       return result.rows[0]
     })
     return c.json({ profile: saved })
+  }))
+  // Remove withdraws desired configuration and its exceptions, preserving
+  // history. The caller must restore any applied settings first; it does not
+  // silently undo Windows configuration or delete a native Windows LAPS account.
+  app.delete('/api/v1/rmm/endpoint-management/profiles/:id', wrap(async(c)=>{
+    const session=await auth(c,true)
+    const profile=await profileById(session.tenant_id,c.req.param('id'))
+    const body=await c.req.json().catch(()=>({}))
+    if (!Number.isInteger(body.revision)||body.revision!==profile.revision) throw bad('Profile changed. Refresh before removal.',409)
+    const reason=text(body.reason,1000)
+    if (reason.length<10) throw bad('Enter a reason of at least 10 characters to remove this policy.')
+    if (body.confirmName!==profile.name) throw bad('Type the exact profile name to confirm removal.')
+    await rejectUnrestoredSettings(session.tenant_id,profile.id)
+    await withTransaction(async(client)=>{
+      const archived=await client.query(
+        "UPDATE rmm_endpoint_profiles SET archived_at=now(),status='disabled',revision=revision+1,updated_at=now(),updated_by_user_id=$4 WHERE tenant_id=$1 AND id=$2 AND revision=$3 AND archived_at IS NULL RETURNING id",
+        [session.tenant_id,profile.id,profile.revision,session.user_id])
+      if (!archived.rowCount) throw bad('Profile changed before it could be removed.',409)
+      await cancelQueuedEndpointJobs(client,session.tenant_id,profile.id)
+      const revoked=await client.query(
+        "UPDATE rmm_endpoint_setting_exceptions SET revoked_at=now(),updated_at=now(),updated_by_user_id=$3 WHERE tenant_id=$1 AND profile_id=$2 AND revoked_at IS NULL RETURNING id,setting_key",
+        [session.tenant_id,profile.id,session.user_id])
+      for (const item of revoked.rows)
+        await history(client,session,profile.id,item.id,'exception.revoked_on_profile_removal',{key:item.setting_key})
+      await history(client,session,profile.id,null,'profile.removed',{
+        name:profile.name,kind:profile.kind,reason,scopeType:profile.scope_type,scopeId:profile.scope_id,
+        settings:profile.settings.map((row)=>row.key),revokedExceptions:revoked.rowCount,
+        deviceRestorationVerified:true})
+    })
+    return c.json({removed:true,id:profile.id,reason})
   }))
   app.post('/api/v1/rmm/endpoint-management/profiles/:id/exceptions', wrap(async (c) => {
     const session = await auth(c, true)
