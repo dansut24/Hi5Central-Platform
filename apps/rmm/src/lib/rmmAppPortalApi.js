@@ -33,6 +33,11 @@ export const publishAppPortalRevision = (revisionId) => request('/api/v1/rmm/app
 export const assignAppPortalApp = (appId, payload) => request('/api/v1/rmm/app-portal/apps/' + encodeURIComponent(appId) + '/assignments', {
   method: 'POST', body: JSON.stringify(payload),
 })
+export const setAppPortalUninstallPolicy = (appId, enabled) =>
+  request('/api/v1/rmm/app-portal/apps/' + encodeURIComponent(appId) + '/uninstall-policy', {
+    method: 'PATCH', body: JSON.stringify({ enabled }),
+  })
+
 export const removeAppPortalAssignment = (assignmentId) => request('/api/v1/rmm/app-portal/assignments/' + encodeURIComponent(assignmentId), {
   method: 'DELETE',
 })

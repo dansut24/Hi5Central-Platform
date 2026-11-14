@@ -15,6 +15,9 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
     public Task<JsonDocument> InstallAsync(string appId, CancellationToken cancellationToken = default)
         => SendAsync("install", appId, cancellationToken);
 
+    public Task<JsonDocument> UninstallAsync(string appId, CancellationToken cancellationToken = default)
+        => SendAsync("uninstall", appId, cancellationToken);
+
     private static async Task<JsonDocument> SendAsync(
         string requestType,
         string? appId,
@@ -62,6 +65,7 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
             {
                 writer.WriteString("appId", appId);
             }
+            if (requestType == "uninstall") writer.WriteBoolean("confirm", true);
             writer.WriteEndObject();
         }
 

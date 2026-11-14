@@ -2510,6 +2510,7 @@ export function registerRmmAgentRoutes(app) {
         `WITH picked AS (
            SELECT id FROM rmm_agent_jobs
             WHERE agent_device_id=$1 AND status='queued'
+              AND job_type<>'app_portal.uninstall'
             ORDER BY created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 10

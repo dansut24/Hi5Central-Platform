@@ -14,6 +14,7 @@ import { resolveSession } from './session.js'
 import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
 import { findInstalledApp } from './appPortalInventory.js'
 import { isVerifiedAppPortalInstallation } from './appPortalVerificationProof.js'
+import { eligibleSelfServiceUninstall, isVerifiedRemovalJob } from './appPortalMsiUninstall.js'
 import { inspectUploadedPackage } from './appPortalPackageInspection.js'
 import { approvalMatches, allowedUnsignedScope, isUnsignedUpload, unsignedManifestApproval } from './appPortalUnsignedApproval.js'
 import { registerAppPortalDeviceRoutes } from './appPortalDeviceRoutes.js'
@@ -233,12 +234,12 @@ function assignmentMatches(assignment, context) {
 async function resolvedApps(agent, identity) {
   const context = await assignmentContext(agent, identity)
   const result = await pool.query(
-    `SELECT a.id,a.name,a.publisher,a.description,a.category,a.icon_url,a.source_type,a.catalogue_id,
+    `SELECT a.id,a.name,a.publisher,a.description,a.category,a.icon_url,a.source_type,a.catalogue_id,a.allow_self_service_uninstall,
             (SELECT count(*)::int
                FROM rmm_app_portal_installations i
               WHERE i.tenant_id=a.tenant_id AND i.app_id=a.id AND i.status='succeeded') AS install_count,
             r.id AS revision_id,r.revision,r.version,r.source_kind,r.publish_state,
-            r.source_config,
+            r.installer_type,r.expected_signer,r.verification,r.source_config,
             x.id AS assignment_id,x.scope_type,x.scope_id,x.scope_name,x.intent,x.priority
        FROM rmm_app_portal_apps a
        JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id AND r.publish_state='published'
@@ -267,6 +268,8 @@ async function resolvedApps(agent, identity) {
     description: row.description,
     category: row.category,
     iconUrl: row.icon_url,
+    uninstallAvailable: Boolean(eligibleSelfServiceUninstall(row,
+      row.allow_self_service_uninstall)),
     sourceType: row.source_type,
     catalogueId: row.catalogue_id,
     installCount: Number(row.install_count || 0),
@@ -849,6 +852,45 @@ export function registerRmmAppPortalRoutes(app) {
   // Only a tenant owner can explicitly approve the exact SHA-256 of an
   // unsigned, already-uploaded draft. Approval is separately audited and can
   // never be carried to a different revision or a replacement package.
+  // This opt-in is deliberately OFF by default. Only a signed, published,
+  // exact-ProductCode MSI is eligible; no arbitrary Windows uninstall string.
+  app.patch('/api/v1/rmm/app-portal/apps/:appId/uninstall-policy', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    const appId = clean(c.req.param('appId'))
+    if (!uuid(appId)) return c.json({ error: 'Application id is invalid.' }, 400)
+    const body = await c.req.json().catch(() => ({}))
+    if (typeof body.enabled !== 'boolean')
+      return c.json({ error: 'enabled must be true or false.' }, 400)
+    const app = await pool.query(
+      `SELECT a.*,r.installer_type,r.expected_signer,r.verification,
+              r.publish_state
+         FROM rmm_app_portal_apps a
+         JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id
+        WHERE a.tenant_id=$1 AND a.id=$2 AND a.status='published' LIMIT 1`,
+      [auth.session.tenant_id,appId])
+    if (!app.rowCount) return c.json({ error:'Published app not found.' },404)
+    const code = eligibleSelfServiceUninstall(app.rows[0],true)
+    if (body.enabled && !code)
+      return c.json({ error:'Only a published, signed MSI with an exact registry ProductCode supports self-service removal.' },409)
+    const updated = await pool.query(
+      `UPDATE rmm_app_portal_apps
+          SET allow_self_service_uninstall=$3,updated_at=now(),
+              updated_by_user_id=$4
+        WHERE tenant_id=$1 AND id=$2
+        RETURNING id,name,allow_self_service_uninstall`,
+      [auth.session.tenant_id,appId,body.enabled,auth.session.user_id])
+    await recordRmmActivity({
+      tenantId:auth.session.tenant_id, actorUserId:auth.session.user_id,
+      actorType:'technician',actorLabel:clean(auth.session.name)||'IT administrator',
+      eventType:'app_portal.uninstall_policy.changed',category:'software',
+      summary:(body.enabled ? 'Enabled' : 'Disabled')+' self-service MSI removal for '+app.rows[0].name,
+      outcome:'success',metadata:{appId,enabled:body.enabled,
+        revisionId:app.rows[0].current_revision_id,productCode:code||''},
+    }).catch(()=>{})
+    return c.json({success:true,app:updated.rows[0]})
+  })
+
   app.post('/api/v1/rmm/app-portal/revisions/:revisionId/unsigned-approval', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
@@ -1183,8 +1225,12 @@ export function registerRmmAppPortalRoutes(app) {
       `WITH picked AS (
         SELECT id FROM rmm_agent_jobs
          WHERE tenant_id=$1 AND agent_device_id=$2 AND status='queued'
-           AND job_type='patch.software'
-           AND request_metadata->>'source'='app_portal'
+           AND (
+             (job_type='patch.software'
+               AND request_metadata->>'source'='app_portal')
+             OR (job_type='app_portal.uninstall'
+               AND request_metadata->>'source'='app_portal_uninstall')
+           )
          ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
        )
        UPDATE rmm_agent_jobs j
@@ -1267,6 +1313,19 @@ export function registerRmmAppPortalRoutes(app) {
     ])
     const installedCatalogueIds = new Set(installed.rows.map((row) => clean(row.catalogue_id)))
     const { source_payload: softwareInventory, ...publicDevice } = device.rows[0] || {}
+    const removals = await pool.query(
+      `SELECT request_metadata->>'app_id' AS app_id,
+              request_metadata->>'revision_id' AS revision_id,status,result,created_at
+         FROM rmm_agent_jobs
+        WHERE tenant_id=$1 AND agent_device_id=$2
+          AND job_type='app_portal.uninstall'
+          AND request_metadata->>'source'='app_portal_uninstall'
+        ORDER BY created_at DESC LIMIT 100`,
+      [auth.agent.tenant_id,auth.agent.id])
+    const latestRemoval = new Map()
+    for (const job of removals.rows) {
+      if (!latestRemoval.has(job.app_id)) latestRemoval.set(job.app_id,job)
+    }
     const latestInstallByApp = new Map()
     for (const installation of jobs.rows) {
       if (!latestInstallByApp.has(installation.app_id)) {
@@ -1279,6 +1338,9 @@ export function registerRmmAppPortalRoutes(app) {
         : null
       const last = latestInstallByApp.get(app.id)
       const brokerVerified = isVerifiedAppPortalInstallation(last, app)
+      const removal = latestRemoval.get(app.id)
+      const removed = isVerifiedRemovalJob(removal,app)
+        && (!last || new Date(removal.created_at) > new Date(last.created_at))
       return {
         ...app,
         installed: detected ? detected.installed
@@ -1293,6 +1355,11 @@ export function registerRmmAppPortalRoutes(app) {
             || last.result.verification?.installedVersion || app.version),
           detection: 'patchhost_verified_uninstall_registry',
         } : {}),
+        ...(removed ? {
+          installed:false,inventoryFresh:true,installedVersion:'',
+          detection:'independent_msi_removal_verified',
+        } : {}),
+        uninstallStatus: removal?.status || '',
       }
     })
     const requests = identity.sid || identity.upn
@@ -1339,6 +1406,73 @@ export function registerRmmAppPortalRoutes(app) {
           + Number(windowsUpdates.rows[0]?.total_count || 0),
       },
     })
+  })
+
+  app.post('/api/v1/agent/app-portal/uninstall', async (c) => {
+    const auth = await requireAgent(c)
+    if (auth.error) return auth.error
+    if (c.req.header('x-hi5-self-service-broker') !== 'v1')
+      return c.json({success:false,error:'Independent Self Service broker is required for removal.'},403)
+    const body = await c.req.json().catch(() => ({}))
+    const appId = clean(body.appId)
+    if (!uuid(appId) || body.confirm !== true)
+      return c.json({success:false,error:'Select an application and explicitly confirm removal.'},400)
+    const independent = await pool.query(
+      `SELECT 1 FROM rmm_device_self_service
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true`,
+      [auth.agent.tenant_id,auth.agent.id])
+    if (!independent.rowCount)
+      return c.json({success:false,error:'Self Service is not enabled on this device.'},403)
+    const identity = normalizedIdentity(body)
+    const assignments = await resolvedApps(auth.agent,identity)
+    const entitled = assignments.find(x=>x.id===appId)
+    if (!entitled || entitled.intent === 'hidden' || entitled.intent === 'uninstall'
+      || entitled.intent === 'approval_required')
+      return c.json({success:false,error:'This application is not approved for self-service removal.'},403)
+    const result = await pool.query(
+      `SELECT a.id AS app_id,a.name,a.allow_self_service_uninstall,a.source_type,
+              r.id AS revision_id,r.installer_type,r.expected_signer,
+              r.verification,r.publish_state
+         FROM rmm_app_portal_apps a JOIN rmm_app_portal_revisions r
+           ON r.id=a.current_revision_id
+        WHERE a.tenant_id=$1 AND a.id=$2 AND a.status='published' LIMIT 1`,
+      [auth.agent.tenant_id,appId])
+    const row = result.rows[0]
+    const code = eligibleSelfServiceUninstall(row,row?.allow_self_service_uninstall)
+    if (!code) return c.json({success:false,
+      error:'Your IT administrator has not enabled safe MSI removal for this application.'},403)
+    const installed = await pool.query(
+      `SELECT i.id FROM rmm_app_portal_installations i
+         JOIN rmm_agent_jobs j ON j.id=i.agent_job_id
+        WHERE i.tenant_id=$1 AND i.agent_device_id=$2 AND i.app_id=$3
+          AND i.revision_id=$4 AND i.status='succeeded' AND j.status='completed'
+          AND j.result->>'verificationPassed'='true'
+        ORDER BY i.completed_at DESC LIMIT 1`,
+      [auth.agent.tenant_id,auth.agent.id,appId,row.revision_id])
+    if (!installed.rowCount) return c.json({success:false,
+      error:'Removal requires a verified Hi5Central installation of this exact MSI revision.'},409)
+    const previous = await pool.query(
+      `SELECT id,status,result FROM rmm_agent_jobs
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND job_type='app_portal.uninstall'
+          AND request_metadata->>'app_id'=$3
+        ORDER BY created_at DESC LIMIT 1`,
+      [auth.agent.tenant_id,auth.agent.id,appId])
+    if (previous.rows[0]?.status === 'queued' || previous.rows[0]?.status === 'claimed')
+      return c.json({success:true,queued:true,jobId:previous.rows[0].id},202)
+    if (previous.rows[0]?.status === 'completed' && previous.rows[0]?.result?.removalVerified)
+      return c.json({success:false,error:'This MSI was already removed. Refresh the application list.'},409)
+    const queued = await pool.query(
+      `INSERT INTO rmm_agent_jobs
+        (tenant_id,agent_device_id,job_type,payload,initiated_by,initiated_by_label,request_metadata)
+       VALUES ($1,$2,'app_portal.uninstall',$3::jsonb,'system',$4,$5::jsonb)
+       RETURNING id,status`,
+      [auth.agent.tenant_id,auth.agent.id,
+        JSON.stringify({appId,revisionId:row.revision_id,productCode:code,
+          applicationName:row.name}),
+        actorLabel(identity),
+        JSON.stringify({source:'app_portal_uninstall',app_id:appId,
+          revision_id:row.revision_id,requested_by_sid:identity.sid})])
+    return c.json({success:true,queued:true,jobId:queued.rows[0].id},202)
   })
 
   app.post('/api/v1/agent/app-portal/install', async (c) => {

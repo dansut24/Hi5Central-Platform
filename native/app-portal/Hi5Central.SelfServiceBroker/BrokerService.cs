@@ -13,6 +13,7 @@ internal sealed class BrokerService(ILogger<BrokerService> log) : BackgroundServ
     private const string PipeName = "Hi5CentralSelfServiceBroker";
     private readonly BrokerApi _api = new();
     private readonly PatchHostExecutor _patchHost = new();
+    private readonly MsiUninstallExecutor _msiUninstall = new();
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -106,6 +107,7 @@ internal sealed class BrokerService(ILogger<BrokerService> log) : BackgroundServ
                     "/api/v1/agent/app-portal/catalogue", new { identity },
                     independent:false, ct),
                 "install" => await InstallAsync(root, identity, ct),
+                "uninstall" => await UninstallAsync(root, identity, ct),
                 _ => throw new InvalidDataException("Unsupported Self Service request."),
             };
             if (type == "catalogue")
@@ -143,6 +145,18 @@ internal sealed class BrokerService(ILogger<BrokerService> log) : BackgroundServ
             new { appId = id, identity }, independent:true, ct);
     }
 
+    private Task<JsonDocument> UninstallAsync(JsonElement request,
+        object identity, CancellationToken ct)
+    {
+        var id = request.TryGetProperty("appId", out var appId) ? appId.GetString() : "";
+        var confirm = request.TryGetProperty("confirm", out var value)
+            && value.ValueKind == JsonValueKind.True;
+        if (!Guid.TryParse(id, out _) || !confirm)
+            throw new InvalidDataException("Confirm an assigned application for MSI removal.");
+        return _api.SendAsync("/api/v1/agent/app-portal/uninstall",
+            new { appId=id, confirm=true, identity }, independent:true, ct);
+    }
+
     private async Task PollLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
@@ -178,12 +192,15 @@ internal sealed class BrokerService(ILogger<BrokerService> log) : BackgroundServ
         if (!Guid.TryParse(id, out _)) throw new InvalidDataException("Invalid job identity.");
         // Strictly software jobs with server-issued payload. The broker's
         // claim API cannot return general RMM commands or remote sessions.
-        if (job.GetProperty("job_type").GetString() != "patch.software")
+        var type = job.GetProperty("job_type").GetString();
+        if (type is not ("patch.software" or "app_portal.uninstall"))
             throw new InvalidOperationException("Non-portal job refused.");
         JsonElement result;
         try
         {
-            result = await _patchHost.ExecuteAsync(id, job.GetProperty("payload"), ct);
+            result = type == "app_portal.uninstall"
+                ? await _msiUninstall.ExecuteAsync(id, job.GetProperty("payload"), ct)
+                : await _patchHost.ExecuteAsync(id, job.GetProperty("payload"), ct);
         }
         catch (Exception ex)
         {

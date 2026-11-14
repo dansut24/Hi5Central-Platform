@@ -75,6 +75,12 @@ public sealed class PortalApp
     [JsonPropertyName("revisionId")]
     public string RevisionId { get; init; } = string.Empty;
 
+    [JsonPropertyName("uninstallAvailable")]
+    public bool UninstallAvailable { get; init; }
+
+    [JsonPropertyName("uninstallStatus")]
+    public string UninstallStatus { get; init; } = string.Empty;
+
     [JsonPropertyName("publisher")]
     public string Publisher { get; init; } = string.Empty;
 
@@ -356,6 +362,7 @@ public enum AppPortalStatus
     ApprovalRejected,
     Queued,
     Installing,
+    Uninstalling,
     VerificationPending,
     Installed,
     Failed,
@@ -412,6 +419,7 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRejected => "Request declined",
         AppPortalStatus.Queued => "Queued for device",
         AppPortalStatus.Installing => "Installing",
+        AppPortalStatus.Uninstalling => "Removing",
         AppPortalStatus.VerificationPending => "Verification pending",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Failed",
@@ -425,11 +433,15 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRejected => "Request again",
         AppPortalStatus.Queued => "Waiting for device",
         AppPortalStatus.Installing => "Installing...",
+        AppPortalStatus.Uninstalling => "Removing...",
         AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Retry",
         _ => IsScript ? "Run" : "Install",
     };
+
+    public bool CanUninstall => LiveAgentAvailable && App.UninstallAvailable
+        && Status == AppPortalStatus.Installed;
 
     public bool CanInstall => LiveAgentAvailable
         && Status is (AppPortalStatus.Available

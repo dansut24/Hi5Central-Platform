@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
     private readonly PortalCatalogueCache _catalogueCache = new();
     private List<PortalInstalledProgram> _installedSoftware = [];
     private List<PortalInstalledProgram> _localInstalledSoftware = [];
+    private bool _independentBrokerOnline;
     private bool _offlineMode;
     private DateTimeOffset? _cachedAt;
 
@@ -119,6 +120,7 @@ public sealed partial class MainWindow : Window
             }
 
             _offlineMode = false;
+            _independentBrokerOnline = response.IndependentBrokerConnected;
             _cachedAt = DateTimeOffset.UtcNow;
             _localInstalledSoftware = LocalInstalledSoftware.Read();
             ApplyCatalogueResponse(response);
@@ -153,6 +155,7 @@ public sealed partial class MainWindow : Window
         {
             _loadFailed = true;
             _offlineMode = true;
+            _independentBrokerOnline = false;
             // Do not erase the authorised last-known catalogue on transient
             // network/Agent failures. DPAPI requires this same Windows user.
             if (_apps.Count == 0
@@ -586,9 +589,13 @@ public sealed partial class MainWindow : Window
             DetailsAvailabilityText.Text = _selectedApp.App.Scope?.Name
                 ?? "Assigned by your organisation";
             DetailsUninstallButton.IsVisible = _selectedApp.Status == AppPortalStatus.Installed;
-            DetailsActionInfoText.Text = "Installation requires an approved company assignment. "
-                + "For a removal that cannot yet be performed by the independent service, "
-                + "send an IT service request.";
+            var directRemoval = _selectedApp.CanUninstall && _independentBrokerOnline;
+            DetailsUninstallButton.Content = directRemoval ? "Uninstall" : "Request removal";
+            DetailsActionInfoText.Text = directRemoval
+                ? "Your IT team enabled verified MSI removal. Windows Installer will be used "
+                  + "and the exact ProductCode will be checked afterwards."
+                : "This application cannot be directly removed by Self Service. "
+                  + "Request removal from your IT service desk.";
         }
 
         AppsSectionTitle.Text = _view switch
@@ -691,6 +698,14 @@ public sealed partial class MainWindow : Window
                 return AppPortalStatus.Queued;
             }
         }
+
+        if (app.UninstallStatus is "queued" or "claimed")
+            return AppPortalStatus.Uninstalling;
+        // The last verified removal wins over the stale installation row and
+        // stale Agent inventory while the main Agent remains stopped.
+        if (string.Equals(app.Detection, "independent_msi_removal_verified",
+            StringComparison.OrdinalIgnoreCase))
+            return AppPortalStatus.Available;
 
         if (installation is not null)
         {
@@ -841,11 +856,66 @@ public sealed partial class MainWindow : Window
         ApplyFilters();
     }
 
-    private void AppRemovalRequest_Click(object? sender, RoutedEventArgs e)
+    private async void AppRemovalRequest_Click(object? sender, RoutedEventArgs e)
     {
-        // Never execute arbitrary strings from uninstall registry as SYSTEM.
-        // Where no approved uninstall policy exists, send the user to ITSM.
-        OpenCompanyPortal("requests");
+        var selected = _selectedApp;
+        if (selected is null) return;
+        if (!selected.CanUninstall || !_independentBrokerOnline || _offlineMode)
+        {
+            OpenCompanyPortal("requests");
+            return;
+        }
+        // Explicit, in-app confirmation. No admin elevation or shell input.
+        var confirm = new Window
+        {
+            Title = "Confirm application removal",
+            Width = 450, Height = 245,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+        };
+        var yes = new Button { Content="Uninstall", Classes={ "primary" } };
+        var no = new Button { Content="Cancel", Classes={ "ghost" } };
+        yes.Click += (_, _) => confirm.Close(true);
+        no.Click += (_, _) => confirm.Close(false);
+        confirm.Content = new StackPanel
+        {
+            Margin = new Avalonia.Thickness(22),
+            Spacing = 15,
+            Children =
+            {
+                new TextBlock { Text = "Remove " + selected.Name + "?",
+                    FontSize = 18, FontWeight = Avalonia.Media.FontWeight.Bold },
+                new TextBlock { Text = "Windows Installer will uninstall this approved "
+                    + "MSI package. Your IT team has enabled this action.",
+                    TextWrapping = Avalonia.Media.TextWrapping.Wrap },
+                new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal,
+                    Spacing = 10, Children = { no, yes } },
+            },
+        };
+        if (!await confirm.ShowDialog<bool>(this)) return;
+        SetBusy(true, false);
+        try
+        {
+            using var payload = await _broker.UninstallAsync(selected.Id);
+            var response = payload.RootElement.Deserialize(
+                PortalJsonContext.Default.PortalInstallResponse);
+            if (response?.Success != true)
+                throw new InvalidOperationException(response?.Error
+                    ?? "Self Service removal request was rejected.");
+            ShowStatus("Uninstall queued",
+                selected.Name + " will be removed using Windows Installer.",
+                isError:false,autoHide:true);
+        }
+        catch (Exception ex)
+        {
+            ShowStatus("Could not uninstall " + selected.Name,
+                FriendlyError(ex),isError:true,autoHide:false);
+        }
+        finally
+        {
+            SetBusy(false,false);
+            await RefreshCatalogueAsync(false,true);
+        }
     }
 
     private void OpenTicket_Click(object? sender, RoutedEventArgs e) =>
@@ -1025,6 +1095,7 @@ public sealed partial class MainWindow : Window
 
     private bool NeedsPolling()
         => BuildCards().Any(card => card.Status is AppPortalStatus.Installing
+            or AppPortalStatus.Uninstalling
             or AppPortalStatus.Queued or AppPortalStatus.ApprovalPending);
 
     private void UpdatePollState()

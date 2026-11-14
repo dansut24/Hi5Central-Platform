@@ -13,6 +13,7 @@ import {
   updateAppPortalDraft,
   approveUnsignedAppPortalRevision,
   revokeUnsignedAppPortalApproval,
+  setAppPortalUninstallPolicy,
 } from '../../lib/rmmAppPortalApi.js'
 import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage, inventoryDisplayName } from '../../lib/appPortalDraft.js'
 import './RmmAppPortal.css'
@@ -285,7 +286,26 @@ export function RmmAppPortal() {
                   ? 'Unsigned installer · Owner approved · SHA-256 pinned · Device only'
                   : 'Unsigned installer · Tenant-owner approval required'}
               </small>}
-              {app.source_type === 'custom' && app.publish_state === 'draft' &&
+              {app.status === 'published' && app.source_type === 'custom'
+              && bundle.revisions.some((r) => r.id === app.current_revision_id
+                && r.installer_type === 'msi'
+                && r.verification?.method === 'uninstall_registry'
+                && r.verification?.productCode
+                && r.expected_signer)
+              && <label className="app-portal-logo-action" title="Only signed, verified MSI packages can be removed. Disabled by default.">
+                <input type="checkbox"
+                  checked={app.allow_self_service_uninstall === true}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const enabled = event.target.checked
+                    if (enabled && !window.confirm('Allow assigned users to uninstall ' + app.name
+                      + '? Windows Installer will remove the exact published MSI ProductCode.')) return
+                    run(() => setAppPortalUninstallPolicy(app.id, enabled),
+                      (enabled ? 'Enabled' : 'Disabled') + ' verified MSI self-service removal.')
+                  }} />
+                <span>Allow MSI removal</span>
+              </label>}
+            {app.source_type === 'custom' && app.publish_state === 'draft' &&
                 <small className={draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
                   ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
                   {draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
