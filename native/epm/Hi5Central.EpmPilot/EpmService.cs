@@ -10,7 +10,7 @@ using System.Text.Json;
 namespace Hi5Central.EpmPilot;
 
 internal sealed record ApprovalCache(
-    Guid Id,string Sid,int SessionId,FileProof Proof,string StagedPath);
+    Guid Id,string Sid,int SessionId,FileProof Proof);
 
 internal sealed class EpmService : ServiceBase
 {
@@ -119,29 +119,18 @@ internal sealed class EpmService : ServiceBase
         }
         if(reason.Trim().Length is < 20 or > 2000)
             throw new InvalidOperationException("Provide a business reason between 20 and 2000 characters.");
-        Guid newId=Guid.NewGuid();
-        // Run the privileged staging operation under the service process token,
-        // never under any client impersonation context from the named pipe.
-        // This does not grant the user access to the protected staging directory.
-        var secure=WindowsIdentity.RunImpersonated(
-            Microsoft.Win32.SafeHandles.SafeAccessTokenHandle.InvalidHandle,
-            () => {
-                var identity = WindowsIdentity.GetCurrent();
-                if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid) != true)
-                    throw new InvalidOperationException("EPM staging is not executing as LocalSystem.");
-                return AdminLaunch.Stage(original,newId);
-            });
-        try {
-            using var result=await api.PostAsync("/api/v1/agent/epm/file-requests",new {
+        // The approval records only a signed file identity. No copy or installer
+        // is stored in ProgramData; all reads remain in the original Downloads path.
+        using (var result=await api.PostAsync("/api/v1/agent/epm/file-requests",new {
                 sid=caller.sid,username=caller.name,sessionId=caller.session,path=original.Path,
                 sha256=original.Hash,signerThumbprint=original.Thumbprint,publisher=original.Publisher,
                 signatureStatus="Valid",reason=reason.Trim()
-            },ct);
+            },ct)) {
             var id=Guid.Parse(result.RootElement.GetProperty("requestId").GetString()!);
-            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original,secure);
+            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original);
             string status=result.RootElement.GetProperty("status").GetString()??"pending";
             return new {success=true,status,requestId=id,file=original.Name,publisher=original.Publisher};
-        } catch { try{File.Delete(secure);}catch{} throw; }
+        }
     }
     private async Task<object> Check(string path,(string sid,string name,int session) caller,CancellationToken ct) {
         if(string.IsNullOrWhiteSpace(path))return new {success=false,status="none",error="Select a file."};
@@ -163,18 +152,17 @@ internal sealed class EpmService : ServiceBase
     private async Task<object> Run(string path,(string sid,string name,int session) caller,CancellationToken ct) {
         var existing=Match(path,caller) ?? throw new InvalidOperationException("No request exists for this Windows user and file.");
         if(await Status(existing,ct)!="approved") throw new InvalidOperationException("This file has not been approved or the approval has expired.");
-        var source=VerifiedFile.Inspect(existing.Proof.Path);
-        var staged=VerifiedFile.Inspect(existing.StagedPath);
-        if(source.Hash!=existing.Proof.Hash || staged.Hash!=existing.Proof.Hash
-            || source.Thumbprint!=existing.Proof.Thumbprint || staged.Thumbprint!=existing.Proof.Thumbprint)
-            throw new InvalidOperationException("Approved file changed. Elevation refused.");
+        // Hold a deny-write/deny-delete handle throughout redemption and process
+        // creation. If the file changes, disappears, is replaced, or is unsigned,
+        // redemption is refused before consuming the one-time authorisation.
+        using var pinnedFile=VerifiedFile.LockForApprovedLaunch(existing.Proof);
         using (var consumed=await api.PostAsync("/api/v1/agent/epm/file-requests/"+existing.Id+"/redeem",
             ToApiBinding(existing),ct)) {
             if(!consumed.RootElement.GetProperty("redeemed").GetBoolean())
                 throw new InvalidOperationException("Approval redemption failed.");
         }
         try {
-            var processId=AdminLaunch.Launch(existing.StagedPath,caller.session);
+            var processId=AdminLaunch.Launch(existing.Proof.Path,caller.session);
             approvals.TryRemove(existing.Id,out _);
             return new {success=true,status="launched",processId};
         } catch {
