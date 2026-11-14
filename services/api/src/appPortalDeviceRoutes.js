@@ -12,14 +12,14 @@ const clean = (value) => String(value ?? '').trim()
 export const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean(value))
 
 export function registerAppPortalDeviceRoutes(app, deps) {
-  const { pool, requireManage, agentSocketForDevice, sendAgentMessage, recordRmmActivity } = deps
+  const { pool, requireManage, agentSocketForDevice, sendAgentMessage, recordRmmActivity, resolveAppsForDevice } = deps
   if (![pool, requireManage, agentSocketForDevice, sendAgentMessage].every(Boolean)) {
     throw new Error('RMM Self Service is missing authenticated Agent services')
   }
 
   async function loadDevice(tenantId, agentId) {
     const found = await pool.query(
-      `SELECT d.id,d.inventory_id,d.agent_version,d.websocket_status,i.name,i.operating_system
+      `SELECT d.id,d.tenant_id,d.inventory_id,d.agent_version,d.websocket_status,i.name,i.operating_system
          FROM rmm_agent_devices d
          JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
         WHERE d.id=$1 AND d.tenant_id=$2 AND d.disabled_at IS NULL LIMIT 1`,
@@ -62,7 +62,7 @@ export function registerAppPortalDeviceRoutes(app, deps) {
     // Some production Hono adapters omit named param bindings for routes
     // inserted into the compiled router. Match only this exact route shape.
     const routeDeviceId = new URL(c.req.url).pathname.match(
-      /\/api\/v1\/rmm\/app-portal\/devices\/([^/]+)\/self-service\/?$/)?.[1]
+      /\/api\/v1\/rmm\/app-portal\/devices\/([^/]+)\/(?:self-service|software)\/?$/)?.[1]
     const agentId = clean(routeDeviceId || c.req.param('agentDeviceId'))
     if (!isUuid(agentId)) return { error: c.json({ error: 'A valid managed device ID is required.' }, 400) }
     const device = await loadDevice(auth.session.tenant_id, agentId)
@@ -77,6 +77,44 @@ export function registerAppPortalDeviceRoutes(app, deps) {
     if (ctx.error) return ctx.error
     const row = await loadPolicy(ctx.auth.session.tenant_id, ctx.device.id)
     return c.json({ success: true, policy: publicPolicy(row, ctx.device) })
+  })
+
+  // Technician view: only this tenant's device, never an estate-wide inventory
+  // dump or another tenant's user catalogue. Installed programs come from the
+  // latest Agent inventory snapshot and remain visible while it is offline.
+  app.get('/api/v1/rmm/app-portal/devices/:agentDeviceId/software', async (c) => {
+    const ctx = await context(c)
+    if (ctx.error) return ctx.error
+    const [programs, latest, assignments] = await Promise.all([
+      pool.query(
+        `SELECT DISTINCT ON (lower(application_name))
+                application_name AS name,installed_version AS version,
+                COALESCE(publisher,'') AS publisher,observed_at
+           FROM rmm_software_patch_observations
+          WHERE tenant_id=$1 AND inventory_id=$2
+            AND length(trim(application_name))>0
+            AND length(trim(installed_version))>0
+          ORDER BY lower(application_name),observed_at DESC LIMIT 600`,
+        [ctx.auth.session.tenant_id,ctx.device.inventory_id]),
+      pool.query(
+        `SELECT max(observed_at) AS observed_at FROM rmm_software_patch_observations
+          WHERE tenant_id=$1 AND inventory_id=$2`,
+        [ctx.auth.session.tenant_id,ctx.device.inventory_id]),
+      resolveAppsForDevice
+        ? resolveAppsForDevice(ctx.device)
+        : Promise.resolve({ apps: [], identity: {} }),
+    ])
+    return c.json({
+      success:true,deviceName:ctx.device.name,
+      installedSoftware:programs.rows,
+      installedCount:programs.rows.length,
+      lastInventoryAt:latest.rows[0]?.observed_at || null,
+      availableApps:assignments.apps,
+      availableCount:assignments.apps.length,
+      user:assignments.identity,
+      // Not a fake live heartbeat: keep inventory snapshot separate.
+      inventoryIsSnapshot:true,
+    })
   })
 
   app.post('/api/v1/rmm/app-portal/devices/:agentDeviceId/self-service', async (c) => {

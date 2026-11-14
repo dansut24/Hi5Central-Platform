@@ -480,6 +480,20 @@ async function dispatchCatalogueInstall(agent, app, identity) {
 export function registerRmmAppPortalRoutes(app) {
   registerAppPortalDeviceRoutes(app, {
     pool, requireManage, agentSocketForDevice, sendAgentMessage, recordRmmActivity,
+    async resolveAppsForDevice(device) {
+      const who = await pool.query(
+        `SELECT sid,username,upn,display_name AS "displayName",last_seen_at
+           FROM rmm_app_portal_end_users
+          WHERE tenant_id=$1 AND agent_device_id=$2
+          ORDER BY last_seen_at DESC LIMIT 1`,
+        [device.tenant_id,device.id])
+      const identity = who.rows[0] || {}
+      const apps = await resolvedApps(device, identity)
+      return { apps, identity: {
+        displayName: identity.displayName || '',
+        lastSeenAt: identity.last_seen_at || null,
+      } }
+    },
   })
 
   app.get('/api/v1/agent/app-portal/packages/:token', async (c) => {
@@ -1159,7 +1173,7 @@ export function registerRmmAppPortalRoutes(app) {
     const identity = normalizedIdentity(body)
     await rememberIdentity(auth.agent, identity)
     const apps = await resolvedApps(auth.agent, identity)
-    const [jobs, installed, device, softwareUpdates, windowsUpdates] = await Promise.all([
+    const [jobs, installed, installedSoftware, device, softwareUpdates, windowsUpdates] = await Promise.all([
       pool.query(
         `SELECT i.id,i.app_id,i.revision_id,i.status AS installation_status,i.created_at,i.completed_at,
                 j.id AS job_id,j.status AS job_status,j.result,j.error_message
@@ -1173,6 +1187,17 @@ export function registerRmmAppPortalRoutes(app) {
            FROM rmm_software_patch_observations
           WHERE tenant_id=$1 AND inventory_id=$2
             AND catalogue_id IS NOT NULL AND installed_version<>''`,
+        [auth.agent.tenant_id, auth.agent.inventory_id]),
+      pool.query(
+        `SELECT DISTINCT ON (lower(application_name))
+                application_name AS name,installed_version AS version,
+                COALESCE(publisher,'') AS publisher,observed_at
+           FROM rmm_software_patch_observations
+          WHERE tenant_id=$1 AND inventory_id=$2
+            AND length(trim(application_name))>0
+            AND length(trim(installed_version))>0
+          ORDER BY lower(application_name),observed_at DESC
+          LIMIT 600`,
         [auth.agent.tenant_id, auth.agent.inventory_id]),
       pool.query(
         `SELECT i.name,i.manufacturer,i.model,i.operating_system,i.os_version,i.is_encrypted,i.source_payload,
@@ -1236,6 +1261,7 @@ export function registerRmmAppPortalRoutes(app) {
     return c.json({
       success: true,
       apps: enrichedApps,
+      installedSoftware: installedSoftware.rows,
       installations: jobs.rows,
       requests: requests.rows,
       device: deviceRow,

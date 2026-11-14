@@ -16,6 +16,9 @@ public sealed class PortalCatalogueResponse
     [JsonPropertyName("apps")]
     public List<PortalApp> Apps { get; init; } = [];
 
+    [JsonPropertyName("installedSoftware")]
+    public List<PortalInstalledProgram> InstalledSoftware { get; init; } = [];
+
     [JsonPropertyName("installations")]
     public List<PortalInstallation> Installations { get; init; } = [];
 
@@ -27,6 +30,32 @@ public sealed class PortalCatalogueResponse
 
     [JsonPropertyName("updates")]
     public PortalUpdates Updates { get; init; } = new();
+}
+
+public sealed class PortalInstalledProgram
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("publisher")]
+    public string Publisher { get; init; } = string.Empty;
+
+    [JsonPropertyName("observed_at")]
+    public DateTimeOffset? ObservedAt { get; init; }
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+}
+
+public sealed class InstalledSoftwareItem
+{
+    public required string Name { get; init; }
+    public required string Version { get; init; }
+    public required string Publisher { get; init; }
+    public required string Source { get; init; }
 }
 
 public sealed class PortalApp
@@ -287,6 +316,7 @@ public sealed class AppCard : INotifyPropertyChanged
 
     public required PortalApp App { get; init; }
     public required AppPortalStatus Status { get; init; }
+    public bool LiveAgentAvailable { get; init; } = true;
     public PortalRequest? Request { get; init; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -348,10 +378,11 @@ public sealed class AppCard : INotifyPropertyChanged
         _ => "Install",
     };
 
-    public bool CanInstall => Status is AppPortalStatus.Available
+    public bool CanInstall => LiveAgentAvailable
+        && Status is (AppPortalStatus.Available
         or AppPortalStatus.ApprovalRequired
         or AppPortalStatus.ApprovalRejected
-        or AppPortalStatus.Failed;
+        or AppPortalStatus.Failed);
 
     public string StatusBackground => Status switch
     {
