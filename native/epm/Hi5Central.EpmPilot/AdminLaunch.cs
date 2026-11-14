@@ -26,13 +26,26 @@ internal static class AdminLaunch
             FileSystemRights.FullControl,InheritanceFlags.ContainerInherit|InheritanceFlags.ObjectInherit,PropagationFlags.None,AccessControlType.Allow));
         new DirectoryInfo(folder).SetAccessControl(security);
         string copy=Path.Combine(folder,requestId.ToString("N")+".exe");
-        File.Copy(trusted.Path,copy,false);
+        // Do not use File.Copy: Win32 CopyFile can copy source security metadata
+        // from an untrusted Downloads file into the SYSTEM-owned staging area.
+        // A new stream inherits our protected staging ACL instead. CREATE_NEW
+        // refuses collisions; a SHA-256 + Authenticode check follows the copy.
         try {
+            using (var source = new FileStream(trusted.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var destination = new FileStream(copy, FileMode.CreateNew, FileAccess.Write,
+                       FileShare.None, 128 * 1024, FileOptions.WriteThrough))
+            {
+                source.CopyTo(destination);
+                destination.Flush(true);
+            }
             var actual=VerifiedFile.Inspect(copy);
             if (actual.Hash!=trusted.Hash || actual.Thumbprint!=trusted.Thumbprint)
                 throw new InvalidOperationException("Installer changed during secure staging.");
             return copy;
-        } catch { File.Delete(copy); throw; }
+        } catch {
+            try { File.Delete(copy); } catch { /* file is inside protected staging */ }
+            throw;
+        }
     }
     public static int Launch(string approvedFile,int sessionId)
     {
