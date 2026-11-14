@@ -42,6 +42,8 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
         string pipeName, string requestType, string? appId,
         TimeSpan connectTime, CancellationToken cancellationToken)
     {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException();
         await using var pipe = new NamedPipeClientStream(
             ".",pipeName,PipeDirection.InOut,
             PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
