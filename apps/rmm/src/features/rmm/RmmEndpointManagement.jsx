@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleOff, FilePlus2, ShieldCheck, Trash2, XCircle } from 'lucide-react'
 import { endpointApi } from '../../lib/rmmEndpointApi.js'
+import { RmmWindowsSettingsLibrary } from './RmmWindowsSettingsLibrary.jsx'
 import './RmmEndpointManagement.css'
 
 const defaults = {
@@ -31,6 +32,7 @@ function scopeLabel(data, type, id) {
 }
 
 export function RmmEndpointManagement() {
+  const [screen, setScreen] = useState('library')
   const [data, setData] = useState(null)
   const [selectedId, setSelectedId] = useState('')
   const [draft, setDraft] = useState(null)
@@ -161,6 +163,11 @@ export function RmmEndpointManagement() {
         <div><span className="rmm-eyebrow">Windows endpoint management</span><h1>Configuration & security</h1><p>Build Windows policies with exceptions to individual settings for devices, device groups and assigned users.</p></div>
       </div>
       <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Manual agent evaluation is available.</strong> Windows firewall, SMBv1 and LAPS are currently audit-only. Win32 long-path support can be applied and restored with verification. Automatic enforcement, wider security controls and native LAPS password management are not enabled.</span></div>
+      <nav className="rmm-endpoint-tabbar" aria-label="Endpoint management sections">
+        <button type="button" className={screen === 'library' ? 'selected' : ''} onClick={()=>setScreen('library')}>All Windows settings</button>
+        <button type="button" className={screen === 'profiles' ? 'selected' : ''} onClick={()=>setScreen('profiles')}>Profiles & setting exceptions</button>
+      </nav>
+      {screen === 'library' ? <RmmWindowsSettingsLibrary nativeSettings={data?.catalogue || []} /> : <>
       {error && <div className="rmm-endpoint-message error" role="alert"><XCircle size={17}/>{error}</div>}
       {notice && <div className="rmm-endpoint-message success" role="status"><CheckCircle2 size={17}/>{notice}</div>}
       <div className="rmm-endpoint-actions">
@@ -210,7 +217,7 @@ export function RmmEndpointManagement() {
               const setting = settings.find((item) => item.key === e.target.value)
               if (setting && !draft.settings.some((item) => item.key === setting.key)) setField('settings', [...draft.settings, { key: setting.key, value: setting.defaultValue }])
             }}><option value="">Select a setting…</option>{settings.filter((setting) => (draft.kind === 'laps' ? setting.category === 'Windows LAPS' : draft.kind === 'baseline' ? setting.category === 'Security baseline' : setting.category !== 'Windows LAPS') && !draft.settings.some((item) => item.key === setting.key)).map((setting) => <option key={setting.key} value={setting.key}>{setting.label}</option>)}</select></label>
-            <div className="rmm-endpoint-save"><button type="button" disabled={pending || !draft.settings.length} onClick={saveProfile}>{pending ? 'Saving…' : 'Save profile'}</button><span>Saving does not deploy to devices.</span></div>
+            <div className="rmm-endpoint-save"><button type="button" disabled={pending || !draft.settings.length} onClick={saveProfile}>{pending ? 'Saving…' : 'Save profile'}</button><span>Saving does not automatically deploy to devices.</span></div>
           </>}
         </section>
       </div>
@@ -254,6 +261,7 @@ export function RmmEndpointManagement() {
         {riskOverride && <p className="rmm-endpoint-hint">High-risk overrides require risk acceptance and an expiry date. This is recorded for audit.</p>}
         <div className="rmm-endpoint-save"><button type="submit" disabled={pending || !exception.scopeId || (riskOverride && !exception.riskAccepted)}>{pending ? 'Saving…' : 'Save exception'}</button><button type="button" className="secondary" onClick={() => setEditingException(false)}>Cancel</button></div>
       </form></div>}
+      </>}
     </div>
   )
 }

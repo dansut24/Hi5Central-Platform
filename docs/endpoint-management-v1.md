@@ -40,3 +40,25 @@ Do not intercept or weaken Windows secure UAC desktop. A safe approximation is a
 ### Tests
 
 13 pure resolver and Windows adapter tests pass. RMM frontend and API runtime builds pass. Live Newtest Lenovo Windows audit/apply/restore jobs verified successfully.
+
+## 14 November 2026 — Microsoft ADMX catalogue and live RMM UI
+
+- Official Microsoft Windows 11 26H2 (29 September 2026) ADMX/ADML importer: 236 template files and 3,686 policy entries, available in `apps/rmm/public/catalogue/windows11_26h2_admx_v1.json`.
+- Windows 11 25H2 V2 (27 October 2025): 233 template files and 3,628 policy entries, available in `apps/rmm/public/catalogue/windows11_25h2_admx_v2.json`.
+- The `All Windows settings` tab supports search, category, scope, source-version selection and per-policy detail expansion. Imported entries are clearly marked **catalogue-only**; these files do not independently enable agent enforcement.
+- The import utility lives in `tools/endpoint-management/generate_windows_admx_catalog.py`, operating on official MSI-extracted PolicyDefinitions and en-US ADML files. Keep raw Microsoft template installers out of the Git repository.
+- Windows CSP-only entries, Local Security Options, security baseline recommendations, specialised APIs and third-party templates are not included in this ADMX dataset. These require separate feeds/import logic.
+
+### Live deployment
+
+Release candidate assembled from `/opt/hi5central/staging/appportal-v025-ready-20261114` (preserving self-service portal changes) plus Endpoint Management branch features. Built on the original `ubuntu` VPS and deployed RMM services only:
+
+- `hi5central/rmm-api:endpoint-catalog-20261114`
+- `hi5central/rmm-web:endpoint-catalog-26h2-20261114`
+- RMM database migrations `115_self_service_signed_msi_uninstall.sql` (safe default false, needed for the current self-service source) and `117_endpoint_policy_setting_exceptions.sql` applied individually, not through the full migration runner.
+- Backup archive: `/opt/hi5central/runtime/backups/endpoint-ui-20261114/pre_endpoint_management.dump`; previous Compose file: `.../compose.before.yml`.
+- Public tests: Newtest RMM root HTTP 200, both catalogue JSON feeds HTTP 200, endpoint management API HTTP 401 without session as intended. RMM web/API healthchecks pass.
+- User-authenticated UI workflows still need hands-on testing with a regular tenant admin session, especially profile creation and exception authoring.
+- No Windows security settings were changed as part of this UI deployment. Earlier isolated low-risk long-path read/apply/restore proof was completed and restored.
+
+**Source-control note:** GitHub PR #182 is the original endpoint-management feature branch. The deployed release candidate additionally contains unpublished app-portal fixes from the active staging source; merge those changes using normal source reconciliation rather than replacing the active API with the PR branch alone.

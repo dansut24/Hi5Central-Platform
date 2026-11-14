@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-windows-catalogues.mjs",
+    "prebuild": "node scripts/prepare-windows-catalogues.mjs",
     "dev": "vite --configLoader native",
     "build": "vite build --configLoader native",
     "preview": "vite preview --configLoader native"

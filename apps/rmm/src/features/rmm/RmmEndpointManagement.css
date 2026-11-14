@@ -53,3 +53,6 @@
 .rmm-endpoint-run-report{display:grid;gap:8px;border:1px solid var(--rmm-border,rgba(128,146,166,.35));border-radius:12px;padding:12px;margin-top:16px;font-size:12px}
 .rmm-endpoint-run-report>div{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .rmm-endpoint-run-report span{color:var(--rmm-text-muted,#8591a0)}
+.rmm-endpoint-tabbar{display:flex;gap:6px;border-bottom:1px solid var(--rmm-border,rgba(128,146,166,.3));padding-bottom:8px;flex-wrap:wrap}
+.rmm-endpoint-tabbar button{border:1px solid transparent;border-radius:9px;padding:10px 14px;font-size:13px;background:transparent;color:inherit;cursor:pointer;font-weight:600}
+.rmm-endpoint-tabbar button.selected{border-color:var(--rmm-accent,#3b82f6);background:var(--rmm-accent-soft,rgba(59,130,246,.12))}
