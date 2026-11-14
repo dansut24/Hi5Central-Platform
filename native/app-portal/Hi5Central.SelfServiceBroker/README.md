@@ -9,7 +9,7 @@ RMM Agent and remote-access components are not modified or restarted.
   ignored.
 * Gets the existing per-device machine-DPAPI `state.dat` as SYSTEM. This is NOT
   copied, embedded in the UI, shared with a Windows user, or logged.
-* HTTPS only to approved Hi5Central API hosts, with existing Agent device auth.
+* HTTPS only to approved Hi5Central API hosts including tenant-name-rmm.hi5central.com, with existing Agent device auth.
 * Fresh server-side user/device assignments and owner-approved SHA checks still
   happen for every install/approval. Offline cache is read-only.
 * Claims only `request_metadata.source='app_portal'` `patch.software` jobs via

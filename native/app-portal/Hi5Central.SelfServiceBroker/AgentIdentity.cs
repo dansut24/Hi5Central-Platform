@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Hi5Central.SelfServiceBroker;
 
@@ -38,7 +39,10 @@ internal sealed record AgentIdentity(string DeviceId, string Secret, Uri ApiBase
             if (!Uri.TryCreate(url, UriKind.Absolute, out var baseUri)
                 || baseUri.Scheme != Uri.UriSchemeHttps
                 || (baseUri.Host != "rmm.hi5central.com"
-                    && baseUri.Host != "api.hi5central.com")
+                    && baseUri.Host != "api.hi5central.com"
+                    && !Regex.IsMatch(baseUri.Host,
+                        @"^[a-z0-9][a-z0-9-]{0,61}-rmm\.hi5central\.com$",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
                 || !baseUri.IsDefaultPort || baseUri.UserInfo.Length > 0)
                 throw new InvalidDataException("Agent API URL is not an approved Hi5Central HTTPS endpoint.");
             return new AgentIdentity(id, key, baseUri);
