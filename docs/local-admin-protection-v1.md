@@ -44,3 +44,11 @@ Open Newtest RMM → Configure → Endpoint management → Local admin vault. Si
 ## 2026-11-14 Local Admin Vault MFA change
 
 The extra five-minute MFA recency requirement has been removed from rotation and password reveal. Normal Hi5Central sign-in (including platform login MFA), tenant scoping, separate rotate/read permissions, written justification, audit logging and encrypted escrow remain enforced. Deployed to Newtest as laps-no-stepup-mfa-20261114, with 23 passing tests. Agent 1.0.508 is connected, but the initial Hi5Recovery password rotation has not yet been performed.
+
+## 2026-11-14 17:10 — first rotation escrow query defect and correction
+
+The operator initiated the first `Hi5Recovery` rotation on Newtest Lenovo at **17:10:07 UTC**. Job `7927b97a-616b-43db-8282-8ee5f149ea94` failed at 17:10:11 with `Server did not acknowledge secure password escrow`. PostgreSQL logged SQLSTATE `42883`; the actual escrow query compared the JSONB metadata text value `j.request_metadata->>'account_id'` directly to the bound UUID `$3`, producing `operator does not exist: text = uuid`.
+
+Fixed the authenticated escrow SQL to compare metadata text with `r.account_id::text`, retaining the required matching tenant, Agent, claimed job, job type, source and account identity. Verified both escrow and commit SQL against the actual Newtest schema inside a transaction that was **rolled back**, leaving the original failed job and record unchanged. 26 tests passed including 3 new escrow SQL regression tests. API image `hi5central/rmm-api:laps-escrow-uuid-fix-20261114` deployed; RMM web and Windows Agent were not modified. Public unauthenticated escrow continues to return 401.
+
+The Agent read-only Windows check confirmed **no `Hi5Recovery` account**, **no active native/legacy LAPS policy sources** at the checked registry roots, Windows DomainRole 0 (standalone workstation), and Hi5CentralAgent running. No candidate password was escrowed; no local account/password was created or changed in the failed attempt. The operator should retry **Rotate password now** from the authenticated tenant UI using an administrative reason. Do not bypass RBAC by creating rotation jobs directly in PostgreSQL. Inspect live escrow/commit/audit results after the UI retry before claiming end-to-end success.

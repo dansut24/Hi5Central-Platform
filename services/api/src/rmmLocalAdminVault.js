@@ -198,7 +198,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     if (!idPattern.test(jobId)||!idPattern.test(accountId)||!validLocalAdminPassword(password)) throw fail('Invalid rotation escrow request.')
     const result=await withTransaction(async(client)=>{
       const rotation=await client.query(
-        "SELECT r.*,a.account_name,a.account_sid FROM rmm_local_admin_rotations r JOIN rmm_local_admin_accounts a ON a.id=r.account_id JOIN rmm_agent_jobs j ON j.id=r.job_id WHERE r.tenant_id=$1 AND r.agent_device_id=$2 AND r.account_id=$3 AND r.job_id=$4 AND r.state='queued' AND j.job_type='laps.rotate' AND j.status='claimed' AND j.agent_device_id=$2 AND j.request_metadata->>'source'='local_admin_vault' AND j.request_metadata->>'account_id'=$3 FOR UPDATE OF r",
+        "SELECT r.*,a.account_name,a.account_sid FROM rmm_local_admin_rotations r JOIN rmm_local_admin_accounts a ON a.id=r.account_id JOIN rmm_agent_jobs j ON j.id=r.job_id WHERE r.tenant_id=$1 AND r.agent_device_id=$2 AND r.account_id=$3 AND r.job_id=$4 AND r.state='queued' AND j.job_type='laps.rotate' AND j.status='claimed' AND j.agent_device_id=$2 AND j.request_metadata->>'source'='local_admin_vault' AND j.request_metadata->>'account_id'=r.account_id::text FOR UPDATE OF r",
         [agent.tenant_id,agent.id,accountId,jobId])
       if (!rotation.rowCount) throw fail('Rotation escrow is not available or has already been recorded.',409)
       const item=rotation.rows[0]
