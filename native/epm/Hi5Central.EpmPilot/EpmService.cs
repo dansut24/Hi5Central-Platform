@@ -120,7 +120,17 @@ internal sealed class EpmService : ServiceBase
         if(reason.Trim().Length is < 20 or > 2000)
             throw new InvalidOperationException("Provide a business reason between 20 and 2000 characters.");
         Guid newId=Guid.NewGuid();
-        var secure=AdminLaunch.Stage(original,newId);
+        // Run the privileged staging operation under the service process token,
+        // never under any client impersonation context from the named pipe.
+        // This does not grant the user access to the protected staging directory.
+        var secure=WindowsIdentity.RunImpersonated(
+            Microsoft.Win32.SafeHandles.SafeAccessTokenHandle.InvalidHandle,
+            () => {
+                var identity = WindowsIdentity.GetCurrent();
+                if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid) != true)
+                    throw new InvalidOperationException("EPM staging is not executing as LocalSystem.");
+                return AdminLaunch.Stage(original,newId);
+            });
         try {
             using var result=await api.PostAsync("/api/v1/agent/epm/file-requests",new {
                 sid=caller.sid,username=caller.name,sessionId=caller.session,path=original.Path,
