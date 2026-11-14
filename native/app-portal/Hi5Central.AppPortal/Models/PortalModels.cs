@@ -13,6 +13,9 @@ public sealed class PortalCatalogueResponse
     [JsonPropertyName("error")]
     public string Error { get; init; } = string.Empty;
 
+    [JsonPropertyName("independentBrokerConnected")]
+    public bool IndependentBrokerConnected { get; init; }
+
     [JsonPropertyName("apps")]
     public List<PortalApp> Apps { get; init; } = [];
 

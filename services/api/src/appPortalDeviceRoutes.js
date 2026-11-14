@@ -52,6 +52,9 @@ export function registerAppPortalDeviceRoutes(app, deps) {
       deviceName: device.name,
       agentVersion: device.agent_version,
       online: agentSocketForDevice(device.id)?.readyState === 1,
+      independentBrokerOnline: row?.enabled === true && row?.broker_seen_at
+        ? Date.now() - new Date(row.broker_seen_at).getTime() < 120000 : false,
+      independentBrokerLastSeenAt: row?.broker_seen_at || null,
       installed: classifySelfServiceDeployment(row) === 'installed',
       retentionOnDisable: 'Disabling removes the Self Service executable, shortcut, and scheduled checks; the core Agent and PatchHost remain installed.',
     }

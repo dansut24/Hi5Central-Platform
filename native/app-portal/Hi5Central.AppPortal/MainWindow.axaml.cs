@@ -117,7 +117,9 @@ public sealed partial class MainWindow : Window
             var recoveredFromLoadFailure = _loadFailed;
             _loadFailed = false;
 
-            AgentStatusText.Text = "Connected through Hi5Central Agent";
+            AgentStatusText.Text = response.IndependentBrokerConnected
+                ? "Self Service connected independently of the RMM Agent"
+                : "Connected through Hi5Central Agent";
             AgentStatusText.Foreground = Avalonia.Media.Brushes.MediumSeaGreen;
 
             if (recoveredFromLoadFailure)

@@ -2086,7 +2086,7 @@ export async function softwarePatchPlan(tenantId, agentDeviceId, catalogueId, op
 
   const liveSocket = agentSocketForDevice(row.agent_device_id)
   const telemetryFresh = row.last_telemetry_at && Date.now() - new Date(row.last_telemetry_at).getTime() <= 90_000
-  if (!liveSocket || liveSocket.readyState !== 1 || !telemetryFresh) {
+  if (!options.independentBroker && (!liveSocket || liveSocket.readyState !== 1 || !telemetryFresh)) {
     return { error: 'This device is offline. No patch job was queued.', status: 409, offline: true }
   }
 

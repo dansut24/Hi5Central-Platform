@@ -1,0 +1,48 @@
+name: Independent Windows Self Service broker
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/app-portal/Hi5Central.SelfServiceBroker/**'
+      - '.github/workflows/self-service-broker-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'native/app-portal/Hi5Central.SelfServiceBroker/**'
+      - '.github/workflows/self-service-broker-windows.yml'
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 22
+    defaults:
+      run:
+        working-directory: native/app-portal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore
+        run: dotnet restore Hi5Central.SelfServiceBroker/Hi5Central.SelfServiceBroker.csproj
+      - name: Build
+        run: dotnet build Hi5Central.SelfServiceBroker/Hi5Central.SelfServiceBroker.csproj -c Release --no-restore
+      - name: Publish independent single-file Windows service
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-independent-selfservice'
+          dotnet publish Hi5Central.SelfServiceBroker/Hi5Central.SelfServiceBroker.csproj -c Release -r win-x64 --self-contained true -o $out `
+            /p:PublishSingleFile=true `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:PublishTrimmed=false `
+            /p:DebugType=None `
+            /p:DebugSymbols=false
+          if ($LASTEXITCODE -ne 0) { throw 'Independent Self Service broker publish failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-SelfServiceBroker-Windows
+          path: ${{ runner.temp }}/hi5-independent-selfservice/**
+          retention-days: 14
+          if-no-files-found: error

@@ -289,14 +289,14 @@ async function revisionForInstall(tenantId, appId) {
   return result.rows[0] || null
 }
 
-async function dispatchCustomInstall(agent, app, identity) {
+async function dispatchCustomInstall(agent, app, identity, { independentBroker = false } = {}) {
   const capabilitiesResult = await pool.query(
     `SELECT patch_capabilities,websocket_status,last_telemetry_at FROM rmm_agent_devices
       WHERE id=$1 AND tenant_id=$2 LIMIT 1`, [agent.id, agent.tenant_id])
   const state = capabilitiesResult.rows[0] || {}
   const socket = agentSocketForDevice(agent.id)
   const fresh = state.last_telemetry_at && Date.now() - new Date(state.last_telemetry_at).getTime() <= 90_000
-  if (!socket || socket.readyState !== 1 || !fresh) return { error: 'This device is offline.', status: 409 }
+  if (!independentBroker && (!socket || socket.readyState !== 1 || !fresh)) return { error: 'This device is offline.', status: 409 }
   if (object(state.patch_capabilities).softwareInstall !== true) {
     return { error: 'PatchHost software installation is not available on this device.', status: 409 }
   }
@@ -431,8 +431,8 @@ async function dispatchCustomInstall(agent, app, identity) {
   }).catch(() => null)
   return { success: true, jobId: created.job.id, installationId: created.installation.id }
 }
-async function dispatchCatalogueInstall(agent, app, identity) {
-  const plan = await softwarePatchPlan(agent.tenant_id, agent.id, app.catalogue_id, { intent: 'install' })
+async function dispatchCatalogueInstall(agent, app, identity, { independentBroker = false } = {}) {
+  const plan = await softwarePatchPlan(agent.tenant_id, agent.id, app.catalogue_id, { intent: 'install', independentBroker })
   if (plan.error) return plan
   const label = actorLabel(identity)
   const created = await withTransaction(async (client) => {
@@ -1166,6 +1166,48 @@ export function registerRmmAppPortalRoutes(app) {
     return c.json({ success: true, status: 'fulfilled', installationId: dispatched.installationId, jobId: dispatched.jobId })
   })
 
+  // Independent Self Service runs as a *separate Windows SYSTEM service*.
+  // It authenticates with the existing machine-DPAPI Agent identity, but may
+  // claim ONLY software jobs explicitly created by App Portal. It can never
+  // consume remote-access, shell, other RMM patch or Agent upgrade jobs.
+  app.post('/api/v1/agent/app-portal/broker/jobs/claim', async (c) => {
+    const auth = await requireAgent(c)
+    if (auth.error) return auth.error
+    const policy = await pool.query(
+      `SELECT enabled FROM rmm_device_self_service
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true LIMIT 1`,
+      [auth.agent.tenant_id, auth.agent.id])
+    if (!policy.rowCount) return c.json({ success:false, error:'Self Service is disabled.' },403)
+    const claimed = await pool.query(
+      `WITH picked AS (
+        SELECT id FROM rmm_agent_jobs
+         WHERE tenant_id=$1 AND agent_device_id=$2 AND status='queued'
+           AND job_type='patch.software'
+           AND request_metadata->>'source'='app_portal'
+         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
+       )
+       UPDATE rmm_agent_jobs j
+          SET status='claimed',claimed_at=now(),updated_at=now()
+         FROM picked
+        WHERE j.id=picked.id
+       RETURNING j.id,j.job_type,j.payload,j.created_at`,
+      [auth.agent.tenant_id, auth.agent.id])
+    return c.json({ success:true, jobs:claimed.rows })
+  })
+
+  app.post('/api/v1/agent/app-portal/broker/heartbeat', async (c) => {
+    const auth = await requireAgent(c)
+    if (auth.error) return auth.error
+    const result = await pool.query(
+      `UPDATE rmm_device_self_service
+          SET broker_seen_at=now()
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true
+      RETURNING agent_device_id`,
+      [auth.agent.tenant_id,auth.agent.id])
+    if (!result.rowCount) return c.json({success:false,error:'Self Service is disabled.'},403)
+    return c.json({success:true})
+  })
+
   app.post('/api/v1/agent/app-portal/catalogue', async (c) => {
     const auth = await requireAgent(c)
     if (auth.error) return auth.error
@@ -1280,6 +1322,14 @@ export function registerRmmAppPortalRoutes(app) {
     const body = await c.req.json().catch(() => ({}))
     const appId = clean(body.appId)
     if (!uuid(appId)) return c.json({ success: false, error: 'Application id is invalid.' }, 400)
+    const independentBroker = c.req.header('x-hi5-self-service-broker') === 'v1'
+    if (independentBroker) {
+      const p = await pool.query(
+        `SELECT 1 FROM rmm_device_self_service
+           WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true LIMIT 1`,
+        [auth.agent.tenant_id,auth.agent.id])
+      if (!p.rowCount) return c.json({success:false,error:'Self Service is disabled.'},403)
+    }
     const identity = normalizedIdentity(body)
     await rememberIdentity(auth.agent, identity)
     const available = await resolvedApps(auth.agent, identity)
@@ -1317,8 +1367,8 @@ export function registerRmmAppPortalRoutes(app) {
       [auth.agent.tenant_id, auth.agent.id, appId])
     if (active.rowCount) return c.json({ success: false, error: 'This application is already installing.', installationId: active.rows[0].id }, 409)
     const result = appRevision.source_type === 'catalogue'
-      ? await dispatchCatalogueInstall(auth.agent, appRevision, identity)
-      : await dispatchCustomInstall(auth.agent, appRevision, identity)
+      ? await dispatchCatalogueInstall(auth.agent, appRevision, identity, { independentBroker })
+      : await dispatchCustomInstall(auth.agent, appRevision, identity, { independentBroker })
     if (result.error) return c.json({ success: false, ...result }, result.status || 409)
     return c.json(result, 202)
   })
