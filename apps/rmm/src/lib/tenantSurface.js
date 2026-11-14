@@ -297,7 +297,7 @@ export function rmmRouteFromLocation(surface = resolveTenantSurface(), location 
     }
   }
 
-  const pageMatch = normalized.match(/^\/(dashboard|devices|sites|groups|network-discovery|alerts|connect|remote|patching|software|automation|policies|reports|activity-audit|agent-deployment|settings|profile)$/i)
+  const pageMatch = normalized.match(/^\/(dashboard|devices|sites|groups|network-discovery|alerts|connect|remote|patching|software|automation|policies|reports|activity-audit|agent-deployment|elevation-requests|settings|profile)$/i)
   if (pageMatch) {
     const viewId = pageMatch[1].toLowerCase()
     return { viewId, path: rmmPath(surface, viewId) }
