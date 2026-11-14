@@ -12,8 +12,10 @@ internal sealed class EpmApi : IDisposable
     {
         if (!path.StartsWith("/api/v1/agent/epm/file-requests", StringComparison.Ordinal))
             throw new InvalidOperationException("EPM broker cannot call unrelated API endpoints.");
+        // Keep device identity sourced from the Agent's machine-DPAPI state, but route
+        // EPM requests only to the shared RMM API (the general API host has no EPM routes).
         var device = AgentIdentity.Load();
-        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(device.ApiBase, path))
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(new Uri("https://rmm.hi5central.com"), path))
         {
             Content = JsonContent.Create(data)
         };
