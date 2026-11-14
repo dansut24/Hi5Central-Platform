@@ -15,7 +15,11 @@ function safe(handler) {
   return async (c)=>{
     try { return await handler(c) }
     catch (error) {
-      // Never log agent-submitted credentials or complete request bodies.
+      // Never log agent-submitted credentials, request bodies, SQL statements or IDs.
+      // SQLSTATE alone is sufficient for investigating migration/schema mismatches.
+      if (!error?.status) console.error('Local admin vault request failed', {
+        category: 'internal', dbCode: typeof error?.code === 'string' ? error.code.slice(0, 8) : 'unknown',
+      })
       return c.json({error:error?.status?error.message:'Local administrator vault request failed.'},error?.status||500)
     }
   }
@@ -47,7 +51,7 @@ async function audited(client,{tenantId,accountId,rotationId=null,eventType,acto
 async function accountFor(tenantId,accountId,client=pool) {
   if (!idPattern.test(String(accountId))) throw fail('Invalid account ID.')
   const r=await client.query(
-    'SELECT a.*,d.name AS device_name,d.agent_version,d.websocket_status,d.last_telemetry_at FROM rmm_local_admin_accounts a JOIN rmm_agent_devices d ON d.id=a.agent_device_id WHERE a.tenant_id=$1 AND a.id=$2 AND d.disabled_at IS NULL',
+    'SELECT a.*,i.name AS device_name,d.agent_version,d.websocket_status,d.last_telemetry_at FROM rmm_local_admin_accounts a JOIN rmm_agent_devices d ON d.id=a.agent_device_id JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=a.tenant_id WHERE a.tenant_id=$1 AND a.id=$2 AND d.disabled_at IS NULL',
     [tenantId,accountId])
   if (!r.rowCount) throw fail('Managed local administrator account not found.',404)
   return r.rows[0]
@@ -87,7 +91,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
         [session.tenant_id])
     })
     const result=await pool.query(
-      'SELECT a.*,d.name AS device_name,d.agent_version,d.websocket_status,d.last_telemetry_at,r.state AS rotation_state,r.escrowed_at,r.activated_at,r.reveal_count,r.revealed_at,r.created_at AS rotation_created_at FROM rmm_local_admin_accounts a JOIN rmm_agent_devices d ON d.id=a.agent_device_id LEFT JOIN rmm_local_admin_rotations r ON r.id=a.current_rotation_id WHERE a.tenant_id=$1 AND d.disabled_at IS NULL ORDER BY d.name',
+      'SELECT a.*,i.name AS device_name,d.agent_version,d.websocket_status,d.last_telemetry_at,r.state AS rotation_state,r.escrowed_at,r.activated_at,r.reveal_count,r.revealed_at,r.created_at AS rotation_created_at FROM rmm_local_admin_accounts a JOIN rmm_agent_devices d ON d.id=a.agent_device_id JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=a.tenant_id LEFT JOIN rmm_local_admin_rotations r ON r.id=a.current_rotation_id WHERE a.tenant_id=$1 AND d.disabled_at IS NULL ORDER BY i.name',
       [session.tenant_id])
     const deviceRows=await pool.query(
       "SELECT a.id AS agent_device_id,i.name,i.platform,a.agent_version,a.last_telemetry_at,a.websocket_status FROM rmm_agent_devices a JOIN rmm_device_inventory i ON i.id=a.inventory_id WHERE a.tenant_id=$1 AND a.disabled_at IS NULL AND i.active=true AND i.platform ILIKE '%windows%' AND NOT EXISTS(SELECT 1 FROM rmm_local_admin_accounts m WHERE m.tenant_id=a.tenant_id AND m.agent_device_id=a.id) ORDER BY i.name",

@@ -18,6 +18,7 @@ export function RmmLocalAdminVault() {
   const refresh=useCallback(async()=>{
     const result=await localAdminApi.list()
     setData(result)
+    setError('')
     setSelected((old)=>old||result.accounts[0]?.id||'')
   },[])
   useEffect(()=>{refresh().catch((e)=>setError(e.message))},[refresh])
@@ -86,7 +87,7 @@ export function RmmLocalAdminVault() {
   return <div className="rmm-local-admin-vault">
     <div className="rmm-local-admin-header"><div><h2><KeyRound size={21}/> Local administrator vault</h2><p>Per-device managed local administrator credentials, on-demand rotation and audited recovery.</p></div><button type="button" onClick={()=>refresh().catch((e)=>setError(e.message))}><RefreshCw size={16}/> Refresh</button></div>
     <div className="rmm-local-admin-warning"><AlertTriangle size={18}/><span><strong>Separate from Windows LAPS.</strong> Native Windows LAPS continues to back up to Entra ID or Active Directory; Hi5Central-managed vaults use a dedicated local account and encrypted escrow. Never manage the same account with both systems.</span></div>
-    {!data && <p>Loading managed administrator accounts…</p>}
+    {!data && !error && <p>Loading managed administrator accounts…</p>}
     {error && <p className="rmm-local-admin-error" role="alert">{error}</p>}
     {notice && <p className="rmm-local-admin-notice" role="status">{notice}</p>}
     {data && <>
