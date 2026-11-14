@@ -136,7 +136,7 @@ public sealed partial class MainWindow : Window
                     autoHide: true);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             _loadFailed = true;
             _offlineMode = true;
