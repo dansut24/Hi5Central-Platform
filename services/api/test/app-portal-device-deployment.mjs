@@ -56,3 +56,21 @@ test('Device policy IDs must be complete valid tenant-scoped UUIDs', () => {
   assert.equal(isUuid('12345678-1234-4123-8123-123456789ab'),false)
   assert.equal(isUuid('untrusted'),false)
 })
+
+import { readFileSync } from 'node:fs'
+test('independent broker is installed before the UI update and disabled with Self Service', () => {
+  const source = readFileSync(new URL('../src/appPortalDeviceReconcile.ps1',import.meta.url),'utf8')
+  assert.ok(source.includes('Hi5CentralSelfServiceBroker'))
+  assert.ok(source.includes('Get-FileHash -LiteralPath $brokerDest'))
+  assert.ok(source.indexOf('$brokerFileState = Install-PinnedFile') < source.indexOf('$portalState = Install-PinnedFile'))
+  const off = selfServicePowerShell(false)
+  assert.ok(off.includes('Stop-Service -Name $brokerName'))
+  assert.ok(off.includes('sc.exe delete $brokerName'))
+  assert.ok(!off.includes('Stop-Service -Name Hi5CentralAgent'))
+})
+test('self service registers and verifies boot plus hourly repair tasks',()=>{
+ const on=selfServicePowerShell(true)
+ assert.ok(on.includes('Hi5CentralSelfServiceOnBoot'))
+ assert.ok(on.includes('Hi5CentralSelfServiceHourly'))
+ assert.ok(on.includes('scheduled task missing after registration'))
+})

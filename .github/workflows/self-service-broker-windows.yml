@@ -5,11 +5,15 @@ on:
     paths:
       - 'native/app-portal/Hi5Central.SelfServiceBroker/**'
       - '.github/workflows/self-service-broker-windows.yml'
+      - 'services/api/src/appPortalDeviceDeployment.js'
+      - 'services/api/src/appPortalDeviceReconcile.ps1'
   push:
     branches: [main]
     paths:
       - 'native/app-portal/Hi5Central.SelfServiceBroker/**'
       - '.github/workflows/self-service-broker-windows.yml'
+      - 'services/api/src/appPortalDeviceDeployment.js'
+      - 'services/api/src/appPortalDeviceReconcile.ps1'
 permissions:
   contents: read
 jobs:
@@ -24,6 +28,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+      - name: Validate Self Service reconciliation PowerShell
+        shell: pwsh
+        run: |
+          $scriptPath = '../../services/api/src/appPortalDeviceReconcile.ps1'
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path $scriptPath), [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_ }
+            throw 'Self Service reconciliation script PowerShell parser failed.'
+          }
       - name: Restore
         run: dotnet restore Hi5Central.SelfServiceBroker/Hi5Central.SelfServiceBroker.csproj
       - name: Build

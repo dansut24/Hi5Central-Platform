@@ -130,7 +130,16 @@ export function RmmDeviceSelfService({ device }) {
       <strong>{loading ? 'Checking deployment…' : stateLabels[policy?.status] || 'Status unknown'}</strong>
       {policy?.status === 'stalled' && <small>Previous Agent job has not reported completion. Check device diagnostics before retrying.</small>}
       <small>{policy?.version ? 'App ' + policy.version : ''}</small>
-      {policy && <small>{policy.online ? 'Device connected' : 'Agent connection unavailable — operation queued or awaiting result'}</small>}
+      {policy && <small>{
+        policy.independentBrokerOnline
+          ? 'Independent Self Service broker connected — available even if the RMM Agent stops'
+          : policy.online
+            ? 'RMM Agent connected · independent Self Service broker awaiting check-in'
+            : 'Neither Agent nor independent broker has checked in recently'
+      }</small>}
+      {policy?.independentBrokerLastSeenAt && <small title={new Date(policy.independentBrokerLastSeenAt).toLocaleString()}>
+        Broker last seen: {new Date(policy.independentBrokerLastSeenAt).toLocaleTimeString()}
+      </small>}
       {busy && <small>Submitting device policy…</small>}
     </div>
     {policy?.lastError && <p role="alert">{policy.lastError}</p>}

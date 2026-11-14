@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
-export const SELF_SERVICE_PORTAL_SHA256 = '309BC60398A71868C6E7B4FF481C90FE97F9D0367EE4D99F93C68CC35F859625'
+export const SELF_SERVICE_PORTAL_SHA256 = 'FF08C02ACBD92A4CB9F1248BEEAFC4EB652CF0D92F745553EE90C1E0F17683CC'
 export const SELF_SERVICE_PATCHHOST_SHA256 = '42389534EAEA555CFBF01FE45D1ED0D1DD69850AC47D611D171E11F30DA4252E'
-export const SELF_SERVICE_VERSION = '0.2.1'
+export const SELF_SERVICE_BROKER_SHA256 = '2F63BF1AB77A22A6209D961710E7FA8B181DC5FDA60387B024C66858C2EB099F'
+export const SELF_SERVICE_VERSION = '0.2.2'
 export function selfServicePowerShell(enable) {
   if (typeof enable !== 'boolean') throw new Error('Self Service state must be a boolean')
   if (!enable) return [
@@ -23,7 +24,7 @@ export function selfServicePowerShell(enable) {
     "if ($servicePath -match '^\\\"([^\\\"]+)\\\"') { $exe=$Matches[1] } else { $exe=($servicePath -split '\\s+--')[0].Trim('\\\"') }",
     "$agentDir=Split-Path -Parent $exe",
     "$pf=[Environment]::GetFolderPath('ProgramFiles')",
-    "$allowed=@((Join-Path $pf 'Hi5Central\\Agent'),(Join-Path $pf 'Hi5Tech\\Agent'))",
+    "$allowed=@((Join-Path $pf 'Hi5Central\\Agent'))",
     "if (-not ($allowed | Where-Object { [IO.Path]::GetFullPath($_).TrimEnd('\\') -ieq [IO.Path]::GetFullPath($agentDir).TrimEnd('\\') })) { throw 'Refusing to remove an app outside a recognised Hi5Central Agent directory' }",
     "$portal=Join-Path $agentDir 'Hi5CentralAppPortal.exe'",
     "$shortcut=Join-Path $env:ProgramData 'Microsoft\\Windows\\Start Menu\\Programs\\Hi5Central Self Service.lnk'",
@@ -35,6 +36,19 @@ export function selfServicePowerShell(enable) {
     "  Remove-Item -LiteralPath $portal -Force -ErrorAction Stop",
     "}",
     "if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut -Force -ErrorAction Stop }",
+    // Disable also removes the independent SYSTEM service. Never touch Agent.
+    "$brokerName='Hi5CentralSelfServiceBroker'",
+    "$broker=Get-Service -Name $brokerName -ErrorAction SilentlyContinue",
+    "if ($broker) {",
+    "  if ($broker.Status -ne 'Stopped') { Stop-Service -Name $brokerName -Force -ErrorAction Stop }",
+    "  $broker.WaitForStatus('Stopped',[timespan]::FromSeconds(30))",
+    "  sc.exe delete $brokerName | Out-Null",
+    "  if ($LASTEXITCODE -ne 0) { throw 'Independent Self Service service removal failed' }",
+    "}",
+    "$brokerDir=Join-Path $pf 'Hi5Central\\SelfServiceBroker'",
+    "if (Test-Path -LiteralPath $brokerDir) {",
+    "  Remove-Item -LiteralPath $brokerDir -Force -Recurse -ErrorAction Stop",
+    "}",
     "foreach ($name in @('reconcile.ps1','Hi5CentralAppPortal.exe.before-self-service.bak')) {",
     "  $leftover=Join-Path $root $name",
     "  if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Force -ErrorAction Stop }",
@@ -59,8 +73,15 @@ export function selfServicePowerShell(enable) {
     "$scriptCommand='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + $path",
     "schtasks.exe /Create /F /TN 'Hi5CentralSelfServiceOnBoot' /SC ONSTART /RU SYSTEM /RL HIGHEST /TR $scriptCommand | Out-Null",
     "if ($LASTEXITCODE -ne 0) { throw 'Boot reconciliation task creation failed' }",
+    "if (-not (Get-ScheduledTask -TaskName 'Hi5CentralSelfServiceOnBoot' -ErrorAction SilentlyContinue)) { throw 'Boot reconciliation task missing after registration' }",
     "schtasks.exe /Create /F /TN 'Hi5CentralSelfServiceHourly' /SC HOURLY /MO 1 /RU SYSTEM /RL HIGHEST /TR $scriptCommand | Out-Null",
     "if ($LASTEXITCODE -ne 0) { throw 'Hourly reconciliation task creation failed' }",
+    "if (-not (Get-ScheduledTask -TaskName 'Hi5CentralSelfServiceHourly' -ErrorAction SilentlyContinue)) { throw 'Hourly reconciliation task missing after registration' }",
+    "foreach ($name in @('Hi5CentralSelfServiceOnBoot','Hi5CentralSelfServiceHourly')) {",
+    "  if (-not (Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue)) {",
+    "    throw ('Self Service scheduled task missing after registration: ' + $name)",
+    "  }",
+    "}",
     "& $path",
     "Write-Output 'Hi5Central Self Service deployed with boot and hourly reconciliation'",
   ].join('\n')
