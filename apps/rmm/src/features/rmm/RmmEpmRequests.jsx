@@ -73,6 +73,11 @@ export function RmmEpmRequests() {
           <small><b>User SID:</b> {r.requester_sid} · <b>Device:</b> {r.agent_device_id}</small>
           <p><b>Business reason:</b> {r.business_reason}</p>
           {r.decision_note && <p><b>Technician decision:</b> {r.decision_note}</p>}
+          {r.status==='launch_failed' && <p role="alert"><b>Windows launch:</b> Failed
+            {r.launch_failure_stage
+              ? ' · Stage: '+r.launch_failure_stage+' · Win32 code: '+r.launch_failure_code
+              : ' · Previous pilot did not record a Windows error code'}
+          </p>}
         </div>
         <span className="app-portal-state">{r.status}{r.status==='approved' && r.approval_expires_at
           ? ' · until '+new Date(r.approval_expires_at).toLocaleTimeString() : ''}</span>
