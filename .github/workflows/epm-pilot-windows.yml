@@ -39,6 +39,22 @@ jobs:
           $hash=(Get-FileHash -Algorithm SHA256 $exe).Hash
           "SHA256: $hash" | Set-Content (Join-Path $out 'SHA256.txt')
           Write-Host "EPM Windows pilot SHA256 $hash"
+      - name: Install and uninstall broker on isolated Windows CI runner
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-epm-pilot'
+          $exe = Join-Path $out 'Hi5CentralEpmPilot.exe'
+          $sha = (Get-FileHash -Algorithm SHA256 $exe).Hash
+          try {
+            ./Install-EpmPilot.ps1 -Executable $exe -ExpectedSha256 $sha
+            $service = Get-Service Hi5CentralEpmPilot -ErrorAction Stop
+            if ($service.Status -ne 'Running') { throw 'EPM service was not running' }
+            $shellVerb = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\exefile\shell\Hi5CentralElevate'
+            if (-not (Test-Path $shellVerb)) { throw 'EPM Explorer context-menu entry was not installed' }
+            Write-Host 'PASS: broker service running and Explorer integration installed'
+          } finally {
+            ./Uninstall-EpmPilot.ps1
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: Hi5Central-EPM-Windows-Pilot
