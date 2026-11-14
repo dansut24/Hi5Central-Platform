@@ -31,7 +31,7 @@ import { attachRmmDeviceToolWebSocket, registerRmmDeviceToolRoutes } from './rmm
 import { attachRmmViewerWebSocket, registerRmmRemoteRoutes } from './rmmRemote.js'
 import { attachRmmConnectWebSockets, registerRmmConnectRoutes } from './rmmConnect.js'
 import { registerRmmScopeRoutes } from './rmmScope.js'
-import { registerRmmEndpointManagementRoutes } from './rmmEndpointManagement.js'
+import { registerRmmEndpointManagementRoutes, startEndpointComplianceScheduler } from './rmmEndpointManagement.js'
 import { registerRmmLocalAdminVaultRoutes } from './rmmLocalAdminVault.js'
 import { registerRmmPatchingRoutes } from './rmmPatching.js'
 import { registerRmmAppPortalRoutes } from './rmmAppPortal.js'
@@ -778,6 +778,7 @@ await ensureRedisConnected()
 console.log('[API] Redis ready; initializing RMM agent broker...')
 await initializeAgentBroker()
 console.log('[API] RMM agent broker initialized; starting schedulers...')
+startEndpointComplianceScheduler()
 startLicensingRefreshScheduler()
 startReleaseFeedScheduler()
 if (backgroundWorkersEnabled) {

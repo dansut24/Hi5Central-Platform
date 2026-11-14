@@ -46,6 +46,8 @@ export function RmmEndpointManagement() {
   const [preview, setPreview] = useState(null)
   const [runId, setRunId] = useState('')
   const [runReport, setRunReport] = useState(null)
+  const [compliance, setCompliance] = useState(null)
+  const [assessing, setAssessing] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -71,6 +73,20 @@ export function RmmEndpointManagement() {
     return () => { active = false }
   }, [selectedId, previewDevice, revision])
   useEffect(() => {
+    if (!selectedId || screen !== 'profiles') {setCompliance(null);return}
+    let active=true
+    let timer=null
+    const check=async()=>{
+      try {
+        const result=await endpointApi.compliance(selectedId)
+        if(active)setCompliance(result)
+      } catch(e) {if(active)setCompliance(null)}
+    }
+    check()
+    timer=window.setInterval(check,15000)
+    return ()=>{active=false;if(timer)window.clearInterval(timer)}
+  },[selectedId,screen,revision])
+  useEffect(() => {
     if (!runId) return
     let active = true
     let timer = null
@@ -79,6 +95,10 @@ export function RmmEndpointManagement() {
         const result = await endpointApi.runStatus(runId)
         if (!active) return
         setRunReport(result)
+        if(result.status!=='queued'&&result.status!=='claimed') {
+          endpointApi.compliance(selectedId).then(setCompliance).catch(()=>{})
+          reload().catch(()=>{})
+        }
         if (result.status === 'queued' || result.status === 'claimed') timer = window.setTimeout(poll, 2000)
       } catch (error) { if (active) setError(error.message) }
     }
@@ -107,7 +127,7 @@ export function RmmEndpointManagement() {
       const next = await reload()
       const saved = next.profiles.find((item) => item.id === result.profile.id)
       if (saved) selectProfile(saved)
-      setNotice('Profile saved. Agent evaluation is available manually for supported Windows settings.')
+      setNotice('Profile saved. Compliant settings can be assessed now; supported read-only checks also refresh automatically for eligible online Newtest devices.')
     } catch (e) { setError(e.message) } finally { setPending(false) }
   }
   function beginRemoveProfile() {
@@ -164,6 +184,17 @@ export function RmmEndpointManagement() {
       setNotice('Windows ' + action + ' job queued. Waiting for device verification.')
     } catch (error) { setError(error.message) } finally { setPending(false) }
   }
+  async function assessCompliance(deviceId='') {
+    if(!selectedId||assessing)return
+    setAssessing(true);setError('');setNotice('')
+    try {
+      const result=await endpointApi.assess(selectedId,deviceId)
+      setNotice(result.message+(result.queued?' Checks run in the background without changing Windows settings.':''))
+      const updated=await endpointApi.compliance(selectedId)
+      setCompliance(updated)
+    }catch(e){setError(e.message)}
+    finally{setAssessing(false)}
+  }
   function beginException(setting) {
     const first = data?.devices?.[0]
     const defaultExpiry = new Date(Date.now() + 30*86400000).toISOString().slice(0, 10)
@@ -181,12 +212,12 @@ export function RmmEndpointManagement() {
   return (
     <div className="rmm-endpoint">
       <div className="rmm-page-heading">
-        <div><span className="rmm-eyebrow">Windows endpoint management</span><h1>Configuration & security</h1><p>Build Windows policies with exceptions to individual settings for devices, device groups and assigned users.</p></div>
+        <div><span className="rmm-eyebrow">Windows endpoint management</span><h1>Configuration & security</h1><p>Assign Windows policies, verify device compliance, detect configuration drift, and restore original settings safely.</p></div>
       </div>
       <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Managed policy removal is now available.</strong> Exclude stops future enforcement, Override changes the effective value, and Remove withdraws a setting or profile after any supported device restoration. Native Windows LAPS settings, firewall and SMBv1 are still audit-only; the separate Hi5Central local administrator vault manages actual passwords.</span></div>
       <nav className="rmm-endpoint-tabbar" aria-label="Endpoint management sections">
         <button type="button" className={screen === 'library' ? 'selected' : ''} onClick={()=>setScreen('library')}>All Windows settings</button>
-        <button type="button" className={screen === 'profiles' ? 'selected' : ''} onClick={()=>setScreen('profiles')}>Profiles & setting exceptions</button>
+        <button type="button" className={screen === 'profiles' ? 'selected' : ''} onClick={()=>setScreen('profiles')}>Policies & compliance</button>
         <button type="button" className={screen === 'vault' ? 'selected' : ''} onClick={()=>setScreen('vault')}>Local admin vault</button>
       </nav>
       {screen === 'library' ? <RmmWindowsSettingsLibrary nativeSettings={data?.catalogue || []} /> : screen === 'vault' ? <RmmLocalAdminVault/> : <>
@@ -214,7 +245,7 @@ export function RmmEndpointManagement() {
             <div className="rmm-endpoint-fields">
               <label>Profile name<input value={draft.name} maxLength={120} onChange={(e) => setField('name', e.target.value)} /></label>
               <label>Description<input value={draft.description} maxLength={1000} onChange={(e) => setField('description', e.target.value)} /></label>
-              <label>Policy stage<select value={draft.status} onChange={(e) => setField('status', e.target.value)}><option value="draft">Draft</option><option value="ready">Ready for manual agent evaluation</option><option value="disabled">Disabled</option></select></label>
+              <label>Policy stage<select value={draft.status} onChange={(e) => setField('status', e.target.value)}><option value="draft">Draft</option><option value="ready">Ready — monitored by read-only compliance checks</option><option value="disabled">Disabled</option></select></label>
               <label>Assignment<select value={draft.scopeType} onChange={(e) => setDraft((old) => ({ ...old, scopeType: e.target.value, scopeId: scopeChoices(data, e.target.value)[0]?.id || '' }))}>
                 <option value="estate">All devices</option><option value="group">Device group</option><option value="device">Single device</option><option value="user">Assigned user</option>
               </select></label>
@@ -255,6 +286,36 @@ export function RmmEndpointManagement() {
           </>}
         </section>
       </div>
+      {selected && <section className="rmm-endpoint-panel rmm-endpoint-compliance">
+        <div className="rmm-endpoint-subheading">
+          <div><h3>Policy compliance</h3><p>Verified from device observations. Checks are read-only; remediation requires explicit approval.</p></div>
+          <div className="rmm-endpoint-run-actions">
+            <button type="button" disabled={assessing||pending||selected.status!=='ready'} onClick={()=>assessCompliance()}>{assessing?'Checking…':'Check assigned devices'}</button>
+            <button type="button" disabled={assessing||pending||selected.status!=='ready'||!previewDevice} onClick={()=>assessCompliance(previewDevice)}>Check selected</button>
+          </div>
+        </div>
+        {compliance?.summary ? <>
+          <div className="rmm-endpoint-compliance-totals">
+            <div><strong>{compliance.summary.assigned}</strong><span>Assigned</span></div>
+            <div><strong>{compliance.summary.compliant}</strong><span>Compliant</span></div>
+            <div><strong>{compliance.summary.drift}</strong><span>Drift detected</span></div>
+            <div><strong>{compliance.summary.offline}</strong><span>Offline</span></div>
+            <div><strong>{compliance.summary.pending}</strong><span>Pending</span></div>
+          </div>
+          {compliance.automaticReadOnlyAssessment&&<p className="rmm-endpoint-hint">Automatic read-only checks run for online devices. Offline devices are checked after they reconnect. Changes to Windows require a separate Apply action.</p>}
+          <div className="rmm-endpoint-compliance-list">
+            {compliance.devices.map((device)=><button className={'rmm-endpoint-compliance-device '+(previewDevice===device.id?'selected':'')} type="button" key={device.id}
+              onClick={()=>{setPreviewDevice(device.id);setRunId('');setRunReport(null)}}>
+              <span><strong>{device.name}</strong><small>{device.os} · Agent {device.agentVersion||'not enrolled'}{device.lastCheckedAt?' · Checked '+new Date(device.lastCheckedAt).toLocaleString():''}</small></span>
+              <span className={'rmm-endpoint-compliance-status '+device.status}>{device.status.replace('_',' ')}</span>
+              {device.settings?.some((setting)=>setting.status==='drift')&&<small>{device.settings.filter((setting)=>setting.status==='drift').map((setting)=>settings.find((meta)=>meta.key===setting.key)?.label||setting.key).join(', ')}</small>}
+            </button>)}
+            {!compliance.devices.length&&<p className="rmm-endpoint-hint">No devices currently match this policy's assignment. Select a device, group, user or estate scope.</p>}
+          </div>
+          {compliance.devices.some((item)=>item.status==='partial'||item.status==='unsupported')&&
+            <p className="rmm-endpoint-hint">Partial or unsupported assessments contain Windows settings with no qualified read adapter. Such devices are never counted as fully compliant.</p>}
+        </> : <p className="rmm-endpoint-hint">Loading compliance status for assigned devices…</p>}
+      </section>}
       {selected && <div className="rmm-endpoint-lower">
         <section className="rmm-endpoint-panel"><div className="rmm-endpoint-subheading"><h3>Setting-specific exceptions</h3><span>{exceptions.length} unrevoked records</span></div>
           {exceptions.map((item) => <div className="rmm-endpoint-exception" key={item.id}>

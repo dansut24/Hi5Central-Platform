@@ -65,3 +65,23 @@
 .rmm-endpoint-restore-needed>div{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;font-size:12px}
 .rmm-endpoint-restore-needed button{border:1px solid var(--rmm-border,rgba(128,146,166,.4));border-radius:8px;padding:6px 10px;background:transparent;color:inherit;cursor:pointer}
 @media(max-width:560px){.rmm-endpoint-remove-profile,.rmm-endpoint-restore-needed>div{align-items:flex-start;flex-direction:column}}
+
+.rmm-endpoint-compliance{margin-top:14px}
+.rmm-endpoint-compliance .rmm-endpoint-subheading{align-items:flex-start;gap:14px}
+.rmm-endpoint-compliance .rmm-endpoint-subheading p{margin:4px 0 0;font-size:12px;opacity:.76;line-height:1.5}
+.rmm-endpoint-compliance-totals{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:12px 0}
+.rmm-endpoint-compliance-totals>div{background:var(--rmm-surface-soft,rgba(127,146,169,.08));border:1px solid var(--rmm-border,rgba(127,146,169,.2));border-radius:10px;padding:12px 9px;display:flex;flex-direction:column;gap:4px}
+.rmm-endpoint-compliance-totals strong{font-size:23px;font-variant-numeric:tabular-nums}
+.rmm-endpoint-compliance-totals span{font-size:11px;opacity:.77}
+.rmm-endpoint-compliance-list{display:grid;gap:8px;margin-top:12px}
+.rmm-endpoint-compliance-device{border:1px solid var(--rmm-border,rgba(127,146,169,.2));border-radius:10px;padding:12px;display:flex;gap:9px;flex-wrap:wrap;align-items:center;justify-content:space-between;text-align:left;color:inherit;background:transparent;cursor:pointer}
+.rmm-endpoint-compliance-device.selected{border-color:var(--rmm-accent,#4c90df)}
+.rmm-endpoint-compliance-device>span:first-child{display:grid;gap:4px;flex:1;min-width:155px}
+.rmm-endpoint-compliance-device strong{font-size:13px}
+.rmm-endpoint-compliance-device small{font-size:11px;opacity:.72}
+.rmm-endpoint-compliance-device>small{flex:0 0 100%;line-height:1.4}
+.rmm-endpoint-compliance-status{border-radius:999px;padding:5px 8px;font-size:11px;font-weight:700;text-transform:capitalize;background:rgba(127,146,169,.12)}
+.rmm-endpoint-compliance-status.compliant{color:#28936f;background:rgba(40,147,111,.09)}
+.rmm-endpoint-compliance-status.drift,.rmm-endpoint-compliance-status.error,.rmm-endpoint-compliance-status.conflict{color:#c25840;background:rgba(194,88,64,.09)}
+.rmm-endpoint-compliance-status.partial,.rmm-endpoint-compliance-status.offline,.rmm-endpoint-compliance-status.pending{color:#a17b30;background:rgba(180,130,46,.1)}
+@media(max-width:610px){.rmm-endpoint-compliance-totals{grid-template-columns:repeat(3,minmax(0,1fr))}.rmm-endpoint-compliance .rmm-endpoint-subheading{flex-direction:column;align-items:stretch}}

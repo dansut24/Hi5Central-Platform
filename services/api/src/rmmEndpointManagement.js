@@ -6,6 +6,7 @@ import { scopeDeviceRows, loadGroups } from './rmmScope.js'
 import { ENDPOINT_SETTINGS, endpointSetting, highRiskEndpointOverride, settingAllowedInProfile, validateSettings, validateSettingValue, resolveEndpointProfile } from './rmmEndpointPolicyModel.js'
 import { buildWindowsPolicyCommand, parseWindowsPolicyResult, WINDOWS_POLICY_READ_KEYS, WINDOWS_POLICY_WRITE_KEYS } from './rmmEndpointWindowsDriver.js'
 import { unresolvedEndpointRestores } from './rmmEndpointRemoval.js'
+import { assessDevicePolicy, assessmentSignature, effectiveAuditSettings, rollupCompliance, shouldQueueAutomaticAudit } from './rmmEndpointCompliance.js'
 
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -118,6 +119,109 @@ async function exceptionsFor(tenantId, profileId) {
     [tenantId, profileId])
   return result.rows
 }
+// Compliance V2: evaluate only device receipts from the authenticated Agent.
+// No automatic enforcement: the scheduler queues read-only policy audits only.
+async function complianceContext(tenantId,profile) {
+  const [devices,exceptions,agents,jobs]=await Promise.all([
+    scopeDeviceRows(tenantId),
+    exceptionsFor(tenantId,profile.id),
+    pool.query('SELECT id,inventory_id,websocket_status,last_authenticated_at,last_telemetry_at,agent_version FROM rmm_agent_devices WHERE tenant_id=$1 AND disabled_at IS NULL ORDER BY last_authenticated_at DESC NULLS LAST',[tenantId]),
+    pool.query(
+      "SELECT id,status,result,error_message,created_at,completed_at,request_metadata FROM rmm_agent_jobs WHERE tenant_id=$1 AND request_metadata->>'source'='endpoint_management' AND request_metadata->>'endpoint_profile_id'=$2 AND request_metadata->>'action' IN ('audit','apply','restore') ORDER BY created_at DESC LIMIT 5001",
+      [tenantId,profile.id]),
+  ])
+  if(jobs.rowCount>5000) throw bad('Compliance history exceeded the safe query limit. Use the audit archive before continuing.',409)
+  const groups=await loadGroups(tenantId,devices)
+  const agentByInventory=new Map()
+  for(const agent of agents.rows)if(!agentByInventory.has(agent.inventory_id))agentByInventory.set(agent.inventory_id,agent)
+  const jobsByDevice=new Map()
+  for(const job of jobs.rows){
+    const id=job.request_metadata?.device_id
+    if(!id)continue
+    if(!jobsByDevice.has(id))jobsByDevice.set(id,[])
+    jobsByDevice.get(id).push(job)
+  }
+  const deviceRows=[]
+  for(const device of devices){
+    const resolution=resolveEndpointProfile({profile,device,groups,exceptions})
+    if(!resolution.applicable)continue
+    const agent=agentByInventory.get(device.id)||null
+    const jobHistory=jobsByDevice.get(device.id)||[]
+    const observed=assessDevicePolicy({profile,resolution,agent,jobs:jobHistory,parseResult:parseWindowsPolicyResult})
+    deviceRows.push({id:device.id,name:device.name,os:device.operating_system,
+      agentId:agent?.id||null,agentVersion:agent?.agent_version||null,
+      online:agent?.websocket_status==='Connected' && Date.now()-new Date(agent.last_authenticated_at||0).getTime()<120000,
+      ...observed,resolution,jobHistory})
+  }
+  return {deviceRows,groups,exceptions}
+}
+async function queueReadOnlyCompliance({tenantId,profile,context,actorId=null,actorLabel='Endpoint compliance monitor',trigger='automatic',limit=25}) {
+  let queued=0, skipped=0
+  const jobs=[]
+  for(const row of context.deviceRows){
+    if(queued>=limit)break
+    if(!row.online||!row.agentId||!row.os?.toLowerCase().includes('windows')){skipped++;continue}
+    const desired=effectiveAuditSettings(row.resolution)
+    if(!desired.length){skipped++;continue}
+    const signature=assessmentSignature(profile.revision,desired)
+    if(trigger==='automatic'&&!shouldQueueAutomaticAudit(row.jobHistory,signature)){
+      skipped++;continue
+    }
+    const command=buildWindowsPolicyCommand({profileId:profile.id,action:'audit',
+      settings:desired.map(({key,value})=>({key,value}))})
+    const job=await withTransaction(async(client)=>{
+      const lock=tenantId+':endpoint-compliance:'+profile.id+':'+row.id
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[lock])
+      const busy=await client.query(
+        "SELECT id FROM rmm_agent_jobs WHERE tenant_id=$1 AND agent_device_id=$2 AND status IN ('queued','claimed') AND request_metadata->>'source'='endpoint_management' AND request_metadata->>'endpoint_profile_id'=$3 AND request_metadata->>'action'='audit' LIMIT 1",
+        [tenantId,row.agentId,profile.id])
+      if(busy.rowCount)return null
+      const result=await client.query(
+        "INSERT INTO rmm_agent_jobs(tenant_id,agent_device_id,job_type,payload,queued_by_user_id,initiated_by,initiated_by_label,request_metadata) VALUES($1,$2,'custom.command',$3::jsonb,$4,$5,$6,$7::jsonb) RETURNING id",
+        [tenantId,row.agentId,JSON.stringify({command,timeout_seconds:120,run_as:'system'}),
+          actorId,trigger==='automatic'?'system':'technician',actorLabel,
+          JSON.stringify({source:'endpoint_management',action:'audit',trigger,
+            endpoint_profile_id:profile.id,profile_revision:profile.revision,
+            device_id:row.id,setting_key:'audit',assessment_signature:signature,
+            desired,expires_at:new Date(Date.now()+180000).toISOString()})])
+      await client.query(
+        "INSERT INTO rmm_endpoint_policy_history(tenant_id,profile_id,action,detail,actor_user_id) VALUES($1,$2,'endpoint.audit.queued',$3::jsonb,$4)",
+        [tenantId,profile.id,JSON.stringify({jobId:result.rows[0].id,deviceId:row.id,trigger,settings:desired.map(x=>x.key)}),actorId])
+      return result.rows[0].id
+    })
+    if(job){jobs.push({deviceId:row.id,jobId:job});queued++} else skipped++
+  }
+  return {queued,skipped,jobs}
+}
+export function startEndpointComplianceScheduler() {
+  const tenantSlug=String(process.env.RMM_ENDPOINT_V2_TENANT||'').trim()
+  if(!tenantSlug){console.log('[RMM Endpoint V2] Automatic read-only assessment disabled');return}
+  let running=false
+  const tick=async()=>{
+    if(running)return
+    running=true
+    try{
+      const tenant=await pool.query('SELECT id FROM tenants WHERE slug=$1 LIMIT 1',[tenantSlug])
+      if(!tenant.rowCount)return
+      const tenantId=tenant.rows[0].id
+      const ready=await pool.query(
+        "SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 AND archived_at IS NULL AND status='ready' ORDER BY updated_at DESC LIMIT 30",[tenantId])
+      for(const profile of ready.rows){
+        try{
+          const context=await complianceContext(tenantId,profile)
+          const result=await queueReadOnlyCompliance({tenantId,profile,context,trigger:'automatic',limit:20})
+          if(result.queued)console.log('[RMM Endpoint V2] read-only assessments queued',{profileId:profile.id,queued:result.queued})
+        }catch(error){console.error('[RMM Endpoint V2] profile assessment failed',profile.id,error.message)}
+      }
+    }catch(error){console.error('[RMM Endpoint V2] assessment sweep failed',error.message)}
+    finally{running=false}
+  }
+  const interval=setInterval(tick,10*60*1000)
+  interval.unref?.()
+  const initial=setTimeout(tick,20000)
+  initial.unref?.()
+  console.log('[RMM Endpoint V2] Read-only assessments enabled for tenant',tenantSlug)
+}
 export function registerRmmEndpointManagementRoutes(app) {
   app.get('/api/v1/rmm/endpoint-management', wrap(async (c) => {
     const session = await auth(c)
@@ -133,7 +237,37 @@ export function registerRmmEndpointManagementRoutes(app) {
     }).filter(([email]) => emailPattern.test(email))).values()]
     const restoreItems=await Promise.all(profiles.rows.map((profile)=>outstandingRestoreTargets(session.tenant_id,profile.id)))
     const profilesWithRestore=profiles.rows.map((profile,i)=>({...profile,restorationRequired:restoreItems[i]}))
-    return c.json({ catalogue: ENDPOINT_SETTINGS, profiles: profilesWithRestore, exceptions: exceptions.rows, devices: devices.map((device) => ({ id: device.id, reference: device.reference, name: device.name, user: device.user_principal_name || device.assigned_person_email, os: device.operating_system })), groups: groups.map(({ id, name, mode, devices }) => ({ id, name, mode, devices })), users, phase: 'policy-preview', deviceEnforcement: false })
+    return c.json({ catalogue: ENDPOINT_SETTINGS, profiles: profilesWithRestore, exceptions: exceptions.rows, devices: devices.map((device) => ({ id: device.id, reference: device.reference, name: device.name, user: device.user_principal_name || device.assigned_person_email, os: device.operating_system })), groups: groups.map(({ id, name, mode, devices }) => ({ id, name, mode, devices })), users, phase: 'compliance-v2', deviceEnforcement: true, automaticReadOnlyAssessment: Boolean(process.env.RMM_ENDPOINT_V2_TENANT) })
+  }))
+  app.get('/api/v1/rmm/endpoint-management/profiles/:id/compliance',wrap(async(c)=>{
+    const session=await auth(c)
+    const profile=await profileById(session.tenant_id,c.req.param('id'))
+    const context=await complianceContext(session.tenant_id,profile)
+    const devices=context.deviceRows.map(({jobHistory,resolution,...publicFields})=>publicFields)
+    return c.json({profileId:profile.id,profileName:profile.name,revision:profile.revision,
+      profileStatus:profile.status,summary:rollupCompliance(devices),
+      devices,writeAdapters:WINDOWS_POLICY_WRITE_KEYS,
+      automaticReadOnlyAssessment:process.env.RMM_ENDPOINT_V2_TENANT===session.slug,
+      lastGeneratedAt:new Date().toISOString()})
+  }))
+  app.post('/api/v1/rmm/endpoint-management/profiles/:id/compliance/assess',wrap(async(c)=>{
+    const session=await auth(c,true)
+    const profile=await profileById(session.tenant_id,c.req.param('id'))
+    if(profile.status!=='ready') throw bad('Mark the profile Ready before checking devices.',409)
+    const body=await c.req.json().catch(()=>({}))
+    const requestedId=text(body.deviceId,80)
+    if(requestedId&&!idPattern.test(requestedId))throw bad('Invalid assessment target.',400)
+    const context=await complianceContext(session.tenant_id,profile)
+    if(requestedId){
+      if(!context.deviceRows.some((row)=>row.id===requestedId)) throw bad('The selected device is not assigned to this profile.',409)
+      context.deviceRows=context.deviceRows.filter((row)=>row.id===requestedId)
+    }
+    const result=await queueReadOnlyCompliance({
+      tenantId:session.tenant_id,profile,context,actorId:session.user_id,
+      actorLabel:text(session.name||session.email||'Technician',120),trigger:'manual',limit:25})
+    return c.json({profileId:profile.id,...result,readOnly:true,
+      message:result.queued?'Read-only compliance checks queued. No Windows settings will be changed.':
+        'No eligible online devices available, or a previous assessment is still in progress.'},202)
   }))
   app.post('/api/v1/rmm/endpoint-management/profiles', wrap(async (c) => {
     const session = await auth(c, true)
@@ -292,7 +426,7 @@ export function registerRmmEndpointManagementRoutes(app) {
     if (action === 'apply' && profile.status !== 'ready') throw bad('Only a ready profile can be applied.', 409)
     const requestedKey = text(body.settingKey, 150)
     const chosen = action === 'audit'
-      ? resolved.settings.filter((entry) => WINDOWS_POLICY_READ_KEYS.includes(entry.key) && entry.state !== 'conflict')
+      ? resolved.settings.filter((entry) => WINDOWS_POLICY_READ_KEYS.includes(entry.key) && ['configured','overridden'].includes(entry.state))
       : [resolved.settings.find((entry) => entry.key === requestedKey) || {key:requestedKey,value:false,state:'not_assigned'}]
     if (!chosen.length) throw bad('No supported Windows settings are available for this action.', 409)
     if (action === 'apply' && chosen.some((item) => item.state === 'excluded' || item.state === 'conflict' || item.state === 'not_assigned')) {

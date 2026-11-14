@@ -19,4 +19,6 @@ export const endpointApi = {
   preview: (profileId, deviceId) => request('/profiles/' + encodeURIComponent(profileId) + '/effective/' + encodeURIComponent(deviceId)),
   run: (profileId, deviceId, action, settingKey = '') => request('/profiles/' + encodeURIComponent(profileId) + '/devices/' + encodeURIComponent(deviceId) + '/run', { method: 'POST', body: JSON.stringify({ action, settingKey }) }),
   runStatus: (jobId) => request('/runs/' + encodeURIComponent(jobId)),
+  compliance: (profileId) => request('/profiles/' + encodeURIComponent(profileId) + '/compliance'),
+  assess: (profileId,deviceId = '') => request('/profiles/' + encodeURIComponent(profileId) + '/compliance/assess', {method:'POST',body:JSON.stringify({deviceId})}),
 }
