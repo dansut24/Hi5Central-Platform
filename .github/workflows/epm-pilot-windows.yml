@@ -1,0 +1,47 @@
+name: Hi5Central EPM Windows pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/epm-file-elevation-pilot-20261114]
+    paths:
+      - 'native/epm/**'
+      - '.github/workflows/epm-pilot-windows.yml'
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: native/epm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Restore and compile
+        run: |
+          dotnet restore Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj
+          dotnet build Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release --no-restore
+      - name: Windows fail-closed self-test
+        shell: pwsh
+        run: |
+          & dotnet run --project Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release --no-build -- --self-test
+          if ($LASTEXITCODE -ne 0) { throw 'EPM self-test failed' }
+      - name: Publish test binary
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-epm-pilot'
+          dotnet publish Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release -r win-x64 --self-contained true -o $out /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true /p:PublishTrimmed=false
+          if ($LASTEXITCODE -ne 0) { throw 'EPM publish failed' }
+          $exe=Join-Path $out 'Hi5CentralEpmPilot.exe'
+          $hash=(Get-FileHash -Algorithm SHA256 $exe).Hash
+          "SHA256: $hash" | Set-Content (Join-Path $out 'SHA256.txt')
+          Write-Host "EPM Windows pilot SHA256 $hash"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-EPM-Windows-Pilot
+          path: ${{ runner.temp }}/hi5-epm-pilot/**
+          if-no-files-found: error
+          retention-days: 14

@@ -35,6 +35,7 @@ import { registerRmmEndpointManagementRoutes, startEndpointComplianceScheduler }
 import { registerRmmLocalAdminVaultRoutes } from './rmmLocalAdminVault.js'
 import { registerRmmPatchingRoutes } from './rmmPatching.js'
 import { registerRmmAppPortalRoutes } from './rmmAppPortal.js'
+import { registerRmmEpmFileRoutes } from './rmmEpmFiles.js'
 import { registerRmmNetworkDiscoveryRoutes, startRmmNetworkDiscoveryScheduler } from './rmmNetworkDiscovery.js'
 import { startRmmMacOuiScheduler } from './rmmMacOui.js'
 import { registerRmmRecoveryKeyRoutes } from './rmmRecoveryKeys.js'
@@ -759,6 +760,7 @@ registerRmmEndpointManagementRoutes(app)
 registerRmmLocalAdminVaultRoutes(app)
 registerRmmPatchingRoutes(app)
 registerRmmAppPortalRoutes(app)
+registerRmmEpmFileRoutes(app)
 registerRmmNetworkDiscoveryRoutes(app)
 registerRmmRecoveryKeyRoutes(app)
 
