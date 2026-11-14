@@ -18,6 +18,38 @@ internal static class VerifiedFile
         "msedge.exe","chrome.exe","firefox.exe","msiexec.exe",
         "csc.exe","installutil.exe","bitsadmin.exe","certutil.exe"
     };
+    /// <summary>
+    /// Pin the exact approved file in its original location. Deny all new writes,
+    /// renames and deletes until the elevated process image has been created.
+    /// Re-validate SHA-256 and Windows Authenticode while the handle remains open.
+    /// Nothing is copied to ProgramData and no persistent file cache is created.
+    /// </summary>
+    public static FileStream LockForApprovedLaunch(FileProof approved)
+    {
+        var full=System.IO.Path.GetFullPath(approved.Path);
+        if (!StringComparer.OrdinalIgnoreCase.Equals(full,approved.Path))
+            throw new InvalidOperationException("Approved executable path no longer matches.");
+        // Local fixed NTFS volumes only in the pilot; no UNC / mapped network
+        // shares or reparse-point paths that could redirect after verification.
+        if (new DriveInfo(System.IO.Path.GetPathRoot(full)!).DriveType!=DriveType.Fixed)
+            throw new InvalidOperationException("File must be on a local fixed disk.");
+        var lockStream=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.Read);
+        try {
+            var current=Inspect(full);
+            if (!StringComparer.OrdinalIgnoreCase.Equals(current.Path,approved.Path)
+                || current.Hash!=approved.Hash
+                || current.Thumbprint!=approved.Thumbprint
+                || current.Publisher!=approved.Publisher)
+                throw new InvalidOperationException(
+                    "The executable differs from the approved file; please request approval again.");
+            return lockStream;
+        }
+        catch {
+            lockStream.Dispose();
+            throw;
+        }
+    }
+
     public static FileProof Inspect(string candidate)
     {
         var full=System.IO.Path.GetFullPath(candidate);
@@ -27,6 +59,16 @@ internal static class VerifiedFile
             || full.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.Windows)+@"\",StringComparison.OrdinalIgnoreCase)
             || Forbidden.Contains(System.IO.Path.GetFileName(full)))
             throw new InvalidOperationException("This executable is not eligible for the signed-file pilot.");
+        // Reject junction/symlink parents as well as a reparse-point executable:
+        // process creation accepts a path, so its directory chain must not move.
+        var parent=System.IO.Path.GetDirectoryName(full);
+        while (!string.IsNullOrWhiteSpace(parent))
+        {
+            var dir=new DirectoryInfo(parent);
+            if (!dir.Exists || dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                throw new InvalidOperationException("Redirected or missing executable directories are not approved.");
+            parent=dir.Parent?.FullName;
+        }
         var info=new FileInfo(full);
         if (!info.Exists || info.Length < 4096 || info.Length > 350*1024*1024)
             throw new InvalidOperationException("File is missing or exceeds the pilot size limit.");
