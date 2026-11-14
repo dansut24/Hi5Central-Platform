@@ -43,6 +43,7 @@ public static class PortalNotifications
 
     private static string TaskName()
     {
+        if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException();
         using var user = WindowsIdentity.GetCurrent();
         var sid = user.User?.Value ?? "";
         if (sid.Length < 8 || sid.Any(ch => !(char.IsLetterOrDigit(ch) || ch == '-')))
@@ -130,10 +131,17 @@ public static class PortalNotifications
                     var description = string.Join(", ", newApps.Select(x => x.Name));
                     try
                     {
+#if WINDOWS
                         new ToastContentBuilder()
                             .AddText(title)
                             .AddText(description)
                             .Show();
+#else
+                        // Linux/macOS builds support the read-only catalogue,
+                        // but never call Windows toast APIs.
+                        _ = title;
+                        _ = description;
+#endif
                     }
                     catch (Exception ex) when (ex is IOException
                         or InvalidOperationException or UnauthorizedAccessException
