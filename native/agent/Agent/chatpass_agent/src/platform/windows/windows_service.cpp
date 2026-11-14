@@ -2342,6 +2342,9 @@ LogI(
                     };
 
                 signaling_->onOpen([this, ident]() {
+                    if (stop_.load() || g_stopRequested.load()) return;
+                    signalingConnected_.store(true);
+                    signalingReconnectRequested_.store(false);
                     LogI("websocket connected");
                     if (signaling_) {
                         signaling_->send(json{{"type", "hello"}, {"agent_version", kAgentVersion}}.dump());
@@ -2597,30 +2600,68 @@ LogI(
                     });
 
                 signaling_->onClosed([this]() {
-                    LogW("websocket closed; stopping active remote sessions and streamer helpers");
-                    for (;;) {
-                        std::string nextId;
-                        {
-                            std::lock_guard<std::mutex> lock(sessionsMu_);
-                            if (sessions_.empty()) break;
-                            nextId = sessions_.begin()->first;
-                        }
-                        StopSession(nextId);
-                    }
-                    CleanupOrphanStreamerProcesses();
-                    stop_.store(true);
+                    if (stop_.load() || g_stopRequested.load()) return;
+                    LogW("websocket disconnected; keep Windows service running and reconnect");
+                    signalingConnected_.store(false);
+                    // The worker thread handles remote-session cleanup and reconnection.
+                    // The signaling callback must never set the service stop flag.
+                    signalingReconnectRequested_.store(true);
                     });
 
-                signaling_->connect();
+                try {
+                    signaling_->connect();
+                } catch (const std::exception& ex) {
+                    LogW(std::string("initial websocket connection failed; retrying: ") + ex.what());
+                    signalingReconnectRequested_.store(true);
+                }
                 StartInventoryLoop(ident);
 
                 StartPatchDiscoveryLoop(ident);
                 LogI("[patchhost] standalone PatchHost architecture active; legacy in-process patch worker disabled");
 
                 auto nextUiCleanupSweep = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                auto reconnectDelay = std::chrono::seconds(2);
+                auto nextReconnectAt = std::chrono::steady_clock::now() + std::chrono::seconds(20);
                 while (!stop_.load()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(200));
                     const auto now = std::chrono::steady_clock::now();
+
+                    // A gateway restart or temporary network outage is not a Windows
+                    // service stop. Keep telemetry, patch discovery and app-portal
+                    // broker alive while reconnecting the WebSocket with backoff.
+                    if (signalingReconnectRequested_.exchange(false) &&
+                        !stop_.load() && !g_stopRequested.load()) {
+                        for (;;) {
+                            std::string nextId;
+                            {
+                                std::lock_guard<std::mutex> lock(sessionsMu_);
+                                if (sessions_.empty()) break;
+                                nextId = sessions_.begin()->first;
+                            }
+                            StopSession(nextId);
+                        }
+                        CleanupOrphanStreamerProcesses();
+                        presenceController_.Hide();
+                        sessionBridge_.ClearActiveSession();
+                        nextReconnectAt = std::min(nextReconnectAt, now + reconnectDelay);
+                    }
+
+                    if (signalingConnected_.load()) {
+                        reconnectDelay = std::chrono::seconds(2);
+                        nextReconnectAt = now + std::chrono::seconds(20);
+                    } else if (now >= nextReconnectAt &&
+                               !stop_.load() && !g_stopRequested.load()) {
+                        try {
+                            LogW("websocket unavailable; reconnecting in place without stopping Agent");
+                            if (signaling_) signaling_->connect();
+                        } catch (const std::exception& ex) {
+                            LogW(std::string("websocket reconnect attempt failed: ") + ex.what());
+                        } catch (...) {
+                            LogW("websocket reconnect attempt failed with unknown error");
+                        }
+                        reconnectDelay = std::min(reconnectDelay * 2, std::chrono::seconds(60));
+                        nextReconnectAt = now + reconnectDelay;
+                    }
                     if (now >= nextUiCleanupSweep) {
                         nextUiCleanupSweep = now + std::chrono::seconds(5);
                         bool hasSessions = false;
@@ -7027,6 +7068,8 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
             std::map<std::string, std::shared_ptr<TerminalSession>> terminals_;
 
             std::atomic<bool> stop_{ false };
+            std::atomic<bool> signalingConnected_{ false };
+            std::atomic<bool> signalingReconnectRequested_{ false };
 
             SessionBridge sessionBridge_;
             AgentPresenceController presenceController_;

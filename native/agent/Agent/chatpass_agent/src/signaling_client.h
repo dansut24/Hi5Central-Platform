@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -8,6 +9,7 @@
 namespace rtc {
     class WebSocket;
 }
+struct SignalingCallbackGate;
 
 class SignalingClient {
 public:
@@ -16,6 +18,7 @@ public:
     using ClosedHandler = std::function<void()>;
 
     explicit SignalingClient(std::string url);
+    ~SignalingClient();
 
     void connect();
     void send(const std::string& text);
@@ -33,4 +36,5 @@ private:
     ClosedHandler m_closedHandler;
 
     std::mutex m_sendMu;
+    std::shared_ptr<SignalingCallbackGate> m_callbackGate;
 };  
