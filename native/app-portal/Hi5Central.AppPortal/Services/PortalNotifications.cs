@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Security.Principal;
 using System.Text.Json;
-using CommunityToolkit.WinUI.Notifications;
+using Microsoft.Toolkit.Uwp.Notifications;
 using Hi5Central.AppPortal.Broker;
 using Hi5Central.AppPortal.Models;
 using Hi5Central.AppPortal.Serialization;
