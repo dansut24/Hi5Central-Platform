@@ -20,11 +20,13 @@ test('Self Service deploys only pinned Hi5Central binaries using Agent, not brow
   assert.ok(!script.includes('Stop-Service'))
   assert.ok(!script.includes('Remove-Service'))
 })
-test('Disabling retains installed app and removes reconcile schedules',()=>{
+test('Disabling removes the Self Service app and shortcut, but retains Agent and PatchHost',()=>{
   const cmd = selfServicePowerShell(false)
   assert.ok(cmd.includes('Unregister-ScheduledTask'))
-  assert.ok(cmd.includes("applicationRetained=$true"))
-  assert.ok(!cmd.includes('Remove-Item -LiteralPath $portalDest'))
+  assert.ok(cmd.includes("applicationRetained=$false"))
+  assert.ok(cmd.includes('Remove-Item -LiteralPath $portal'))
+  assert.ok(cmd.includes('Remove-Item -LiteralPath $shortcut'))
+  assert.ok(cmd.includes('patchHostRetained=$true'))
 })
 test('Status never claims installed before a completed Agent job',()=>{
   assert.equal(classifySelfServiceDeployment(null),'not_enabled')
@@ -32,7 +34,15 @@ test('Status never claims installed before a completed Agent job',()=>{
   assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'queued'}),'queued')
   assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'claimed'}),'installing')
   assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'failed'}),'failed')
-  assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'completed'}),'installed')
+  assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'completed',job_result:{exit_code:0}}),'installed')
+  assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'completed',job_result:{exit_code:1}}),'failed')
+  assert.equal(classifySelfServiceDeployment({enabled:false,job_status:'queued'}),'removal_queued')
+  assert.equal(classifySelfServiceDeployment({enabled:false,job_status:'claimed'}),'removing')
+  assert.equal(classifySelfServiceDeployment({enabled:false,job_status:'completed',job_result:{exit_code:0}}),'removed')
+  assert.equal(classifySelfServiceDeployment({enabled:false,job_status:'completed',job_result:{exit_code:1}}),'removal_failed')
+  assert.equal(classifySelfServiceDeployment({enabled:false,job_status:'failed'}),'removal_failed')
+  assert.equal(classifySelfServiceDeployment({enabled:true,job_status:'claimed',claimed_at:'2026-11-13T23:51:00Z'},
+    Date.parse('2026-11-13T23:58:00Z')),'stalled')
 })
 test('Invalid policy inputs cannot build a deployment command',()=>{
   assert.throws(()=>selfServicePowerShell('yes'))

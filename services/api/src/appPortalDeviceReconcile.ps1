@@ -6,6 +6,10 @@ $portalUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralA
 $hostUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralPatchHost-' + $hostHash + '.exe'
 $root = Join-Path $env:ProgramData 'Hi5Central\Agent\SelfService'
 New-Item -ItemType Directory -Force -Path $root | Out-Null
+# A disable policy wins over any older, in-flight reconciliation task.
+$disabledMarker = Join-Path $root 'disabled.txt'
+if (Test-Path -LiteralPath $disabledMarker) { throw 'Self Service is disabled for this device' }
+
 $service = Get-CimInstance Win32_Service -Filter "Name='Hi5CentralAgent'"
 if (-not $service) { throw 'Hi5Central Agent service not found' }
 $servicePath = [string]$service.PathName
@@ -41,6 +45,7 @@ function Install-PinnedFile([string]$Url,[string]$Hash,[string]$Destination) {
       $backup = Join-Path $root ([IO.Path]::GetFileName($Destination) + '.before-self-service.bak')
       Copy-Item -LiteralPath $Destination -Destination $backup -Force -ErrorAction Stop
     }
+    if (Test-Path -LiteralPath $disabledMarker) { throw 'Self Service disabled during download' }
     Copy-Item -LiteralPath $stage -Destination $Destination -Force -ErrorAction Stop
     if ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -ne $Hash) {
       throw 'Installed artifact SHA-256 mismatch'
@@ -60,6 +65,7 @@ $link.TargetPath = $portalDest
 $link.WorkingDirectory = $agentDir
 $link.IconLocation = $portalDest + ',0'
 $link.Description = 'Hi5Central company applications and self-service'
+if (Test-Path -LiteralPath $disabledMarker) { throw 'Self Service disabled before shortcut creation' }
 $link.Save()
 if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Start Menu shortcut missing' }
 $record = [pscustomobject]@{

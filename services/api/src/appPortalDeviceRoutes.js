@@ -28,7 +28,7 @@ export function registerAppPortalDeviceRoutes(app, deps) {
   }
   async function loadPolicy(tenantId, agentId) {
     const found = await pool.query(
-      `SELECT p.*,j.status AS job_status,j.error_message AS job_error,j.completed_at AS job_completed_at,
+      `SELECT p.*,j.status AS job_status,j.error_message AS job_error,j.claimed_at,j.completed_at AS job_completed_at,
               j.result AS job_result
          FROM rmm_device_self_service p
          LEFT JOIN rmm_agent_jobs j ON j.id=p.last_job_id AND j.tenant_id=p.tenant_id
@@ -43,14 +43,17 @@ export function registerAppPortalDeviceRoutes(app, deps) {
       version: row?.release_version || SELF_SERVICE_VERSION,
       lastJobId: row?.last_job_id || null,
       lastJobStatus: row?.job_status || null,
-      lastError: row?.job_error || null,
+      lastError: row?.job_error || ((row?.job_status === 'failed' ||
+        (row?.job_status === 'completed' && row?.job_result?.exit_code !== 0 &&
+         row?.job_result?.exit_code !== '0'))
+        ? String(row?.job_result?.output || '').slice(0, 800) || 'Windows Agent reported that the operation failed.' : null),
       lastCompletedAt: row?.job_completed_at || null,
       updatedAt: row?.updated_at || null,
       deviceName: device.name,
       agentVersion: device.agent_version,
       online: agentSocketForDevice(device.id)?.readyState === 1,
-      installed: row?.enabled === true && row?.job_status === 'completed',
-      retentionOnDisable: 'The application and shortcut remain installed; only automatic deployment is disabled.',
+      installed: classifySelfServiceDeployment(row) === 'installed',
+      retentionOnDisable: 'Disabling removes the Self Service executable, shortcut, and scheduled checks; the core Agent and PatchHost remain installed.',
     }
   }
   async function context(c) {
@@ -127,27 +130,11 @@ export function registerAppPortalDeviceRoutes(app, deps) {
     await pool.query(
       `UPDATE rmm_device_self_service SET last_job_id=$3,last_dispatched_at=now()
         WHERE tenant_id=$1 AND agent_device_id=$2`, [tenantId, agentId, job.id])
-    let method = 'agent_poll_on_reconnect'
-    if (agentSocketForDevice(agentId)?.readyState === 1) {
-      const claimed = await pool.query(
-        `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-          WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING id`,
-        [job.id, tenantId])
-      if (claimed.rowCount) {
-        if (sendAgentMessage(agentId, {
-          type: 'job_execute',
-          job: { id:job.id,job_type:'custom.command',payload,created_at:job.created_at },
-        })) {
-          method = 'websocket'
-        } else {
-          await pool.query(
-            `UPDATE rmm_agent_jobs SET status='queued',claimed_at=NULL,updated_at=now()
-              WHERE id=$1 AND status='claimed'`, [job.id])
-        }
-      } else {
-        method = 'agent_poll'
-      }
-    }
+    // Do not pre-claim and push custom.command over the websocket. The
+    // existing Windows Agent guarantees execution/acknowledgement through its
+    // persistent job polling path. A claimed but unacknowledged push otherwise
+    // leaves the UI stuck at 'Installing' indefinitely.
+    const method = 'agent_job_poll'
     recordRmmActivity?.({
       tenantId, agentDeviceId: agentId, inventoryId: ctx.device.inventory_id,
       actorUserId: ctx.auth.session.user_id, actorType:'technician',
@@ -155,7 +142,7 @@ export function registerAppPortalDeviceRoutes(app, deps) {
       eventType: enable ? 'app_portal.self_service.enabled' : 'app_portal.self_service.disabled',
       category:'software',summary: enable ? 'Self Service enabled for one Windows device' : 'Self Service disabled for one Windows device',
       detail: ctx.device.name + ' · version ' + SELF_SERVICE_VERSION +
-        ' · existing installation retained on disable',
+        ' · Self Service application and shortcut removed on disable, core Agent retained',
       outcome:'requested',jobId:job.id,
       metadata: {enabled:enable,portalSha256:SELF_SERVICE_PORTAL_SHA256},
     }).catch(() => null)

@@ -8,7 +8,12 @@ const stateLabels = {
   queued: 'Queued',
   installing: 'Installing',
   installed: 'Installed',
-  failed: 'Failed',
+  failed: 'Installation failed',
+  stalled: 'Installation not responding',
+  removal_queued: 'Removal queued',
+  removing: 'Removing Self Service',
+  removal_failed: 'Removal failed',
+  removed: 'Removed from device',
 }
 export function RmmDeviceSelfService({ device }) {
   const [policy, setPolicy] = useState(null)
@@ -80,12 +85,13 @@ export function RmmDeviceSelfService({ device }) {
       </label>
     </div>
     <div style={{ display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',padding:'8px 0' }}>
-      {policy?.status === 'installed' ? <CheckCircle2 color="#208456" size={19}/> :
-        policy?.status === 'failed' ? <AlertTriangle color="#dc8a28" size={19}/> :
+      {['installed', 'removed'].includes(policy?.status) ? <CheckCircle2 color="#208456" size={19}/> :
+        ['failed', 'removal_failed', 'stalled'].includes(policy?.status) ? <AlertTriangle color="#dc8a28" size={19}/> :
         <Download size={19}/>}
       <strong>{loading ? 'Checking deployment…' : stateLabels[policy?.status] || 'Status unknown'}</strong>
+      {policy?.status === 'stalled' && <small>Previous Agent job has not reported completion. Check device diagnostics before retrying.</small>}
       <small>{policy?.version ? 'App ' + policy.version : ''}</small>
-      {policy && <small>{policy.online ? 'Device connected' : 'Device offline — deployment queued for reconnect'}</small>}
+      {policy && <small>{policy.online ? 'Device connected' : 'Agent connection unavailable — operation queued or awaiting result'}</small>}
       {busy && <small>Submitting device policy…</small>}
     </div>
     {policy?.lastError && <p role="alert">{policy.lastError}</p>}
@@ -93,9 +99,9 @@ export function RmmDeviceSelfService({ device }) {
     {policy?.enabled && <button type="button" onClick={() => changeEnabled(true, true)} disabled={busy}>
       <RefreshCw size={14} /> Retry / reconcile installation
     </button>}
-    <p style={{ fontSize:12,marginTop:14 }}>On restart, the installed Agent and the local reconciliation task
-      restore the required application without duplicate installs. Disabling removes automatic deployment
-      but retains the existing app and shortcut.</p>
+    <p style={{ fontSize:12,marginTop:14 }}>When enabled, the installed Agent and a local reconciliation task
+      maintain Self Service without duplicate installations. When disabled, Hi5Central removes the
+      Self Service executable, Start Menu shortcut and reconciliation tasks. The Agent and PatchHost stay installed.</p>
     <p style={{ fontSize:12 }}><ShieldCheck size={13} style={{verticalAlign:'middle'}}/> Uploaded installers
       are hash-pinned. Unsigned custom applications still require explicit tenant-owner approval and
       device-specific assignment.</p>
