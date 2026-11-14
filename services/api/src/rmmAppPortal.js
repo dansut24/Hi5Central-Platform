@@ -357,7 +357,7 @@ async function dispatchCustomInstall(agent, app, identity) {
     await pool.query(
       `INSERT INTO rmm_app_portal_package_tokens
         (tenant_id,revision_id,agent_device_id,token_hash,expires_at)
-       VALUES ($1,$2,$3,$4,now()+interval '15 minutes')`,
+       VALUES ($1,$2,$3,$4,now()+interval '45 minutes')`,
       [agent.tenant_id, app.revision_id, agent.id, packageTokenHash(token)])
     downloadUrl = `${String(deployment.apiUrl || `https://api.${deployment.rootDomain}`).replace(/\/$/, '')}/api/v1/agent/app-portal/packages/${token}`
   }
@@ -417,25 +417,10 @@ async function dispatchCustomInstall(agent, app, identity) {
         WHERE id=$1`, [installation.id, job.id])
     return { installation, job }
   })
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING id`,
-    [created.job.id, agent.tenant_id],
-  )
-  if (!claimed.rowCount) return { error: 'Install job could not be claimed.', status: 409 }
-  const pushed = sendAgentMessage(agent.id, {
-    type: 'job_execute',
-    job: { id: created.job.id, job_type: 'patch.software', payload: manifest, created_at: created.job.created_at },
-  })
-  if (!pushed) {
-    await pool.query(
-      `UPDATE rmm_agent_jobs SET status='cancelled',completed_at=now(),error_message='Device went offline before App Portal dispatch.',updated_at=now()
-        WHERE id=$1`, [created.job.id])
-    await pool.query(
-      `UPDATE rmm_app_portal_installations SET status='cancelled',completed_at=now(),updated_at=now() WHERE id=$1`,
-      [created.installation.id])
-    return { error: 'Device went offline before install could start.', status: 409 }
-  }
+  // Agent's persistent /jobs poll owns claiming and acknowledgement. A
+  // WebSocket send is advisory and must never mark a job as executing before
+  // Windows has actually received it; doing so stranded App Portal installs.
+  // Keep this queued until Agent polls, even after a temporary reconnect.
   await recordRmmActivity({
     tenantId: agent.tenant_id, agentDeviceId: agent.id, inventoryId: agent.inventory_id,
     actorType: 'user', actorLabel: label, eventType: 'software.install.requested', category: 'software',
@@ -479,25 +464,8 @@ async function dispatchCatalogueInstall(agent, app, identity) {
         WHERE id=$1`, [installation.id, job.id])
     return { installation, job }
   })
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING id`,
-    [created.job.id, agent.tenant_id])
-  if (!claimed.rowCount) return { error: 'Install job could not be claimed.', status: 409 }
-  const pushed = sendAgentMessage(agent.id, {
-    type: 'job_execute',
-    job: { id: created.job.id, job_type: 'patch.software', payload: plan.manifest, created_at: created.job.created_at },
-  })
-  if (!pushed) {
-    await pool.query(
-      `UPDATE rmm_agent_jobs SET status='cancelled',completed_at=now(),
-          error_message='Device went offline before App Portal dispatch.',updated_at=now() WHERE id=$1`,
-      [created.job.id])
-    await pool.query(
-      `UPDATE rmm_app_portal_installations SET status='cancelled',completed_at=now(),updated_at=now() WHERE id=$1`,
-      [created.installation.id])
-    return { error: 'Device went offline before install could start.', status: 409 }
-  }
+  // Existing Agent polling claims the job and reports its result.
+  // Avoid pre-claiming and losing it when a WebSocket dispatch is missed.
   await recordRmmActivity({
     tenantId: agent.tenant_id, agentDeviceId: agent.id, inventoryId: agent.inventory_id,
     actorType: 'user', actorLabel: label, eventType: 'software.install.requested', category: 'software',
@@ -519,7 +487,7 @@ export function registerRmmAppPortalRoutes(app) {
     if (token.length < 40 || token.length > 100) return c.json({ error: 'Package token is invalid.' }, 404)
     const tokenHash = packageTokenHash(token)
     const found = await pool.query(
-      `SELECT t.id,t.expires_at,t.tenant_id,t.revision_id,r.source_config,r.sha256,r.installer_type
+      `SELECT t.id,t.expires_at,t.tenant_id,t.revision_id,r.source_kind,r.source_config,r.sha256,r.installer_type
          FROM rmm_app_portal_package_tokens t
          JOIN rmm_app_portal_revisions r ON r.id=t.revision_id AND r.tenant_id=t.tenant_id
         WHERE t.token_hash=$1 AND t.expires_at>now() AND r.source_kind='upload'

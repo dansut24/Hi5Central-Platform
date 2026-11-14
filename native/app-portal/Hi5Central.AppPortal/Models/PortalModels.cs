@@ -274,6 +274,7 @@ public enum AppPortalStatus
     ApprovalRequired,
     ApprovalPending,
     ApprovalRejected,
+    Queued,
     Installing,
     VerificationPending,
     Installed,
@@ -326,6 +327,7 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Approval required",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request declined",
+        AppPortalStatus.Queued => "Queued for device",
         AppPortalStatus.Installing => "Installing",
         AppPortalStatus.VerificationPending => "Verification pending",
         AppPortalStatus.Installed => "Installed",
@@ -338,6 +340,7 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Request approval",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request again",
+        AppPortalStatus.Queued => "Waiting for Agent",
         AppPortalStatus.Installing => "Installing...",
         AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
@@ -353,6 +356,7 @@ public sealed class AppCard : INotifyPropertyChanged
     public string StatusBackground => Status switch
     {
         AppPortalStatus.Installed => "#E9F8F1",
+        AppPortalStatus.Queued => "#FFF6E5",
         AppPortalStatus.Installing => "#EEF4FF",
         AppPortalStatus.VerificationPending => "#FFF6E5",
         AppPortalStatus.ApprovalPending => "#FFF6E5",

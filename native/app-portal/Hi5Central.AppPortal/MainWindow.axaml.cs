@@ -544,7 +544,7 @@ public sealed partial class MainWindow : Window
 
             if (requestStatus == "fulfilled" && installation is null)
             {
-                return AppPortalStatus.Installing;
+                return AppPortalStatus.Queued;
             }
         }
 
@@ -553,11 +553,17 @@ public sealed partial class MainWindow : Window
             var lifecycle = installation.InstallationStatus.Trim().ToLowerInvariant();
             var job = installation.JobStatus.Trim().ToLowerInvariant();
 
-            if (lifecycle is "queued" or "running" or "requested"
-                || job is "queued" or "claimed")
-            {
+            // The real Agent job state wins over a stale installation row.
+            // Otherwise a failed, unclaimed or disconnected job can display
+            // "Installing" indefinitely despite no installer running.
+            if (job is "failed" or "cancelled" || lifecycle is "failed" or "cancelled")
+                return app.Installed ? AppPortalStatus.Installed : AppPortalStatus.Failed;
+
+            if (job == "queued" || lifecycle is "queued" or "requested")
+                return AppPortalStatus.Queued;
+
+            if (job == "claimed" || lifecycle == "running" && string.IsNullOrEmpty(job))
                 return AppPortalStatus.Installing;
-            }
 
             if (requiresFreshInventory)
             {
@@ -763,7 +769,7 @@ public sealed partial class MainWindow : Window
 
     private bool NeedsPolling()
         => BuildCards().Any(card => card.Status is AppPortalStatus.Installing
-            or AppPortalStatus.ApprovalPending);
+            or AppPortalStatus.Queued or AppPortalStatus.ApprovalPending);
 
     private void UpdatePollState()
     {
