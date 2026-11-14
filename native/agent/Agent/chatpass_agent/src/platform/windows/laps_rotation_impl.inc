@@ -86,13 +86,35 @@ static std::wstring LocalAdministratorsGroupName() {
     return std::wstring(name);
 }
 static void AddDedicatedAdminToLocalAdministrators(const std::wstring& accountName) {
-    std::wstring principal = L".\\" + accountName;
-    LOCALGROUP_MEMBERS_INFO_3 membership{};
-    membership.lgrmi3_domainandname = principal.data();
-    const auto status = NetLocalGroupAddMembers(nullptr, LocalAdministratorsGroupName().c_str(), 3,
-                                               reinterpret_cast<LPBYTE>(&membership), 1);
+    // NetLocalGroupAddMembers(level 3) accepts a fully-qualified account name,
+    // but ".\\Hi5Recovery" is not reliably resolved by the SAM/NetAPI
+    // name resolver. Use the newly-created user's SID directly (level 0)
+    // against the well-known BUILTIN\\Administrators SID-derived group name.
+    LPBYTE userBuffer = nullptr;
+    const NET_API_STATUS lookupStatus = NetUserGetInfo(nullptr, accountName.c_str(), 4, &userBuffer);
+    if (lookupStatus != NERR_Success || !userBuffer)
+        throw std::runtime_error("Cannot inspect new local account SID (" +
+                                 std::to_string(lookupStatus) + ")");
+    auto* user = reinterpret_cast<USER_INFO_4*>(userBuffer);
+    if (!user->usri4_user_sid || !IsValidSid(user->usri4_user_sid)) {
+        NetApiBufferFree(userBuffer);
+        throw std::runtime_error("New local account SID is invalid");
+    }
+    LOCALGROUP_MEMBERS_INFO_0 membership{};
+    membership.lgrmi0_sid = user->usri4_user_sid;
+    NET_API_STATUS status = NERR_Success;
+    try {
+        const std::wstring groupName = LocalAdministratorsGroupName();
+        status = NetLocalGroupAddMembers(nullptr, groupName.c_str(), 0,
+                                         reinterpret_cast<LPBYTE>(&membership), 1);
+    } catch (...) {
+        NetApiBufferFree(userBuffer);
+        throw;
+    }
+    NetApiBufferFree(userBuffer);
     if (status != NERR_Success && status != ERROR_MEMBER_IN_ALIAS)
-        throw std::runtime_error("Could not add the dedicated account to local Administrators");
+        throw std::runtime_error("Windows rejected Administrators SID membership (code " +
+                                 std::to_string(status) + ")");
 }
 static LocalAdminSensitivePassword GenerateManagedPassword() {
     LocalAdminSensitivePassword password;
@@ -164,11 +186,23 @@ static json RotateDedicatedLocalAdmin(const AgentIdentity& ident, const std::str
         changeStatus=NetUserAdd(nullptr,1,reinterpret_cast<LPBYTE>(&newUser),&parameterError);
         if (changeStatus==NERR_Success) {
             try { AddDedicatedAdminToLocalAdministrators(accountWide); }
-            catch (...) {
-                // Do not leave an unmanaged privileged account behind on failed first enrolment.
-                NetUserDel(nullptr,accountWide.c_str());
+            catch (const std::exception& membershipError) {
+                // Do not leave an unmanaged local account behind after an
+                // unsuccessful first enrolment. Distinguish a VERIFIED rollback
+                // from an uncertain state: the API can safely retire an
+                // escrowed, never-activated candidate only in the former case.
+                const std::string reason = membershipError.what();
+                const NET_API_STATUS deletion = NetUserDel(nullptr,accountWide.c_str());
                 SecureZeroMemory(passwordWide.data(),passwordWide.size()*sizeof(wchar_t));
-                throw;
+                bool verifiedAbsent = false;
+                if (deletion == NERR_Success || deletion == NERR_UserNotFound) {
+                    try { verifiedAbsent = ManagedAccountSid(accountWide).empty(); }
+                    catch (...) { verifiedAbsent = false; }
+                }
+                if (verifiedAbsent)
+                    throw std::runtime_error("LAPS_ACCOUNT_CREATION_ROLLED_BACK: " + reason);
+                throw std::runtime_error("Local administrator group assignment failed and Windows account removal is unconfirmed (error " +
+                                         std::to_string(deletion) + "): " + reason);
             }
         }
     } else {

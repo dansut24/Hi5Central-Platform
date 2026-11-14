@@ -88,7 +88,7 @@ export function RmmLocalAdminVault() {
     <div className="rmm-local-admin-header"><div><h2><KeyRound size={21}/> Local administrator vault</h2><p>Per-device managed local administrator credentials, on-demand rotation and audited recovery.</p></div><button type="button" onClick={()=>refresh().catch((e)=>setError(e.message))}><RefreshCw size={16}/> Refresh</button></div>
     <div className="rmm-local-admin-warning"><AlertTriangle size={18}/><span><strong>Separate from Windows LAPS.</strong> Native Windows LAPS continues to back up to Entra ID or Active Directory; Hi5Central-managed vaults use a dedicated local account and encrypted escrow. Never manage the same account with both systems.</span></div>
     {!data && !error && <p>Loading managed administrator accounts…</p>}
-    {error && <p className="rmm-local-admin-error" role="alert">{error}</p>}
+    {error && !account && <p className="rmm-local-admin-error" role="alert">{error}</p>}
     {notice && <p className="rmm-local-admin-notice" role="status">{notice}</p>}
     {data && <>
       <div className="rmm-local-admin-stats"><div><strong>{accounts.length}</strong><span>Managed accounts</span></div><div><strong>{accounts.filter((a)=>a.state==='active').length}</strong><span>Active escrow</span></div><div><strong>{accounts.filter((a)=>a.state==='error'||a.state==='pending').length}</strong><span>Not yet active</span></div></div>
@@ -109,6 +109,8 @@ export function RmmLocalAdminVault() {
             <h3><ShieldCheck size={17}/>{account.deviceName}</h3>
             <dl><div><dt>Managed account</dt><dd>{account.name}</dd></div><div><dt>Vault status</dt><dd>{account.state}</dd></div><div><dt>Last rotation</dt><dd>{friendlyTime(account.lastRotatedAt)}</dd></div><div><dt>Next planned review</dt><dd>{friendlyTime(account.nextRotationAt)}</dd></div><div><dt>Agent connectivity</dt><dd>{account.agentConnected?'Online':'Not recently connected'}</dd></div></dl>
             <label>Reason for rotation or password reveal<textarea rows={3} value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="Explain the recovery or administrative requirement." /></label>
+            <p className="rmm-local-admin-hint">Enter a reason before each action (at least 10 characters for rotation, 12 for reveal). A password marked uncertain may not work on Windows.</p>
+            {error&&<p className="rmm-local-admin-error" role="alert">{error}</p>}
             <div className="rmm-local-admin-buttons">
               <button type="button" disabled={busy||!account.agentConnected||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
             </div>

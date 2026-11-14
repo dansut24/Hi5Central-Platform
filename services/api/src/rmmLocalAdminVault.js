@@ -250,12 +250,25 @@ export async function reconcileLocalAdminJobResult(job,success) {
     if (!result.rowCount) return
     const row=result.rows[0]
     if (success && row.state==='active') return
-    const targetState=row.state==='escrowed'?'uncertain':row.state==='queued'?'failed':row.state
+    // A first-time account creation can fail *after* escrow but *before*
+    // activation. The native Agent reports an explicit marker ONLY after
+    // NetUserDel succeeds and a follow-up SID lookup confirms no account
+    // remains. In that proven rollback case the escrowed candidate is not
+    // a usable credential and must not be exposed or block a retry.
+    const verifiedCreationRollback = !success && ['escrowed','uncertain'].includes(row.state)
+      && String(job.error_message||'').startsWith('LAPS_ACCOUNT_CREATION_ROLLED_BACK:')
+    const targetState=verifiedCreationRollback?'failed'
+      :row.state==='escrowed'?'uncertain':row.state==='queued'?'failed':row.state
     if (targetState===row.state) return
-    await client.query('UPDATE rmm_local_admin_rotations SET state=$2,updated_at=now() WHERE id=$1',[row.id,targetState])
     await client.query(
-      "UPDATE rmm_local_admin_accounts SET state=CASE WHEN current_rotation_id IS NULL THEN 'error' ELSE state END,last_error=$2,updated_at=now() WHERE id=$1",
-      [row.account_id,targetState==='uncertain'?'Rotation activation unconfirmed. Check escrowed candidate and device state.':'Rotation did not complete.'])
-    await audited(client,{tenantId:job.tenant_id,accountId:row.account_id,rotationId:row.id,eventType:'rotation.'+targetState,actorKind:'agent',detail:{jobId:job.id}})
+      "UPDATE rmm_local_admin_rotations SET state=$2,credential_ciphertext=CASE WHEN $3 THEN NULL ELSE credential_ciphertext END,retired_at=CASE WHEN $3 THEN now() ELSE retired_at END,updated_at=now() WHERE id=$1",
+      [row.id,targetState,verifiedCreationRollback])
+    await client.query(
+      "UPDATE rmm_local_admin_accounts SET state=CASE WHEN $3 AND current_rotation_id IS NULL THEN 'pending' WHEN current_rotation_id IS NULL THEN 'error' ELSE state END,last_error=$2,updated_at=now() WHERE id=$1",
+      [row.account_id,verifiedCreationRollback
+        ?'Windows account creation was rolled back after a group membership failure. No password was activated.'
+        :targetState==='uncertain'?'Rotation activation unconfirmed. Check escrowed candidate and device state.':'Rotation did not complete.',
+        verifiedCreationRollback])
+    await audited(client,{tenantId:job.tenant_id,accountId:row.account_id,rotationId:row.id,eventType:'rotation.'+targetState,actorKind:'agent',detail:{jobId:job.id,verifiedAccountAbsent:verifiedCreationRollback}})
   })
 }
