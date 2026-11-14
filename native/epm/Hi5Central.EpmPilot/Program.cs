@@ -11,7 +11,7 @@ namespace Hi5Central.EpmPilot;
 internal static class Program
 {
     [STAThread]
-    private static async Task Main(string[] args)
+    private static void Main(string[] args)
     {
         if(args.Length==1 && args[0]=="--service") {
             ServiceBase.Run(new EpmService());
@@ -36,7 +36,7 @@ internal static class Program
                 "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
             return;
         }
-        await RequestOrLaunch(args[0]);
+        Application.Run(new LauncherContext(args[0]));
     }
     internal static async Task<JsonDocument> AskBroker(string type,string path="",string reason="")
     {
@@ -90,6 +90,25 @@ internal static class Program
             MessageBox.Show("Hi5Central elevation could not continue.\n\n"+e.Message,
                 "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Warning);
         }
+    }
+}
+internal sealed class LauncherContext : ApplicationContext
+{
+    private readonly System.Windows.Forms.Timer once;
+    private readonly string selectedFile;
+    internal LauncherContext(string path) {
+        selectedFile=path;
+        once=new System.Windows.Forms.Timer {Interval=120};
+        once.Tick+=async (_,_)=>{
+            once.Stop();
+            try {await Program.RequestOrLaunch(selectedFile);}
+            finally {ExitThread();}
+        };
+        once.Start();
+    }
+    protected override void ExitThreadCore() {
+        once.Stop();once.Dispose();
+        base.ExitThreadCore();
     }
 }
 internal static class ReasonDialog
