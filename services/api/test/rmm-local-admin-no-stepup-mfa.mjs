@@ -24,6 +24,6 @@ test('operator reason, audit, escrow and server-side vault security are retained
   assert.match(api, /protectLocalAdminPassword/)
   assert.match(api, /revealLocalAdminPassword/)
   assert.match(api, /credential_ciphertext/)
-  assert.match(ui, /disabled=\{busy\|\|!account\.agentConnected\|\|!data\.canRotate\}/)
+  assert.match(ui, /disabled=\{busy\|\|!account\.agentConnected\|\|!agentSupportsRotation\|\|!data\.canRotate\}/)
   assert.match(ui, /disabled=\{busy\|\|!data\.canReveal\}/)
 })

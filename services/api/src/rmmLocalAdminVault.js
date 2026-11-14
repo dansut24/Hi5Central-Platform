@@ -132,7 +132,7 @@ export function registerRmmLocalAdminVaultRoutes(app) {
     if (account.state==='disabled') throw fail('Account management is disabled.',409)
     if (account.websocket_status!=='Connected'||!account.last_telemetry_at||Date.now()-new Date(account.last_telemetry_at).getTime()>90000) throw fail('The device must be online for immediate rotation.',409)
     const version=String(account.agent_version||'').match(/(?:^|\D)(\d+)\.(\d+)\.(\d+)/)
-    if (!version || Number(version[1])!==1 || Number(version[2])!==0 || Number(version[3])<507) throw fail('A Hi5Central Agent version with secure local-admin rotation support is required.',409)
+    if (!version || Number(version[1])!==1 || Number(version[2])!==0 || Number(version[3])<509) throw fail('Hi5Central Agent 1.0.509 or newer is required for secure local administrator rotation.',409)
     const saved=await withTransaction(async(client)=>{
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[session.tenant_id+':laps:'+account.id])
       const pending=await client.query(

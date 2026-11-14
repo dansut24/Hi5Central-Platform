@@ -28,3 +28,9 @@ test('Vault displays recovery reason requirement by affected controls',()=>{
   assert.ok(ui.includes('at least 10 characters for rotation, 12 for reveal'))
   assert.ok(ui.includes('{error&&<p className="rmm-local-admin-error" role="alert">{error}</p>}'))
 })
+
+test('disables unsafe rotation on Agent 1.0.508 until corrected 1.0.509 is installed',()=>{
+  assert.ok(api.includes('Number(version[3])<509'))
+  assert.ok(ui.includes('agentPatchVersion>=509'))
+  assert.ok(ui.includes('!agentSupportsRotation'))
+})

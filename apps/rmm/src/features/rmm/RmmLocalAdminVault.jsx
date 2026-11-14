@@ -45,6 +45,8 @@ export function RmmLocalAdminVault() {
   },[refresh,selected])
   const accounts=data?.accounts||[]
   const account=useMemo(()=>accounts.find((a)=>a.id===selected),[accounts,selected])
+  const agentPatchVersion=Number(String(account?.agentVersion||'').match(/^1\\.0\\.(\\d+)/)?.[1]||0)
+  const agentSupportsRotation=Boolean(account&&agentPatchVersion>=509)
   async function enrol() {
     if(!device)return
     if(!window.confirm('Register a dedicated Hi5Central local administrator account on this device? No Windows password changes will occur until the first authorised rotation.'))return
@@ -112,8 +114,9 @@ export function RmmLocalAdminVault() {
             <p className="rmm-local-admin-hint">Enter a reason before each action (at least 10 characters for rotation, 12 for reveal). A password marked uncertain may not work on Windows.</p>
             {error&&<p className="rmm-local-admin-error" role="alert">{error}</p>}
             <div className="rmm-local-admin-buttons">
-              <button type="button" disabled={busy||!account.agentConnected||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
+              <button type="button" disabled={busy||!account.agentConnected||!agentSupportsRotation||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
             </div>
+            {!agentSupportsRotation&&<p className="rmm-local-admin-warning">Agent 1.0.509 or newer is required before another local administrator rotation. Existing installations remain untouched.</p>}
             {account.lastError&&<p className="rmm-local-admin-error">{account.lastError}</p>}
             <h4>Rotation history</h4>
             {history.map((r)=><div className="rmm-local-admin-history" key={r.id}>
