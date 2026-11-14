@@ -5,7 +5,7 @@ import { resolveSession } from './session.js'
 import { authenticateAgent } from './rmmAgent.js'
 import {
   protectLocalAdminPassword, revealLocalAdminPassword, validLocalAdminPassword,
-  validateDedicatedLocalAdminName, revealMfaRecent, rotationMetadata,
+  validateDedicatedLocalAdminName, rotationMetadata,
 } from './rmmLocalAdminVaultCrypto.js'
 
 const idPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -100,7 +100,6 @@ export function registerRmmLocalAdminVaultRoutes(app) {
       availableDevices:deviceRows.rows.map((row)=>({id:row.agent_device_id,name:row.name,version:row.agent_version,online:row.websocket_status==='Connected'&&row.last_telemetry_at&&Date.now()-new Date(row.last_telemetry_at).getTime()<90000})),
       canRotate:hasPermission(session.access,'rmm.security.local_admin.rotate'),
       canReveal:hasPermission(session.access,'rmm.security.local_admin.read'),
-      recentlyVerified:revealMfaRecent(session),
       vaultMode:'hi5central-managed-separate-from-native-windows-laps'})
   }))
   app.post('/api/v1/rmm/local-admin/accounts',safe(async(c)=>{
@@ -126,7 +125,6 @@ export function registerRmmLocalAdminVaultRoutes(app) {
   }))
   app.post('/api/v1/rmm/local-admin/accounts/:accountId/rotate',safe(async(c)=>{
     const session=await authorize(c,'rmm.security.local_admin.rotate')
-    if (!revealMfaRecent(session)) throw fail('Complete fresh MFA within the last five minutes before rotating a privileged account.',403)
     const body=await c.req.json().catch(()=>({}))
     const reason=clean(body.reason,500)
     if (reason.length<10) throw fail('Provide a business reason for password rotation.')
@@ -167,7 +165,6 @@ export function registerRmmLocalAdminVaultRoutes(app) {
   }))
   app.post('/api/v1/rmm/local-admin/accounts/:accountId/rotations/:rotationId/reveal',safe(async(c)=>{
     const session=await authorize(c,'rmm.security.local_admin.read')
-    if (!revealMfaRecent(session)) throw fail('For password reveal, sign in again and complete MFA within the last 5 minutes.',403)
     const body=await c.req.json().catch(()=>({}))
     const reason=clean(body.reason,500)
     if (reason.length<12) throw fail('Enter a reason for revealing this local administrator password.')

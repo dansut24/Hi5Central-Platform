@@ -110,14 +110,13 @@ export function RmmLocalAdminVault() {
             <dl><div><dt>Managed account</dt><dd>{account.name}</dd></div><div><dt>Vault status</dt><dd>{account.state}</dd></div><div><dt>Last rotation</dt><dd>{friendlyTime(account.lastRotatedAt)}</dd></div><div><dt>Next planned review</dt><dd>{friendlyTime(account.nextRotationAt)}</dd></div><div><dt>Agent connectivity</dt><dd>{account.agentConnected?'Online':'Not recently connected'}</dd></div></dl>
             <label>Reason for rotation or password reveal<textarea rows={3} value={reason} onChange={(e)=>setReason(e.target.value)} placeholder="Explain the recovery or administrative requirement." /></label>
             <div className="rmm-local-admin-buttons">
-              <button type="button" disabled={busy||!account.agentConnected||!data.canRotate||!data.recentlyVerified} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
+              <button type="button" disabled={busy||!account.agentConnected||!data.canRotate} onClick={rotate}><RefreshCw size={15}/> Rotate password now</button>
             </div>
             {account.lastError&&<p className="rmm-local-admin-error">{account.lastError}</p>}
-            {!data.recentlyVerified && data.canReveal && <p className="rmm-local-admin-warning">Password rotation and reveal require MFA within the last five minutes. Sign in again with MFA to enable either action.</p>}
             <h4>Rotation history</h4>
             {history.map((r)=><div className="rmm-local-admin-history" key={r.id}>
               <span><strong>{r.state}</strong><small>{friendlyTime(r.activatedAt||r.createdAt)}{r.escrowedAt?' · Escrowed':''}</small></span>
-              {['active','escrowed','uncertain'].includes(r.state)&&<button disabled={busy||!data.canReveal||!data.recentlyVerified} type="button" onClick={()=>reveal(r)}><Eye size={15}/> Reveal</button>}
+              {['active','escrowed','uncertain'].includes(r.state)&&<button disabled={busy||!data.canReveal} type="button" onClick={()=>reveal(r)}><Eye size={15}/> Reveal</button>}
             </div>)}
             {!history.length&&<p>No rotation history yet.</p>}
             {visible && <div className="rmm-local-admin-secret"><strong>{visible.accountName} · {visible.status}</strong><code>{visible.password}</code><button type="button" onClick={()=>setVisible(null)}><EyeOff size={15}/> Hide now</button>{visible.warning&&<p>{visible.warning}</p>}</div>}

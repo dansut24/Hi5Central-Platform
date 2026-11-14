@@ -9,13 +9,13 @@
 ## Protocol and failure recovery
 
 1. Tenant owner or a role with `rmm.security.local_admin.rotate` registers a dedicated, not-yet-created account against one enrolled Windows agent.
-2. Operator with a fresh MFA-backed interactive session requests immediate rotation with a business reason. The API rejects clients with agent version <1.0.507 and stale/offline agents. The job contains account ID/name and prior SID only, **never a password**.
+2. Operator with a normally authenticated interactive session requests immediate rotation with a business reason. The API rejects clients with agent version <1.0.507 and stale/offline agents. The job contains account ID/name and prior SID only, **never a password**.
 3. Updated C++ agent validates account name, Windows identity, local Windows LAPS policy and previous SID; generates a cryptographically random 40-character password with Windows BCryptGenRandom.
 4. Agent sends candidate through authenticated HTTPS directly to `/api/v1/agent/laps/escrow`. API validates an agent-owned claimed job and encrypts into a separate `rmm_local_admin_rotations` row, with tenant/device/account/rotation-specific AEAD associated data. Receipt is required before changing Windows.
 5. Agent uses NetUserAdd + Administrators SID resolution for a new dedicated account, or NetUserSetInfo(USER_INFO_1003) for a managed account whose SID matches. It never adopts a pre-existing similarly named account.
 6. Agent posts `/api/v1/agent/laps/commit` confirming SID, job and escrow identity; API atomically activates the new record, retires/wipes superseded ciphertext and audits. The normal agent job result includes status and SID only.
 7. If the Windows operation or final acknowledgement fails after escrow, the pending record transitions to `uncertain` and remains decryptable by a specially authorised technician. **Uncertain does NOT mean the candidate is the current device password.** Automatic replay of claimed sensitive jobs is disabled.
-8. Reveal uses a separate `rmm.security.local_admin.read` permission, an interactive session with MFA verified in the past 5 minutes, an explicit reason, and an immutable-style append-only audit event. No reveal in telemetry, command outputs, activity records or inventory. HTTP response is marked no-store; the browser displays secrets only temporarily.
+8. Reveal uses a separate `rmm.security.local_admin.read` permission, a normally authenticated interactive session (no extra five-minute MFA re-verification), an explicit reason, and an immutable-style append-only audit event. No reveal in telemetry, command outputs, activity records or inventory. HTTP response is marked no-store; the browser displays secrets only temporarily.
 
 ## Cryptography and key handling
 
@@ -33,10 +33,14 @@ Dedicated application-managed AES-256-GCM with 96-bit random nonces; per-device/
 
 ## Tests and outstanding follow-ups
 
-- 20 passing Node tests for per-setting policy rules, Windows policy adapter, vault crypto and MFA guards.
+- 23 passing Node tests for per-setting policy rules, Windows policy adapter, vault crypto and MFA guards.
 - RMM web and API runtime builds pass. Windows native agent C++ needs GitHub Windows workflow verification.
-- Outstanding: agent native Windows build; agent staged upgrade and dedicated Newtest account test; prove fresh-MFA reveal, pending/uncertain recovery, wrong-tenant protection, database backup/restore using sealed key; implement scheduled recurring rotations and age policy; optional Windows-native LAPS ResetPassword and AD/Entra just-in-time retrieval through proper directory delegated permissions.
+- Outstanding: agent native Windows build; agent staged upgrade and dedicated Newtest account test; prove role-protected reveal without an extra MFA prompt, pending/uncertain recovery, wrong-tenant protection, database backup/restore using sealed key; implement scheduled recurring rotations and age policy; optional Windows-native LAPS ResetPassword and AD/Entra just-in-time retrieval through proper directory delegated permissions.
 
 ## Test instructions
 
-Open Newtest RMM → Configure → Endpoint management → Local admin vault. Sign in with MFA, choose the Newtest Lenovo in the account-registration selector and register the dedicated `Hi5Recovery` account. Registration itself does not create/change the Windows account. Rotate now will remain blocked while the agent is below the secure handler minimum; after the agent build is deployed, use a fresh MFA session and enter a justification. Never choose the built-in Administrator account for initial testing.
+Open Newtest RMM → Configure → Endpoint management → Local admin vault. Sign in with MFA, choose the Newtest Lenovo in the account-registration selector and register the dedicated `Hi5Recovery` account. Registration itself does not create/change the Windows account. Rotate now will remain blocked while the agent is below the secure handler minimum; after the agent build is deployed, sign in normally and enter a business justification. Never choose the built-in Administrator account for initial testing.
+
+## 2026-11-14 Local Admin Vault MFA change
+
+The extra five-minute MFA recency requirement has been removed from rotation and password reveal. Normal Hi5Central sign-in (including platform login MFA), tenant scoping, separate rotate/read permissions, written justification, audit logging and encrypted escrow remain enforced. Deployed to Newtest as laps-no-stepup-mfa-20261114, with 23 passing tests. Agent 1.0.508 is connected, but the initial Hi5Recovery password rotation has not yet been performed.
