@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
-using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
 
@@ -13,40 +12,6 @@ namespace Hi5Central.EpmPilot;
 /// </summary>
 internal static class AdminLaunch
 {
-    public static string Stage(FileProof trusted, Guid requestId)
-    {
-        string folder=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "Hi5Central","EPM","Staging");
-        Directory.CreateDirectory(folder);
-        var security=new DirectorySecurity();
-        security.SetAccessRuleProtection(true,false);
-        security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid,null),
-            FileSystemRights.FullControl,InheritanceFlags.ContainerInherit|InheritanceFlags.ObjectInherit,PropagationFlags.None,AccessControlType.Allow));
-        security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null),
-            FileSystemRights.FullControl,InheritanceFlags.ContainerInherit|InheritanceFlags.ObjectInherit,PropagationFlags.None,AccessControlType.Allow));
-        new DirectoryInfo(folder).SetAccessControl(security);
-        string copy=Path.Combine(folder,requestId.ToString("N")+".exe");
-        // Do not use File.Copy: Win32 CopyFile can copy source security metadata
-        // from an untrusted Downloads file into the SYSTEM-owned staging area.
-        // A new stream inherits our protected staging ACL instead. CREATE_NEW
-        // refuses collisions; a SHA-256 + Authenticode check follows the copy.
-        try {
-            using (var source = new FileStream(trusted.Path, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var destination = new FileStream(copy, FileMode.CreateNew, FileAccess.Write,
-                       FileShare.None, 128 * 1024, FileOptions.WriteThrough))
-            {
-                source.CopyTo(destination);
-                destination.Flush(true);
-            }
-            var actual=VerifiedFile.Inspect(copy);
-            if (actual.Hash!=trusted.Hash || actual.Thumbprint!=trusted.Thumbprint)
-                throw new InvalidOperationException("Installer changed during secure staging.");
-            return copy;
-        } catch {
-            try { File.Delete(copy); } catch { /* file is inside protected staging */ }
-            throw;
-        }
-    }
     public static int Launch(string approvedFile,int sessionId)
     {
         string account="H5EP"+Convert.ToHexString(RandomNumberGenerator.GetBytes(5));
