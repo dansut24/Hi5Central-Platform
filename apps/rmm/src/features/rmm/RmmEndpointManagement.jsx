@@ -5,7 +5,7 @@ import './RmmEndpointManagement.css'
 
 const defaults = {
   baseline: [['windows.smb1.enabled', false], ['windows.firewall.domain.enabled', true], ['windows.firewall.private.enabled', true], ['windows.firewall.public.enabled', true]],
-  configuration: [['windows.usb.storage.enabled', false]],
+  configuration: [['windows.filesystem.long_paths_enabled', true]],
   laps: [['windows.laps.backup_directory', 'entra'], ['windows.laps.password_age_days', 30], ['windows.laps.password_length', 20], ['windows.laps.password_complexity', '4'], ['windows.laps.post_auth_reset_hours', 24], ['windows.laps.post_auth_actions', '3']],
 }
 const labels = { baseline: 'Security baseline', configuration: 'Configuration profile', laps: 'Windows LAPS' }
@@ -38,6 +38,8 @@ export function RmmEndpointManagement() {
   const [editingException, setEditingException] = useState(false)
   const [previewDevice, setPreviewDevice] = useState('')
   const [preview, setPreview] = useState(null)
+  const [runId, setRunId] = useState('')
+  const [runReport, setRunReport] = useState(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -62,6 +64,21 @@ export function RmmEndpointManagement() {
     endpointApi.preview(selectedId, previewDevice).then((item) => { if (active) setPreview(item) }).catch(() => { if (active) setPreview(null) })
     return () => { active = false }
   }, [selectedId, previewDevice, revision])
+  useEffect(() => {
+    if (!runId) return
+    let active = true
+    let timer = null
+    const poll = async () => {
+      try {
+        const result = await endpointApi.runStatus(runId)
+        if (!active) return
+        setRunReport(result)
+        if (result.status === 'queued' || result.status === 'claimed') timer = window.setTimeout(poll, 2000)
+      } catch (error) { if (active) setError(error.message) }
+    }
+    poll()
+    return () => { active = false; if (timer) window.clearTimeout(timer) }
+  }, [runId])
   const settings = data?.catalogue || []
   const exceptions = (data?.exceptions || []).filter((item) => item.profile_id === selectedId)
   const setField = (name, value) => setDraft((current) => ({ ...current, [name]: value }))
@@ -70,10 +87,10 @@ export function RmmEndpointManagement() {
   function selectProfile(item) {
     setSelectedId(item.id)
     setDraft({ id: item.id, revision: item.revision, name: item.name, description: item.description, kind: item.kind, status: item.status, scopeType: item.scope_type, scopeId: item.scope_id, settings: item.settings })
-    setEditingException(false); setError(''); setNotice('')
+    setEditingException(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
   }
   function createProfile(kind) {
-    setSelectedId(''); setEditingException(false); setError(''); setNotice('')
+    setSelectedId(''); setEditingException(false); setError(''); setNotice(''); setRunId(''); setRunReport(null)
     setDraft({ name: kind === 'laps' ? 'Windows LAPS management' : kind === 'baseline' ? 'Windows 11 baseline' : 'Windows configuration', description: '', kind, status: 'draft', scopeType: 'estate', scopeId: '', settings: defaults[kind].map(([key, value]) => ({ key, value })) })
   }
   async function saveProfile() {
@@ -84,7 +101,7 @@ export function RmmEndpointManagement() {
       const next = await reload()
       const saved = next.profiles.find((item) => item.id === result.profile.id)
       if (saved) selectProfile(saved)
-      setNotice('Profile saved. Device enforcement is not enabled in this version.')
+      setNotice('Profile saved. Agent evaluation is available manually for supported Windows settings.')
     } catch (e) { setError(e.message) } finally { setPending(false) }
   }
   async function addException(event) {
@@ -107,8 +124,22 @@ export function RmmEndpointManagement() {
     try {
       await endpointApi.removeException(selected.id, item.id)
       await reload()
-      setNotice('Exception revoked. This version does not yet enforce the change on devices.')
+      setNotice('Exception revoked. Re-run evaluation or apply on the selected device to enact the updated desired state.')
     } catch (e) { setError(e.message) } finally { setPending(false) }
+  }
+  async function runWindowsPolicy(action, settingKey = '') {
+    if (!selectedId || !previewDevice || pending) return
+    const safeWrite = settingKey === 'windows.filesystem.long_paths_enabled'
+    if (action !== 'audit' && !safeWrite) { setError('This setting has no supported write adapter yet.'); return }
+    if (action !== 'audit' && !window.confirm(action === 'apply'
+      ? 'Apply this supported Windows setting to the selected device now? The previous value will be saved for restoration.'
+      : 'Restore the previously saved Windows setting value for the selected device?')) return
+    setPending(true); setError(''); setNotice(''); setRunId(''); setRunReport(null)
+    try {
+      const result = await endpointApi.run(selectedId, previewDevice, action, settingKey)
+      setRunId(result.jobId)
+      setNotice('Windows ' + action + ' job queued. Waiting for device verification.')
+    } catch (error) { setError(error.message) } finally { setPending(false) }
   }
   function beginException(setting) {
     const first = data?.devices?.[0]
@@ -129,7 +160,7 @@ export function RmmEndpointManagement() {
       <div className="rmm-page-heading">
         <div><span className="rmm-eyebrow">Windows endpoint management</span><h1>Configuration & security</h1><p>Build Windows policies with exceptions to individual settings for devices, device groups and assigned users.</p></div>
       </div>
-      <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Configuration preview only.</strong> Policies and exceptions are persisted in Hi5Central, but are not yet pushed to the Windows agent. No security controls or passwords are changed or stored on endpoints by this feature.</span></div>
+      <div className="rmm-endpoint-warning"><AlertTriangle size={19}/><span><strong>Manual agent evaluation is available.</strong> Windows firewall, SMBv1 and LAPS are currently audit-only. Win32 long-path support can be applied and restored with verification. Automatic enforcement, wider security controls and native LAPS password management are not enabled.</span></div>
       {error && <div className="rmm-endpoint-message error" role="alert"><XCircle size={17}/>{error}</div>}
       {notice && <div className="rmm-endpoint-message success" role="status"><CheckCircle2 size={17}/>{notice}</div>}
       <div className="rmm-endpoint-actions">
@@ -154,7 +185,7 @@ export function RmmEndpointManagement() {
             <div className="rmm-endpoint-fields">
               <label>Profile name<input value={draft.name} maxLength={120} onChange={(e) => setField('name', e.target.value)} /></label>
               <label>Description<input value={draft.description} maxLength={1000} onChange={(e) => setField('description', e.target.value)} /></label>
-              <label>Policy stage<select value={draft.status} onChange={(e) => setField('status', e.target.value)}><option value="draft">Draft</option><option value="ready">Ready for future agent delivery</option><option value="disabled">Disabled</option></select></label>
+              <label>Policy stage<select value={draft.status} onChange={(e) => setField('status', e.target.value)}><option value="draft">Draft</option><option value="ready">Ready for manual agent evaluation</option><option value="disabled">Disabled</option></select></label>
               <label>Assignment<select value={draft.scopeType} onChange={(e) => setDraft((old) => ({ ...old, scopeType: e.target.value, scopeId: scopeChoices(data, e.target.value)[0]?.id || '' }))}>
                 <option value="estate">All devices</option><option value="group">Device group</option><option value="device">Single device</option><option value="user">Assigned user</option>
               </select></label>
@@ -184,7 +215,7 @@ export function RmmEndpointManagement() {
         </section>
       </div>
       {selected && <div className="rmm-endpoint-lower">
-        <section className="rmm-endpoint-panel"><div className="rmm-endpoint-subheading"><h3>Setting-specific exceptions</h3><span>{exceptions.length} active records</span></div>
+        <section className="rmm-endpoint-panel"><div className="rmm-endpoint-subheading"><h3>Setting-specific exceptions</h3><span>{exceptions.length} unrevoked records</span></div>
           {exceptions.map((item) => <div className="rmm-endpoint-exception" key={item.id}>
             <div><strong>{settings.find((setting) => setting.key === item.setting_key)?.label || item.setting_key}</strong><small>{item.mode === 'exclude' ? 'Excluded from enforcement' : 'Override to ' + human(item.value)} · {item.scope_type}: {scopeLabel(data, item.scope_type, item.scope_id)}</small><small>{item.reason}{item.expires_at ? ' · Expires ' + new Date(item.expires_at).toLocaleDateString() : ''}</small></div>
             <button type="button" disabled={pending} onClick={() => removeException(item)} title="Revoke this exception" aria-label="Revoke exception"><Trash2 size={17}/></button>
@@ -192,10 +223,22 @@ export function RmmEndpointManagement() {
           {!exceptions.length && <p className="rmm-endpoint-hint">No exceptions. Select Exception on an individual setting above to create one.</p>}
         </section>
         <section className="rmm-endpoint-panel">
-          <div className="rmm-endpoint-subheading"><h3>Effective configuration preview</h3></div>
-          <label>Device<select value={previewDevice} onChange={(e) => setPreviewDevice(e.target.value)}>{(data?.devices || []).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
-          {preview?.resolution && (preview.resolution.applicable ? preview.resolution.settings.map((item) => <div key={item.key} className="rmm-endpoint-resolution"><strong>{settings.find((setting) => setting.key === item.key)?.label || item.key}</strong><span>{item.state === 'excluded' ? 'Excluded' : item.state === 'conflict' ? 'Conflict — no winning override' : human(item.value) + (item.state === 'overridden' ? ' · Override' : ' · Baseline')}</span></div>) : <p className="rmm-endpoint-hint">This profile does not target the selected device.</p>)}
+          <div className="rmm-endpoint-subheading"><h3>Effective configuration & agent checks</h3></div>
+          <label>Device<select value={previewDevice} onChange={(e) => { setPreviewDevice(e.target.value);setRunId('');setRunReport(null) }}>{(data?.devices || []).map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select></label>
+          {preview?.resolution?.applicable && <div className="rmm-endpoint-run-actions"><button disabled={pending} type="button" onClick={() => runWindowsPolicy('audit')}>Audit supported settings</button><small>Manual, read-only Windows assessment</small></div>}
+          {preview?.resolution && (preview.resolution.applicable ? preview.resolution.settings.map((item) => <div key={item.key} className="rmm-endpoint-resolution">
+            <div><strong>{settings.find((setting) => setting.key === item.key)?.label || item.key}</strong><small>{item.state === 'excluded' ? 'Excluded' : item.state === 'conflict' ? 'Conflict — no winning override' : human(item.value) + (item.state === 'overridden' ? ' · Override' : ' · Baseline')}</small></div>
+            {item.key === 'windows.filesystem.long_paths_enabled' && <div className="rmm-endpoint-row-actions">
+              <button type="button" disabled={pending || selected.status !== 'ready' || !['configured','overridden'].includes(item.state)} onClick={() => runWindowsPolicy('apply',item.key)}>Apply</button>
+              <button type="button" disabled={pending} onClick={() => runWindowsPolicy('restore',item.key)}>Restore original</button>
+            </div>}
+          </div>) : <p className="rmm-endpoint-hint">This profile does not target the selected device.</p>)}
           {!preview && <p className="rmm-endpoint-hint">Choose a device to see which settings and exceptions apply.</p>}
+          {runReport && <section className="rmm-endpoint-run-report" aria-live="polite">
+            <div><strong>Agent {runReport.action} · {runReport.status}</strong><small>{runReport.verified ? 'Verified from actual device results' : runReport.error || 'Awaiting verified result'}</small></div>
+            {runReport.compliance?.map((item) => <div key={item.key}><strong>{settings.find((setting) => setting.key === item.key)?.label || item.key}</strong><span>{item.status} · observed {human(item.observed)}</span></div>)}
+            {runReport.report?.results?.filter((item)=>item.action !== 'audit').map((item) => <div key={item.key}><strong>{item.key}</strong><span>{item.status} · {human(item.before)} → {human(item.observed)}</span></div>)}
+          </section>}
         </section>
       </div>}
       {editingException && selected && <div className="rmm-endpoint-dialog-backdrop"><form className="rmm-endpoint-dialog" onSubmit={addException}>

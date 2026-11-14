@@ -4,6 +4,7 @@ import { originMatchesTenant } from './deploymentConfig.js'
 import { resolveSession } from './session.js'
 import { scopeDeviceRows, loadGroups } from './rmmScope.js'
 import { ENDPOINT_SETTINGS, endpointSetting, highRiskEndpointOverride, settingAllowedInProfile, validateSettings, validateSettingValue, resolveEndpointProfile } from './rmmEndpointPolicyModel.js'
+import { buildWindowsPolicyCommand, parseWindowsPolicyResult, WINDOWS_POLICY_READ_KEYS, WINDOWS_POLICY_WRITE_KEYS } from './rmmEndpointWindowsDriver.js'
 
 const idPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -77,6 +78,13 @@ function profileInput(body) {
   }
   return { name, description: text(body.description, 1000), kind, status, scope, settings }
 }
+async function cancelQueuedEndpointJobs(client, tenantId, profileId, settingKey = '') {
+  await client.query(
+    "UPDATE rmm_agent_jobs SET status='cancelled',completed_at=now(),updated_at=now(),error_message='Endpoint profile or exception changed before dispatch.' " +
+    "WHERE tenant_id=$1 AND status='queued' AND request_metadata->>'source'='endpoint_management' " +
+    "AND request_metadata->>'endpoint_profile_id'=$2 AND ($3='' OR request_metadata->>'setting_key'=$3 OR request_metadata->>'setting_key'='audit')",
+    [tenantId,profileId,settingKey])
+}
 async function exceptionsFor(tenantId, profileId) {
   const result = await pool.query('SELECT * FROM rmm_endpoint_setting_exceptions WHERE tenant_id=$1 AND profile_id=$2 AND revoked_at IS NULL ORDER BY created_at DESC',
     [tenantId, profileId])
@@ -125,6 +133,7 @@ export function registerRmmEndpointManagementRoutes(app) {
          WHERE tenant_id=$1 AND id=$2 AND revision=$11 RETURNING *`,
         [session.tenant_id,previous.id,input.name,input.description,input.kind,input.status,input.scope.type,input.scope.id,JSON.stringify(input.settings),session.user_id,body.revision])
       if (!result.rowCount) throw bad('Profile was edited elsewhere.', 409)
+      await cancelQueuedEndpointJobs(client,session.tenant_id,previous.id)
       const removed = previous.settings.filter((entry) => !input.settings.some((next) => next.key === entry.key)).map((entry) => entry.key)
       if (removed.length) {
         const revoked = await client.query(`UPDATE rmm_endpoint_setting_exceptions SET revoked_at=now(),updated_at=now(),updated_by_user_id=$4
@@ -168,6 +177,7 @@ export function registerRmmEndpointManagementRoutes(app) {
           updated_by_user_id=EXCLUDED.updated_by_user_id,updated_at=now()
         RETURNING *`,
         [session.tenant_id,profile.id,key,scope.type,scope.id,mode,value === null ? null : JSON.stringify(value),reason,Boolean(body.riskAccepted),expiresAt,session.user_id])
+      await cancelQueuedEndpointJobs(client,session.tenant_id,profile.id,key)
       await history(client, session, profile.id, result.rows[0].id, 'exception.saved', { key, scope, mode, value, reason, expiresAt, riskAccepted: Boolean(body.riskAccepted) })
       return result.rows[0]
     })
@@ -184,11 +194,109 @@ export function registerRmmEndpointManagementRoutes(app) {
         [session.tenant_id,profile.id,c.req.param('exceptionId'),session.user_id])
       if (!removed.rowCount) throw bad('Exception not found.', 404)
       const item = removed.rows[0]
+      await cancelQueuedEndpointJobs(client,session.tenant_id,profile.id,item.setting_key)
       await history(client, session, profile.id, item.id, 'exception.revoked', { key: item.setting_key, scopeType: item.scope_type, scopeId: item.scope_id, reason: item.reason })
       return item
     })
     return c.json({ revoked: true, id: result.id })
   }))
+
+  // Operator-triggered Windows jobs. Writes are restricted to explicitly supported low-risk adapters.
+  app.post('/api/v1/rmm/endpoint-management/profiles/:id/devices/:deviceId/run', wrap(async (c) => {
+    const session = await auth(c, true)
+    const profile = await profileById(session.tenant_id, c.req.param('id'))
+    const deviceId = c.req.param('deviceId')
+    if (!idPattern.test(deviceId)) throw bad('Invalid device ID.')
+    const body = await c.req.json()
+    const action = text(body.action, 24)
+    if (!['audit','apply','restore'].includes(action)) throw bad('Choose audit, apply or restore.')
+    const devices = await scopeDeviceRows(session.tenant_id)
+    const device = devices.find((row) => row.id === deviceId)
+    if (!device) throw bad('Device not found.', 404)
+    const [groups, exceptions, agentResult] = await Promise.all([
+      loadGroups(session.tenant_id, devices),
+      exceptionsFor(session.tenant_id, profile.id),
+      pool.query('SELECT id,websocket_status,last_telemetry_at FROM rmm_agent_devices WHERE tenant_id=$1 AND inventory_id=$2 AND disabled_at IS NULL ORDER BY last_telemetry_at DESC LIMIT 1', [session.tenant_id,deviceId]),
+    ])
+    if (!agentResult.rowCount) throw bad('This device does not have a directly enrolled Hi5Central agent.', 409)
+    if (action !== 'audit' && (agentResult.rows[0].websocket_status !== 'Connected' || !agentResult.rows[0].last_telemetry_at || Date.now()-new Date(agentResult.rows[0].last_telemetry_at).getTime()>90000)) {
+      throw bad('Windows write/restore requires a currently connected agent. Reconnect the device and retry.',409)
+    }
+    const resolved = resolveEndpointProfile({ profile, exceptions, device, groups })
+    if (action !== 'restore' && !resolved.applicable) throw bad('This profile does not target the device.', 409)
+    if (action === 'apply' && profile.status !== 'ready') throw bad('Only a ready profile can be applied.', 409)
+    const requestedKey = text(body.settingKey, 150)
+    const chosen = action === 'audit'
+      ? resolved.settings.filter((entry) => WINDOWS_POLICY_READ_KEYS.includes(entry.key) && entry.state !== 'conflict')
+      : [resolved.settings.find((entry) => entry.key === requestedKey) || {key:requestedKey,value:false,state:'not_assigned'}]
+    if (!chosen.length) throw bad('No supported Windows settings are available for this action.', 409)
+    if (action === 'apply' && chosen.some((item) => item.state === 'excluded' || item.state === 'conflict' || item.state === 'not_assigned')) {
+      throw bad('This setting is excluded, conflicting, or no longer assigned.', 409)
+    }
+    if (action !== 'audit' && (chosen.length !== 1 || !WINDOWS_POLICY_WRITE_KEYS.includes(chosen[0].key))) throw bad('This setting has no safe Windows write/restore adapter.', 409)
+    // Prevent ambiguous writes from overlapping ready profiles on the same device.
+    if (action === 'apply') {
+      const others = await pool.query('SELECT * FROM rmm_endpoint_profiles WHERE tenant_id=$1 AND id<>$2 AND status=$3 AND settings @> $4::jsonb',
+        [session.tenant_id,profile.id,'ready',JSON.stringify([{key:chosen[0].key}])])
+      for (const another of others.rows) {
+        const otherResult = resolveEndpointProfile({
+          profile: another,device,groups,
+          exceptions: await exceptionsFor(session.tenant_id,another.id),
+        })
+        if (otherResult.applicable && otherResult.settings.some((setting)=>setting.key===chosen[0].key && setting.state!=='excluded')) {
+          throw bad('Another ready profile also manages this setting on this device.',409)
+        }
+      }
+    }
+    let command
+    try {
+      command = buildWindowsPolicyCommand({ profileId:profile.id,action,
+        settings:chosen.map((item)=>({key:item.key,value:item.value ?? false})) })
+    } catch (error) { throw bad(error.message,409) }
+    const job = await withTransaction(async (client)=>{
+      const lockKey = session.tenant_id + ':' + deviceId + ':' + (action==='audit' ? 'audit' : chosen[0].key)
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[lockKey])
+      const pending = await client.query(
+        "SELECT id FROM rmm_agent_jobs WHERE tenant_id=$1 AND agent_device_id=$2 AND status IN ('queued','claimed') AND request_metadata->>'source'='endpoint_management' AND request_metadata->>'setting_key'=$3 LIMIT 1",
+        [session.tenant_id,agentResult.rows[0].id,action==='audit'?'audit':chosen[0].key])
+      if (pending.rowCount) throw bad('A policy run for this setting is already pending.',409)
+      const metadata={source:'endpoint_management',endpoint_profile_id:profile.id,profile_revision:profile.revision,
+        expires_at:new Date(Date.now()+180000).toISOString(),
+        action,device_id:deviceId,setting_key:action==='audit'?'audit':chosen[0].key,
+        desired:chosen.map(({key,value,state})=>({key,value,state}))}
+      const inserted=await client.query(
+        "INSERT INTO rmm_agent_jobs (tenant_id,agent_device_id,job_type,payload,queued_by_user_id,initiated_by,initiated_by_label,request_metadata) "+
+        "VALUES ($1,$2,'custom.command',$3::jsonb,$4,'technician',$5,$6::jsonb) RETURNING id,status,created_at",
+        [session.tenant_id,agentResult.rows[0].id,JSON.stringify({command,timeout_seconds:120,run_as:'system'}),session.user_id,
+          text(session.name||session.email||'Technician',120),JSON.stringify(metadata)])
+      await history(client,session,profile.id,null,'endpoint.'+action+'.queued',{jobId:inserted.rows[0].id,deviceId,desired:metadata.desired})
+      return inserted.rows[0]
+    })
+    return c.json({jobId:job.id,status:job.status,action,deviceId,deviceEnforcement:true},202)
+  }))
+  app.get('/api/v1/rmm/endpoint-management/runs/:jobId',wrap(async (c)=>{
+    const session=await auth(c)
+    if (!idPattern.test(c.req.param('jobId'))) throw bad('Invalid job ID.')
+    const result=await pool.query(
+      "SELECT id,status,result,error_message,request_metadata,created_at,completed_at FROM rmm_agent_jobs WHERE id=$1 AND tenant_id=$2 AND request_metadata->>'source'='endpoint_management'",
+      [c.req.param('jobId'),session.tenant_id])
+    if (!result.rowCount) throw bad('Run not found.',404)
+    const job=result.rows[0]
+    const report=parseWindowsPolicyResult(job.result?.output)
+    const verified=job.status==='completed' && Boolean(report) &&
+      report.results.every((row)=>row.status==='verified' || row.status==='observed')
+    const expected=job.request_metadata?.desired||[]
+    const compliance=report?.action==='audit' ?
+      report.results.map((row)=>({
+        key:row.key,observed:row.observed,
+        status:expected.find((item)=>item.key===row.key)?.state==='excluded'?'excluded':
+          row.status!=='observed'?'error':
+          Object.is(expected.find((item)=>item.key===row.key)?.value,row.observed)?'compliant':'drift',
+      })) : []
+    return c.json({id:job.id,status:job.status,error:job.error_message,action:job.request_metadata.action,
+      createdAt:job.created_at,completedAt:job.completed_at,report,verified,compliance})
+  }))
+
   app.get('/api/v1/rmm/endpoint-management/profiles/:id/effective/:deviceId', wrap(async (c) => {
     const session = await auth(c)
     const profile = await profileById(session.tenant_id, c.req.param('id'))

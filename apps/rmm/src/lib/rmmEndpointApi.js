@@ -16,4 +16,6 @@ export const endpointApi = {
   setException: (profileId, exception) => request('/profiles/' + encodeURIComponent(profileId) + '/exceptions', { method: 'POST', body: JSON.stringify(exception) }),
   removeException: (profileId, id) => request('/profiles/' + encodeURIComponent(profileId) + '/exceptions/' + encodeURIComponent(id), { method: 'DELETE' }),
   preview: (profileId, deviceId) => request('/profiles/' + encodeURIComponent(profileId) + '/effective/' + encodeURIComponent(deviceId)),
+  run: (profileId, deviceId, action, settingKey = '') => request('/profiles/' + encodeURIComponent(profileId) + '/devices/' + encodeURIComponent(deviceId) + '/run', { method: 'POST', body: JSON.stringify({ action, settingKey }) }),
+  runStatus: (jobId) => request('/runs/' + encodeURIComponent(jobId)),
 }

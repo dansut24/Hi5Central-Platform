@@ -6,6 +6,7 @@ export const ENDPOINT_SETTINGS = Object.freeze([
   { key: 'windows.firewall.private.enabled', label: 'Private firewall', category: 'Security baseline', type: 'boolean', risk: 'high', defaultValue: true },
   { key: 'windows.firewall.public.enabled', label: 'Public firewall', category: 'Security baseline', type: 'boolean', risk: 'high', defaultValue: true },
   { key: 'windows.usb.storage.enabled', label: 'USB mass storage', category: 'Configuration profile', type: 'boolean', risk: 'medium', defaultValue: false },
+  { key: 'windows.filesystem.long_paths_enabled', label: 'Win32 long file paths', category: 'Configuration profile', type: 'boolean', risk: 'low', defaultValue: true, description: 'Allow supported Win32 applications to use paths beyond MAX_PATH. Supports verified apply and restore.' },
   { key: 'windows.laps.backup_directory', label: 'Windows LAPS backup directory', category: 'Windows LAPS', type: 'enum', values: ['entra', 'ad'], defaultValue: 'entra', description: 'Windows LAPS only supports Entra ID or Active Directory as native backup destinations.' },
   { key: 'windows.laps.password_age_days', label: 'Windows LAPS rotation period (days)', category: 'Windows LAPS', type: 'integer', min: 1, max: 365, defaultValue: 30 },
   { key: 'windows.laps.password_length', label: 'Windows LAPS password length', category: 'Windows LAPS', type: 'integer', min: 8, max: 64, defaultValue: 20 },

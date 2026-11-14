@@ -2506,6 +2506,13 @@ export function registerRmmAgentRoutes(app) {
             END`,
         [agent.id],
       )
+      // Expire stale endpoint-management jobs before the normal claim procedure.
+      await client.query(
+        "UPDATE rmm_agent_jobs SET status='cancelled',error_message='Endpoint evaluation lease expired before dispatch.',completed_at=now(),updated_at=now() " +
+        "WHERE agent_device_id=$1 AND status='queued' AND request_metadata->>'source'='endpoint_management' " +
+        "AND request_metadata ? 'expires_at' AND (request_metadata->>'expires_at')::timestamptz <= now()",
+        [agent.id],
+      )
       const result = await client.query(
         `WITH picked AS (
            SELECT id FROM rmm_agent_jobs

@@ -45,3 +45,11 @@
 .rmm-endpoint-risk input{margin-top:4px;flex-shrink:0}
 @media(max-width:920px){.rmm-endpoint-layout,.rmm-endpoint-lower{grid-template-columns:1fr}.rmm-endpoint-list{max-height:250px;overflow:auto}.rmm-endpoint-fields{grid-template-columns:1fr}}
 @media(max-width:560px){.rmm-endpoint-setting{grid-template-columns:minmax(0,1fr) auto auto}.rmm-endpoint-setting>div{grid-column:1/-1}.rmm-endpoint-setting select,.rmm-endpoint-setting input{grid-column:1}.rmm-endpoint-panel,.rmm-endpoint-editor,.rmm-endpoint-list{padding:13px}}
+
+.rmm-endpoint-run-actions{display:flex;align-items:center;gap:10px;margin:14px 0;flex-wrap:wrap}
+.rmm-endpoint-run-actions button,.rmm-endpoint-row-actions button{border:1px solid var(--rmm-border,rgba(128,146,166,.4));border-radius:8px;padding:8px 11px;background:var(--rmm-accent-soft,rgba(59,130,246,.12));color:inherit;cursor:pointer}
+.rmm-endpoint-run-actions small,.rmm-endpoint-resolution small,.rmm-endpoint-run-report small{display:block;color:var(--rmm-text-muted,#8591a0);font-size:12px;margin-top:4px}
+.rmm-endpoint-row-actions{display:flex;gap:6px;flex-wrap:wrap}
+.rmm-endpoint-run-report{display:grid;gap:8px;border:1px solid var(--rmm-border,rgba(128,146,166,.35));border-radius:12px;padding:12px;margin-top:16px;font-size:12px}
+.rmm-endpoint-run-report>div{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.rmm-endpoint-run-report span{color:var(--rmm-text-muted,#8591a0)}
