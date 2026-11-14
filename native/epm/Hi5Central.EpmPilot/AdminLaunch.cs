@@ -68,7 +68,7 @@ internal static class AdminLaunch
                         throw new Win32Exception(Marshal.GetLastWin32Error(),"Cannot bind approval to desktop session.");
                     var startup=new STARTUPINFO { cb=Marshal.SizeOf<STARTUPINFO>(), lpDesktop=@"winsta0\default" };
                     string command="\""+approvedFile+"\"";
-                    if(!CreateProcessAsUser(primary,approvedFile,command,IntPtr.Zero,IntPtr.Zero,false,0x10,null,
+                    if(!CreateProcessAsUser(primary,approvedFile,command,IntPtr.Zero,IntPtr.Zero,false,0x10,IntPtr.Zero,
                         Path.GetDirectoryName(approvedFile),ref startup,out var process))
                         throw new Win32Exception(Marshal.GetLastWin32Error(),"Approved process could not launch.");
                     try { return checked((int)process.dwProcessId); }
