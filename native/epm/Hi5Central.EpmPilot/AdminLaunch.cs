@@ -52,15 +52,22 @@ internal static class AdminLaunch
             if(!LogonUser(account,Environment.MachineName,password,2,0,out var token))
                 throw new Win32Exception(Marshal.GetLastWin32Error(),"Isolated admin logon failed.");
             try {
+                // On UAC-enabled Windows, LogonUser may return a filtered local-admin
+                // token. The linked full token is required for actual approved elevation.
+                // Do not disable UAC or use a generic SYSTEM process instead.
+                IntPtr elevated = token;
+                if (GetTokenInformation(token, 19, out var linked, IntPtr.Size, out _)
+                    && linked != IntPtr.Zero) elevated = linked;
+                try {
                 var adminSid=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null);
                 var sid=new byte[adminSid.BinaryLength]; adminSid.GetBinaryForm(sid,0);
                 var ptr=Marshal.AllocHGlobal(sid.Length);
                 try {
                     Marshal.Copy(sid,0,ptr,sid.Length);
-                    if(!CheckTokenMembership(token,ptr,out var memberEnabled) || !memberEnabled)
+                    if(!CheckTokenMembership(elevated,ptr,out var memberEnabled) || !memberEnabled)
                         throw new InvalidOperationException("Windows did not grant an elevated administrator token.");
                 } finally {Marshal.FreeHGlobal(ptr);}
-                if(!DuplicateTokenEx(token,0xF01FF,IntPtr.Zero,2,1,out var primary))
+                if(!DuplicateTokenEx(elevated,0xF01FF,IntPtr.Zero,2,1,out var primary))
                     throw new Win32Exception(Marshal.GetLastWin32Error(),"Cannot create primary elevation token.");
                 try {
                     var session=sessionId;
@@ -74,6 +81,7 @@ internal static class AdminLaunch
                     try { return checked((int)process.dwProcessId); }
                     finally { CloseHandle(process.hThread);CloseHandle(process.hProcess); }
                 } finally {CloseHandle(primary);}
+                } finally { if (elevated != token) CloseHandle(elevated); }
             } finally {CloseHandle(token);}
         } finally {NetUserDel(null,account);}
     }
@@ -108,6 +116,8 @@ internal static class AdminLaunch
     [DllImport("Netapi32.dll",CharSet=CharSet.Unicode)]private static extern int NetUserDel(string? server,string username);
     [DllImport("Netapi32.dll",CharSet=CharSet.Unicode)]private static extern int NetLocalGroupAddMembers(string? server,string group,uint level,ref LOCALGROUP_MEMBERS_INFO_3 users,uint total);
     [DllImport("advapi32.dll",SetLastError=true,CharSet=CharSet.Unicode)]private static extern bool LogonUser(string user,string domain,string password,int logonType,int provider,out IntPtr token);
+    [DllImport("advapi32.dll",SetLastError=true)]private static extern bool GetTokenInformation(
+        IntPtr token,int informationClass,out IntPtr linkedToken,int length,out int returnedLength);
     [DllImport("advapi32.dll",SetLastError=true)]private static extern bool CheckTokenMembership(IntPtr token,IntPtr sid,out bool isMember);
     [DllImport("advapi32.dll",SetLastError=true)]private static extern bool DuplicateTokenEx(IntPtr existing,uint access,IntPtr attributes,int level,int tokenType,out IntPtr primary);
     [DllImport("advapi32.dll",SetLastError=true)]private static extern bool SetTokenInformation(IntPtr token,int type,ref int value,int length);
