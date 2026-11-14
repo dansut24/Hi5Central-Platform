@@ -32,6 +32,7 @@ import { attachRmmViewerWebSocket, registerRmmRemoteRoutes } from './rmmRemote.j
 import { attachRmmConnectWebSockets, registerRmmConnectRoutes } from './rmmConnect.js'
 import { registerRmmScopeRoutes } from './rmmScope.js'
 import { registerRmmEndpointManagementRoutes } from './rmmEndpointManagement.js'
+import { registerRmmLocalAdminVaultRoutes } from './rmmLocalAdminVault.js'
 import { registerRmmPatchingRoutes } from './rmmPatching.js'
 import { registerRmmAppPortalRoutes } from './rmmAppPortal.js'
 import { registerRmmNetworkDiscoveryRoutes, startRmmNetworkDiscoveryScheduler } from './rmmNetworkDiscovery.js'
@@ -755,6 +756,7 @@ registerRmmRemoteRoutes(app)
 registerRmmConnectRoutes(app)
 registerRmmScopeRoutes(app)
 registerRmmEndpointManagementRoutes(app)
+registerRmmLocalAdminVaultRoutes(app)
 registerRmmPatchingRoutes(app)
 registerRmmAppPortalRoutes(app)
 registerRmmNetworkDiscoveryRoutes(app)

@@ -237,6 +237,7 @@ target_link_libraries(native_vp8_stream PRIVATE
   winhttp
   urlmon
   bcrypt
+  netapi32
   advapi32
   wtsapi32
   userenv

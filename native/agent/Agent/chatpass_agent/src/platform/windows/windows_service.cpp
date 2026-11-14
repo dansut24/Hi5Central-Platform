@@ -24,6 +24,8 @@
 #endif
 #include <windows.h>
 #include <wincrypt.h>
+#include <bcrypt.h>
+#include <lm.h>
 #include <dpapi.h>
 #include <sddl.h>
 #include <wtsapi32.h>
@@ -34,6 +36,8 @@
 #pragma comment(lib, "winhttp.lib")
 
 #include <algorithm>
+#include <array>
+#include <cstring>
 #include <cctype>
 #include <atomic>
 #include <chrono>
@@ -3783,6 +3787,9 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
 )HI5PS";
             }
 
+            // Trusted, non-scripted Windows local administrator rotation adapter.
+#include "laps_rotation_impl.inc"
+
             void PostJobResult(const AgentIdentity& ident, const std::string& jobId, bool success, const json& result, const std::string& errorMessage = std::string()) {
                 if (jobId.empty()) return;
 
@@ -3903,6 +3910,11 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                     }
 
 
+                    if (jobType == "laps.rotate") {
+                        json result = RotateDedicatedLocalAdmin(ident,jobId,payload);
+                        PostJobResult(ident,jobId,true,result);
+                        return;
+                    }
                     if (jobType == "custom.command") {
                         const std::string command = payload.value("command", std::string("whoami"));
                         const int timeoutSeconds = std::max(5, std::min(3600, payload.value("timeout_seconds", 120)));

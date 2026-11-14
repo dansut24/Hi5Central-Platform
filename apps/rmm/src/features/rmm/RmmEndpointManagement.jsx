@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, CircleOff, FilePlus2, ShieldCheck, Trash2, XCircle } from 'lucide-react'
 import { endpointApi } from '../../lib/rmmEndpointApi.js'
 import { RmmWindowsSettingsLibrary } from './RmmWindowsSettingsLibrary.jsx'
+import { RmmLocalAdminVault } from './RmmLocalAdminVault.jsx'
 import './RmmEndpointManagement.css'
 
 const defaults = {
@@ -166,8 +167,9 @@ export function RmmEndpointManagement() {
       <nav className="rmm-endpoint-tabbar" aria-label="Endpoint management sections">
         <button type="button" className={screen === 'library' ? 'selected' : ''} onClick={()=>setScreen('library')}>All Windows settings</button>
         <button type="button" className={screen === 'profiles' ? 'selected' : ''} onClick={()=>setScreen('profiles')}>Profiles & setting exceptions</button>
+        <button type="button" className={screen === 'vault' ? 'selected' : ''} onClick={()=>setScreen('vault')}>Local admin vault</button>
       </nav>
-      {screen === 'library' ? <RmmWindowsSettingsLibrary nativeSettings={data?.catalogue || []} /> : <>
+      {screen === 'library' ? <RmmWindowsSettingsLibrary nativeSettings={data?.catalogue || []} /> : screen === 'vault' ? <RmmLocalAdminVault/> : <>
       {error && <div className="rmm-endpoint-message error" role="alert"><XCircle size={17}/>{error}</div>}
       {notice && <div className="rmm-endpoint-message success" role="status"><CheckCircle2 size={17}/>{notice}</div>}
       <div className="rmm-endpoint-actions">

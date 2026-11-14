@@ -9,6 +9,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
+import { reconcileLocalAdminJobResult } from './rmmLocalAdminVault.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { ensureRedisConnected, redis } from './redis.js'
@@ -2496,6 +2497,7 @@ export function registerRmmAgentRoutes(app) {
             SET status='queued',claimed_at=NULL,updated_at=now()
           WHERE agent_device_id=$1 AND status='claimed'
             AND job_type<>'network.discovery.scan'
+            AND job_type<>'laps.rotate'
             AND claimed_at < now() - CASE
               WHEN job_type='patch.software.bulk' THEN interval '6 hours'
               WHEN job_type='windows_update.install' THEN interval '3 hours'
@@ -2509,7 +2511,7 @@ export function registerRmmAgentRoutes(app) {
       // Expire stale endpoint-management jobs before the normal claim procedure.
       await client.query(
         "UPDATE rmm_agent_jobs SET status='cancelled',error_message='Endpoint evaluation lease expired before dispatch.',completed_at=now(),updated_at=now() " +
-        "WHERE agent_device_id=$1 AND status='queued' AND request_metadata->>'source'='endpoint_management' " +
+        "WHERE agent_device_id=$1 AND status='queued' AND request_metadata->>'source' IN ('endpoint_management','local_admin_vault') " +
         "AND request_metadata ? 'expires_at' AND (request_metadata->>'expires_at')::timestamptz <= now()",
         [agent.id],
       )
@@ -2587,6 +2589,7 @@ export function registerRmmAgentRoutes(app) {
     )
     if (!result.rowCount) return c.json({ success: false, error: 'Job not found or already completed.' }, 404)
     const completedJob = { ...result.rows[0], inventory_id: agent.inventory_id }
+    await reconcileLocalAdminJobResult(completedJob,success).catch(() => {})
     await reconcileWindowsUpdateJobResult(completedJob, resultPayload, success).catch((error) => {
       console.error('Windows Update job reconciliation failed', completedJob.id, error.message)
     })
