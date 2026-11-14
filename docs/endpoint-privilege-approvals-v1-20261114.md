@@ -44,3 +44,17 @@ Scope note: this phase covers managed Company Portal software installs; it does 
 - Native Windows Company Portal Avalonia .NET 8 build must pass in GitHub Actions on the feature branch; distribute a versioned signed/verified installer before enabling mandatory business reasons in production.
 - First pilot in Newtest: mark one already published, low-risk application as `approval_required` for only the Lenovo, send a reason from the Company Portal, review and reject it first (**no install**), then submit again and approve; verify package/revision hash and status. Restore the prior assignment afterward.
 - Non-Newtest customers must remain untouched; never change the separate EU host.
+
+## Newtest production canary — live delivery
+
+Implemented a compatibility gate `RMM_APP_PORTAL_APPROVAL_REASON_TENANT=newtest` in `rmm-api`. Mandatory 20–2000-character employee reason and 10–2000-character technician decision reason apply **only to Newtest** until other customers receive updated Company Portal desktop binaries. Existing normal install assignments are unaffected. The admin bundle exposes `approvalReasonRequired`, and the RMM UI uses that to avoid disabling old requests on unaffected tenants.
+
+GitHub App Portal CI run `43645877848` Windows and Linux **success**, macOS **cancelled**. Windows release artifact `Hi5Central-App-Portal-Windows` 14134002260, self-contained 44,724,980-byte EXE, SHA-256 `801844660fab1d12a73d18a9e51bd169a2015252aefc786faf9dc52556543788`, URL:
+`https://downloads.hi5central.com/app-portal/approval-v1-20261114/Hi5CentralAppPortal.exe`
+This binary is staged for testing, not silently deployed to employee devices.
+
+API image `hi5central/rmm-api:epm-portal-approvals-20261114`; RMM web image `hi5central/rmm-web:epm-portal-approvals-20261114`; both deployed to the **original primary VPS** with Newtest-only approval reason gate. API and web healthy, public web HTTP 200, unauthenticated App Portal/decision routes HTTP 401; Agent 1.0.510 connected. Zero live outstanding approval requests and zero approval-required assignments at the deployment check. No app-install jobs triggered. Backup `/opt/hi5central/runtime/backups/epm-approval-20261114` retains predeployment compose and App Portal database table dump. The existing LAPS account remains `removed` as previously confirmed.
+
+Pilot instructions: in Newtest App Portal, choose a published uninstalled app and set a **Device** assignment to `approval_required` for Lenovo Agent ID `8b416bc2-ba5a-42d0-9b43-777a6f47af20`. Launch the staged Company Portal as a normal Windows user, click **Request approval**, type at least 20 characters, then check RMM's Approval requests. Reject first with a reason (no elevated install). Afterwards, if intentionally approved, only that published revision is dispatched using existing App Portal/PatchHost security. Restore original assignment after test. Do not assume an already-installed app will show the request option.
+
+Security boundary: **normal Windows UAC still appears** for directly launched arbitrary applications; this feature does not intercept Consent.exe, replace secure desktop prompts or elevate a UAC dialog. File-specific right-click elevation remains separate future work.

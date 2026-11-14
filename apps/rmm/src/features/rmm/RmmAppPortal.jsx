@@ -27,7 +27,7 @@ function stateLabel(app) {
 }
 
 export function RmmAppPortal() {
-  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [] })
+  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [], approvalReasonRequired: false })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -242,7 +242,7 @@ export function RmmAppPortal() {
           </span>
           <span className="app-portal-state">{row.status==='approved'?'Dispatch requires review':'Pending'}</span>
           <span className="app-portal-request-actions">
-            <button className="app-portal-text-action approve" disabled={busy||row.status!=='pending'||!row.reason||row.reason.trim().length<20} type="button" onClick={() => {setApprovalDecision({requestId:row.id,decision:'approved',appName:row.app_name});setDecisionNote('')}}>Approve</button>
+            <button className="app-portal-text-action approve" disabled={busy||row.status!=='pending'||(bundle.approvalReasonRequired&&(!row.reason||row.reason.trim().length<20))} type="button" onClick={() => {setApprovalDecision({requestId:row.id,decision:'approved',appName:row.app_name});setDecisionNote('')}}>Approve</button>
             <button className="app-portal-text-action" disabled={busy||row.status!=='pending'} type="button" onClick={() => {setApprovalDecision({requestId:row.id,decision:'rejected',appName:row.app_name});setDecisionNote('')}}>Reject</button>
           </span>
           {approvalDecision?.requestId===row.id && <form className="app-portal-decision-form" onSubmit={decide}>

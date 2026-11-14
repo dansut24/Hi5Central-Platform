@@ -24,6 +24,17 @@ function validHttps(value = '') {
 }
 const packageRoot = path.resolve(process.env.APP_PORTAL_PACKAGE_DIR || '/srv/app-portal-packages')
 const maxPackageBytes = 2 * 1024 * 1024 * 1024
+// Newtest canary: older installed Company Portal builds have no reason dialog.
+// Other tenants retain the previous behaviour until their desktop client is upgraded.
+const approvalPilotSlug = clean(process.env.RMM_APP_PORTAL_APPROVAL_REASON_TENANT)
+const approvalReasonRequired = (slug = '') => Boolean(approvalPilotSlug && slug === approvalPilotSlug)
+async function agentApprovalReasonRequired(tenantId) {
+  if (!approvalPilotSlug) return false
+  const result=await pool.query('SELECT 1 FROM tenants WHERE id=$1 AND slug=$2 LIMIT 1',
+    [tenantId,approvalPilotSlug])
+  return Boolean(result.rowCount)
+}
+
 
 function packageAbsolutePath(storageKey = '') {
   const key = clean(storageKey).replaceAll('\\', '/')
@@ -483,7 +494,7 @@ export function registerRmmAppPortalRoutes(app) {
   app.get('/api/v1/rmm/app-portal', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
-    return c.json(await adminBundle(auth.session.tenant_id))
+    return c.json({ ...await adminBundle(auth.session.tenant_id), approvalReasonRequired: approvalReasonRequired(auth.session.slug) })
   })
   app.post('/api/v1/rmm/app-portal/apps', async (c) => {
     const auth = await requireManage(c)
@@ -742,7 +753,7 @@ export function registerRmmAppPortalRoutes(app) {
       return c.json({ error: 'Decision must be approved or rejected.' }, 400)
     }
     const decisionNote=clean(body.note)
-    if (checkDecisionReason(decisionNote))
+    if (approvalReasonRequired(auth.session.slug) && checkDecisionReason(decisionNote))
       return c.json({ error: checkDecisionReason(decisionNote) }, 400)
     const requestResult = await pool.query(
       `SELECT q.*,a.current_revision_id,a.status AS app_status
@@ -762,7 +773,7 @@ export function registerRmmAppPortalRoutes(app) {
       if(!denied.rowCount) return c.json({error:'Request was already decided.'},409)
       return c.json({success:true,status:'rejected'})
     }
-    if(clean(request.reason).length<20)
+    if(approvalReasonRequired(auth.session.slug) && clean(request.reason).length<20)
       return c.json({error:'Request lacks a business reason. Reject it and ask the user to resubmit.'},409)
 
     if (request.app_status !== 'published' || clean(request.current_revision_id) !== clean(request.revision_id)) {
@@ -929,7 +940,7 @@ export function registerRmmAppPortalRoutes(app) {
     }
     if (assignment.intent === 'approval_required') {
       const businessReason = clean(body.reason)
-      if (checkBusinessReason(businessReason))
+      if (await agentApprovalReasonRequired(auth.agent.tenant_id) && checkBusinessReason(businessReason))
         return c.json({ success: false, error: checkBusinessReason(businessReason) }, 400)
       const existing = await pool.query(
         `SELECT * FROM rmm_app_portal_requests
