@@ -45,7 +45,7 @@ export function RmmLocalAdminVault() {
   },[refresh,selected])
   const accounts=data?.accounts||[]
   const account=useMemo(()=>accounts.find((a)=>a.id===selected),[accounts,selected])
-  const agentPatchVersion=Number(String(account?.agentVersion||'').match(/^1\\.0\\.(\\d+)/)?.[1]||0)
+  const agentPatchVersion=Number(String(account?.agentVersion||'').match(/^1\.0\.(\d+)/)?.[1]||0)
   const agentSupportsRotation=Boolean(account&&agentPatchVersion>=509)
   async function enrol() {
     if(!device)return

@@ -34,3 +34,18 @@ test('disables unsafe rotation on Agent 1.0.508 until corrected 1.0.509 is insta
   assert.ok(ui.includes('agentPatchVersion>=509'))
   assert.ok(ui.includes('!agentSupportsRotation'))
 })
+
+test('UI version parser recognises compatible 1.0.509+ versions without double-escaping',()=>{
+  const marker="agentPatchVersion=Number(String(account?.agentVersion||'').match(/"
+  const offset=ui.indexOf(marker)
+  assert.ok(offset>=0,'Expected UI agentPatchVersion parser')
+  const regexText=ui.slice(offset+marker.length)
+  const end=regexText.indexOf('/)')
+  assert.ok(end>0,'Expected closing regex delimiter')
+  const parser=new RegExp(regexText.slice(0,end))
+  assert.equal(Number('1.0.509'.match(parser)?.[1]||0),509)
+  assert.equal(Number('1.0.510'.match(parser)?.[1]||0),510)
+  assert.equal(Number('1.0.508'.match(parser)?.[1]||0),508)
+  assert.equal(Number('invalid'.match(parser)?.[1]||0),0)
+  assert.ok(ui.includes('agentPatchVersion>=509'))
+})
