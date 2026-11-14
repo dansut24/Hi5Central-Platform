@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $portalHash = 'FF08C02ACBD92A4CB9F1248BEEAFC4EB652CF0D92F745553EE90C1E0F17683CC'
 $hostHash = '42389534EAEA555CFBF01FE45D1ED0D1DD69850AC47D611D171E11F30DA4252E'
-$brokerHash = '2F63BF1AB77A22A6209D961710E7FA8B181DC5FDA60387B024C66858C2EB099F'
+$brokerHash = '921492D9884C471E0021F81E85584EC0E0CED80B3C51B98A46D1981AB748E193'
 $portalUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralAppPortal-' + $portalHash + '.exe'
 $hostUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralPatchHost-' + $hostHash + '.exe'
 $brokerUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralSelfServiceBroker-' + $brokerHash + '.exe'
@@ -63,9 +63,20 @@ $patchState = Install-PinnedFile $hostUrl $hostHash $hostDest
 $brokerDir = Join-Path $env:ProgramFiles 'Hi5Central\SelfServiceBroker'
 New-Item -ItemType Directory -Force -Path $brokerDir | Out-Null
 $brokerDest = Join-Path $brokerDir 'Hi5CentralSelfServiceBroker.exe'
-$brokerFileState = Install-PinnedFile $brokerUrl $brokerHash $brokerDest
 $brokerName = 'Hi5CentralSelfServiceBroker'
 $brokerSvc = Get-CimInstance Win32_Service -Filter "Name='$brokerName'" -ErrorAction SilentlyContinue
+# Windows will lock a running service executable. Only the independent
+# broker is stopped for its own SHA-pinned upgrade; NEVER the RMM Agent.
+if ($brokerSvc -and $brokerSvc.State -eq 'Running'
+    -and (Test-Path -LiteralPath $brokerDest)
+    -and (Get-FileHash -LiteralPath $brokerDest -Algorithm SHA256).Hash -ne $brokerHash) {
+  if (Get-Process -Name 'Hi5CentralPatchHost' -ErrorAction SilentlyContinue) {
+    throw 'App installation is active; defer broker upgrade to next reconciliation'
+  }
+  Stop-Service -Name $brokerName -ErrorAction Stop
+  (Get-Service -Name $brokerName).WaitForStatus('Stopped',[timespan]::FromSeconds(30))
+}
+$brokerFileState = Install-PinnedFile $brokerUrl $brokerHash $brokerDest
 if ($brokerSvc) {
   $expected = '"'+$brokerDest+'"'
   if (-not (($brokerSvc.PathName -eq $expected) -or ($brokerSvc.PathName -eq $brokerDest))) {
@@ -103,7 +114,7 @@ if (Test-Path -LiteralPath $disabledMarker) { throw 'Self Service disabled befor
 $link.Save()
 if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Start Menu shortcut missing' }
 $record = [pscustomobject]@{
-  state='installed'; version='0.2.2'; portalSha256=$portalHash
+  state='installed'; version='0.2.3'; portalSha256=$portalHash
   patchHostSha256=$hostHash; brokerSha256=$brokerHash; portal=$portalState; patchHost=$patchState; broker=$brokerFileState
   shortcut=$shortcut; installedAt=[DateTime]::UtcNow.ToString('o')
 }

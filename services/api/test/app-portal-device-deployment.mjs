@@ -17,7 +17,8 @@ test('Self Service deploys only pinned Hi5Central binaries using Agent, not brow
   assert.ok(script.includes('Get-FileHash'))
   assert.ok(script.includes("Get-Process -Name $processName"))
   assert.ok(script.includes('Hi5Central Self Service.lnk'))
-  assert.ok(!script.includes('Stop-Service'))
+  assert.ok(script.includes('Stop-Service -Name $brokerName'))
+  assert.ok(!script.includes('Stop-Service -Name Hi5CentralAgent'))
   assert.ok(!script.includes('Remove-Service'))
 })
 test('Disabling removes the Self Service app and shortcut, but retains Agent and PatchHost',()=>{
