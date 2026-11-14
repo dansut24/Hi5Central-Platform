@@ -41,3 +41,10 @@
 .app-portal-request-actions{display:flex;align-items:center;gap:7px}
 .app-portal-text-action{border:1px solid var(--rmm-border,#d7dde5)!important;border-radius:8px!important;background:transparent!important;padding:7px 10px!important;width:auto!important;font-weight:700;cursor:pointer}
 .app-portal-text-action.approve{background:rgba(20,140,80,.1)!important;border-color:rgba(20,140,80,.25)!important}
+
+.app-portal-approval-list>.app-portal-approval-item{grid-template-columns:minmax(0,1fr) auto auto;align-items:start;gap:14px}
+.app-portal-business-reason{margin:5px 0 0!important;border-left:3px solid var(--rmm-accent,#0969da);padding:8px 10px;font-size:13px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;background:rgba(85,125,190,.055);border-radius:0 7px 7px 0}
+.app-portal-decision-form{grid-column:1/-1;display:grid;gap:10px;margin:10px 0 0;padding:14px;border:1px solid var(--rmm-border,#d7dde5);border-radius:11px}
+.app-portal-decision-form p{font-size:12px}
+.app-portal-decision-buttons{display:flex;flex-wrap:wrap;gap:8px}
+@media(max-width:700px){.app-portal-approval-list>.app-portal-approval-item{grid-template-columns:minmax(0,1fr) auto}.app-portal-approval-item>.app-portal-request-actions{grid-column:1/-1}}

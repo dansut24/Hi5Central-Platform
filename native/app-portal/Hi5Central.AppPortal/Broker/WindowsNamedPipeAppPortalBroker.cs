@@ -8,14 +8,15 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
     private const string PipeName = "Hi5CentralAppPortal";
 
     public Task<JsonDocument> GetCatalogueAsync(CancellationToken cancellationToken = default)
-        => SendAsync("catalogue", appId: null, cancellationToken);
+        => SendAsync("catalogue", appId: null, reason: null, cancellationToken);
 
-    public Task<JsonDocument> InstallAsync(string appId, CancellationToken cancellationToken = default)
-        => SendAsync("install", appId, cancellationToken);
+    public Task<JsonDocument> InstallAsync(string appId, string? reason = null, CancellationToken cancellationToken = default)
+        => SendAsync("install", appId, reason, cancellationToken);
 
     private static async Task<JsonDocument> SendAsync(
         string requestType,
         string? appId,
+        string? reason,
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
@@ -43,6 +44,10 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
             if (!string.IsNullOrWhiteSpace(appId))
             {
                 writer.WriteString("appId", appId);
+            }
+            if (requestType == "install" && !string.IsNullOrWhiteSpace(reason))
+            {
+                writer.WriteString("reason", reason.Trim()[..Math.Min(2000, reason.Trim().Length)]);
             }
             writer.WriteEndObject();
         }
