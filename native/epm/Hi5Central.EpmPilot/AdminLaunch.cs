@@ -10,6 +10,17 @@ namespace Hi5Central.EpmPilot;
 /// never the requesting user's token and never a SYSTEM shell. Account deleted
 /// as soon as launch is attempted. Only the service can invoke this function.
 /// </summary>
+// Only expose a fixed stage identifier and numeric Win32 code. Passwords,
+// device secrets and local security tokens are never added to diagnostics.
+internal sealed class EpmLaunchException : Exception
+{
+    internal string Stage { get; }
+    internal int WindowsCode { get; }
+    internal EpmLaunchException(string stage,int windowsCode)
+        : base("Approved launch failed at " + stage + " (Windows error " + windowsCode + ").")
+    { Stage=stage; WindowsCode=windowsCode; }
+}
+
 internal static class AdminLaunch
 {
     public static int Launch(string approvedFile,int sessionId)
@@ -20,15 +31,15 @@ internal static class AdminLaunch
           usri1_priv=1,usri1_flags=1,usri1_home_dir="",usri1_comment="Hi5Central one-time EPM elevation" };
         int parameter;
         int created=NetUserAdd(null,1,ref user,out parameter);
-        if(created!=0)throw new Win32Exception(created,"Cannot create one-time elevation identity.");
+        if(created!=0)throw new EpmLaunchException("create-admin-identity",created);
         try {
             string administrators=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null)
                 .Translate(typeof(NTAccount)).Value.Split('\\').Last();
             var member=new LOCALGROUP_MEMBERS_INFO_3 { lgrmi3_domainandname=Environment.MachineName+"\\"+account };
             int joined=NetLocalGroupAddMembers(null,administrators,3,ref member,1);
-            if(joined!=0)throw new Win32Exception(joined,"Could not assign isolated local-admin identity.");
+            if(joined!=0)throw new EpmLaunchException("assign-admin-group",joined);
             if(!LogonUser(account,Environment.MachineName,password,2,0,out var token))
-                throw new Win32Exception(Marshal.GetLastWin32Error(),"Isolated admin logon failed.");
+                throw new EpmLaunchException("logon-identity",Marshal.GetLastWin32Error());
             try {
                 // On UAC-enabled Windows, LogonUser may return a filtered local-admin
                 // token. The linked full token is required for actual approved elevation.
@@ -43,19 +54,19 @@ internal static class AdminLaunch
                 try {
                     Marshal.Copy(sid,0,ptr,sid.Length);
                     if(!CheckTokenMembership(elevated,ptr,out var memberEnabled) || !memberEnabled)
-                        throw new InvalidOperationException("Windows did not grant an elevated administrator token.");
+                        throw new EpmLaunchException("validate-elevated-token",0);
                 } finally {Marshal.FreeHGlobal(ptr);}
                 if(!DuplicateTokenEx(elevated,0xF01FF,IntPtr.Zero,2,1,out var primary))
-                    throw new Win32Exception(Marshal.GetLastWin32Error(),"Cannot create primary elevation token.");
+                    throw new EpmLaunchException("duplicate-primary-token",Marshal.GetLastWin32Error());
                 try {
                     var session=sessionId;
                     if(!SetTokenInformation(primary,12,ref session,sizeof(int)))
-                        throw new Win32Exception(Marshal.GetLastWin32Error(),"Cannot bind approval to desktop session.");
+                        throw new EpmLaunchException("bind-desktop-session",Marshal.GetLastWin32Error());
                     var startup=new STARTUPINFO { cb=Marshal.SizeOf<STARTUPINFO>(), lpDesktop=@"winsta0\default" };
                     string command="\""+approvedFile+"\"";
                     if(!CreateProcessAsUser(primary,approvedFile,command,IntPtr.Zero,IntPtr.Zero,false,0x10,IntPtr.Zero,
                         Path.GetDirectoryName(approvedFile),ref startup,out var process))
-                        throw new Win32Exception(Marshal.GetLastWin32Error(),"Approved process could not launch.");
+                        throw new EpmLaunchException("create-elevated-process",Marshal.GetLastWin32Error());
                     try { return checked((int)process.dwProcessId); }
                     finally { CloseHandle(process.hThread);CloseHandle(process.hProcess); }
                 } finally {CloseHandle(primary);}
