@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
-export const SELF_SERVICE_PORTAL_SHA256 = '635024FD1037D894FE4075240B5C8033F9B072654D311502C6D9B509840CA647'
+export const SELF_SERVICE_PORTAL_SHA256 = '309BC60398A71868C6E7B4FF481C90FE97F9D0367EE4D99F93C68CC35F859625'
 export const SELF_SERVICE_PATCHHOST_SHA256 = '42389534EAEA555CFBF01FE45D1ED0D1DD69850AC47D611D171E11F30DA4252E'
-export const SELF_SERVICE_VERSION = '0.2.0'
+export const SELF_SERVICE_VERSION = '0.2.1'
 export function selfServicePowerShell(enable) {
   if (typeof enable !== 'boolean') throw new Error('Self Service state must be a boolean')
   if (!enable) return [
@@ -53,12 +53,15 @@ export function selfServicePowerShell(enable) {
     "$path=Join-Path $root 'reconcile.ps1'",
     "[IO.File]::WriteAllText($path,[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')))",
     "Remove-Item -LiteralPath (Join-Path $root 'disabled.txt') -Force -ErrorAction SilentlyContinue",
-    "& $path",
+    // Reconciliation schedules are installed before immediate update so
+    // an opened Self Service window can defer a locked EXE update until the
+    // user closes it. Never forcibly terminate the end-user portal.
     "$scriptCommand='powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + $path",
     "schtasks.exe /Create /F /TN 'Hi5CentralSelfServiceOnBoot' /SC ONSTART /RU SYSTEM /RL HIGHEST /TR $scriptCommand | Out-Null",
     "if ($LASTEXITCODE -ne 0) { throw 'Boot reconciliation task creation failed' }",
     "schtasks.exe /Create /F /TN 'Hi5CentralSelfServiceHourly' /SC HOURLY /MO 1 /RU SYSTEM /RL HIGHEST /TR $scriptCommand | Out-Null",
     "if ($LASTEXITCODE -ne 0) { throw 'Hourly reconciliation task creation failed' }",
+    "& $path",
     "Write-Output 'Hi5Central Self Service deployed with boot and hourly reconciliation'",
   ].join('\n')
 }

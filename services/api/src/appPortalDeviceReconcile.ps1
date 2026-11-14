@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$portalHash = '635024FD1037D894FE4075240B5C8033F9B072654D311502C6D9B509840CA647'
+$portalHash = '309BC60398A71868C6E7B4FF481C90FE97F9D0367EE4D99F93C68CC35F859625'
 $hostHash = '42389534EAEA555CFBF01FE45D1ED0D1DD69850AC47D611D171E11F30DA4252E'
 $portalUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralAppPortal-' + $portalHash + '.exe'
 $hostUrl = 'https://downloads.hi5central.com/software/self-service/Hi5CentralPatchHost-' + $hostHash + '.exe'
@@ -69,7 +69,7 @@ if (Test-Path -LiteralPath $disabledMarker) { throw 'Self Service disabled befor
 $link.Save()
 if (-not (Test-Path -LiteralPath $shortcut)) { throw 'Start Menu shortcut missing' }
 $record = [pscustomobject]@{
-  state='installed'; version='0.2.0'; portalSha256=$portalHash
+  state='installed'; version='0.2.1'; portalSha256=$portalHash
   patchHostSha256=$hostHash; portal=$portalState; patchHost=$patchState
   shortcut=$shortcut; installedAt=[DateTime]::UtcNow.ToString('o')
 }
