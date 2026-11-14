@@ -88,7 +88,7 @@ internal sealed class EpmService : ServiceBase
                 _=>new {success=false,error="Unknown EPM request"}
             };
         } catch(Exception ex) {
-            response=new {success=false,error=ex is InvalidOperationException or UnauthorizedAccessException
+            response=new {success=false,error=ex is InvalidOperationException or UnauthorizedAccessException or EpmLaunchException
                 ?ex.Message:"Hi5Central could not complete the request."};
         } finally {gate.Release();}
         var output=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(response));
@@ -165,9 +165,19 @@ internal sealed class EpmService : ServiceBase
             var processId=AdminLaunch.Launch(existing.Proof.Path,caller.session);
             approvals.TryRemove(existing.Id,out _);
             return new {success=true,status="launched",processId};
-        } catch {
-            try {using var failed=await api.PostAsync("/api/v1/agent/epm/file-requests/"+existing.Id+"/failed",
-                new {sid=caller.sid},ct);} catch {}
+        } catch (Exception error) {
+            // The approval is already consumed, so never automatically retry.
+            // Persist only bounded diagnostic codes, not the executable arguments,
+            // device credential, account password or Windows token.
+            string stage=error is EpmLaunchException launch
+                ? launch.Stage : "unexpected-launch-error";
+            int nativeCode=error is EpmLaunchException native
+                ? native.WindowsCode : 0;
+            try {
+                using var failed=await api.PostAsync(
+                    "/api/v1/agent/epm/file-requests/"+existing.Id+"/failed",
+                    new {sid=caller.sid,stage,win32Code=nativeCode},ct);
+            } catch { /* authorisation stays consumed even if audit transport fails */ }
             throw;
         }
     }
