@@ -16,6 +16,9 @@ public sealed class PortalCatalogueResponse
     [JsonPropertyName("independentBrokerConnected")]
     public bool IndependentBrokerConnected { get; init; }
 
+    [JsonPropertyName("supportPortalUrl")]
+    public string SupportPortalUrl { get; init; } = string.Empty;
+
     [JsonPropertyName("apps")]
     public List<PortalApp> Apps { get; init; } = [];
 
@@ -398,6 +401,8 @@ public sealed class AppCard : INotifyPropertyChanged
     public string Version => string.IsNullOrWhiteSpace(App.Version)
         ? "Current release"
         : App.Version;
+    public bool IsScript => Category.Contains("script", StringComparison.OrdinalIgnoreCase)
+        || Category.Contains("automation", StringComparison.OrdinalIgnoreCase);
     public string Initials => BuildInitials(Name);
 
     public string StatusText => Status switch
@@ -418,12 +423,12 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Request approval",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request again",
-        AppPortalStatus.Queued => "Waiting for Agent",
+        AppPortalStatus.Queued => "Waiting for device",
         AppPortalStatus.Installing => "Installing...",
         AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Retry",
-        _ => "Install",
+        _ => IsScript ? "Run" : "Install",
     };
 
     public bool CanInstall => LiveAgentAvailable

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { hasPermission } from './access.js'
-import { deployment, originMatchesTenant } from './deploymentConfig.js'
+import { deployment, originMatchesTenant, tenantUrls } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { agentSocketForDevice, authenticateAgent, sendAgentMessage } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
@@ -1318,9 +1318,16 @@ export function registerRmmAppPortalRoutes(app) {
       }
       : {}
 
+    const tenant = await pool.query(
+      `SELECT slug FROM tenants WHERE id=$1 LIMIT 1`, [auth.agent.tenant_id])
+    const slug = clean(tenant.rows[0]?.slug)
+    const supportPortalUrl = /^[a-z0-9][a-z0-9-]*$/.test(slug)
+      ? tenantUrls(slug).portalUrl : ''
+
     return c.json({
       success: true,
       apps: enrichedApps,
+      supportPortalUrl,
       installedSoftware: installedSoftware.rows,
       installations: jobs.rows,
       requests: requests.rows,

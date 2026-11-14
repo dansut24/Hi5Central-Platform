@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -15,6 +17,10 @@ public sealed partial class MainWindow : Window
     private readonly IAppPortalBroker _broker;
     private readonly ObservableCollection<AppCard> _visibleApps = [];
     private readonly ObservableCollection<InstalledSoftwareItem> _visibleInstalled = [];
+    private readonly ObservableCollection<AppCard> _scriptCards = [];
+    private AppCard? _selectedApp;
+    private string _supportPortalUrl = string.Empty;
+
     private readonly PortalCatalogueCache _catalogueCache = new();
     private List<PortalInstalledProgram> _installedSoftware = [];
     private List<PortalInstalledProgram> _localInstalledSoftware = [];
@@ -43,6 +49,7 @@ public sealed partial class MainWindow : Window
         _broker = AppPortalBrokerFactory.Create();
         AppsItems.ItemsSource = _visibleApps;
         InstalledSoftwareItems.ItemsSource = _visibleInstalled;
+        ScriptItems.ItemsSource = _scriptCards;
         RecentRequestItems.ItemsSource = _recentRequests;
         RequestsPageItems.ItemsSource = _allRequestItems;
         DashboardUpdateItems.ItemsSource = _dashboardUpdates;
@@ -63,6 +70,8 @@ public sealed partial class MainWindow : Window
         // The UI can display installed programs even if the Agent service has
         // stopped and the named pipe does not exist.
         _localInstalledSoftware = LocalInstalledSoftware.Read();
+        SettingsNotificationsCheck.IsChecked = PortalNotifications.Enabled;
+        _ = Task.Run(PortalNotifications.EnsureSchedule);
         _offlineMode = true;
         if (_catalogueCache.TryLoad(out var cached, out var savedAt) && cached is not null)
         {
@@ -113,7 +122,9 @@ public sealed partial class MainWindow : Window
             _cachedAt = DateTimeOffset.UtcNow;
             _localInstalledSoftware = LocalInstalledSoftware.Read();
             ApplyCatalogueResponse(response);
-            try { _catalogueCache.Save(response); } catch (IOException) { }
+            try { PortalNotifications.SyncCatalogue(response, _catalogueCache); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException or InvalidOperationException) { }
             var recoveredFromLoadFailure = _loadFailed;
             _loadFailed = false;
 
@@ -177,6 +188,7 @@ public sealed partial class MainWindow : Window
     private void ApplyCatalogueResponse(PortalCatalogueResponse response)
     {
         _apps = response.Apps;
+        _supportPortalUrl = response.SupportPortalUrl;
         _installations = response.Installations;
         _requests = response.Requests;
         _device = response.Device;
@@ -535,6 +547,13 @@ public sealed partial class MainWindow : Window
 
     private void UpdatePageVisibility()
     {
+        if (_view == "scripts")
+        {
+            _scriptCards.Clear();
+            foreach (var card in BuildCards().Where(card => IsPublishedScript(card.App)))
+                _scriptCards.Add(card);
+            ScriptsEmptyText.IsVisible = _scriptCards.Count == 0;
+        }
         var isHome = _view == "home";
         var isApps = _view is "all" or "installed";
 
@@ -548,6 +567,29 @@ public sealed partial class MainWindow : Window
         DevicePagePanel.IsVisible = _view == "device";
         SupportPagePanel.IsVisible = _view == "support";
         SettingsPagePanel.IsVisible = _view == "settings";
+        ScriptsPagePanel.IsVisible = _view == "scripts";
+        AppDetailsPagePanel.IsVisible = _view == "detail";
+
+        if (_view == "detail" && _selectedApp is not null)
+        {
+            // Bind the action to the selected app exactly like its catalogue tile.
+            DetailsInstallButton.DataContext = _selectedApp;
+            DetailsInstallButton.Content = _selectedApp.ActionText;
+            DetailsInstallButton.IsEnabled = _selectedApp.CanInstall;
+            DetailsNameText.Text = _selectedApp.Name;
+            DetailsInitialsText.Text = _selectedApp.Initials;
+            DetailsPublisherText.Text = _selectedApp.Publisher;
+            DetailsDescriptionText.Text = _selectedApp.Description;
+            DetailsVersionText.Text = _selectedApp.Version;
+            DetailsCategoryText.Text = _selectedApp.Category;
+            DetailsStatusText.Text = _selectedApp.StatusText;
+            DetailsAvailabilityText.Text = _selectedApp.App.Scope?.Name
+                ?? "Assigned by your organisation";
+            DetailsUninstallButton.IsVisible = _selectedApp.Status == AppPortalStatus.Installed;
+            DetailsActionInfoText.Text = "Installation requires an approved company assignment. "
+                + "For a removal that cannot yet be performed by the independent service, "
+                + "send an IT service request.";
+        }
 
         AppsSectionTitle.Text = _view switch
         {
@@ -763,6 +805,98 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void NotificationSettingsChanged(object? sender, RoutedEventArgs e)
+    {
+        if (SettingsNotificationsCheck is null) return;
+        var enabled = SettingsNotificationsCheck.IsChecked == true;
+        _ = Task.Run(() =>
+        {
+            try { PortalNotifications.SetEnabled(enabled); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                or System.Security.SecurityException) { }
+        });
+    }
+
+    private static bool IsPublishedScript(PortalApp app) =>
+        app.Category.Contains("script", StringComparison.OrdinalIgnoreCase)
+        || app.Category.Contains("automation", StringComparison.OrdinalIgnoreCase);
+
+    private void AppDetails_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: AppCard card }) return;
+        _selectedApp = card;
+        _view = "detail";
+        foreach (var nav in new[] { NavHome, NavAll, NavUpdates, NavInstalled,
+            NavScripts, NavRequests, NavDevice, NavSupport, NavSettings })
+            nav.Classes.Remove("active");
+        NavAll.Classes.Add("active");
+        ApplyFilters();
+    }
+
+    private void BackToApps_Click(object? sender, RoutedEventArgs e)
+    {
+        _selectedApp = null;
+        _view = "all";
+        NavAll.Classes.Add("active");
+        ApplyFilters();
+    }
+
+    private void AppRemovalRequest_Click(object? sender, RoutedEventArgs e)
+    {
+        // Never execute arbitrary strings from uninstall registry as SYSTEM.
+        // Where no approved uninstall policy exists, send the user to ITSM.
+        OpenCompanyPortal("requests");
+    }
+
+    private void OpenTicket_Click(object? sender, RoutedEventArgs e) =>
+        OpenCompanyPortal("");
+
+    private void OpenServiceRequest_Click(object? sender, RoutedEventArgs e) =>
+        OpenCompanyPortal("requests");
+
+    private void OpenLiveChat_Click(object? sender, RoutedEventArgs e) =>
+        OpenCompanyPortal("live-chat");
+
+    private void OpenKnowledge_Click(object? sender, RoutedEventArgs e) =>
+        OpenCompanyPortal("knowledge");
+
+    private void OpenCompanyPortal(string route)
+    {
+        if (!Uri.TryCreate(_supportPortalUrl, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps || !uri.IsDefaultPort
+            || !Regex.IsMatch(uri.Host,
+                @"^[a-z0-9][a-z0-9-]*-portal\.hi5central\.com$",
+                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase))
+        {
+            ShowStatus("Help Centre not available",
+                "Your organisation's ITSM Help Centre has not been configured.",
+                isError: true, autoHide: false);
+            return;
+        }
+        try
+        {
+            var baseUri = new UriBuilder(uri)
+            {
+                Path = "/" + route.Trim('/'), Query = "", Fragment = "",
+            };
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = baseUri.Uri.AbsoluteUri,
+                UseShellExecute = true,
+            });
+            ShowStatus("Help Centre opened",
+                "Sign in to your organisation's Help Centre to create a ticket, "
+                + "raise a service request or chat with IT.",
+                isError: false, autoHide: true);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception
+            or InvalidOperationException)
+        {
+            ShowStatus("Unable to open the Help Centre", FriendlyError(ex),
+                isError: true, autoHide: false);
+        }
+    }
+
     private void NavButton_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button button) return;
@@ -771,7 +905,7 @@ public sealed partial class MainWindow : Window
         if (_view == "installed") _localInstalledSoftware = LocalInstalledSoftware.Read();
 
         foreach (var nav in new[]
-                 { NavHome, NavAll, NavUpdates, NavInstalled, NavRequests, NavDevice, NavSupport, NavSettings })
+                 { NavHome, NavAll, NavUpdates, NavInstalled, NavScripts, NavRequests, NavDevice, NavSupport, NavSettings })
         {
             nav.Classes.Remove("active");
             if (ReferenceEquals(nav, button))
@@ -804,7 +938,7 @@ public sealed partial class MainWindow : Window
     {
         _view = "all";
         foreach (var nav in new[]
-                 { NavHome, NavAll, NavUpdates, NavInstalled, NavRequests, NavDevice, NavSupport, NavSettings })
+                 { NavHome, NavAll, NavUpdates, NavInstalled, NavScripts, NavRequests, NavDevice, NavSupport, NavSettings })
         {
             nav.Classes.Remove("active");
         }
@@ -831,6 +965,18 @@ public sealed partial class MainWindow : Window
                 HeroTitle.Text = "Software already on this device.";
                 HeroDescription.Text =
                     "View applications installed through Hi5Central. Installation status refreshes automatically.";
+                break;
+            case "scripts":
+                HeroEyebrow.Text = "AUTOMATION";
+                HeroTitle.Text = "Company scripts";
+                HeroDescription.Text =
+                    "Run only approved scripts and IT fixes assigned to your device or user.";
+                break;
+            case "detail":
+                HeroEyebrow.Text = "APPLICATION DETAILS";
+                HeroTitle.Text = _selectedApp?.Name ?? "Application";
+                HeroDescription.Text =
+                    "Details, version, installation status and help for this application.";
                 break;
             case "requests":
                 HeroEyebrow.Text = "APPROVAL REQUESTS";
