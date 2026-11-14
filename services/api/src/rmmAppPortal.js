@@ -13,6 +13,7 @@ import { softwarePatchPlan } from './rmmPatching.js'
 import { resolveSession } from './session.js'
 import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
 import { findInstalledApp } from './appPortalInventory.js'
+import { isVerifiedAppPortalInstallation } from './appPortalVerificationProof.js'
 import { inspectUploadedPackage } from './appPortalPackageInspection.js'
 import { approvalMatches, allowedUnsignedScope, isUnsignedUpload, unsignedManifestApproval } from './appPortalUnsignedApproval.js'
 import { registerAppPortalDeviceRoutes } from './appPortalDeviceRoutes.js'
@@ -1266,15 +1267,32 @@ export function registerRmmAppPortalRoutes(app) {
     ])
     const installedCatalogueIds = new Set(installed.rows.map((row) => clean(row.catalogue_id)))
     const { source_payload: softwareInventory, ...publicDevice } = device.rows[0] || {}
+    const latestInstallByApp = new Map()
+    for (const installation of jobs.rows) {
+      if (!latestInstallByApp.has(installation.app_id)) {
+        latestInstallByApp.set(installation.app_id, installation)
+      }
+    }
     const enrichedApps = apps.map((app) => {
       const detected = app.sourceType === 'custom'
         ? findInstalledApp({ app, inventory: softwareInventory })
         : null
+      const last = latestInstallByApp.get(app.id)
+      const brokerVerified = isVerifiedAppPortalInstallation(last, app)
       return {
         ...app,
         installed: detected ? detected.installed
           : Boolean(app.catalogueId && installedCatalogueIds.has(clean(app.catalogueId))),
         ...(detected || {}),
+        // A completed PatchHost verification is independent of the Agent's
+        // inventory. It is proof for THIS revision only, not for later updates.
+        ...(brokerVerified ? {
+          installed: true,
+          inventoryFresh: true,
+          installedVersion: clean(last.result.verifiedVersion
+            || last.result.verification?.installedVersion || app.version),
+          detection: 'patchhost_verified_uninstall_registry',
+        } : {}),
       }
     })
     const requests = identity.sid || identity.upn
