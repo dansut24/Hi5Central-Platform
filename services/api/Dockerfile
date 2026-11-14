@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY src ./src
-RUN npm run build:runtime
+RUN npm run build:runtime && cp src/appPortalDeviceReconcile.ps1 dist/appPortalDeviceReconcile.ps1
 
 FROM node:24-alpine AS runtime
 

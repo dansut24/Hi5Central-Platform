@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdir, rm, stat } from 'node:fs/promises'
+import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -11,6 +11,11 @@ import { agentSocketForDevice, authenticateAgent, sendAgentMessage } from './rmm
 import { recordRmmActivity } from './rmmActivity.js'
 import { softwarePatchPlan } from './rmmPatching.js'
 import { resolveSession } from './session.js'
+import { inspectAppPortalIcon, MAX_APP_PORTAL_ICON_BYTES } from './appPortalIcon.js'
+import { findInstalledApp } from './appPortalInventory.js'
+import { inspectUploadedPackage } from './appPortalPackageInspection.js'
+import { approvalMatches, allowedUnsignedScope, isUnsignedUpload, unsignedManifestApproval } from './appPortalUnsignedApproval.js'
+import { registerAppPortalDeviceRoutes } from './appPortalDeviceRoutes.js'
 
 function clean(value = '') { return String(value ?? '').trim() }
 function lower(value = '') { return clean(value).toLowerCase() }
@@ -23,6 +28,21 @@ function validHttps(value = '') {
 }
 const packageRoot = path.resolve(process.env.APP_PORTAL_PACKAGE_DIR || '/srv/app-portal-packages')
 const maxPackageBytes = 2 * 1024 * 1024 * 1024
+// Separate storage checksum from metadata and owner approval. Neither a mutable
+// file name nor a certificate-subject string can stand in for a pinned hash.
+async function hashStoredPackage(filePath) {
+  const digest = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) digest.update(chunk)
+  return digest.digest('hex').toUpperCase()
+}
+async function currentUnsignedApproval(tenantId, revisionId) {
+  const result = await pool.query(
+    `SELECT * FROM rmm_app_portal_unsigned_approvals
+      WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL LIMIT 1`,
+    [tenantId, revisionId])
+  return result.rows[0] || null
+}
+
 
 function packageAbsolutePath(storageKey = '') {
   const key = clean(storageKey).replaceAll('\\', '/')
@@ -93,7 +113,7 @@ async function rememberIdentity(agent, identity) {
   )
 }
 async function adminBundle(tenantId) {
-  const [apps, revisions, assignments, requests, catalogue] = await Promise.all([
+  const [apps, revisions, assignments, requests, catalogue, unsignedApprovals, devices] = await Promise.all([
     pool.query(
       `SELECT a.*,r.revision AS current_revision,r.version,r.source_kind,r.publish_state,r.validation
          FROM rmm_app_portal_apps a
@@ -119,6 +139,18 @@ async function adminBundle(tenantId) {
         WHERE status='active' AND (tenant_id=$1 OR tenant_id IS NULL)
           AND qualification_state IN ('qualified','qualified_limited')
         ORDER BY lower(canonical_name) LIMIT 1000`, [tenantId]),
+    pool.query(
+      `SELECT id,tenant_id,app_id,revision_id,package_sha256,approved_by_user_id,
+              reason,approved_at,revoked_at
+         FROM rmm_app_portal_unsigned_approvals
+        WHERE tenant_id=$1 AND revoked_at IS NULL ORDER BY approved_at DESC`, [tenantId]),
+    pool.query(
+      `SELECT d.id,d.inventory_id,i.name,i.manufacturer,i.model,i.reference,
+              d.agent_version,d.websocket_status
+         FROM rmm_agent_devices d
+         JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+        WHERE d.tenant_id=$1 AND d.disabled_at IS NULL
+        ORDER BY lower(i.name) LIMIT 2000`, [tenantId]),
   ])
   return {
     apps: apps.rows,
@@ -126,6 +158,8 @@ async function adminBundle(tenantId) {
     assignments: assignments.rows,
     requests: requests.rows,
     catalogue: catalogue.rows,
+    unsignedApprovals: unsignedApprovals.rows,
+    devices: devices.rows,
   }
 }
 function validateCustomRevision(body = {}) {
@@ -203,15 +237,23 @@ async function resolvedApps(agent, identity) {
                FROM rmm_app_portal_installations i
               WHERE i.tenant_id=a.tenant_id AND i.app_id=a.id AND i.status='succeeded') AS install_count,
             r.id AS revision_id,r.revision,r.version,r.source_kind,r.publish_state,
+            r.source_config,
             x.id AS assignment_id,x.scope_type,x.scope_id,x.scope_name,x.intent,x.priority
        FROM rmm_app_portal_apps a
        JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id AND r.publish_state='published'
        JOIN rmm_app_portal_assignments x ON x.app_id=a.id AND x.tenant_id=a.tenant_id AND x.enabled=true
       WHERE a.tenant_id=$1 AND a.status='published'
+        AND (r.source_kind<>'upload'
+          OR COALESCE(r.source_config->'inspection'->>'status','')<>'unsigned'
+          OR EXISTS (SELECT 1 FROM rmm_app_portal_unsigned_approvals ua
+              WHERE ua.tenant_id=r.tenant_id AND ua.revision_id=r.id
+                AND ua.revoked_at IS NULL AND ua.package_sha256=r.sha256))
       ORDER BY lower(a.name),x.priority DESC`, [agent.tenant_id],
   )
   const byApp = new Map()
   for (const row of result.rows) {
+    if (row.source_kind === 'upload' && object(object(row.source_config).inspection).status === 'unsigned'
+      && !allowedUnsignedScope(row.scope_type, row.intent)) continue
     if (!assignmentMatches(row, context)) continue
     const score = scopeRank(row.scope_type) * 100000 + Number(row.priority || 0)
     const current = byApp.get(row.id)
@@ -247,14 +289,14 @@ async function revisionForInstall(tenantId, appId) {
   return result.rows[0] || null
 }
 
-async function dispatchCustomInstall(agent, app, identity) {
+async function dispatchCustomInstall(agent, app, identity, { independentBroker = false } = {}) {
   const capabilitiesResult = await pool.query(
     `SELECT patch_capabilities,websocket_status,last_telemetry_at FROM rmm_agent_devices
       WHERE id=$1 AND tenant_id=$2 LIMIT 1`, [agent.id, agent.tenant_id])
   const state = capabilitiesResult.rows[0] || {}
   const socket = agentSocketForDevice(agent.id)
   const fresh = state.last_telemetry_at && Date.now() - new Date(state.last_telemetry_at).getTime() <= 90_000
-  if (!socket || socket.readyState !== 1 || !fresh) return { error: 'This device is offline.', status: 409 }
+  if (!independentBroker && (!socket || socket.readyState !== 1 || !fresh)) return { error: 'This device is offline.', status: 409 }
   if (object(state.patch_capabilities).softwareInstall !== true) {
     return { error: 'PatchHost software installation is not available on this device.', status: 409 }
   }
@@ -262,6 +304,32 @@ async function dispatchCustomInstall(agent, app, identity) {
   const source = object(app.source_config)
   const execution = object(app.execution)
   const mode = lower(execution.mode || 'arguments')
+  let unsignedApproval = null
+  if (source.inspection?.status === 'unsigned') {
+    if (app.source_kind !== 'upload') return { error: 'Unsigned HTTPS URLs are not supported.', status: 409 }
+    const approved = await currentUnsignedApproval(agent.tenant_id, app.revision_id)
+    const revisionIdentity = { ...app, tenant_id: agent.tenant_id }
+    if (!approvalMatches(revisionIdentity, approved)) {
+      return { error: 'The unsigned package approval was revoked or does not match this revision and hash.', status: 409 }
+    }
+    // Enforce device-only scope again at dispatch time, not just catalogue view.
+    const allowedDevice = await pool.query(
+      `SELECT 1 FROM rmm_app_portal_assignments x
+         JOIN rmm_agent_devices d ON d.tenant_id=x.tenant_id AND d.id=$3
+         LEFT JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+        WHERE x.tenant_id=$1 AND x.app_id=$2 AND x.enabled=true AND x.scope_type='Device'
+          AND x.intent IN ('available','approval_required')
+          AND lower(x.scope_id) IN (lower(d.id::text),lower(d.inventory_id::text),lower(i.reference))
+        LIMIT 1`, [agent.tenant_id, app.app_id, agent.id])
+    if (!allowedDevice.rowCount) return { error: 'Unsigned software may only be assigned to an individual managed device.', status: 403 }
+    if (object(object(state.patch_capabilities).vendorDirect).approvedUnsigned !== true) {
+      return { error: 'This device needs a Hi5Central Agent with approved unsigned-package support before installation.', status: 409 }
+    }
+    unsignedApproval = unsignedManifestApproval(revisionIdentity, approved, agent.id)
+    if (!unsignedApproval || mode !== 'arguments') {
+      return { error: 'Unsigned approval does not cover this installer or execution mode.', status: 409 }
+    }
+  }
   if (mode !== 'arguments') {
     const vendorDirect = object(object(state.patch_capabilities).vendorDirect)
     if (vendorDirect.customExecution !== true) {
@@ -289,7 +357,7 @@ async function dispatchCustomInstall(agent, app, identity) {
     await pool.query(
       `INSERT INTO rmm_app_portal_package_tokens
         (tenant_id,revision_id,agent_device_id,token_hash,expires_at)
-       VALUES ($1,$2,$3,$4,now()+interval '15 minutes')`,
+       VALUES ($1,$2,$3,$4,now()+interval '45 minutes')`,
       [agent.tenant_id, app.revision_id, agent.id, packageTokenHash(token)])
     downloadUrl = `${String(deployment.apiUrl || `https://api.${deployment.rootDomain}`).replace(/\/$/, '')}/api/v1/agent/app-portal/packages/${token}`
   }
@@ -310,6 +378,7 @@ async function dispatchCustomInstall(agent, app, identity) {
     installerType: lower(app.installer_type),
     installerTechnology: lower(app.installer_type) === 'msi' ? 'msi' : clean(execution.installerTechnology || 'generic'),
     expectedSigner: clean(app.expected_signer),
+    ...(unsignedApproval ? { unsignedApproval } : {}),
     installArguments: mode === 'arguments' ? clean(execution.arguments) : '',
     customExecution: mode === 'arguments' ? null : {
       mode,
@@ -348,25 +417,10 @@ async function dispatchCustomInstall(agent, app, identity) {
         WHERE id=$1`, [installation.id, job.id])
     return { installation, job }
   })
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING id`,
-    [created.job.id, agent.tenant_id],
-  )
-  if (!claimed.rowCount) return { error: 'Install job could not be claimed.', status: 409 }
-  const pushed = sendAgentMessage(agent.id, {
-    type: 'job_execute',
-    job: { id: created.job.id, job_type: 'patch.software', payload: manifest, created_at: created.job.created_at },
-  })
-  if (!pushed) {
-    await pool.query(
-      `UPDATE rmm_agent_jobs SET status='cancelled',completed_at=now(),error_message='Device went offline before App Portal dispatch.',updated_at=now()
-        WHERE id=$1`, [created.job.id])
-    await pool.query(
-      `UPDATE rmm_app_portal_installations SET status='cancelled',completed_at=now(),updated_at=now() WHERE id=$1`,
-      [created.installation.id])
-    return { error: 'Device went offline before install could start.', status: 409 }
-  }
+  // Agent's persistent /jobs poll owns claiming and acknowledgement. A
+  // WebSocket send is advisory and must never mark a job as executing before
+  // Windows has actually received it; doing so stranded App Portal installs.
+  // Keep this queued until Agent polls, even after a temporary reconnect.
   await recordRmmActivity({
     tenantId: agent.tenant_id, agentDeviceId: agent.id, inventoryId: agent.inventory_id,
     actorType: 'user', actorLabel: label, eventType: 'software.install.requested', category: 'software',
@@ -377,8 +431,8 @@ async function dispatchCustomInstall(agent, app, identity) {
   }).catch(() => null)
   return { success: true, jobId: created.job.id, installationId: created.installation.id }
 }
-async function dispatchCatalogueInstall(agent, app, identity) {
-  const plan = await softwarePatchPlan(agent.tenant_id, agent.id, app.catalogue_id, { intent: 'install' })
+async function dispatchCatalogueInstall(agent, app, identity, { independentBroker = false } = {}) {
+  const plan = await softwarePatchPlan(agent.tenant_id, agent.id, app.catalogue_id, { intent: 'install', independentBroker })
   if (plan.error) return plan
   const label = actorLabel(identity)
   const created = await withTransaction(async (client) => {
@@ -410,25 +464,8 @@ async function dispatchCatalogueInstall(agent, app, identity) {
         WHERE id=$1`, [installation.id, job.id])
     return { installation, job }
   })
-  const claimed = await pool.query(
-    `UPDATE rmm_agent_jobs SET status='claimed',claimed_at=now(),updated_at=now()
-      WHERE id=$1 AND tenant_id=$2 AND status='queued' RETURNING id`,
-    [created.job.id, agent.tenant_id])
-  if (!claimed.rowCount) return { error: 'Install job could not be claimed.', status: 409 }
-  const pushed = sendAgentMessage(agent.id, {
-    type: 'job_execute',
-    job: { id: created.job.id, job_type: 'patch.software', payload: plan.manifest, created_at: created.job.created_at },
-  })
-  if (!pushed) {
-    await pool.query(
-      `UPDATE rmm_agent_jobs SET status='cancelled',completed_at=now(),
-          error_message='Device went offline before App Portal dispatch.',updated_at=now() WHERE id=$1`,
-      [created.job.id])
-    await pool.query(
-      `UPDATE rmm_app_portal_installations SET status='cancelled',completed_at=now(),updated_at=now() WHERE id=$1`,
-      [created.installation.id])
-    return { error: 'Device went offline before install could start.', status: 409 }
-  }
+  // Existing Agent polling claims the job and reports its result.
+  // Avoid pre-claiming and losing it when a WebSocket dispatch is missed.
   await recordRmmActivity({
     tenantId: agent.tenant_id, agentDeviceId: agent.id, inventoryId: agent.inventory_id,
     actorType: 'user', actorLabel: label, eventType: 'software.install.requested', category: 'software',
@@ -441,12 +478,30 @@ async function dispatchCatalogueInstall(agent, app, identity) {
 }
 
 export function registerRmmAppPortalRoutes(app) {
+  registerAppPortalDeviceRoutes(app, {
+    pool, requireManage, agentSocketForDevice, sendAgentMessage, recordRmmActivity,
+    async resolveAppsForDevice(device) {
+      const who = await pool.query(
+        `SELECT sid,username,upn,display_name AS "displayName",last_seen_at
+           FROM rmm_app_portal_end_users
+          WHERE tenant_id=$1 AND agent_device_id=$2
+          ORDER BY last_seen_at DESC LIMIT 1`,
+        [device.tenant_id,device.id])
+      const identity = who.rows[0] || {}
+      const apps = await resolvedApps(device, identity)
+      return { apps, identity: {
+        displayName: identity.displayName || '',
+        lastSeenAt: identity.last_seen_at || null,
+      } }
+    },
+  })
+
   app.get('/api/v1/agent/app-portal/packages/:token', async (c) => {
     const token = clean(c.req.param('token'))
     if (token.length < 40 || token.length > 100) return c.json({ error: 'Package token is invalid.' }, 404)
     const tokenHash = packageTokenHash(token)
     const found = await pool.query(
-      `SELECT t.id,t.expires_at,r.source_config,r.sha256,r.installer_type
+      `SELECT t.id,t.expires_at,t.tenant_id,t.revision_id,r.source_kind,r.source_config,r.sha256,r.installer_type
          FROM rmm_app_portal_package_tokens t
          JOIN rmm_app_portal_revisions r ON r.id=t.revision_id AND r.tenant_id=t.tenant_id
         WHERE t.token_hash=$1 AND t.expires_at>now() AND r.source_kind='upload'
@@ -455,6 +510,12 @@ export function registerRmmAppPortalRoutes(app) {
     const row = found.rows[0]
     if (!row) return c.json({ error: 'Package token is invalid or expired.' }, 404)
     const source = object(row.source_config)
+    if (object(source.inspection).status === 'unsigned') {
+      const approval = await currentUnsignedApproval(row.tenant_id, row.revision_id)
+      if (!approvalMatches({ ...row, id: row.revision_id }, approval)) {
+        return c.json({ error: 'Unsigned approval was revoked; package download blocked.' }, 403)
+      }
+    }
     const absolute = packageAbsolutePath(source.storageKey)
     if (!absolute) return c.json({ error: 'Package is unavailable.' }, 404)
     let info
@@ -479,10 +540,98 @@ export function registerRmmAppPortalRoutes(app) {
     })
   })
 
+
+  // Public raster assets at 192-bit unguessable URLs so Windows Self Service
+  // can load images over HTTPS without having a technician login cookie.
+  app.get('/api/v1/rmm/app-portal/icons/:token', async (c) => {
+    const token = clean(c.req.param('token'))
+    if (!/^[a-f0-9]{48}$/.test(token)) return c.json({ error: 'Logo not found.' }, 404)
+    const url = String(deployment.apiUrl || ('https://api.' + deployment.rootDomain))
+      .replace(/\/$/, '') + '/api/v1/rmm/app-portal/icons/' + token
+    const exists = await pool.query(
+      'SELECT 1 FROM rmm_app_portal_apps WHERE icon_url=$1 AND status<>$2 LIMIT 1',
+      [url, 'archived'])
+    if (!exists.rowCount) return c.json({ error: 'Logo not found.' }, 404)
+    const filename = path.join(packageRoot, '_icons', token + '.png')
+    let info
+    try { info = await stat(filename) } catch { return c.json({ error: 'Logo not found.' }, 404) }
+    if (!info.isFile() || info.size <= 0 || info.size > MAX_APP_PORTAL_ICON_BYTES) {
+      return c.json({ error: 'Logo unavailable.' }, 404)
+    }
+    return new Response(Readable.toWeb(createReadStream(filename)), {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/png',
+        'Content-Length': String(info.size),
+        'Cache-Control': 'public, max-age=86400, immutable',
+        'X-Content-Type-Options': 'nosniff',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+        'Content-Security-Policy': "default-src 'none'; sandbox",
+      },
+    })
+  })
+
+  app.put('/api/v1/rmm/app-portal/apps/:appId/icon', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    const appId = clean(c.req.param('appId'))
+    if (!uuid(appId)) return c.json({ error: 'Application id is invalid.' }, 400)
+    const found = await pool.query(
+      "SELECT id,icon_url FROM rmm_app_portal_apps WHERE id=$1 AND tenant_id=$2 AND status<>'archived' LIMIT 1",
+      [appId, auth.session.tenant_id])
+    if (!found.rowCount) return c.json({ error: 'Application was not found.' }, 404)
+    if (c.req.header('content-type')?.split(';')[0]?.trim().toLowerCase() !== 'image/png') {
+      return c.json({ error: 'Choose a PNG logo.' }, 415)
+    }
+    const length = Number(c.req.header('content-length') || 0)
+    if (length > MAX_APP_PORTAL_ICON_BYTES) {
+      return c.json({ error: 'Logo exceeds the 512 KB limit.' }, 413)
+    }
+    if (!c.req.raw.body) return c.json({ error: 'Logo file is required.' }, 400)
+    let total = 0
+    const chunks = []
+    try {
+      for await (const chunk of Readable.fromWeb(c.req.raw.body)) {
+        total += chunk.byteLength
+        if (total > MAX_APP_PORTAL_ICON_BYTES) {
+          return c.json({ error: 'Logo exceeds the 512 KB limit.' }, 413)
+        }
+        chunks.push(Buffer.from(chunk))
+      }
+    } catch {
+      return c.json({ error: 'Logo upload was interrupted.' }, 400)
+    }
+    const data = Buffer.concat(chunks)
+    const validation = inspectAppPortalIcon(data)
+    if (validation.error) return c.json({ error: validation.error }, 400)
+
+    const token = randomBytes(24).toString('hex')
+    const folder = path.join(packageRoot, '_icons')
+    const filePath = path.join(folder, token + '.png')
+    const url = String(deployment.apiUrl || ('https://api.' + deployment.rootDomain))
+      .replace(/\/$/, '') + '/api/v1/rmm/app-portal/icons/' + token
+    await mkdir(folder, { recursive: true })
+    try {
+      await writeFile(filePath, data, { flag: 'wx', mode: 0o600 })
+      const updated = await pool.query(
+        "UPDATE rmm_app_portal_apps SET icon_url=$3,updated_by_user_id=$4,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND status<>'archived' RETURNING id,icon_url",
+        [appId, auth.session.tenant_id, url, auth.session.user_id])
+      if (!updated.rowCount) throw new Error('Application not found.')
+    } catch (error) {
+      await rm(filePath, { force: true }).catch(() => null)
+      console.error('App Portal logo upload failed', appId, error)
+      return c.json({ error: 'Unable to save the application logo.' }, 500)
+    }
+    return c.json({ success: true, iconUrl: url, width: validation.width, height: validation.height })
+  })
+
   app.get('/api/v1/rmm/app-portal', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
-    return c.json(await adminBundle(auth.session.tenant_id))
+    return c.json({
+      ...await adminBundle(auth.session.tenant_id),
+      canApproveUnsigned: auth.session.tenant_role === 'owner',
+    })
   })
   app.post('/api/v1/rmm/app-portal/apps', async (c) => {
     const auth = await requireManage(c)
@@ -527,6 +676,23 @@ export function registerRmmAppPortalRoutes(app) {
       return { ...portalApp, current_revision_id: revisionResult.rows[0].id }
     })
     return c.json({ success: true, app: created }, 201)
+  })
+
+  // Draft metadata can be corrected without creating a duplicate application.
+  app.patch('/api/v1/rmm/app-portal/apps/:appId', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    const appId = clean(c.req.param('appId'))
+    if (!uuid(appId)) return c.json({ error: 'Application id is invalid.' }, 400)
+    const body = await c.req.json().catch(() => ({}))
+    const name = clean(body.name).slice(0, 255)
+    if (!name) return c.json({ error: 'Application name is required.' }, 400)
+    const result = await pool.query(
+      "UPDATE rmm_app_portal_apps SET name=$3,publisher=$4,description=$5,category=$6,updated_by_user_id=$7,updated_at=now() WHERE id=$1 AND tenant_id=$2 AND source_type='custom' AND status='draft' RETURNING *",
+      [appId, auth.session.tenant_id, name, clean(body.publisher).slice(0, 255),
+        clean(body.description).slice(0, 4000), clean(body.category || 'Company software').slice(0, 120), auth.session.user_id])
+    if (!result.rowCount) return c.json({ error: 'Only an existing custom draft can be edited.' }, 409)
+    return c.json({ success: true, app: result.rows[0] })
   })
 
   app.post('/api/v1/rmm/app-portal/apps/:appId/revisions', async (c) => {
@@ -618,19 +784,166 @@ export function registerRmmAppPortalRoutes(app) {
     }
 
     const sha256 = digest.digest('hex').toUpperCase()
+    // Read MSI properties / EXE version resources and embedded Authenticode
+    // certificate only. Never run the uploaded binary to inspect its metadata.
+    // The endpoint's WinVerifyTrust remains the final trust check before any install.
+    let inspection
+    try {
+      inspection = await inspectUploadedPackage(absolute, revision.installer_type)
+    } catch (error) {
+      console.error('App Portal package inspection unavailable', revision.id, error)
+      inspection = { status: 'inspection_unavailable', signer: '', digestMatched: false,
+        metadata: { name: '', publisher: '', version: '', productCode: '' } }
+    }
+    const metadata = object(inspection.metadata)
     const sourceConfig = {
       storageKey,
       fileName,
       byteSize,
       contentType: clean(c.req.header('content-type') || 'application/octet-stream').slice(0, 150),
       uploadedAt: new Date().toISOString(),
+      inspection: {
+        status: inspection.status,
+        signer: clean(inspection.signer),
+        digestMatched: Boolean(inspection.digestMatched),
+        metadata,
+        inspectedAt: new Date().toISOString(),
+        finalWindowsTrustRequired: true,
+      },
     }
+    // Package identity is learned automatically where MSI metadata is available.
+    // Explicit administrator names/versions are never silently overwritten.
+    await pool.query(
+      `UPDATE rmm_app_portal_unsigned_approvals SET revoked_at=now()
+        WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL`,
+      [auth.session.tenant_id, revision.id])
     await pool.query(
       `UPDATE rmm_app_portal_revisions
-          SET source_config=$3::jsonb,sha256=$4,validation='{}'::jsonb
+          SET source_config=$3::jsonb,sha256=$4,
+              expected_signer=CASE WHEN $5<>'' THEN $5 ELSE '' END,
+              version=CASE WHEN version='' AND $6<>'' THEN $6 ELSE version END,
+              verification=CASE
+                WHEN verification->>'method'='uninstall_registry' AND $7<>'' THEN
+                  jsonb_set(jsonb_set(verification,'{productCode}',to_jsonb($7::text)),
+                    '{displayNameContains}',to_jsonb($8::text))
+                ELSE verification END,
+              validation=$9::jsonb
         WHERE id=$1 AND tenant_id=$2`,
-      [revision.id, auth.session.tenant_id, JSON.stringify(sourceConfig), sha256])
-    return c.json({ success: true, sha256, byteSize, fileName })
+      [revision.id, auth.session.tenant_id, JSON.stringify(sourceConfig), sha256,
+       inspection.status === 'pending_windows_trust' ? clean(inspection.signer) : '',
+       clean(metadata.version), clean(metadata.productCode), clean(metadata.name),
+       JSON.stringify({ state: inspection.status, inspectedAt: new Date().toISOString() })])
+    await pool.query(
+      `UPDATE rmm_app_portal_apps
+          SET publisher=CASE WHEN publisher='' AND $3<>'' THEN $3 ELSE publisher END,
+              updated_at=now()
+        WHERE id=$1 AND tenant_id=$2`,
+      [revision.app_id, auth.session.tenant_id, clean(metadata.publisher)])
+    return c.json({
+      success: true, sha256, byteSize, fileName,
+      inspection: sourceConfig.inspection,
+    })
+  })
+
+  // Only a tenant owner can explicitly approve the exact SHA-256 of an
+  // unsigned, already-uploaded draft. Approval is separately audited and can
+  // never be carried to a different revision or a replacement package.
+  app.post('/api/v1/rmm/app-portal/revisions/:revisionId/unsigned-approval', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    if (auth.session.tenant_role !== 'owner') {
+      return c.json({ error: 'Only the tenant owner can approve unsigned installer packages.' }, 403)
+    }
+    const body = await c.req.json().catch(() => ({}))
+    if (body.acknowledgeUnsigned !== true) {
+      return c.json({ error: 'Explicit acknowledgement of unsigned installer risk is required.' }, 400)
+    }
+    const reason = clean(body.reason)
+    if (reason.length < 12 || reason.length > 1000) {
+      return c.json({ error: 'Provide an approval reason between 12 and 1000 characters.' }, 400)
+    }
+    const revisionId = clean(c.req.param('revisionId'))
+    const result = await pool.query(
+      `SELECT r.*,a.name AS app_name
+         FROM rmm_app_portal_revisions r
+         JOIN rmm_app_portal_apps a ON a.id=r.app_id AND a.tenant_id=r.tenant_id
+        WHERE r.id=$1 AND r.tenant_id=$2 AND a.source_type='custom'
+          AND a.current_revision_id=r.id AND a.status='draft'
+          AND r.publish_state='draft' LIMIT 1`,
+      [revisionId, auth.session.tenant_id])
+    const revision = result.rows[0]
+    if (!revision) return c.json({ error: 'Current unsigned draft was not found.' }, 404)
+    if (!isUnsignedUpload(revision) || !validSha256(revision.sha256)) {
+      return c.json({ error: 'Only an uploaded package positively classified as unsigned can use this approval.' }, 409)
+    }
+    if (!['msi','exe'].includes(lower(revision.installer_type))) {
+      return c.json({ error: 'Unsigned approval is limited to MSI and EXE packages.' }, 409)
+    }
+    if (lower(object(revision.execution).mode || 'arguments') !== 'arguments') {
+      return c.json({ error: 'Unsigned packages cannot run custom scripts.' }, 409)
+    }
+    const storage = object(revision.source_config)
+    const filePath = packageAbsolutePath(storage.storageKey)
+    if (!filePath) return c.json({ error: 'Package storage is invalid.' }, 409)
+    try {
+      const info = await stat(filePath)
+      if (!info.isFile() || info.size !== Number(storage.byteSize)
+        || await hashStoredPackage(filePath) !== clean(revision.sha256).toUpperCase()) {
+        return c.json({ error: 'Stored package differs from its recorded SHA-256 and cannot be approved.' }, 409)
+      }
+    } catch {
+      return c.json({ error: 'Stored package is unavailable for verification.' }, 409)
+    }
+    const existing = await currentUnsignedApproval(auth.session.tenant_id, revision.id)
+    if (existing && approvalMatches(revision, existing)) {
+      return c.json({ success: true, approval: existing, alreadyApproved: true })
+    }
+    const inserted = await pool.query(
+      `INSERT INTO rmm_app_portal_unsigned_approvals
+        (tenant_id,app_id,revision_id,package_sha256,approved_by_user_id,reason)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        ON CONFLICT (tenant_id,revision_id) WHERE revoked_at IS NULL DO NOTHING
+        RETURNING *`,
+      [auth.session.tenant_id, revision.app_id, revision.id, clean(revision.sha256).toUpperCase(),
+       auth.session.user_id, reason])
+    const approval = inserted.rows[0] || await currentUnsignedApproval(auth.session.tenant_id, revision.id)
+    if (!approvalMatches(revision, approval)) {
+      return c.json({ error: 'Unsigned approval conflicted with a different package hash.' }, 409)
+    }
+    await recordRmmActivity({
+      tenantId: auth.session.tenant_id, actorUserId: auth.session.user_id,
+      actorType: 'technician', actorLabel: auth.session.name || auth.session.email,
+      eventType: 'app_portal.unsigned.approved', category: 'software',
+      summary: 'Tenant owner approved an unsigned App Portal revision',
+      detail: revision.app_name + ' · SHA-256 ' + revision.sha256 + ' · ' + reason,
+      outcome: 'success', metadata: { appId: revision.app_id, revisionId: revision.id,
+        approvalId: approval.id, sha256: revision.sha256 },
+    }).catch(error => console.error('Unsigned approval activity record failed', error))
+    return c.json({ success: true, approval }, 201)
+  })
+
+  app.delete('/api/v1/rmm/app-portal/revisions/:revisionId/unsigned-approval', async (c) => {
+    const auth = await requireManage(c)
+    if (auth.error) return auth.error
+    if (auth.session.tenant_role !== 'owner') {
+      return c.json({ error: 'Only the tenant owner can revoke an unsigned package approval.' }, 403)
+    }
+    const result = await pool.query(
+      `UPDATE rmm_app_portal_unsigned_approvals SET revoked_at=now(),revoked_by_user_id=$3
+         WHERE tenant_id=$1 AND revision_id=$2 AND revoked_at IS NULL
+         RETURNING id,app_id,package_sha256`,
+      [auth.session.tenant_id, clean(c.req.param('revisionId')), auth.session.user_id])
+    if (!result.rowCount) return c.json({ error: 'There is no active approval to revoke.' }, 404)
+    await recordRmmActivity({
+      tenantId: auth.session.tenant_id, actorUserId: auth.session.user_id,
+      actorType: 'technician', actorLabel: auth.session.name || auth.session.email,
+      eventType: 'app_portal.unsigned.revoked', category: 'software',
+      summary: 'Tenant owner revoked unsigned package approval',
+      detail: 'SHA-256 ' + result.rows[0].package_sha256,
+      outcome: 'success', metadata: { appId: result.rows[0].app_id,
+        revisionId: clean(c.req.param('revisionId')), approvalId: result.rows[0].id },
+    }).catch(error => console.error('Unsigned revocation activity record failed', error))
+    return c.json({ success: true, revoked: true })
   })
 
   app.post('/api/v1/rmm/app-portal/revisions/:revisionId/publish', async (c) => {
@@ -663,6 +976,38 @@ export function registerRmmAppPortalRoutes(app) {
         expectedSigner: revision.expected_signer, installerType: revision.installer_type,
         execution: revision.execution, verification: revision.verification,
       })
+      if (revision.source_kind === 'upload') {
+        const inspection = object(object(revision.source_config).inspection)
+        if (inspection.status === 'unsigned') {
+          errors = errors.filter(error => error !== 'An expected Authenticode signer is required.')
+          errors.push('This installer is unsigned. Hi5Central cannot deploy it while Windows signature verification is mandatory.')
+        } else if (inspection.status !== 'pending_windows_trust' || !clean(inspection.signer)) {
+          errors = errors.filter(error => error !== 'An expected Authenticode signer is required.')
+          errors.push('The installer signing certificate could not be identified automatically. Please upload a valid signed installer.')
+        }
+      }
+    }
+    if (revision.source_type === 'custom' && isUnsignedUpload(revision)) {
+      const approved = await currentUnsignedApproval(auth.session.tenant_id, revisionId)
+      errors = errors.filter(error => error !== 'An expected Authenticode signer is required.'
+        && !error.startsWith('This installer is unsigned.'))
+      if (!approvalMatches(revision, approved)) {
+        errors.push('This unsigned revision requires explicit tenant-owner approval of its exact SHA-256 before publishing.')
+      } else if (lower(object(revision.execution).mode || 'arguments') !== 'arguments') {
+        errors.push('Approved unsigned packages cannot execute custom scripts.')
+      } else {
+        const source = object(revision.source_config)
+        const storagePath = packageAbsolutePath(source.storageKey)
+        try {
+          const info = storagePath ? await stat(storagePath) : null
+          if (!info?.isFile() || info.size !== Number(source.byteSize)
+            || await hashStoredPackage(storagePath) !== clean(revision.sha256).toUpperCase()) {
+            errors.push('Stored unsigned package differs from its approved SHA-256.')
+          }
+        } catch {
+          errors.push('The approved unsigned package could not be verified on storage.')
+        }
+      }
     }
     if (errors.length) {
       await pool.query(`UPDATE rmm_app_portal_revisions SET validation=$2::jsonb WHERE id=$1`,
@@ -706,9 +1051,35 @@ export function registerRmmAppPortalRoutes(app) {
       return c.json({ error: 'Assignment intent is invalid.' }, 400)
     }
     const exists = await pool.query(
-      `SELECT 1 FROM rmm_app_portal_apps WHERE id=$1 AND tenant_id=$2 LIMIT 1`,
+      `SELECT a.id,a.source_type,r.id AS revision_id,r.source_kind,r.source_config,
+              r.sha256,r.tenant_id,r.publish_state
+         FROM rmm_app_portal_apps a
+         LEFT JOIN rmm_app_portal_revisions r ON r.id=a.current_revision_id
+        WHERE a.id=$1 AND a.tenant_id=$2 LIMIT 1`,
       [appId, auth.session.tenant_id])
     if (!exists.rowCount) return c.json({ error: 'Application was not found.' }, 404)
+    const revision = exists.rows[0]
+    if (isUnsignedUpload(revision)) {
+      if (revision.publish_state !== 'published') {
+        return c.json({ error: 'The unsigned package must be approved and published before assignment.' }, 409)
+      }
+      const approval = await currentUnsignedApproval(auth.session.tenant_id, revision.revision_id)
+      if (!approvalMatches(revision, approval)) {
+        return c.json({ error: 'The unsigned package approval is missing, revoked or no longer matches the file hash.' }, 409)
+      }
+      if (!allowedUnsignedScope(scopeType, intent)) {
+        return c.json({ error: 'Approved unsigned packages may only be made available or approval-required to an individual Device.' }, 403)
+      }
+      const knownDevice = await pool.query(
+        `SELECT 1 FROM rmm_agent_devices d
+           LEFT JOIN rmm_device_inventory i ON i.id=d.inventory_id AND i.tenant_id=d.tenant_id
+          WHERE d.tenant_id=$1 AND d.disabled_at IS NULL
+            AND lower($2) IN (lower(d.id::text),lower(d.inventory_id::text),lower(i.reference))
+          LIMIT 1`, [auth.session.tenant_id, scopeId])
+      if (!knownDevice.rowCount) {
+        return c.json({ error: 'Choose a registered device from this tenant; other scopes are not permitted for unsigned software.' }, 403)
+      }
+    }
     const result = await pool.query(
       `INSERT INTO rmm_app_portal_assignments
         (tenant_id,app_id,scope_type,scope_id,scope_name,intent,priority,created_by_user_id)
@@ -795,6 +1166,48 @@ export function registerRmmAppPortalRoutes(app) {
     return c.json({ success: true, status: 'fulfilled', installationId: dispatched.installationId, jobId: dispatched.jobId })
   })
 
+  // Independent Self Service runs as a *separate Windows SYSTEM service*.
+  // It authenticates with the existing machine-DPAPI Agent identity, but may
+  // claim ONLY software jobs explicitly created by App Portal. It can never
+  // consume remote-access, shell, other RMM patch or Agent upgrade jobs.
+  app.post('/api/v1/agent/app-portal/broker/jobs/claim', async (c) => {
+    const auth = await requireAgent(c)
+    if (auth.error) return auth.error
+    const policy = await pool.query(
+      `SELECT enabled FROM rmm_device_self_service
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true LIMIT 1`,
+      [auth.agent.tenant_id, auth.agent.id])
+    if (!policy.rowCount) return c.json({ success:false, error:'Self Service is disabled.' },403)
+    const claimed = await pool.query(
+      `WITH picked AS (
+        SELECT id FROM rmm_agent_jobs
+         WHERE tenant_id=$1 AND agent_device_id=$2 AND status='queued'
+           AND job_type='patch.software'
+           AND request_metadata->>'source'='app_portal'
+         ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1
+       )
+       UPDATE rmm_agent_jobs j
+          SET status='claimed',claimed_at=now(),updated_at=now()
+         FROM picked
+        WHERE j.id=picked.id
+       RETURNING j.id,j.job_type,j.payload,j.created_at`,
+      [auth.agent.tenant_id, auth.agent.id])
+    return c.json({ success:true, jobs:claimed.rows })
+  })
+
+  app.post('/api/v1/agent/app-portal/broker/heartbeat', async (c) => {
+    const auth = await requireAgent(c)
+    if (auth.error) return auth.error
+    const result = await pool.query(
+      `UPDATE rmm_device_self_service
+          SET broker_seen_at=now()
+        WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true
+      RETURNING agent_device_id`,
+      [auth.agent.tenant_id,auth.agent.id])
+    if (!result.rowCount) return c.json({success:false,error:'Self Service is disabled.'},403)
+    return c.json({success:true})
+  })
+
   app.post('/api/v1/agent/app-portal/catalogue', async (c) => {
     const auth = await requireAgent(c)
     if (auth.error) return auth.error
@@ -802,7 +1215,7 @@ export function registerRmmAppPortalRoutes(app) {
     const identity = normalizedIdentity(body)
     await rememberIdentity(auth.agent, identity)
     const apps = await resolvedApps(auth.agent, identity)
-    const [jobs, installed, device, softwareUpdates, windowsUpdates] = await Promise.all([
+    const [jobs, installed, installedSoftware, device, softwareUpdates, windowsUpdates] = await Promise.all([
       pool.query(
         `SELECT i.id,i.app_id,i.revision_id,i.status AS installation_status,i.created_at,i.completed_at,
                 j.id AS job_id,j.status AS job_status,j.result,j.error_message
@@ -818,7 +1231,18 @@ export function registerRmmAppPortalRoutes(app) {
             AND catalogue_id IS NOT NULL AND installed_version<>''`,
         [auth.agent.tenant_id, auth.agent.inventory_id]),
       pool.query(
-        `SELECT i.name,i.manufacturer,i.model,i.operating_system,i.os_version,i.is_encrypted,
+        `SELECT DISTINCT ON (lower(application_name))
+                application_name AS name,installed_version AS version,
+                COALESCE(publisher,'') AS publisher,observed_at
+           FROM rmm_software_patch_observations
+          WHERE tenant_id=$1 AND inventory_id=$2
+            AND length(trim(application_name))>0
+            AND length(trim(installed_version))>0
+          ORDER BY lower(application_name),observed_at DESC
+          LIMIT 600`,
+        [auth.agent.tenant_id, auth.agent.inventory_id]),
+      pool.query(
+        `SELECT i.name,i.manufacturer,i.model,i.operating_system,i.os_version,i.is_encrypted,i.source_payload,
                 i.storage_total_bytes,i.storage_free_bytes,i.user_display_name,i.user_principal_name,
                 i.compliance_state,d.agent_version,d.websocket_status,d.last_telemetry_at,d.active_user
            FROM rmm_device_inventory i
@@ -841,10 +1265,18 @@ export function registerRmmAppPortalRoutes(app) {
         [auth.agent.tenant_id, auth.agent.inventory_id]),
     ])
     const installedCatalogueIds = new Set(installed.rows.map((row) => clean(row.catalogue_id)))
-    const enrichedApps = apps.map((app) => ({
-      ...app,
-      installed: Boolean(app.catalogueId && installedCatalogueIds.has(clean(app.catalogueId))),
-    }))
+    const { source_payload: softwareInventory, ...publicDevice } = device.rows[0] || {}
+    const enrichedApps = apps.map((app) => {
+      const detected = app.sourceType === 'custom'
+        ? findInstalledApp({ app, inventory: softwareInventory })
+        : null
+      return {
+        ...app,
+        installed: detected ? detected.installed
+          : Boolean(app.catalogueId && installedCatalogueIds.has(clean(app.catalogueId))),
+        ...(detected || {}),
+      }
+    })
     const requests = identity.sid || identity.upn
       ? await pool.query(
         `SELECT id,app_id,revision_id,status,requested_by_sid,requested_by_upn,
@@ -858,7 +1290,7 @@ export function registerRmmAppPortalRoutes(app) {
       : { rows: [] }
     const deviceRow = device.rows[0]
       ? {
-        ...device.rows[0],
+        ...publicDevice,
         storage_total_bytes: device.rows[0].storage_total_bytes == null
           ? null
           : Number(device.rows[0].storage_total_bytes),
@@ -871,6 +1303,7 @@ export function registerRmmAppPortalRoutes(app) {
     return c.json({
       success: true,
       apps: enrichedApps,
+      installedSoftware: installedSoftware.rows,
       installations: jobs.rows,
       requests: requests.rows,
       device: deviceRow,
@@ -889,6 +1322,14 @@ export function registerRmmAppPortalRoutes(app) {
     const body = await c.req.json().catch(() => ({}))
     const appId = clean(body.appId)
     if (!uuid(appId)) return c.json({ success: false, error: 'Application id is invalid.' }, 400)
+    const independentBroker = c.req.header('x-hi5-self-service-broker') === 'v1'
+    if (independentBroker) {
+      const p = await pool.query(
+        `SELECT 1 FROM rmm_device_self_service
+           WHERE tenant_id=$1 AND agent_device_id=$2 AND enabled=true LIMIT 1`,
+        [auth.agent.tenant_id,auth.agent.id])
+      if (!p.rowCount) return c.json({success:false,error:'Self Service is disabled.'},403)
+    }
     const identity = normalizedIdentity(body)
     await rememberIdentity(auth.agent, identity)
     const available = await resolvedApps(auth.agent, identity)
@@ -926,8 +1367,8 @@ export function registerRmmAppPortalRoutes(app) {
       [auth.agent.tenant_id, auth.agent.id, appId])
     if (active.rowCount) return c.json({ success: false, error: 'This application is already installing.', installationId: active.rows[0].id }, 409)
     const result = appRevision.source_type === 'catalogue'
-      ? await dispatchCatalogueInstall(auth.agent, appRevision, identity)
-      : await dispatchCustomInstall(auth.agent, appRevision, identity)
+      ? await dispatchCatalogueInstall(auth.agent, appRevision, identity, { independentBroker })
+      : await dispatchCustomInstall(auth.agent, appRevision, identity, { independentBroker })
     if (result.error) return c.json({ success: false, ...result }, result.status || 409)
     return c.json(result, 202)
   })

@@ -13,8 +13,14 @@ public sealed class PortalCatalogueResponse
     [JsonPropertyName("error")]
     public string Error { get; init; } = string.Empty;
 
+    [JsonPropertyName("independentBrokerConnected")]
+    public bool IndependentBrokerConnected { get; init; }
+
     [JsonPropertyName("apps")]
     public List<PortalApp> Apps { get; init; } = [];
+
+    [JsonPropertyName("installedSoftware")]
+    public List<PortalInstalledProgram> InstalledSoftware { get; init; } = [];
 
     [JsonPropertyName("installations")]
     public List<PortalInstallation> Installations { get; init; } = [];
@@ -27,6 +33,32 @@ public sealed class PortalCatalogueResponse
 
     [JsonPropertyName("updates")]
     public PortalUpdates Updates { get; init; } = new();
+}
+
+public sealed class PortalInstalledProgram
+{
+    [JsonPropertyName("name")]
+    public string Name { get; init; } = string.Empty;
+
+    [JsonPropertyName("version")]
+    public string Version { get; init; } = string.Empty;
+
+    [JsonPropertyName("publisher")]
+    public string Publisher { get; init; } = string.Empty;
+
+    [JsonPropertyName("observed_at")]
+    public DateTimeOffset? ObservedAt { get; init; }
+
+    [JsonPropertyName("source")]
+    public string Source { get; init; } = string.Empty;
+}
+
+public sealed class InstalledSoftwareItem
+{
+    public required string Name { get; init; }
+    public required string Version { get; init; }
+    public required string Publisher { get; init; }
+    public required string Source { get; init; }
 }
 
 public sealed class PortalApp
@@ -60,6 +92,15 @@ public sealed class PortalApp
 
     [JsonPropertyName("installed")]
     public bool Installed { get; init; }
+
+    [JsonPropertyName("inventoryFresh")]
+    public bool InventoryFresh { get; init; } = true;
+
+    [JsonPropertyName("detection")]
+    public string Detection { get; init; } = string.Empty;
+
+    [JsonPropertyName("installedVersion")]
+    public string InstalledVersion { get; init; } = string.Empty;
 
     [JsonPropertyName("version")]
     public string Version { get; init; } = string.Empty;
@@ -265,7 +306,9 @@ public enum AppPortalStatus
     ApprovalRequired,
     ApprovalPending,
     ApprovalRejected,
+    Queued,
     Installing,
+    VerificationPending,
     Installed,
     Failed,
 }
@@ -276,6 +319,7 @@ public sealed class AppCard : INotifyPropertyChanged
 
     public required PortalApp App { get; init; }
     public required AppPortalStatus Status { get; init; }
+    public bool LiveAgentAvailable { get; init; } = true;
     public PortalRequest? Request { get; init; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -316,7 +360,9 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Approval required",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request declined",
+        AppPortalStatus.Queued => "Queued for device",
         AppPortalStatus.Installing => "Installing",
+        AppPortalStatus.VerificationPending => "Verification pending",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Failed",
         _ => "Available",
@@ -327,21 +373,26 @@ public sealed class AppCard : INotifyPropertyChanged
         AppPortalStatus.ApprovalRequired => "Request approval",
         AppPortalStatus.ApprovalPending => "Awaiting approval",
         AppPortalStatus.ApprovalRejected => "Request again",
+        AppPortalStatus.Queued => "Waiting for Agent",
         AppPortalStatus.Installing => "Installing...",
+        AppPortalStatus.VerificationPending => "Checking installation",
         AppPortalStatus.Installed => "Installed",
         AppPortalStatus.Failed => "Retry",
         _ => "Install",
     };
 
-    public bool CanInstall => Status is AppPortalStatus.Available
+    public bool CanInstall => LiveAgentAvailable
+        && Status is (AppPortalStatus.Available
         or AppPortalStatus.ApprovalRequired
         or AppPortalStatus.ApprovalRejected
-        or AppPortalStatus.Failed;
+        or AppPortalStatus.Failed);
 
     public string StatusBackground => Status switch
     {
         AppPortalStatus.Installed => "#E9F8F1",
+        AppPortalStatus.Queued => "#FFF6E5",
         AppPortalStatus.Installing => "#EEF4FF",
+        AppPortalStatus.VerificationPending => "#FFF6E5",
         AppPortalStatus.ApprovalPending => "#FFF6E5",
         AppPortalStatus.ApprovalRequired => "#FFF6E5",
         AppPortalStatus.ApprovalRejected => "#FFF0F2",
@@ -352,6 +403,7 @@ public sealed class AppCard : INotifyPropertyChanged
     public string StatusForeground => Status switch
     {
         AppPortalStatus.Installed => "#146B50",
+        AppPortalStatus.VerificationPending => "#9A6400",
         AppPortalStatus.ApprovalPending => "#9A6400",
         AppPortalStatus.ApprovalRequired => "#9A6400",
         AppPortalStatus.ApprovalRejected => "#B63D4C",

@@ -14,6 +14,13 @@ public sealed partial class MainWindow : Window
 {
     private readonly IAppPortalBroker _broker;
     private readonly ObservableCollection<AppCard> _visibleApps = [];
+    private readonly ObservableCollection<InstalledSoftwareItem> _visibleInstalled = [];
+    private readonly PortalCatalogueCache _catalogueCache = new();
+    private List<PortalInstalledProgram> _installedSoftware = [];
+    private List<PortalInstalledProgram> _localInstalledSoftware = [];
+    private bool _offlineMode;
+    private DateTimeOffset? _cachedAt;
+
     private readonly ObservableCollection<RequestSummaryItem> _recentRequests = [];
     private readonly ObservableCollection<RequestSummaryItem> _allRequestItems = [];
     private readonly ObservableCollection<DashboardUpdateItem> _dashboardUpdates = [];
@@ -35,6 +42,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         _broker = AppPortalBrokerFactory.Create();
         AppsItems.ItemsSource = _visibleApps;
+        InstalledSoftwareItems.ItemsSource = _visibleInstalled;
         RecentRequestItems.ItemsSource = _recentRequests;
         RequestsPageItems.ItemsSource = _allRequestItems;
         DashboardUpdateItems.ItemsSource = _dashboardUpdates;
@@ -52,7 +60,18 @@ public sealed partial class MainWindow : Window
 
     private async void MainWindow_Opened(object? sender, EventArgs e)
     {
-        await RefreshCatalogueAsync(showLoading: true);
+        // The UI can display installed programs even if the Agent service has
+        // stopped and the named pipe does not exist.
+        _localInstalledSoftware = LocalInstalledSoftware.Read();
+        _offlineMode = true;
+        if (_catalogueCache.TryLoad(out var cached, out var savedAt) && cached is not null)
+        {
+            _cachedAt = savedAt;
+            ApplyCatalogueResponse(cached);
+            AgentStatusText.Text = $"Cached catalogue · last sync {savedAt.ToLocalTime():dd MMM HH:mm}";
+            AgentStatusText.Foreground = Avalonia.Media.Brushes.DarkOrange;
+        }
+        await RefreshCatalogueAsync(showLoading: _apps.Count == 0 && _localInstalledSoftware.Count == 0);
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
@@ -62,7 +81,7 @@ public sealed partial class MainWindow : Window
 
     private async void PollTimer_Tick(object? sender, EventArgs e)
     {
-        if (_busy || (!_loadFailed && !NeedsPolling())) return;
+        if (_busy) return;
         await RefreshCatalogueAsync(showLoading: false, quiet: true);
     }
 
@@ -90,18 +109,17 @@ public sealed partial class MainWindow : Window
                         : response.Error);
             }
 
-            _apps = response.Apps;
-            _installations = response.Installations;
-            _requests = response.Requests;
-            _device = response.Device;
-            _updates = response.Updates;
+            _offlineMode = false;
+            _cachedAt = DateTimeOffset.UtcNow;
+            _localInstalledSoftware = LocalInstalledSoftware.Read();
+            ApplyCatalogueResponse(response);
+            try { _catalogueCache.Save(response); } catch (IOException) { }
             var recoveredFromLoadFailure = _loadFailed;
             _loadFailed = false;
-            RebuildCategories();
-            RebuildDashboard();
-            ApplyFilters();
 
-            AgentStatusText.Text = "Connected through Hi5Central Agent";
+            AgentStatusText.Text = response.IndependentBrokerConnected
+                ? "Self Service connected independently of the RMM Agent"
+                : "Connected through Hi5Central Agent";
             AgentStatusText.Foreground = Avalonia.Media.Brushes.MediumSeaGreen;
 
             if (recoveredFromLoadFailure)
@@ -120,23 +138,66 @@ public sealed partial class MainWindow : Window
                     autoHide: true);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             _loadFailed = true;
-            AgentStatusText.Text = "Unable to contact Hi5Central Agent";
-            AgentStatusText.Foreground = Avalonia.Media.Brushes.IndianRed;
+            _offlineMode = true;
+            // Do not erase the authorised last-known catalogue on transient
+            // network/Agent failures. DPAPI requires this same Windows user.
+            if (_apps.Count == 0
+                && _catalogueCache.TryLoad(out var cached, out var savedAt)
+                && cached is not null)
+            {
+                _cachedAt = savedAt;
+                ApplyCatalogueResponse(cached);
+            }
+            else
+            {
+                RebuildDashboard();
+                ApplyFilters();
+            }
+            var lastSync = _cachedAt?.ToLocalTime().ToString("dd MMM yyyy HH:mm")
+                ?? "never";
+            AgentStatusText.Text = $"Offline · last catalogue sync {lastSync}";
+            AgentStatusText.Foreground = Avalonia.Media.Brushes.DarkOrange;
             ShowStatus(
-                "Unable to load company software",
-                FriendlyError(ex),
+                "Offline — read-only mode",
+                $"Last catalogue sync: {lastSync}. Installed software remains visible. "
+                + "Reconnect the Agent to install apps or request approvals.",
                 isError: true,
                 autoHide: false);
-            ShowEmptyStateForError(FriendlyError(ex));
         }
         finally
         {
             SetBusy(false, showLoading: false);
             UpdatePollState();
         }
+    }
+
+    private void ApplyCatalogueResponse(PortalCatalogueResponse response)
+    {
+        _apps = response.Apps;
+        _installations = response.Installations;
+        _requests = response.Requests;
+        _device = response.Device;
+        _updates = response.Updates;
+        _installedSoftware = response.InstalledSoftware;
+        RebuildCategories();
+        RebuildDashboard();
+        ApplyFilters();
+    }
+
+    private IEnumerable<PortalInstalledProgram> GetInstalledPrograms()
+    {
+        // Local registry entries reflect even offline/manual installs; the
+        // server inventory supplements other Agent-detected applications.
+        return _localInstalledSoftware.Concat(_installedSoftware)
+            .Where(item => !string.IsNullOrWhiteSpace(item.Name))
+            .GroupBy(item => item.Name + "\u001f" + item.Version,
+                StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .Take(600);
     }
 
     private void SetBusy(bool busy, bool showLoading)
@@ -168,7 +229,8 @@ public sealed partial class MainWindow : Window
             : pendingRequests == 0 ? "No requests awaiting approval" : "Awaiting approval";
         AvailableCountText.Text = _apps.Count.ToString();
 
-        var online = string.Equals(_device.WebsocketStatus, "Connected", StringComparison.OrdinalIgnoreCase);
+        var online = !_offlineMode && string.Equals(_device.WebsocketStatus, "Connected",
+            StringComparison.OrdinalIgnoreCase);
         DeviceHealthTitle.Text = online ? "Device Healthy" : "Device Offline";
         DeviceHealthSubtitle.Text = online
             ? "Connected and managed by Hi5Central"
@@ -298,7 +360,7 @@ public sealed partial class MainWindow : Window
         {
             "pending" => ("Awaiting approval", "#FFF4DE", "#A56400"),
             "approved" => ("Approved", "#E9F8F1", "#147A59"),
-            "fulfilled" => ("Installed", "#E9F8F1", "#147A59"),
+            "fulfilled" => ("Installation dispatched", "#EAF3FF", "#1769D2"),
             "rejected" => ("Request declined", "#FFF0F2", "#B63D4C"),
             "cancelled" => ("Cancelled", "#F2F4F7", "#64748B"),
             _ => ("Requested", "#EAF3FF", "#1769D2"),
@@ -355,6 +417,43 @@ public sealed partial class MainWindow : Window
     private void ApplyFilters()
     {
         var query = SearchBox.Text?.Trim() ?? string.Empty;
+        if (_view == "installed")
+        {
+            var programs = GetInstalledPrograms()
+                .Where(item => string.IsNullOrWhiteSpace(query)
+                    || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || item.Publisher.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || item.Version.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            _visibleApps.Clear();
+            _visibleInstalled.Clear();
+            foreach (var item in programs)
+            {
+                _visibleInstalled.Add(new InstalledSoftwareItem
+                {
+                    Name = item.Name,
+                    Version = string.IsNullOrWhiteSpace(item.Version) ? "Version unknown" : item.Version,
+                    Publisher = string.IsNullOrWhiteSpace(item.Publisher) ? "Publisher not reported" : item.Publisher,
+                    Source = item.Source == "windows_registry" ? "Detected on this PC" : "Agent inventory",
+                });
+            }
+            ResultCountText.Text = $"{programs.Count} installed apps";
+            ResultCountText.IsVisible = true;
+            AppsScroll.IsVisible = false;
+            InstalledSoftwarePanel.IsVisible = programs.Count > 0;
+            EmptyState.IsVisible = programs.Count == 0;
+            if (programs.Count == 0)
+            {
+                EmptyTitle.Text = "No installed applications detected";
+                EmptyDescription.Text = "This device's installed-programs list will update when Windows or the Agent detects software.";
+            }
+            UpdateHeroText();
+            UpdatePageVisibility();
+            UpdatePollState();
+            return;
+        }
+
+        InstalledSoftwarePanel.IsVisible = false;
         var category = CategoryCombo.SelectedItem as string ?? "Categories";
         var cards = BuildCards();
 
@@ -402,6 +501,7 @@ public sealed partial class MainWindow : Window
 
         AvailableCountText.Text = _apps.Count.ToString();
         ResultCountText.Text = $"{result.Count} of {_apps.Count} apps";
+        ResultCountText.IsVisible = _view == "all";
         EmptyState.IsVisible = result.Count == 0;
         AppsScroll.IsVisible = result.Count > 0;
 
@@ -456,6 +556,7 @@ public sealed partial class MainWindow : Window
             _ => "Featured Apps",
         };
         AppTabsPanel.IsVisible = _view != "installed";
+        CategoryCombo.IsVisible = _view != "installed";
     }
 
     private async Task LoadVisibleIconsAsync()
@@ -511,6 +612,7 @@ public sealed partial class MainWindow : Window
                     App = app,
                     Request = request,
                     Status = ResolveStatus(app, installation, request),
+                    LiveAgentAvailable = !_offlineMode,
                 };
             })
             .ToList();
@@ -521,6 +623,8 @@ public sealed partial class MainWindow : Window
         PortalInstallation? installation,
         PortalRequest? request)
     {
+        var requiresFreshInventory = string.Equals(
+            app.SourceType, "custom", StringComparison.OrdinalIgnoreCase);
         var requestIsCurrent = request is not null
             && (installation is null
                 || request.CreatedAt is null
@@ -542,7 +646,7 @@ public sealed partial class MainWindow : Window
 
             if (requestStatus == "fulfilled" && installation is null)
             {
-                return AppPortalStatus.Installing;
+                return AppPortalStatus.Queued;
             }
         }
 
@@ -551,13 +655,33 @@ public sealed partial class MainWindow : Window
             var lifecycle = installation.InstallationStatus.Trim().ToLowerInvariant();
             var job = installation.JobStatus.Trim().ToLowerInvariant();
 
-            if (lifecycle is "queued" or "running" or "requested"
-                || job is "queued" or "claimed")
-            {
-                return AppPortalStatus.Installing;
-            }
+            // The real Agent job state wins over a stale installation row.
+            // Otherwise a failed, unclaimed or disconnected job can display
+            // "Installing" indefinitely despite no installer running.
+            if (job is "failed" or "cancelled" || lifecycle is "failed" or "cancelled")
+                return app.Installed ? AppPortalStatus.Installed : AppPortalStatus.Failed;
 
-            if (app.Installed || lifecycle == "succeeded" || job == "completed")
+            if (job == "queued" || lifecycle is "queued" or "requested")
+                return AppPortalStatus.Queued;
+
+            if (job == "claimed" || lifecycle == "running" && string.IsNullOrEmpty(job))
+                return AppPortalStatus.Installing;
+
+            if (requiresFreshInventory)
+            {
+                // An Agent job succeeding is not enough to certify a custom
+                // application. Only fresh matching Windows inventory can.
+                if (app.Installed && app.InventoryFresh)
+                {
+                    return AppPortalStatus.Installed;
+                }
+
+                if (!app.InventoryFresh || lifecycle == "succeeded" || job == "completed")
+                {
+                    return AppPortalStatus.VerificationPending;
+                }
+            }
+            else if (app.Installed || lifecycle == "succeeded" || job == "completed")
             {
                 return AppPortalStatus.Installed;
             }
@@ -567,6 +691,11 @@ public sealed partial class MainWindow : Window
             {
                 return app.Installed ? AppPortalStatus.Installed : AppPortalStatus.Failed;
             }
+        }
+
+        if (requiresFreshInventory && !app.InventoryFresh)
+        {
+            return AppPortalStatus.VerificationPending;
         }
 
         if (app.Installed)
@@ -581,7 +710,7 @@ public sealed partial class MainWindow : Window
 
     private async void InstallButton_Click(object? sender, RoutedEventArgs e)
     {
-        if (_busy || sender is not Button { DataContext: AppCard card } || !card.CanInstall)
+        if (_busy || _offlineMode || sender is not Button { DataContext: AppCard card } || !card.CanInstall)
         {
             return;
         }
@@ -632,6 +761,7 @@ public sealed partial class MainWindow : Window
         if (sender is not Button button) return;
 
         _view = button.Tag?.ToString() ?? "home";
+        if (_view == "installed") _localInstalledSoftware = LocalInstalledSoftware.Read();
 
         foreach (var nav in new[]
                  { NavHome, NavAll, NavUpdates, NavInstalled, NavRequests, NavDevice, NavSupport, NavSettings })
@@ -742,18 +872,15 @@ public sealed partial class MainWindow : Window
 
     private bool NeedsPolling()
         => BuildCards().Any(card => card.Status is AppPortalStatus.Installing
-            or AppPortalStatus.ApprovalPending);
+            or AppPortalStatus.Queued or AppPortalStatus.ApprovalPending);
 
     private void UpdatePollState()
     {
-        if (_loadFailed || NeedsPolling())
-        {
-            if (!_pollTimer.IsEnabled) _pollTimer.Start();
-        }
-        else
-        {
-            _pollTimer.Stop();
-        }
+        // Always recheck eventually, even when no install is in progress.
+        // This detects Agent/network outages and auto-recovers when available.
+        _pollTimer.Interval = _loadFailed || NeedsPolling()
+            ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(60);
+        if (!_pollTimer.IsEnabled) _pollTimer.Start();
     }
 
     private void ShowEmptyStateForError(string message)

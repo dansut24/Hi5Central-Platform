@@ -1,0 +1,61 @@
+name: App Portal approved unsigned PatchHost
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'native/agent/Agent/chatpass_agent/src/patching/patch_host_main.cpp'
+      - '.github/workflows/app-portal-patchhost-windows.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'native/agent/Agent/chatpass_agent/src/patching/patch_host_main.cpp'
+      - '.github/workflows/app-portal-patchhost-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-patchhost:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Verify device Self Service PowerShell syntax
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            'services/api/src/appPortalDeviceReconcile.ps1',
+            [ref]$tokens,
+            [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw 'Self Service reconciliation PowerShell failed syntax checks'
+          }
+      - name: Build patched Windows PatchHost with static CRT
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $inc = Join-Path $env:RUNNER_TEMP 'include'
+          $headerDir = Join-Path $inc 'nlohmann'
+          New-Item -ItemType Directory -Path $headerDir -Force | Out-Null
+          $header = Join-Path $headerDir 'json.hpp'
+          Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp' -OutFile $header
+          if ((Get-Item $header).Length -lt 600000) { throw 'Failed to fetch pinned nlohmann/json dependency' }
+          $out = Join-Path $env:RUNNER_TEMP 'unsigned-patchhost'
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          $src = 'native/agent/Agent/chatpass_agent/src/patching/patch_host_main.cpp'
+          & cl.exe /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0A00 "/I$inc" $src /link "/OUT:$out\Hi5CentralPatchHost.exe" crypt32.lib bcrypt.lib winhttp.lib wintrust.lib version.lib msi.lib advapi32.lib user32.lib shell32.lib
+          if ($LASTEXITCODE -ne 0) { throw 'PatchHost MSVC build failed' }
+          if (!(Test-Path (Join-Path $out 'Hi5CentralPatchHost.exe'))) { throw 'PatchHost executable missing' }
+          Get-FileHash (Join-Path $out 'Hi5CentralPatchHost.exe') -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Approved-Unsigned-PatchHost-Windows
+          path: ${{ runner.temp }}/unsigned-patchhost/Hi5CentralPatchHost.exe
+          retention-days: 14
+          if-no-files-found: error

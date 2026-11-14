@@ -1,11 +1,13 @@
 using System.IO.Pipes;
+using System.Security.Principal;
 using System.Text.Json;
 
 namespace Hi5Central.AppPortal.Broker;
 
 public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
 {
-    private const string PipeName = "Hi5CentralAppPortal";
+    private const string IndependentPipe = "Hi5CentralSelfServiceBroker";
+    private const string LegacyAgentPipe = "Hi5CentralAppPortal";
 
     public Task<JsonDocument> GetCatalogueAsync(CancellationToken cancellationToken = default)
         => SendAsync("catalogue", appId: null, cancellationToken);
@@ -19,19 +21,35 @@ public sealed class WindowsNamedPipeAppPortalBroker : IAppPortalBroker
         CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsWindows())
-        {
             throw new PlatformNotSupportedException(
-                "The Windows App Portal broker requires the Hi5Central Windows Agent.");
+                "The Windows App Portal broker requires Windows.");
+        // Prefer the independently managed service. Legacy Agent IPC is a
+        // fallback only for a missing/unreachable named pipe, never for a
+        // connected broker's authorization failure.
+        try
+        {
+            return await SendViaPipeAsync(IndependentPipe, requestType, appId,
+                TimeSpan.FromSeconds(2), cancellationToken);
         }
+        catch (IOException) { }
+        catch (TimeoutException) { }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { }
+        return await SendViaPipeAsync(LegacyAgentPipe, requestType, appId,
+            TimeSpan.FromSeconds(5), cancellationToken);
+    }
 
+    private static async Task<JsonDocument> SendViaPipeAsync(
+        string pipeName, string requestType, string? appId,
+        TimeSpan connectTime, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException();
         await using var pipe = new NamedPipeClientStream(
-            ".",
-            PipeName,
-            PipeDirection.InOut,
-            PipeOptions.Asynchronous);
+            ".",pipeName,PipeDirection.InOut,
+            PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
 
         using var connectTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        connectTimeout.CancelAfter(TimeSpan.FromSeconds(5));
+        connectTimeout.CancelAfter(connectTime);
         await pipe.ConnectAsync(connectTimeout.Token).ConfigureAwait(false);
         pipe.ReadMode = PipeTransmissionMode.Message;
 

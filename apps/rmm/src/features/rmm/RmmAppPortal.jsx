@@ -9,8 +9,12 @@ import {
   publishAppPortalRevision,
   removeAppPortalAssignment,
   uploadAppPortalPackage,
+  uploadAppPortalLogo,
+  updateAppPortalDraft,
+  approveUnsignedAppPortalRevision,
+  revokeUnsignedAppPortalApproval,
 } from '../../lib/rmmAppPortalApi.js'
-import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage } from '../../lib/appPortalDraft.js'
+import { emptyCustom, formFromDraft, customRevisionPayload, revisionFingerprint, draftHasUploadedPackage, inventoryDisplayName } from '../../lib/appPortalDraft.js'
 import './RmmAppPortal.css'
 
 const emptyAssignment = { appId: '', scopeType: 'Estate', scopeId: '*', scopeName: 'Entire estate', intent: 'available', priority: 0 }
@@ -22,13 +26,18 @@ function stateLabel(app) {
 }
 
 export function RmmAppPortal() {
-  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [] })
+  const [bundle, setBundle] = useState({
+    apps: [], revisions: [], assignments: [], requests: [], catalogue: [],
+    unsignedApprovals: [], devices: [], canApproveUnsigned: false,
+  })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [catalogueId, setCatalogueId] = useState('')
   const [custom, setCustom] = useState(emptyCustom)
   const [uploadFile, setUploadFile] = useState(null)
+  const [uploadProgress, setUploadProgress] = useState(null)
+  const [logoFile, setLogoFile] = useState(null)
   const [editingDraft, setEditingDraft] = useState(null)
   const [assignment, setAssignment] = useState(emptyAssignment)
 
@@ -72,6 +81,8 @@ export function RmmAppPortal() {
     const form = formFromDraft(app, revision)
     setCustom(form)
     setUploadFile(null)
+    setUploadProgress(null)
+    setLogoFile(null)
     setEditingDraft({
       appId: app.id,
       revisionId: revision?.id || null,
@@ -87,12 +98,25 @@ export function RmmAppPortal() {
     setEditingDraft(null)
     setCustom(emptyCustom)
     setUploadFile(null)
+    setUploadProgress(null)
+    setLogoFile(null)
     setError('')
     setMessage('')
   }
 
   const saveCustom = (publish = false) => {
     if (!custom.name.trim()) return setError('Enter an application name.')
+    if (logoFile && (logoFile.type !== 'image/png' || logoFile.size > 512 * 1024)) {
+      return setError('Choose a PNG logo smaller than 512 KB.')
+    }
+    if (uploadFile && custom.sourceKind === 'upload') {
+      const suffix = '.' + custom.installerType
+      if (!uploadFile.name.toLowerCase().endsWith(suffix)) {
+        return setError('Installer type mismatch: choose a ' + suffix.toUpperCase() + ' file, or change the Installer type.')
+      }
+      if (!uploadFile.size) return setError('This installer file is empty. Choose the original MSI or EXE.')
+      if (uploadFile.size > 2 * 1024 * 1024 * 1024) return setError('Installer exceeds the 2 GB upload limit.')
+    }
     const payload = customRevisionPayload(custom)
     // Never overwrite a previously uploaded package while it is still the
     // package recorded for a draft. A replacement upload gets a new revision
@@ -115,6 +139,11 @@ export function RmmAppPortal() {
         })
         appId = created.app.id
         setEditingDraft({ appId, revisionId: null, fingerprint: null, hasPackage: false })
+      } else {
+        await updateAppPortalDraft(appId, {
+          name: custom.name, publisher: custom.publisher,
+          description: custom.description, category: custom.category,
+        })
       }
       if (!revisionId) {
         const createdRevision = await createAppPortalRevision(appId, payload)
@@ -126,19 +155,85 @@ export function RmmAppPortal() {
         appId, revisionId, fingerprint: revisionFingerprint(custom),
         hasPackage: Boolean(packageAlreadyStored),
       })
+      if (logoFile) {
+        await uploadAppPortalLogo(appId, logoFile)
+        setLogoFile(null)
+      }
       if (custom.sourceKind === 'upload' && uploadFile) {
-        await uploadAppPortalPackage(revisionId, uploadFile)
+        setUploadProgress({ percent: 0, name: uploadFile.name, state: 'uploading' })
+        const uploaded = await uploadAppPortalPackage(revisionId, uploadFile, (percent) => {
+          setUploadProgress({ percent, name: uploadFile.name, state: percent === 100 ? 'verifying' : 'uploading' })
+        })
+        const inspection = uploaded.inspection || {}
+        const detected = inspection.metadata || {}
+        const suggestedName = uploadFile.name.replace(/\.(msi|exe)$/i, '').replace(/[_-]+/g, ' ').trim()
+        const enriched = {
+          ...custom,
+          name: (!custom.name || custom.name === suggestedName) && detected.name ? detected.name : custom.name,
+          publisher: custom.publisher || detected.publisher || '',
+          version: custom.version || detected.version || '',
+          expectedSigner: inspection.signer || '',
+        }
+        if (enriched.name !== custom.name) {
+          await updateAppPortalDraft(appId, {
+            name: enriched.name, publisher: enriched.publisher,
+            description: custom.description, category: custom.category,
+          })
+        }
+        setCustom(enriched)
+        setUploadProgress({ percent: 100, name: uploadFile.name,
+          state: inspection.status === 'unsigned' ? 'unsigned' : inspection.status === 'pending_windows_trust' ? 'complete' : 'inspection_failed' })
         setUploadFile(null)
         setEditingDraft({
-          appId, revisionId, fingerprint: revisionFingerprint(custom), hasPackage: true,
+          appId, revisionId, fingerprint: revisionFingerprint(enriched), hasPackage: true,
         })
+        if (!publish && inspection.status === 'unsigned') {
+          setMessage('Package stored. This installer is unsigned, so publishing and installation remain blocked until a signed build is provided.')
+        }
       }
       if (publish) {
         await publishAppPortalRevision(revisionId)
         setCustom(emptyCustom)
         setEditingDraft(null)
+        setLogoFile(null)
       }
     }, publish ? custom.name + ' published to App Portal.' : custom.name + ' draft saved. You can resume it later.')
+  }
+
+  const replaceLogo = (app, file) => {
+    if (!file) return
+    if (file.type !== 'image/png' || file.size > 512 * 1024) {
+      return setError('Choose a PNG logo smaller than 512 KB.')
+    }
+    run(() => uploadAppPortalLogo(app.id, file), app.name + ' logo updated.')
+  }
+
+  const activeRevision = (app) => bundle.revisions.find((row) => row.id === app?.current_revision_id)
+  const unsignedStatus = (app) => {
+    const revision = activeRevision(app)
+    const unsigned = revision?.source_kind === 'upload' && revision?.source_config?.inspection?.status === 'unsigned'
+    const approved = unsigned && bundle.unsignedApprovals.some((item) =>
+      item.revision_id === revision.id
+      && item.package_sha256 === revision.sha256 && !item.revoked_at)
+    return { revision, unsigned, approved }
+  }
+  const approveUnsigned = (app) => {
+    const { revision, unsigned } = unsignedStatus(app)
+    if (!unsigned || !revision) return setError('This revision is not an unsigned uploaded package.')
+    const hash = revision.sha256 || ''
+    if (!window.confirm('Approve this unsigned package?\n\n' + app.name
+      + '\nSHA-256 ' + hash.slice(0, 16) + '…'
+      + '\n\nOnly explicitly assigned managed devices can receive it. Windows will verify the full hash before installation.')) return
+    run(async () => {
+      await approveUnsignedAppPortalRevision(revision.id, 'Tenant owner explicitly approved an unsigned, SHA-256-pinned installer for device-scoped self-service.')
+      if (app.publish_state === 'draft') await publishAppPortalRevision(revision.id)
+    }, app.name + ' unsigned package approved' + (app.publish_state === 'draft' ? ' and published.' : '.'))
+  }
+  const revokeUnsigned = (app) => {
+    const { revision, approved } = unsignedStatus(app)
+    if (!approved || !revision) return
+    if (!window.confirm('Revoke the approved unsigned package? New downloads and installations will be blocked.')) return
+    run(() => revokeUnsignedAppPortalApproval(revision.id), app.name + ' unsigned approval revoked.')
   }
 
   const addAssignment = () => {
@@ -149,7 +244,12 @@ export function RmmAppPortal() {
       scopeName: assignment.scopeType === 'Estate' ? 'Entire estate' : assignment.scopeName,
       priority: Number(assignment.priority || 0),
     }
-    if (payload.scopeType !== 'Estate' && !payload.scopeId.trim()) return setError('Enter the scope identifier.')
+    const chosenApp = bundle.apps.find((row) => row.id === payload.appId)
+    if (unsignedStatus(chosenApp).unsigned && (payload.scopeType !== 'Device'
+        || !['available', 'approval_required'].includes(payload.intent))) {
+      return setError('Unsigned apps can only be assigned to an individual Device as Available or Approval required.')
+    }
+    if (payload.scopeType !== 'Estate' && !payload.scopeId.trim()) return setError('Choose a device or enter a scope identifier.')
     run(() => assignAppPortalApp(assignment.appId, payload), 'Assignment saved.')
   }
 
@@ -174,11 +274,38 @@ export function RmmAppPortal() {
         <div className="app-portal-card-title"><div><h3>Published applications</h3><p>Immutable revisions with server-side assignment enforcement.</p></div></div>
         <div className="app-portal-app-list">
           {bundle.apps.map((app) => <article className="app-portal-app-row" key={app.id}>
-            <span className="app-portal-app-icon"><PackagePlus size={19} /></span>
+            <span className="app-portal-app-icon">{app.icon_url
+              ? <img src={app.icon_url} alt="" loading="lazy" className="app-portal-logo" />
+              : <PackagePlus size={19} />}</span>
             <span className="app-portal-app-main"><strong>{app.name}</strong>
-              <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small></span>
+              <small>{app.publisher || 'Company application'} · {app.source_type === 'catalogue' ? 'Hi5Central catalogue' : 'Custom'} · v{app.version || 'draft'}</small>
+              {unsignedStatus(app).unsigned && <small className={unsignedStatus(app).approved
+                ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
+                {unsignedStatus(app).approved
+                  ? 'Unsigned installer · Owner approved · SHA-256 pinned · Device only'
+                  : 'Unsigned installer · Tenant-owner approval required'}
+              </small>}
+              {app.source_type === 'custom' && app.publish_state === 'draft' &&
+                <small className={draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
+                  ? 'app-portal-package-ready' : 'app-portal-package-missing'}>
+                  {draftHasUploadedPackage(bundle.revisions.find((row) => row.id === app.current_revision_id))
+                    ? 'Installer uploaded — package ready'
+                    : 'Installer not uploaded — select Edit draft to upload an MSI or EXE'}
+                </small>}
+            </span>
             <span className={'app-portal-state ' + (app.status === 'published' ? 'good' : '')}>{stateLabel(app)}</span>
             <span className="app-portal-count">{bundle.assignments.filter((row) => row.app_id === app.id).length} assignments</span>
+            <label className="app-portal-logo-action" aria-label={'Upload logo for ' + app.name}>
+              <span>Logo</span>
+              <input type="file" accept="image/png" disabled={busy}
+                onChange={(e) => { replaceLogo(app, e.target.files?.[0]); e.target.value = '' }} />
+            </label>
+            {unsignedStatus(app).unsigned && !unsignedStatus(app).approved && bundle.canApproveUnsigned &&
+              <button className="app-portal-edit-action" type="button" disabled={busy}
+                onClick={() => approveUnsigned(app)}><ShieldCheck size={14} /> Approve unsigned</button>}
+            {unsignedStatus(app).approved && bundle.canApproveUnsigned &&
+              <button className="app-portal-edit-action" type="button" disabled={busy}
+                onClick={() => revokeUnsigned(app)}>Revoke approval</button>}
             {app.source_type === 'custom' && app.publish_state === 'draft' &&
               <button className="app-portal-edit-action" type="button" disabled={busy}
                 aria-label={'Edit draft ' + app.name} onClick={() => editExistingDraft(app)}><Pencil size={14} /> Edit draft</button>}
@@ -199,72 +326,160 @@ export function RmmAppPortal() {
       <section className="app-portal-card app-portal-custom" id="app-portal-custom-form">
         <div className="app-portal-card-title"><div>
           <h3>{editingDraft ? 'Edit existing draft' : 'Custom application'}</h3>
-          <p>{editingDraft ? 'Resume the saved draft. A changed installer configuration creates a new revision of the same application.' : 'Direct HTTPS source with pinned hash, signer and independent detection.'}</p>
+          <p>{editingDraft ? 'Resume the saved draft. A changed installer configuration creates a new revision of the same application.' : 'Add an approved MSI or EXE. Checksums and installed-software detection are automatic.'}</p>
         </div>{editingDraft
           ? <button className="app-portal-edit-action" type="button" onClick={cancelEditing} disabled={busy}><X size={14} /> Cancel</button>
           : <Globe2 size={20} />}</div>
-        {editingDraft && <p className="app-portal-draft-hint">Editing an existing application. Its name, publisher, category and description are retained. Installer options can be changed; a replacement package is required when creating a new upload revision.</p>}
+        {editingDraft && <p className="app-portal-draft-hint">Editing a saved application. Its details can be updated without creating another app. A changed installer revision needs a fresh package.</p>}
         <div className="app-portal-form-grid">
-          <label>Name<input value={custom.name} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
-          <label>Publisher<input value={custom.publisher} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
-          <label>Version<input value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
+          <label>Name<input value={custom.name} onChange={(e) => setCustom({ ...custom, name: e.target.value })} /></label>
+          <label>Publisher (automatic)<input placeholder="Detected from installer" value={custom.publisher} onChange={(e) => setCustom({ ...custom, publisher: e.target.value })} /></label>
+          <label>Version (automatic)<input placeholder="Detected from installer" value={custom.version} onChange={(e) => setCustom({ ...custom, version: e.target.value })} /></label>
           <label>Installer<select value={custom.installerType} onChange={(e) => { setCustom({ ...custom, installerType: e.target.value }); setUploadFile(null) }}><option value="msi">MSI</option><option value="exe">EXE</option></select></label>
         </div>
-        <label>Description<textarea rows="3" value={custom.description} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
+        <label>Description<textarea rows="3" value={custom.description} onChange={(e) => setCustom({ ...custom, description: e.target.value })} /></label>
         <div className="app-portal-form-grid">
           <label>Package source<select value={custom.sourceKind} onChange={(e) => { setCustom({ ...custom, sourceKind: e.target.value }); setUploadFile(null) }}>
-            <option value="direct_url">Direct HTTPS URL</option><option value="upload">Private upload</option>
+            <option value="upload">Upload installer (recommended)</option><option value="direct_url">Direct HTTPS URL (advanced)</option>
           </select></label>
-          <label>Category<input value={custom.category} disabled={Boolean(editingDraft)} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
+          <label>Category<input value={custom.category} onChange={(e) => setCustom({ ...custom, category: e.target.value })} /></label>
         </div>
+
+        <label>Application logo (optional)
+          <input type="file" accept="image/png" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+          <small>{logoFile ? logoFile.name + ' · selected' : 'PNG, up to 512 KB. Displays in the portal and on Windows devices.'}</small>
+        </label>
         {custom.sourceKind === 'direct_url'
           ? <>
               <label>Direct download URL<input placeholder="https://vendor.example/app.msi" value={custom.url} onChange={(e) => setCustom({ ...custom, url: e.target.value })} /></label>
-              <label>SHA-256<input placeholder="64-character hash" value={custom.sha256} onChange={(e) => setCustom({ ...custom, sha256: e.target.value })} /></label>
+              <label>Expected SHA-256 (external URL only)<input placeholder="64-character hash" value={custom.sha256} onChange={(e) => setCustom({ ...custom, sha256: e.target.value })} />
+                <small>Required for externally hosted URLs because the vendor might replace the file. Uploads are hashed automatically.</small></label>
             </>
-          : <label>Installer package<input type="file" accept={custom.installerType === 'msi' ? '.msi' : '.exe'} onChange={(e) => setUploadFile(e.target.files?.[0] || null)} />
-              <small>{uploadFile ? uploadFile.name + ' · ' + Math.ceil(uploadFile.size / 1024 / 1024) + ' MB' : 'Stored privately by Hi5Central. SHA-256 is calculated server-side.'}</small>
-            </label>}
-        <label>Expected Authenticode signer<input value={custom.expectedSigner} onChange={(e) => setCustom({ ...custom, expectedSigner: e.target.value })} /></label>
-        <div className="app-portal-form-grid">
-          <label>Execution<select value={custom.executionMode} onChange={(e) => setCustom({ ...custom, executionMode: e.target.value })}>
-            <option value="arguments">Installer arguments</option><option value="powershell">PowerShell script</option><option value="batch">Batch script</option>
-          </select></label>
-          <label>Timeout (seconds)<input type="number" min="30" max="3600" value={custom.timeoutSeconds} onChange={(e) => setCustom({ ...custom, timeoutSeconds: e.target.value })} /></label>
-        </div>
-        {custom.executionMode === 'arguments'
-          ? <label>Silent install arguments<input placeholder="/qn /norestart" value={custom.installArguments} onChange={(e) => setCustom({ ...custom, installArguments: e.target.value })} /></label>
-          : <label>Install script<textarea rows="7" placeholder={custom.executionMode === 'powershell' ? 'Use $env:HI5_INSTALLER and $env:HI5_WORKDIR' : 'Use %HI5_INSTALLER% and %HI5_WORKDIR%'} value={custom.script} onChange={(e) => setCustom({ ...custom, script: e.target.value })} /></label>}
-        <div className="app-portal-form-grid">
-          <label>Verification<select value={custom.verificationMethod} onChange={(e) => setCustom({ ...custom, verificationMethod: e.target.value })}>
-            <option value="uninstall_registry">Uninstall registry</option><option value="file_version">File version</option>
-          </select></label>
-          {custom.verificationMethod === 'file_version'
-            ? <label>Verification file<input placeholder="C:\Program Files\Company\App.exe" value={custom.filePath} onChange={(e) => setCustom({ ...custom, filePath: e.target.value })} /></label>
-            : <label>Display name contains<input value={custom.displayNameContains} onChange={(e) => setCustom({ ...custom, displayNameContains: e.target.value })} /></label>}
-        </div>
-        {custom.verificationMethod === 'uninstall_registry' && <label>MSI product code (optional)<input value={custom.productCode} onChange={(e) => setCustom({ ...custom, productCode: e.target.value })} /></label>}
+          : <>
+              <label>Installer package (MSI or EXE)
+                <input type="file" accept=".msi,.exe" onChange={(e) => {
+                  const file = e.target.files?.[0] || null
+                  setUploadFile(file)
+                  setUploadProgress(null)
+                  if (file?.name) {
+                    const type = file.name.toLowerCase().endsWith('.msi') ? 'msi'
+                      : file.name.toLowerCase().endsWith('.exe') ? 'exe' : ''
+                    const suggestedName = file.name.replace(/\.(msi|exe)$/i, '').replace(/[_-]+/g, ' ').trim()
+                    setCustom((previous) => ({
+                      ...previous,
+                      name: previous.name || suggestedName,
+                      installerType: type || previous.installerType,
+                      installArguments: type === 'exe' && previous.installerType === 'msi' && previous.installArguments === '/qn /norestart'
+                        ? '' : (previous.installArguments || (type === 'msi' ? '/qn /norestart' : '')),
+                    }))
+                    if (type === 'msi') setMessage('MSI package selected. Hi5Central will read the product name, publisher, version, product code and signature automatically.')
+                    else if (type === 'exe') setMessage('EXE selected. Hi5Central will read available file metadata and signature automatically. Vendor-specific silent installation arguments may still be needed.')
+                  }
+                }} />
+                <small>{uploadFile ? uploadFile.name + ' · ' + (uploadFile.size / 1024 / 1024).toFixed(2) + ' MB · ready to upload'
+                  : 'Choose the original installer file. SHA-256 is calculated and checked automatically.'}</small>
+              </label>
+              {uploadProgress && <div className="app-portal-upload-progress" role="status" aria-live="polite">
+                <strong>{uploadProgress.state === 'complete' ? 'Package saved — signer identified; Windows trust check runs on install'
+                  : uploadProgress.state === 'unsigned' ? 'Package saved — unsigned installer cannot be deployed'
+                  : uploadProgress.state === 'inspection_failed' ? 'Package saved — signer inspection could not be completed'
+                  : uploadProgress.state === 'verifying' ? 'Transfer complete — inspecting the installer'
+                  : 'Uploading package to Hi5Central'}</strong>
+                <span>{uploadProgress.percent}% · {uploadProgress.name}</span>
+                <progress max="100" value={uploadProgress.percent} />
+              </div>}
+            </>}
+        <label>Silent install arguments
+          <input placeholder={custom.installerType === 'msi' ? '/qn /norestart' : '/S'}
+            disabled={custom.executionMode !== 'arguments'}
+            value={custom.installArguments} onChange={(e) => setCustom({ ...custom, installArguments: e.target.value })} />
+          <small>MSI normally uses /qn /norestart. EXE switches depend on the vendor.</small>
+        </label>
+        <label>Installation detection
+          <select value={custom.verificationMethod} onChange={(e) => setCustom({ ...custom, verificationMethod: e.target.value })}>
+            <option value="auto">Automatic — installed-software inventory</option>
+            <option value="uninstall_registry">Advanced — registry identity</option>
+            <option value="file_version">Advanced — file version</option>
+          </select>
+        </label>
+        {custom.verificationMethod === 'auto' &&
+          <div className="app-portal-auto-info">Uses the Windows installed-programs inventory. Suggested identity: <strong>{inventoryDisplayName(custom.name) || 'Enter an application name'}</strong>. Installation is checked by the Agent; updates to the general inventory can take time.</div>}
+        {custom.verificationMethod === 'uninstall_registry' && <>
+          <label>Installed-programs display name<input placeholder="Exact installed program name" value={custom.displayNameContains} onChange={(e) => setCustom({ ...custom, displayNameContains: e.target.value })} /></label>
+          <label>MSI product code (optional)<input value={custom.productCode} onChange={(e) => setCustom({ ...custom, productCode: e.target.value })} /></label>
+        </>}
+        {custom.verificationMethod === 'file_version' &&
+          <label>Verification file<input placeholder="C:\Program Files\Company\App.exe" value={custom.filePath} onChange={(e) => setCustom({ ...custom, filePath: e.target.value })} /></label>}
+        <details className="app-portal-advanced">
+          <summary>Advanced installation &amp; security options</summary>
+          <div className="app-portal-advanced-fields">
+            <label>Expected signing name (if different from Publisher)
+              <input placeholder={custom.publisher || 'Authenticode signer organisation'}
+                value={custom.expectedSigner} onChange={(e) => setCustom({ ...custom, expectedSigner: e.target.value })} />
+              <small>For uploaded MSI/EXE files this is identified by Hi5Central. Windows independently verifies certificate trust before executing the installer. Only external installer URLs may need an explicit value.</small>
+            </label>
+            <div className="app-portal-form-grid">
+              <label>Execution<select value={custom.executionMode} onChange={(e) => setCustom({ ...custom, executionMode: e.target.value })}>
+                <option value="arguments">Standard installer arguments</option>
+                <option value="powershell">PowerShell script</option>
+                <option value="batch">Batch script</option>
+              </select></label>
+              <label>Timeout (seconds)<input type="number" min="30" max="3600" value={custom.timeoutSeconds} onChange={(e) => setCustom({ ...custom, timeoutSeconds: e.target.value })} /></label>
+            </div>
+            {custom.executionMode !== 'arguments' &&
+              <label>Install script<textarea rows="7"
+                placeholder={custom.executionMode === 'powershell' ? 'Use $env:HI5_INSTALLER and $env:HI5_WORKDIR' : 'Use %HI5_INSTALLER% and %HI5_WORKDIR%'}
+                value={custom.script} onChange={(e) => setCustom({ ...custom, script: e.target.value })} /></label>}
+          </div>
+        </details>
         <div className="app-portal-draft-actions">
-          <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {editingDraft ? 'Save / retry upload' : 'Save draft'}</button>
+          <button className="rmm-secondary" disabled={busy} onClick={() => saveCustom(false)} type="button"><PackagePlus size={15} /> {uploadFile ? 'Upload installer & save draft' : editingDraft ? 'Save draft' : 'Save draft'}</button>
           <button className="rmm-primary" disabled={busy} onClick={() => saveCustom(true)} type="button"><CheckCircle2 size={15} /> {editingDraft ? 'Publish this application' : 'Create & publish revision'}</button>
         </div>
       </section>
       <section className="app-portal-card">
         <div className="app-portal-card-title"><div><h3>Assignment</h3><p>Most-specific scope wins: Device → User → Group → Site → Estate.</p></div><ChevronRight size={20} /></div>
-        <label>Application<select value={assignment.appId} onChange={(e) => setAssignment({ ...assignment, appId: e.target.value })}>
+        <label>Application<select value={assignment.appId} onChange={(e) => {
+          const selected = bundle.apps.find((app) => app.id === e.target.value)
+          const deviceOnly = unsignedStatus(selected).unsigned
+          setAssignment({
+            ...assignment, appId: e.target.value,
+            scopeType: deviceOnly ? 'Device' : 'Estate',
+            scopeId: deviceOnly ? '' : '*',
+            scopeName: deviceOnly ? '' : 'Entire estate',
+            intent: 'available',
+          })
+        }}>
           <option value="">Choose application…</option>{bundle.apps.filter((app) => app.status === 'published').map((app) => <option key={app.id} value={app.id}>{app.name}</option>)}
         </select></label>
         <div className="app-portal-form-grid">
           <label>Scope<select value={assignment.scopeType} onChange={(e) => setAssignment({
             ...assignment, scopeType: e.target.value,
             scopeId: e.target.value === 'Estate' ? '*' : '', scopeName: e.target.value === 'Estate' ? 'Entire estate' : '',
-          })}>{['Estate','Site','Group','User','Device'].map((value) => <option key={value}>{value}</option>)}</select></label>
+          })}>{(unsignedStatus(bundle.apps.find((app) => app.id === assignment.appId)).unsigned
+              ? ['Device'] : ['Estate','Site','Group','User','Device']).map((value) => <option key={value}>{value}</option>)}</select></label>
           <label>Behaviour<select value={assignment.intent} onChange={(e) => setAssignment({ ...assignment, intent: e.target.value })}>
             <option value="available">Available</option><option value="approval_required">Approval required</option><option value="hidden">Hidden</option>
           </select></label>
         </div>
-        {assignment.scopeType !== 'Estate' && <><label>Scope identifier<input placeholder={assignment.scopeType === 'User' ? 'user@company.com or SID' : assignment.scopeType + ' id / reference'} value={assignment.scopeId} onChange={(e) => setAssignment({ ...assignment, scopeId: e.target.value })} /></label>
-          <label>Display name<input value={assignment.scopeName} onChange={(e) => setAssignment({ ...assignment, scopeName: e.target.value })} /></label></>}
+        {assignment.scopeType === 'Device' ? <label>Managed device
+          <select value={assignment.scopeId} onChange={(e) => {
+            const device = bundle.devices.find((row) => row.id === e.target.value)
+            setAssignment({ ...assignment, scopeId: e.target.value,
+              scopeName: device ? [device.name, device.manufacturer].filter(Boolean).join(' · ') : '' })
+          }}>
+            <option value="">Choose one managed device…</option>
+            {bundle.devices.map((device) => <option key={device.id} value={device.id}>
+              {[device.name || device.reference, device.manufacturer, device.model].filter(Boolean).join(' · ')}
+            </option>)}
+          </select>
+          <small>Unsigned apps are never assigned to the entire estate.</small>
+        </label> : assignment.scopeType !== 'Estate' && <>
+          <label>Scope identifier<input value={assignment.scopeId}
+            placeholder={assignment.scopeType === 'User' ? 'user@company.com or SID' : assignment.scopeType + ' id / reference'}
+            onChange={(e) => setAssignment({ ...assignment, scopeId: e.target.value })} /></label>
+          <label>Display name<input value={assignment.scopeName} onChange={(e) => setAssignment({ ...assignment, scopeName: e.target.value })} /></label>
+        </>}
         <button className="rmm-primary" disabled={busy} onClick={addAssignment} type="button">Save assignment</button>
       </section>
     </div>

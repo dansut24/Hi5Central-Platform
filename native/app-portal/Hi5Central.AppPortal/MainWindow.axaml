@@ -426,6 +426,51 @@
                 </Grid>
 
                 <Grid>
+                  <!-- Full Windows installed-software inventory. This is
+                       unprivileged/read-only and survives an Agent outage. -->
+                  <Border x:Name="InstalledSoftwarePanel"
+                          IsVisible="False"
+                          Background="#FFFFFF"
+                          BorderBrush="#DFE7F1"
+                          BorderThickness="1"
+                          CornerRadius="10"
+                          Padding="13">
+                    <StackPanel Spacing="9">
+                      <TextBlock Text="Installed on this device"
+                                 Classes="sectionTitle" />
+                      <TextBlock Text="Detected in Windows and the last Agent inventory. Applications installed outside Self Service also appear here."
+                                 Classes="muted"
+                                 TextWrapping="Wrap" />
+                      <ItemsControl x:Name="InstalledSoftwareItems">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate x:DataType="models:InstalledSoftwareItem">
+                            <Border BorderBrush="#E6EDF5"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="6,10">
+                              <Grid ColumnDefinitions="*,155,190" ColumnSpacing="13">
+                                <StackPanel Grid.Column="0" Spacing="3">
+                                  <TextBlock Text="{Binding Name}"
+                                             FontWeight="SemiBold" FontSize="12"
+                                             Foreground="#192941"
+                                             TextTrimming="CharacterEllipsis" />
+                                  <TextBlock Text="{Binding Source}"
+                                             FontSize="9" Foreground="#718096" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding Version}"
+                                           FontSize="11" Foreground="#44566F"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Grid.Column="2" Text="{Binding Publisher}"
+                                           FontSize="11" Foreground="#63758A"
+                                           VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" />
+                              </Grid>
+                            </Border>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Border>
                   <Border x:Name="AppsScroll">
                     <ItemsControl x:Name="AppsItems">
                       <ItemsControl.ItemsPanel>

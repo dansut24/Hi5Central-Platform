@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   emptyCustom, formFromDraft, customRevisionPayload,
-  revisionFingerprint, draftHasUploadedPackage,
+  revisionFingerprint, draftHasUploadedPackage, inventoryDisplayName,
 } from '../src/lib/appPortalDraft.js'
 
 const app = {
@@ -25,7 +25,7 @@ test('loads the existing failed 7Zip draft without creating another app', () => 
   assert.equal(form.installerType, 'msi')
   assert.equal(form.sourceKind, 'upload')
   assert.equal(form.installArguments, '/S')
-  assert.equal(form.verificationMethod, 'uninstall_registry')
+  assert.equal(form.verificationMethod, 'auto')
   assert.equal(form.expectedSigner, '')
   assert.equal(draftHasUploadedPackage(initialRevision), false)
 })
@@ -85,7 +85,27 @@ test('file version detection, scripts and timeout are retained when editing', ()
 })
 
 test('new custom applications retain existing defaults', () => {
-  assert.equal(emptyCustom.sourceKind, 'direct_url')
+  assert.equal(emptyCustom.sourceKind, 'upload')
+  assert.equal(emptyCustom.verificationMethod, 'auto')
   assert.equal(emptyCustom.installerType, 'msi')
   assert.equal(emptyCustom.executionMode, 'arguments')
+})
+
+test('automatic detection needs no technical product-code or path from admins', () => {
+  const form = formFromDraft(app, initialRevision)
+  const payload = customRevisionPayload(form)
+  assert.deepEqual(payload.verification, {
+    method: 'uninstall_registry',
+    productCode: '',
+    displayNameContains: '7-Zip',
+    targetVersion: '26.06',
+  })
+  assert.equal(inventoryDisplayName('7 Zip'), '7-Zip')
+})
+test('publisher is not misused as certificate signer; advanced override stays supported', () => {
+  const form = { ...emptyCustom, name:'Sample', publisher:'Example Software Ltd', version:'1.0' }
+  const payload = customRevisionPayload(form)
+  assert.equal(payload.expectedSigner,'')
+  form.expectedSigner='Example Code Signing LLC'
+  assert.equal(customRevisionPayload(form).expectedSigner,'Example Code Signing LLC')
 })

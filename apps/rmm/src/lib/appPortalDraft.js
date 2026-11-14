@@ -2,10 +2,18 @@
 // Published revisions remain immutable. Edits create a new revision within the
 // same application; unchanged drafts keep their existing revision and package.
 export const emptyCustom = {
-  name: '', publisher: '', description: '', category: 'Company software', sourceKind: 'direct_url',
+  name: '', publisher: '', description: '', category: 'Company software', sourceKind: 'upload',
   version: '', url: '', sha256: '', expectedSigner: '', installerType: 'msi',
   executionMode: 'arguments', installArguments: '', script: '', timeoutSeconds: 600,
-  verificationMethod: 'uninstall_registry', productCode: '', displayNameContains: '', filePath: '',
+  verificationMethod: 'auto', productCode: '', displayNameContains: '', filePath: '',
+}
+
+// Human-friendly app identity to the Windows uninstall-registry / software
+// inventory name. This is a suggestion, not a claim of installed state.
+export function inventoryDisplayName(name = '') {
+  const cleaned = String(name || '').trim()
+  if (/^7[\s-]?zip$/i.test(cleaned)) return '7-Zip'
+  return cleaned
 }
 
 function object(value) {
@@ -36,7 +44,11 @@ export function formFromDraft(app, revision) {
     installArguments: String(execution.arguments || ''),
     script: String(execution.script || ''),
     timeoutSeconds: Number(execution.timeoutSeconds || 600),
-    verificationMethod: String(verification.method || 'uninstall_registry'),
+    verificationMethod: !verification.method ||
+      (verification.method === 'uninstall_registry' && !verification.productCode &&
+        (!verification.displayNameContains ||
+          String(verification.displayNameContains).trim().toLowerCase() === inventoryDisplayName(app.name).toLowerCase()))
+      ? 'auto' : String(verification.method),
     productCode: String(verification.productCode || ''),
     displayNameContains: String(verification.displayNameContains || ''),
     filePath: String(verification.filePath || ''),
@@ -46,14 +58,20 @@ export function formFromDraft(app, revision) {
 export function customRevisionPayload(form) {
   const verification = form.verificationMethod === 'file_version'
     ? { method: 'file_version', filePath: form.filePath, targetVersion: form.version }
-    : { method: 'uninstall_registry', productCode: form.productCode,
-        displayNameContains: form.displayNameContains, targetVersion: form.version }
+    : form.verificationMethod === 'auto'
+      ? { method: 'uninstall_registry', productCode: '',
+          displayNameContains: inventoryDisplayName(form.name), targetVersion: form.version }
+      : { method: 'uninstall_registry', productCode: form.productCode,
+          displayNameContains: form.displayNameContains, targetVersion: form.version }
   return {
     version: form.version,
     sourceKind: form.sourceKind,
     sourceConfig: form.sourceKind === 'direct_url' ? { url: form.url } : {},
     sha256: form.sourceKind === 'direct_url' ? form.sha256 : '',
-    expectedSigner: form.expectedSigner,
+    // The uploaded installer is inspected server-side for its actual signer.
+    // Publisher is product metadata, not proof of an Authenticode identity.
+    // External URLs may still require an explicitly pinned signing name.
+    expectedSigner: String(form.expectedSigner || '').trim(),
     installerType: form.installerType,
     execution: {
       mode: form.executionMode,
