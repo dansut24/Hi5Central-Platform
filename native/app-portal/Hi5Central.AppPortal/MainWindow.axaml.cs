@@ -586,10 +586,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        string? justification = null;
+        if (card.Status is AppPortalStatus.ApprovalRequired or AppPortalStatus.ApprovalRejected)
+        {
+            justification = await ApprovalReasonDialog.ShowAsync(this, card.Name);
+            if (justification is null) return; // The user cancelled; no request was sent.
+        }
+
         SetBusy(true, showLoading: false);
         try
         {
-            using var payload = await _broker.InstallAsync(card.Id);
+            using var payload = await _broker.InstallAsync(card.Id, justification);
             var response = payload.RootElement.Deserialize(PortalJsonContext.Default.PortalInstallResponse)
                 ?? throw new InvalidDataException("Hi5Central returned an invalid install response.");
 

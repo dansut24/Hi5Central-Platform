@@ -5,6 +5,7 @@ import path from 'node:path'
 import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { hasPermission } from './access.js'
+import { checkBusinessReason, checkDecisionReason } from './appPortalApprovalModel.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { agentSocketForDevice, authenticateAgent, sendAgentMessage } from './rmmAgent.js'
@@ -23,6 +24,17 @@ function validHttps(value = '') {
 }
 const packageRoot = path.resolve(process.env.APP_PORTAL_PACKAGE_DIR || '/srv/app-portal-packages')
 const maxPackageBytes = 2 * 1024 * 1024 * 1024
+// Newtest canary: older installed Company Portal builds have no reason dialog.
+// Other tenants retain the previous behaviour until their desktop client is upgraded.
+const approvalPilotSlug = clean(process.env.RMM_APP_PORTAL_APPROVAL_REASON_TENANT)
+const approvalReasonRequired = (slug = '') => Boolean(approvalPilotSlug && slug === approvalPilotSlug)
+async function agentApprovalReasonRequired(tenantId) {
+  if (!approvalPilotSlug) return false
+  const result=await pool.query('SELECT 1 FROM tenants WHERE id=$1 AND slug=$2 LIMIT 1',
+    [tenantId,approvalPilotSlug])
+  return Boolean(result.rowCount)
+}
+
 
 function packageAbsolutePath(storageKey = '') {
   const key = clean(storageKey).replaceAll('\\', '/')
@@ -482,7 +494,7 @@ export function registerRmmAppPortalRoutes(app) {
   app.get('/api/v1/rmm/app-portal', async (c) => {
     const auth = await requireManage(c)
     if (auth.error) return auth.error
-    return c.json(await adminBundle(auth.session.tenant_id))
+    return c.json({ ...await adminBundle(auth.session.tenant_id), approvalReasonRequired: approvalReasonRequired(auth.session.slug) })
   })
   app.post('/api/v1/rmm/app-portal/apps', async (c) => {
     const auth = await requireManage(c)
@@ -740,6 +752,9 @@ export function registerRmmAppPortalRoutes(app) {
     if (!['approved','rejected'].includes(decision)) {
       return c.json({ error: 'Decision must be approved or rejected.' }, 400)
     }
+    const decisionNote=clean(body.note)
+    if (approvalReasonRequired(auth.session.slug) && checkDecisionReason(decisionNote))
+      return c.json({ error: checkDecisionReason(decisionNote) }, 400)
     const requestResult = await pool.query(
       `SELECT q.*,a.current_revision_id,a.status AS app_status
          FROM rmm_app_portal_requests q
@@ -750,13 +765,16 @@ export function registerRmmAppPortalRoutes(app) {
     if (!request) return c.json({ error: 'Pending request was not found.' }, 404)
 
     if (decision === 'rejected') {
-      await pool.query(
-        `UPDATE rmm_app_portal_requests
-            SET status='rejected',decided_by_user_id=$3,decision_note=$4,decided_at=now(),updated_at=now()
-          WHERE id=$1 AND tenant_id=$2`,
-        [request.id, auth.session.tenant_id, auth.session.user_id, clean(body.note).slice(0,2000)])
-      return c.json({ success: true, status: 'rejected' })
+      const denied=await pool.query(
+        `UPDATE rmm_app_portal_requests SET status='rejected',
+             decided_by_user_id=$3,decision_note=$4,decided_at=now(),updated_at=now()
+           WHERE id=$1 AND tenant_id=$2 AND status='pending' RETURNING id`,
+        [request.id,auth.session.tenant_id,auth.session.user_id,decisionNote])
+      if(!denied.rowCount) return c.json({error:'Request was already decided.'},409)
+      return c.json({success:true,status:'rejected'})
     }
+    if(approvalReasonRequired(auth.session.slug) && clean(request.reason).length<20)
+      return c.json({error:'Request lacks a business reason. Reject it and ask the user to resubmit.'},409)
 
     if (request.app_status !== 'published' || clean(request.current_revision_id) !== clean(request.revision_id)) {
       return c.json({ error: 'The application revision changed after this request. Ask the user to submit a new request.' }, 409)
@@ -775,22 +793,41 @@ export function registerRmmAppPortalRoutes(app) {
     if (!revision || clean(revision.revision_id) !== clean(request.revision_id)) {
       return c.json({ error: 'The requested revision is no longer current.' }, 409)
     }
-    const dispatched = revision.source_type === 'catalogue'
-      ? await dispatchCatalogueInstall(agent, revision, identity)
-      : await dispatchCustomInstall(agent, revision, identity)
-    if (dispatched.error) return c.json({ error: dispatched.error }, dispatched.status || 409)
-
-    await withTransaction(async (client) => {
+    // Atomically claim a request before dispatch. Two approvers cannot
+    // execute the same privileged installation concurrently.
+    const claimed=await pool.query(
+      `UPDATE rmm_app_portal_requests SET status='approved',decided_by_user_id=$3,
+           decision_note=$4,decided_at=now(),updated_at=now()
+         WHERE id=$1 AND tenant_id=$2 AND status='pending' RETURNING id`,
+      [request.id,auth.session.tenant_id,auth.session.user_id,decisionNote])
+    if(!claimed.rowCount) return c.json({error:'Request already claimed or decided.'},409)
+    let dispatched
+    try {
+      dispatched=revision.source_type==='catalogue'
+        ? await dispatchCatalogueInstall(agent,revision,identity)
+        : await dispatchCustomInstall(agent,revision,identity)
+    } catch(error) {
+      // Delivery may be uncertain. Do not automatically retry elevation.
+      console.error('[App Portal] approved install needs manual reconciliation',request.id,error)
+      return c.json({error:'Approval recorded but installation delivery is uncertain. Review the endpoint before retrying.'},503)
+    }
+    if(dispatched.error) {
+      await pool.query(
+        `UPDATE rmm_app_portal_requests SET status='pending',decided_by_user_id=NULL,
+             decision_note='',decided_at=NULL,updated_at=now()
+           WHERE id=$1 AND tenant_id=$2 AND status='approved'`,
+        [request.id,auth.session.tenant_id])
+      return c.json({error:dispatched.error},dispatched.status||409)
+    }
+    await withTransaction(async(client)=>{
       await client.query(
-        `UPDATE rmm_app_portal_requests
-            SET status='fulfilled',decided_by_user_id=$3,decision_note=$4,decided_at=now(),updated_at=now()
-          WHERE id=$1 AND tenant_id=$2`,
-        [request.id, auth.session.tenant_id, auth.session.user_id, clean(body.note).slice(0,2000)])
+        `UPDATE rmm_app_portal_requests SET status='fulfilled',updated_at=now()
+          WHERE id=$1 AND tenant_id=$2 AND status='approved'`,
+        [request.id,auth.session.tenant_id])
       await client.query(
-        `UPDATE rmm_app_portal_installations
-            SET request_source='approval',updated_at=now()
+        `UPDATE rmm_app_portal_installations SET request_source='approval',updated_at=now()
           WHERE id=$1 AND tenant_id=$2`,
-        [dispatched.installationId, auth.session.tenant_id])
+        [dispatched.installationId,auth.session.tenant_id])
     })
     return c.json({ success: true, status: 'fulfilled', installationId: dispatched.installationId, jobId: dispatched.jobId })
   })
@@ -902,6 +939,9 @@ export function registerRmmAppPortalRoutes(app) {
       return c.json({ success: false, error: 'This assignment is configured for removal, not self-service installation.' }, 409)
     }
     if (assignment.intent === 'approval_required') {
+      const businessReason = clean(body.reason)
+      if (await agentApprovalReasonRequired(auth.agent.tenant_id) && checkBusinessReason(businessReason))
+        return c.json({ success: false, error: checkBusinessReason(businessReason) }, 400)
       const existing = await pool.query(
         `SELECT * FROM rmm_app_portal_requests
           WHERE tenant_id=$1 AND app_id=$2 AND agent_device_id=$3 AND status='pending'

@@ -27,7 +27,7 @@ function stateLabel(app) {
 }
 
 export function RmmAppPortal() {
-  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [] })
+  const [bundle, setBundle] = useState({ apps: [], revisions: [], assignments: [], requests: [], catalogue: [], approvalReasonRequired: false })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -35,6 +35,8 @@ export function RmmAppPortal() {
   const [custom, setCustom] = useState(emptyCustom)
   const [uploadFile, setUploadFile] = useState(null)
   const [assignment, setAssignment] = useState(emptyAssignment)
+  const [approvalDecision,setApprovalDecision] = useState(null)
+  const [decisionNote,setDecisionNote] = useState('')
 
   const refresh = async () => {
     setError('')
@@ -51,6 +53,17 @@ export function RmmAppPortal() {
     } catch (err) {
       setError(err.data?.errors?.join(' ') || err.message)
     } finally { setBusy(false) }
+  }
+  const decide = async (event) => {
+    event.preventDefault()
+    if(!approvalDecision||decisionNote.trim().length<10)return
+    const {requestId,decision,appName}=approvalDecision
+    await run(
+      () => decideAppPortalRequest(requestId,decision,decisionNote.trim()),
+      appName+(decision==='approved'?' approved for this installation.':' request rejected.')
+    )
+    setApprovalDecision(null)
+    setDecisionNote('')
   }
   const addCatalogue = () => {
     const item = (bundle.catalogue || []).find((row) => row.id === catalogueId)
@@ -220,13 +233,36 @@ export function RmmAppPortal() {
     <section className="app-portal-card app-portal-wide">
       <div className="app-portal-card-title"><div><h3>Approval requests</h3><p>Approval revalidates the current assignment and exact published revision before installation is dispatched.</p></div></div>
       <div className="app-portal-approval-list">
-        {bundle.requests.filter((row) => row.status === 'pending').map((row) => <div key={row.id}>
-          <span><strong>{row.app_name}</strong><small>{row.requested_by_upn || row.requested_by_sid || 'Endpoint user'} · {new Date(row.created_at).toLocaleString()}</small></span>
-          <span className="app-portal-state">Pending</span>
-          <span className="app-portal-request-actions">
-            <button className="app-portal-text-action approve" disabled={busy} type="button" onClick={() => run(() => decideAppPortalRequest(row.id, 'approved'), row.app_name + ' approved and dispatched.')}>Approve</button>
-            <button className="app-portal-text-action" disabled={busy} type="button" onClick={() => run(() => decideAppPortalRequest(row.id, 'rejected'), row.app_name + ' request rejected.')}>Reject</button>
+        {bundle.requests.filter((row) => row.status === 'pending' || row.status === 'approved').map((row) => <div key={row.id} className="app-portal-approval-item">
+          <span className="app-portal-approval-summary">
+            <strong>{row.app_name}</strong>
+            <small>{row.requested_by_upn || row.requested_by_sid || 'Endpoint user'} · {new Date(row.created_at).toLocaleString()}</small>
+            <small>Reason requested by employee:</small>
+            <p className="app-portal-business-reason">{row.reason?.trim() || 'Legacy request — no reason supplied. Reject and ask for a new request.'}</p>
           </span>
+          <span className="app-portal-state">{row.status==='approved'?'Dispatch requires review':'Pending'}</span>
+          <span className="app-portal-request-actions">
+            <button className="app-portal-text-action approve" disabled={busy||row.status!=='pending'||(bundle.approvalReasonRequired&&(!row.reason||row.reason.trim().length<20))} type="button" onClick={() => {setApprovalDecision({requestId:row.id,decision:'approved',appName:row.app_name});setDecisionNote('')}}>Approve</button>
+            <button className="app-portal-text-action" disabled={busy||row.status!=='pending'} type="button" onClick={() => {setApprovalDecision({requestId:row.id,decision:'rejected',appName:row.app_name});setDecisionNote('')}}>Reject</button>
+          </span>
+          {approvalDecision?.requestId===row.id && <form className="app-portal-decision-form" onSubmit={decide}>
+            <strong>{approvalDecision.decision==='approved'?'Approve installation':'Reject installation'} — {row.app_name}</strong>
+            <p>{approvalDecision.decision==='approved'
+              ? 'Approval permits only the current published software revision, subject to the original endpoint/user assignment. It does not grant permanent administrator rights.'
+              : 'The employee will see this request as rejected; no installer will run.'}</p>
+            <label>Decision explanation (required)
+              <textarea value={decisionNote} minLength={10} maxLength={2000} rows={3}
+                onChange={(e)=>setDecisionNote(e.target.value)}
+                placeholder="Explain the decision for the employee and audit history." required />
+            </label>
+            <div className="app-portal-decision-buttons">
+              <button className="rmm-primary" type="submit" disabled={busy||decisionNote.trim().length<10}>
+                Confirm {approvalDecision.decision==='approved'?'approval':'rejection'}
+              </button>
+              <button className="app-portal-text-action" type="button" disabled={busy}
+                onClick={()=>{setApprovalDecision(null);setDecisionNote('')}}>Cancel</button>
+            </div>
+          </form>}
         </div>)}
         {!bundle.requests.some((row) => row.status === 'pending') && <div className="app-portal-empty">No approval requests are waiting.</div>}
       </div>

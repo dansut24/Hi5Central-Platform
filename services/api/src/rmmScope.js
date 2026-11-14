@@ -55,7 +55,7 @@ async function audit(session, eventType, summary, detail = '', metadata = {}) {
   }).catch(() => null)
 }
 
-async function scopeDeviceRows(tenantId) {
+export async function scopeDeviceRows(tenantId) {
   const sql = [
     "SELECT d.id,d.reference,d.name,d.platform,d.operating_system,d.os_version,d.manufacturer,d.model,",
     "       d.user_display_name,d.user_principal_name,d.category_name,d.compliance_state,d.is_encrypted,d.source,d.source_payload,",
@@ -176,7 +176,7 @@ function ruleSummary(rules = {}) {
   return parts.length ? parts.join(' AND ') : 'All devices in scope'
 }
 
-async function loadGroups(tenantId, devices) {
+export async function loadGroups(tenantId, devices) {
   const result = await pool.query(
     "SELECT g.*,mp.name AS monitoring_policy_name," +
     " COALESCE((SELECT jsonb_agg(i.reference ORDER BY i.name) FROM rmm_device_group_memberships gm JOIN rmm_device_inventory i ON i.id=gm.inventory_id WHERE gm.group_id=g.id),'[]'::jsonb) AS static_refs" +

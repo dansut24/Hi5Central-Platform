@@ -9,6 +9,7 @@ import { gzipSync, gunzipSync } from 'node:zlib'
 import { createRemoteJWKSet, jwtVerify } from 'jose'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
+import { reconcileLocalAdminJobResult } from './rmmLocalAdminVault.js'
 import { deployment, originMatchesTenant } from './deploymentConfig.js'
 import { pool, withTransaction } from './db.js'
 import { ensureRedisConnected, redis } from './redis.js'
@@ -952,11 +953,13 @@ function agentUpgradeScript(release) {
     "$runnerScript = '$ErrorActionPreference = ''Stop''' + [Environment]::NewLine + '$installer = ''' + $installer + '''' + [Environment]::NewLine + '$installerArgs = ''' + $installerArgs + '''' + [Environment]::NewLine + '$resultPath = ''' + $resultPath + '''' + [Environment]::NewLine + '$started = Get-Date' + [Environment]::NewLine + 'try { Stop-Service -Name Hi5CentralAgent -Force -ErrorAction SilentlyContinue; $deadline=(Get-Date).AddSeconds(30); do { $p=Get-Process Hi5CentralAgent -ErrorAction SilentlyContinue; if (-not $p) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline); if ($p) { Stop-Process -Id $p.Id -Force -ErrorAction Stop; Start-Sleep -Seconds 2 }; @(''Hi5CentralAppPortal'',''Hi5CentralUser'',''Hi5CentralRemoteHost'',''Hi5CentralMediaHost'',''Hi5CentralPatchHost'') | ForEach-Object { Get-Process -Name $_ -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 750; $proc=Start-Process -FilePath $installer -ArgumentList $installerArgs -Wait -PassThru; $code=$proc.ExitCode; if ($code -ne 0) { throw (''Installer exited with code '' + $code) }; Start-Service -Name Hi5CentralAgent -ErrorAction Stop; [pscustomobject]@{status=''succeeded'';started=$started;completed=(Get-Date);installer_exit_code=$code} | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encoding UTF8; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue } catch { $message=$_.Exception.Message; Start-Service -Name Hi5CentralAgent -ErrorAction SilentlyContinue; [pscustomobject]@{status=''failed'';started=$started;completed=(Get-Date);error=$message} | ConvertTo-Json -Compress | Set-Content -LiteralPath $resultPath -Encoding UTF8; Remove-Item -LiteralPath $installer -Force -ErrorAction SilentlyContinue; exit 1 }'",
     "Set-Content -LiteralPath $runner -Value $runnerScript -Encoding UTF8",
     "$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ' + [char]34 + $runner + [char]34)",
+    // Register ONE future trigger. Do not call Start-ScheduledTask here: doing
+    // so also fires the +35s trigger, which ran installers twice and crashed
+    // the just-upgraded Agent during its second service-stop.
     "$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddSeconds(35)",
     "$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest",
     "$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 10)",
     "Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null",
-    "Start-ScheduledTask -TaskName $taskName -ErrorAction Stop",
     "$task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop",
     "$taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction Stop",
     "[pscustomobject]@{ status='scheduled'; task=$taskName; installer=$installer; log=$logPath; sha256=$actualSha256; scheduled_for=$trigger.StartBoundary; task_state=[string]$task.State; task_last_result=$taskInfo.LastTaskResult } | ConvertTo-Json -Compress",
@@ -2496,6 +2499,8 @@ export function registerRmmAgentRoutes(app) {
             SET status='queued',claimed_at=NULL,updated_at=now()
           WHERE agent_device_id=$1 AND status='claimed'
             AND job_type<>'network.discovery.scan'
+            AND job_type<>'laps.rotate'
+            AND job_type<>'laps.remove'
             AND claimed_at < now() - CASE
               WHEN job_type='patch.software.bulk' THEN interval '6 hours'
               WHEN job_type='windows_update.install' THEN interval '3 hours'
@@ -2506,10 +2511,18 @@ export function registerRmmAgentRoutes(app) {
             END`,
         [agent.id],
       )
+      // Expire stale endpoint-management jobs before the normal claim procedure.
+      await client.query(
+        "UPDATE rmm_agent_jobs SET status='cancelled',error_message='Endpoint evaluation lease expired before dispatch.',completed_at=now(),updated_at=now() " +
+        "WHERE agent_device_id=$1 AND status='queued' AND request_metadata->>'source' IN ('endpoint_management','local_admin_vault') " +
+        "AND request_metadata ? 'expires_at' AND (request_metadata->>'expires_at')::timestamptz <= now()",
+        [agent.id],
+      )
       const result = await client.query(
         `WITH picked AS (
            SELECT id FROM rmm_agent_jobs
             WHERE agent_device_id=$1 AND status='queued'
+              AND job_type<>'app_portal.uninstall'
             ORDER BY created_at
             FOR UPDATE SKIP LOCKED
             LIMIT 10
@@ -2580,6 +2593,7 @@ export function registerRmmAgentRoutes(app) {
     )
     if (!result.rowCount) return c.json({ success: false, error: 'Job not found or already completed.' }, 404)
     const completedJob = { ...result.rows[0], inventory_id: agent.inventory_id }
+    await reconcileLocalAdminJobResult(completedJob,success).catch(() => {})
     await reconcileWindowsUpdateJobResult(completedJob, resultPayload, success).catch((error) => {
       console.error('Windows Update job reconciliation failed', completedJob.id, error.message)
     })
