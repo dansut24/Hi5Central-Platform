@@ -22,7 +22,7 @@ if (-not $svc) {
 }
 $menu = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\exefile\shell\Hi5CentralElevate'
 New-Item -Path $menu -Force | Out-Null
-Set-ItemProperty -Path $menu -Name '(default)' -Value 'Run with Hi5Central admin'
+Set-Item -Path $menu -Value 'Run with Hi5Central admin'
 Set-ItemProperty -Path $menu -Name 'Icon' -Value ('"' + $target + '"')
 New-Item -Path ($menu + '\command') -Force | Out-Null
 Set-Item -Path ($menu + '\command') -Value ('"' + $target + '" "%1"')
