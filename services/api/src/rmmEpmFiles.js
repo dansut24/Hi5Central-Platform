@@ -109,11 +109,22 @@ export function registerRmmEpmFileRoutes(app) {
     const auth=await requireAgent(c); if(auth.error) return auth.error
     if (!validId(c.req.param('id'))) return c.json({error:'Invalid request.'},400)
     const b=await c.req.json().catch(()=>({}))
+    const stages=new Set([
+      'create-admin-identity','assign-admin-group','logon-identity',
+      'validate-elevated-token','duplicate-primary-token',
+      'bind-desktop-session','create-elevated-process','unexpected-launch-error',
+    ])
+    const stage=clean(b.stage)
+    const win32Code=b.win32Code
+    if (!stages.has(stage) || !Number.isInteger(win32Code) || win32Code < 0 || win32Code > 65535)
+      return c.json({error:'Invalid launch diagnostic codes.'},400)
     const result=await pool.query(
-      `UPDATE rmm_epm_file_requests SET status='launch_failed',updated_at=now()
+      `UPDATE rmm_epm_file_requests
+          SET status='launch_failed',launch_failure_stage=$5,
+              launch_failure_code=$6,launch_failure_at=now(),updated_at=now()
        WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3 AND status='redeemed'
        AND requester_sid=$4 RETURNING id`,
-      [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,clean(b.sid)])
+      [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,clean(b.sid),stage,win32Code])
     return c.json({success:Boolean(result.rowCount)})
   })
   app.get('/api/v1/rmm/epm/file-requests', async c => {
@@ -121,7 +132,8 @@ export function registerRmmEpmFileRoutes(app) {
     const q=await pool.query(
       `SELECT id,agent_device_id,requester_sid,requester_name,file_name,file_path,
        file_sha256,publisher,signer_thumbprint,business_reason,status,
-       decision_note,created_at,decided_at,approval_expires_at,redeemed_at
+       decision_note,created_at,decided_at,approval_expires_at,redeemed_at,
+       launch_failure_stage,launch_failure_code,launch_failure_at
        FROM rmm_epm_file_requests WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 150`,
       [auth.session.tenant_id])
     return c.json({requests:q.rows,pilot:true})
