@@ -669,13 +669,18 @@ public sealed partial class MainWindow : Window
 
             if (requiresFreshInventory)
             {
-                // An Agent job succeeding is not enough to certify a custom
-                // application. Only fresh matching Windows inventory can.
-                if (app.Installed && app.InventoryFresh)
+                // Prefer the independent PatchHost's successful Windows registry
+                // + target-version verification for this exact app revision.
+                // Waiting for a separate RMM Agent inventory is unnecessary
+                // when the Agent service has deliberately been stopped.
+                if (installation.HasVerifiedCurrentRevision(app)
+                    || (app.Installed && app.InventoryFresh))
                 {
                     return AppPortalStatus.Installed;
                 }
 
+                // Pending is only appropriate while no trusted, version-
+                // matched installation proof has been received yet.
                 if (!app.InventoryFresh || lifecycle == "succeeded" || job == "completed")
                 {
                     return AppPortalStatus.VerificationPending;
@@ -693,9 +698,11 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        if (requiresFreshInventory && !app.InventoryFresh)
+        // Without an install request, an offline RMM inventory is not itself
+        // a verification operation. Keep the application available.
+        if (requiresFreshInventory && !app.InventoryFresh && app.Installed)
         {
-            return AppPortalStatus.VerificationPending;
+            return AppPortalStatus.Installed;
         }
 
         if (app.Installed)

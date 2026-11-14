@@ -69,6 +69,9 @@ public sealed class PortalApp
     [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
 
+    [JsonPropertyName("revisionId")]
+    public string RevisionId { get; init; } = string.Empty;
+
     [JsonPropertyName("publisher")]
     public string Publisher { get; init; } = string.Empty;
 
@@ -248,6 +251,12 @@ public sealed class PortalInstallation
     [JsonPropertyName("app_id")]
     public string AppId { get; init; } = string.Empty;
 
+    [JsonPropertyName("revision_id")]
+    public string RevisionId { get; init; } = string.Empty;
+
+    [JsonPropertyName("result")]
+    public PortalJobResult? Result { get; init; }
+
     [JsonPropertyName("installation_status")]
     public string InstallationStatus { get; init; } = string.Empty;
 
@@ -262,6 +271,42 @@ public sealed class PortalInstallation
 
     [JsonPropertyName("completed_at")]
     public DateTimeOffset? CompletedAt { get; init; }
+
+    /// <summary>
+    /// PatchHost has already checked the installed application directly in
+    /// Windows and validated its target version. The main RMM inventory is
+    /// not involved: the independent broker works even if Agent is stopped.
+    /// A verified result is bound to the exact published app revision.
+    /// </summary>
+    public bool HasVerifiedCurrentRevision(PortalApp app) =>
+        string.Equals(InstallationStatus, "succeeded", StringComparison.OrdinalIgnoreCase)
+        && string.Equals(JobStatus, "completed", StringComparison.OrdinalIgnoreCase)
+        && !string.IsNullOrWhiteSpace(app.RevisionId)
+        && string.Equals(RevisionId, app.RevisionId, StringComparison.OrdinalIgnoreCase)
+        && Result?.Success == true
+        && Result.VerificationPassed
+        && Result.Verification?.MeetsTarget == true;
+}
+
+public sealed class PortalJobResult
+{
+    [JsonPropertyName("success")]
+    public bool Success { get; init; }
+
+    [JsonPropertyName("verificationPassed")]
+    public bool VerificationPassed { get; init; }
+
+    [JsonPropertyName("verifiedVersion")]
+    public string VerifiedVersion { get; init; } = string.Empty;
+
+    [JsonPropertyName("verification")]
+    public PortalJobVerification? Verification { get; init; }
+}
+
+public sealed class PortalJobVerification
+{
+    [JsonPropertyName("meetsTarget")]
+    public bool MeetsTarget { get; init; }
 }
 
 public sealed class PortalRequest
