@@ -179,16 +179,15 @@ internal sealed class EpmService : ServiceBase
         try {
             pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
             pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
-            using var reply=new MemoryStream();
+            // ACK is a single bounded JSON pipe message under 1 KiB.
+            // Avoid IsMessageComplete here: its disconnected/read-state
+            // InvalidOperationException obscured actual desktop Win32 errors.
             var bytes=new byte[1024];
-            do {
-                int count=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
-                if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
-                if(reply.Length+count>2048)
-                    throw new EpmLaunchException("desktop-grant-invalid",87);
-                reply.Write(bytes,0,count);
-            } while(!pipe.IsMessageComplete);
-            using var ack=JsonDocument.Parse(reply.ToArray());
+            int count=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
+            if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
+            if(count>=bytes.Length)
+                throw new EpmLaunchException("desktop-grant-invalid",87);
+            using var ack=JsonDocument.Parse(bytes.AsMemory(0,count));
             if(!ack.RootElement.TryGetProperty("granted",out var permitted)
                 || permitted.ValueKind!=JsonValueKind.True)
             {
