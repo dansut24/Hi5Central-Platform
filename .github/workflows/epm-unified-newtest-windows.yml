@@ -27,7 +27,7 @@ jobs:
       - name: Validate server-side automatic-launch restrictions
         shell: pwsh
         run: |
-          node --test services/api/src/rmmEpmAutoLaunchPolicy.test.js services/api/src/rmmEpmManagedUacPolicy.test.js
+          node --test services/api/src/rmmEpmAutoLaunchPolicy.test.js services/api/src/rmmEpmManagedUacPolicy.test.js services/api/src/rmmEpmApprovalPolicy.test.js
           if($LASTEXITCODE -ne 0){throw 'Newtest EPM automatic-launch policy tests failed'}
       - name: Compile and test native CredUI tile
         shell: pwsh
@@ -100,14 +100,14 @@ jobs:
         shell: pwsh
         run: |
           $root=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified'
-          $zip=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-ManagedUAC-v5-20261115.zip'
+          $zip=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-ShortcutRisk-v6-20261115.zip'
           Compress-Archive -Path "$root\*" -DestinationPath $zip -Force -CompressionLevel Optimal
-          "ZIP_SHA256=$((Get-FileHash $zip -Algorithm SHA256).Hash)"|Set-Content (Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-ManagedUAC-v5-20261115-ZIP-SHA256.txt') -Encoding ASCII
+          "ZIP_SHA256=$((Get-FileHash $zip -Algorithm SHA256).Hash)"|Set-Content (Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-ShortcutRisk-v6-20261115-ZIP-SHA256.txt') -Encoding ASCII
       - uses: actions/upload-artifact@v4
         with:
-          name: Hi5Central-EPM-Newtest-ManagedUAC-v5-20261115
+          name: Hi5Central-EPM-Newtest-ShortcutRisk-v6-20261115
           path: |
-            ${{ runner.temp }}/Hi5Central-EPM-Newtest-ManagedUAC-v5-20261115.zip
-            ${{ runner.temp }}/Hi5Central-EPM-Newtest-ManagedUAC-v5-20261115-ZIP-SHA256.txt
+            ${{ runner.temp }}/Hi5Central-EPM-Newtest-ShortcutRisk-v6-20261115.zip
+            ${{ runner.temp }}/Hi5Central-EPM-Newtest-ShortcutRisk-v6-20261115-ZIP-SHA256.txt
           if-no-files-found: error
           retention-days: 14

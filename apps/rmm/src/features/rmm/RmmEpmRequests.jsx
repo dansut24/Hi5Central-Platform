@@ -60,17 +60,19 @@ export function RmmEpmRequests() {
     return () => window.clearInterval(timer)
   }, [])
   async function decide() {
-    if (!active || note.trim().length<10) return
+    if (!active || note.trim().length<(active.decision==='approved' ? (active.minNoteLength || 10) : 10)) return
     setBusy(true); setError(''); setMessage('')
     try {
-      await request('/api/v1/rmm/epm/file-requests/'+encodeURIComponent(active.id)+'/decision','POST',{
+      const result=await request('/api/v1/rmm/epm/file-requests/'+encodeURIComponent(active.id)+'/decision','POST',{
         decision:active.decision,note:note.trim(),
       })
-      setMessage(active.decision==='approved'
-        ? active.autoLaunch
-          ? 'Approved once for 15 minutes. The endpoint can start the exact verified executable automatically when its signed-in watcher receives this approval.'
-          : 'Approved once for 15 minutes. The user can click the notification or retry the exact file.'
-        : 'Request rejected. No executable has been elevated.')
+      setMessage(active.decision!=='approved'
+        ? 'Request rejected. No executable has been elevated.'
+        : result.approvalStage==='awaiting_second'
+          ? 'First approval recorded. The request remains pending until a different authorised technician provides the second approval.'
+          : active.autoLaunch
+            ? 'Approved once for '+result.approvalMinutes+' minutes. The employee opted in to start the exact verified executable.'
+            : 'Approved once for '+result.approvalMinutes+' minutes. The employee can click the notification to run the verified executable.')
       setActive(null);setNote('')
       await refresh()
     } catch (e) {setError(e.message)}
@@ -94,7 +96,13 @@ export function RmmEpmRequests() {
     <header className="app-portal-hero">
       <div><span className="rmm-eyebrow">Endpoint security / privilege management</span>
         <h2>File elevation requests</h2>
-        <p>Approve a specific signed executable for one user and device. This does not deploy an App Portal package or grant general administrator membership.</p></div>
+        <p>Approve only a verified executable or registered managed Windows action for one user and device. Unidentified native UAC prompts remain review-only.</p>
+        <p><b>Security policy:</b> {rows[0]?.epm_risk ? (
+          rows.some(r=>r.epm_risk?.requiredApprovers===2)
+            ? 'Production hardened: critical actions require separate technicians.'
+            : 'Newtest scoped pilot: risk scores are enforced with short approvals; dual control is staged for production.'
+          ) : 'No file requests to display.'}
+        </p></div>
       <button className="rmm-secondary" type="button" disabled={busy} onClick={() => refresh()}><RefreshCw size={15}/> Refresh</button>
     </header>
     {error && <p role="alert" className="app-portal-notice error">{error}</p>}
@@ -160,6 +168,19 @@ export function RmmEpmRequests() {
             <b>Exact managed command:</b> {managedCommands[r.managed_action_code] || 'Unknown — do not approve'}
             {' '}· <b>Fixed arguments SHA-256:</b> {r.managed_arguments_sha256}
           </small>}
+          <small><b>EPM risk:</b> <strong>{(r.epm_risk?.risk||'unclassified').toUpperCase()}</strong>
+            {' '}· {r.epm_risk?.description || 'Assess before approving'}
+            {' '}· {r.epm_risk?.allowed
+              ? r.epm_risk.requiredApprovers+' technician approval(s), '+r.epm_risk.ttlMinutes+' minute authorisation'
+              : 'Blocked by current policy'}
+          </small>
+          {r.first_approved_by_user_id && <small><b>First approval recorded:</b>
+            {' '}another authorised technician must complete the decision
+            {' '}· {new Date(r.first_approved_at).toLocaleString()}
+          </small>}
+          {r.epm_risk?.unrestrictedSession && <p><b>Elevated console warning:</b> An approved launch can change
+            system state or spawn child processes; argument binding is not a command-level sandbox.
+            Use narrowly scoped operations for routine work.</p>}
           <small><b>After approval:</b> {r.auto_launch_on_approval
             ? 'Auto-start the exact verified EXE (explicit employee opt-in)'
             : 'Notify employee to launch the EXE manually'}</small>
@@ -191,13 +212,25 @@ export function RmmEpmRequests() {
         <span className="app-portal-state">{r.status}{r.status==='approved' && r.approval_expires_at
           ? ' · until '+new Date(r.approval_expires_at).toLocaleTimeString() : ''}</span>
         {r.status==='pending' && <span className="app-portal-request-actions">
-          <button disabled={busy} className="app-portal-text-action approve" onClick={()=>{setActive({id:r.id,decision:'approved',autoLaunch:r.auto_launch_on_approval===true});setNote('')}} type="button">Approve once</button>
+          <button disabled={busy||!r.epm_risk?.allowed} className="app-portal-text-action approve" onClick={()=>{
+            setActive({id:r.id,decision:'approved',autoLaunch:r.auto_launch_on_approval===true,
+              minNoteLength:r.epm_risk?.minNoteLength||10,
+              risk:r.epm_risk?.risk,approvers:r.epm_risk?.requiredApprovers||1,
+              alreadyFirst:!!r.first_approved_by_user_id,
+              ttlMinutes:r.epm_risk?.ttlMinutes||0});setNote('')
+          }} type="button">{r.first_approved_by_user_id?'Second approval':r.epm_risk?.requiredApprovers===2?'First approval':'Approve once'}</button>
           <button disabled={busy} className="app-portal-text-action" onClick={()=>{setActive({id:r.id,decision:'rejected'});setNote('')}} type="button">Reject</button>
         </span>}
       </article>)}
     </section>
     {active && <section className="app-portal-card">
-      <h3>{active.decision==='approved'?'Approve one-time elevation':'Reject elevation'}</h3>
+      <h3>{active.decision==='approved'
+        ? active.approvers===2?(active.alreadyFirst?'Second independent approval':'First break-glass approval')
+          :'Approve one-time elevation'
+        :'Reject elevation'}</h3>
+      <p><b>Risk:</b> {active.risk||'unclassified'} · <b>Approval window:</b> {active.ttlMinutes||0} minutes.
+        {active.approvers===2 && ' A different qualified technician must authorise the second stage before launch.'}
+      </p>
       <p>{active.decision==='approved'
         ? 'Approval expires after 15 minutes and is consumed on its first attempted launch. '+
           (active.autoLaunch
@@ -205,9 +238,9 @@ export function RmmEpmRequests() {
             : 'The user must click the notification or retry the verified file.')
         : 'No elevation will be permitted.'}</p>
       <label>Decision explanation<textarea value={note} rows="3" onChange={e=>setNote(e.target.value)}
-        placeholder="Explain this decision (minimum 10 characters)" /></label>
+        placeholder={'Explain this decision (minimum '+(active.decision==='approved'?active.minNoteLength:10)+' characters)'} /></label>
       <div className="app-portal-request-actions">
-        <button disabled={busy||note.trim().length<10} className="rmm-primary" onClick={decide} type="button">Confirm decision</button>
+        <button disabled={busy||note.trim().length<(active.decision==='approved'?active.minNoteLength:10)} className="rmm-primary" onClick={decide} type="button">Confirm decision</button>
         <button disabled={busy} onClick={()=>setActive(null)} type="button">Cancel</button>
       </div>
     </section>}

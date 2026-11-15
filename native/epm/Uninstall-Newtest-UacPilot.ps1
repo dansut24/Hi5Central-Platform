@@ -43,6 +43,9 @@ if(Test-Path -LiteralPath $statePath){
 } else {
   Write-Warning 'No previous EPM service state recorded; left existing EPM broker unchanged.'
 }
+# This entry was added only by the v6 pilot; do not leave a stale shell
+# command pointing at a reverted or removed Windows broker.
+Remove-Item -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\lnkfile\shell\Hi5CentralElevate' -Recurse -Force -ErrorAction SilentlyContinue
 $existingTask=Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
 if($existingTask){
   Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction Stop

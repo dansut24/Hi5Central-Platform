@@ -48,6 +48,7 @@ internal static class Program
             ApprovalAutoLaunchPolicy.SelfTest();
             ManagedUacActions.SelfTest();
             VerifiedFile.ManagedVerifierSelfTest();
+            ShortcutSelection.SelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
@@ -90,6 +91,23 @@ internal static class Program
             if(!created)return;
             try {Application.Run(new ApprovalTray());}
             finally {singleton.ReleaseMutex();}
+            return;
+        }
+        if(args.Length==2 && args[0]=="--shortcut")
+        {
+            try
+            {
+                // Resolve an explicitly selected Windows Shortcut to its
+                // signed EXE. No shortcut-supplied arguments are allowed.
+                string selectedExe=ShortcutSelection.ResolveSignedExecutableShortcut(args[1]);
+                EnsureWatcherForCurrentUser();
+                Application.Run(new LauncherContext(selectedExe));
+            }
+            catch(Exception error)
+            {
+                MessageBox.Show("Hi5Central cannot request this shortcut.\n\n"+error.Message,
+                    "Hi5Central EPM",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
             return;
         }
         if(args.Length==2 && args[0]=="--managed-uac")

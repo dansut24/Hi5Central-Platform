@@ -29,6 +29,15 @@ Set-Item -Path $menu -Value 'Run with Hi5Central admin'
 Set-ItemProperty -Path $menu -Name 'Icon' -Value ('"' + $target + '"')
 New-Item -Path ($menu + '\command') -Force | Out-Null
 Set-Item -Path ($menu + '\command') -Value ('"' + $target + '" "%1"')
+# Also support ordinary local Start Menu/desktop shortcut entry points.
+# Shortcut arguments are rejected; the SYSTEM broker independently rechecks
+# the actual selected executable's publisher, SHA256 and user/session.
+$shortcutMenu = 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Classes\lnkfile\shell\Hi5CentralElevate'
+New-Item -Path $shortcutMenu -Force | Out-Null
+Set-Item -Path $shortcutMenu -Value 'Run with Hi5Central admin'
+Set-ItemProperty -Path $shortcutMenu -Name 'Icon' -Value ('"' + $target + '"')
+New-Item -Path ($shortcutMenu + '\command') -Force | Out-Null
+Set-Item -Path ($shortcutMenu + '\command') -Value ('"' + $target + '" --shortcut "%1"')
 $startup = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run'
 Set-ItemProperty -Path $startup -Name 'Hi5CentralEpmPilot' -Value ('"' + $target + '" --watch')
 Start-Service Hi5CentralEpmPilot

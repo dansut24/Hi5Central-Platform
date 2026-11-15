@@ -9,9 +9,16 @@ import { resolveSession } from './session.js'
 import { validateNativeUacRequest, validateNativeUacStatusRequest, canReleaseNativeUacCredential } from './rmmEpmUacPolicy.js'
 import { validateFileAutoLaunchIntent } from './rmmEpmAutoLaunchPolicy.js'
 import { validateManagedAction } from './rmmEpmManagedUacPolicy.js'
+import { assessEpmApproval, decideEpmApproval } from './rmmEpmApprovalPolicy.js'
 
 const pilotTenant = (process.env.RMM_EPM_PILOT_TENANT || '').trim().toLowerCase()
 const pilotDevice = (process.env.RMM_EPM_PILOT_DEVICE || '').trim().toLowerCase()
+// Hardened is the safe default. The existing Newtest endpoint uses an
+// explicit 'pilot' profile until dual-person tests are qualified.
+const approvalProfile=process.env.RMM_EPM_APPROVAL_PROFILE==='pilot'?'pilot':'hardened'
+const breakGlassEnabled=process.env.RMM_EPM_BREAKGLASS_ENABLED==='true'
+const epmRisk=(row)=>assessEpmApproval(row,{profile:approvalProfile,breakGlassEnabled})
+
 const clean = (v) => String(v ?? '').trim()
 const validId = (v) => /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(clean(v))
 const validSha = (v) => /^[A-F0-9]{64}$/.test(clean(v))
@@ -216,40 +223,84 @@ export function registerRmmEpmFileRoutes(app) {
     const q=await pool.query(
       `SELECT id,agent_device_id,requester_sid,requester_name,file_name,file_path,
        file_sha256,publisher,signer_thumbprint,business_reason,status,request_source,auto_launch_on_approval,managed_action_code,managed_arguments_sha256,
+       first_approved_by_user_id,first_approved_at,first_approval_note,
        decision_note,created_at,decided_at,approval_expires_at,redeemed_at,
        launch_failure_stage,launch_failure_code,launch_failure_at,
        launch_pid,launch_started_at,launch_ended_at,launch_exit_code,
        launch_end_reason,launch_elapsed_ms
        FROM rmm_epm_file_requests WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 150`,
       [auth.session.tenant_id])
-    return c.json({requests:q.rows,pilot:true})
+    return c.json({requests:q.rows.map(row=>({
+      ...row,
+      epm_risk:epmRisk(row),
+      approval_stage:row.status==='pending'&&row.first_approved_by_user_id
+        ? 'awaiting_second':'awaiting_first',
+    })),pilot:true,approvalProfile})
   })
   app.post('/api/v1/rmm/epm/file-requests/:id/decision', async c => {
-    const auth=await requireTechnician(c); if(auth.error) return auth.error
-    if (!validId(c.req.param('id'))) return c.json({error:'Invalid request.'},400)
+    const auth=await requireTechnician(c);if(auth.error)return auth.error
+    if(!validId(c.req.param('id')))return c.json({error:'Invalid request.'},400)
     const b=await c.req.json().catch(()=>({}))
-    const note=clean(b.note), decision=clean(b.decision)
-    if (!['approved','rejected'].includes(decision) || note.length<10 || note.length>2000)
-      return c.json({error:'Decision and a 10–2000 character explanation are required.'},400)
-    const result=await pool.query(
-      `UPDATE rmm_epm_file_requests
+    const note=clean(b.note),decision=clean(b.decision)
+    const found=await pool.query(
+      'SELECT id,agent_device_id,file_name,status,request_source,managed_action_code,first_approved_by_user_id FROM rmm_epm_file_requests WHERE id=$1 AND tenant_id=$2',
+      [c.req.param('id'),auth.session.tenant_id])
+    const record=found.rows[0]
+    if(!record || record.status!=='pending')return c.json({error:'Request is missing or already decided.'},409)
+    const policy=epmRisk(record)
+    const canBreakGlass=hasPermission(auth.session.access,'rmm.policies.manage')
+      && hasPermission(auth.session.access,'settings.security.manage')
+    const choice=decideEpmApproval(policy,decision,note,
+      record.first_approved_by_user_id,auth.session.user_id,canBreakGlass)
+    if(!choice.ok)return c.json({error:choice.error},403)
+    let result
+    let eventType
+    if(choice.stage==='first-approval'){
+      result=await pool.query(
+        `UPDATE rmm_epm_file_requests
+         SET first_approved_by_user_id=$3,first_approved_at=now(),
+             first_approval_note=$4,updated_at=now()
+         WHERE id=$1 AND tenant_id=$2 AND status='pending'
+           AND first_approved_by_user_id IS NULL
+         RETURNING id,agent_device_id,file_name`,
+        [record.id,auth.session.tenant_id,auth.session.user_id,note])
+      eventType='epm.file.first_approval'
+    }else{
+      const finalStatus=choice.stage==='reject'?'rejected':'approved'
+      result=await pool.query(
+        `UPDATE rmm_epm_file_requests
          SET status=$3,decision_note=$4,decided_by_user_id=$5,decided_at=now(),
-           approval_expires_at=CASE WHEN $3='approved' THEN now()+interval '15 minutes' ELSE NULL END,
+           approval_expires_at=CASE WHEN $3='approved' THEN now()+($6::integer*interval '1 minute') ELSE NULL END,
            updated_at=now()
-       WHERE id=$1 AND tenant_id=$2 AND status='pending' RETURNING id,status,agent_device_id,file_name`,
-      [c.req.param('id'),auth.session.tenant_id,decision,note,auth.session.user_id])
-    if(!result.rowCount) return c.json({error:'Request already decided.'},409)
+         WHERE id=$1 AND tenant_id=$2 AND status='pending'
+           AND ($7::boolean=false OR (
+             first_approved_by_user_id IS NOT NULL AND first_approved_by_user_id<>$5
+           ))
+         RETURNING id,agent_device_id,file_name`,
+        [record.id,auth.session.tenant_id,finalStatus,note,auth.session.user_id,
+          choice.ttlMinutes||0,choice.stage==='second-approval'])
+      eventType='epm.file.'+finalStatus
+    }
+    if(!result.rowCount)return c.json({error:'Approval state changed; refresh and try again.'},409)
     const item=result.rows[0]
     await recordRmmActivity({
       tenantId:auth.session.tenant_id,agentDeviceId:item.agent_device_id,
       actorType:'technician',actorUserId:auth.session.user_id,
       actorLabel:auth.session.name||auth.session.email||'Technician',
-      category:'security',eventType:'epm.file.'+decision,
-      summary:'File elevation '+decision+' for '+item.file_name,
-      detail:note,outcome:decision==='approved'?'success':'rejected',
-      metadata:{requestId:item.id},
+      category:'security',eventType,
+      summary:'EPM '+choice.stage+' for '+item.file_name+' ('+policy.risk+')',
+      detail:note,outcome:choice.stage==='reject'?'rejected':'success',
+      metadata:{requestId:item.id,risk:policy.risk,stage:choice.stage,
+        requiredApprovers:policy.requiredApprovers,approvalProfile},
     }).catch(()=>null)
-    return c.json({success:true,status:decision,approvalMinutes:decision==='approved'?15:0})
+    return c.json({
+      success:true,
+      status:choice.stage==='first-approval'?'pending'
+        :choice.stage==='reject'?'rejected':'approved',
+      approvalStage:choice.stage==='first-approval'?'awaiting_second':'completed',
+      requiredApprovers:policy.requiredApprovers,risk:policy.risk,
+      approvalMinutes:choice.ttlMinutes||0
+    })
   })
   // Review-only UAC requests. This queue never contains a trusted executable
   // identity and MUST NEVER issue, return or authorize an admin credential.

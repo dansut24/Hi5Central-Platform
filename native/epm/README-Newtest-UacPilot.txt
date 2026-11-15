@@ -100,3 +100,29 @@ administrative applications despite their fixed initial invocation.
 The environment remains scoped to the Newtest Lenovo device and time-limited
 automatic rollback remains in force. The five real Lenovo tests must be run
 interactively; Windows CI cannot exercise a live secure desktop approval.
+
+V6 EXPANDED ENTRY POINT: ORDINARY WINDOWS SHORTCUTS
+A user may right-click a local Start Menu or desktop .lnk shortcut
+(Show more options > Run with Hi5Central admin). The native user companion
+resolves the exact executable with Windows Shell Link COM. Shortcuts with
+arguments or remote, missing, script, URL and nonsigned targets are refused.
+The existing SYSTEM EPM broker then independently verifies the actual signed
+EXE, file hash, requesting SID/session and one-time RMM approval. No native
+UAC bypass or generic administrator credential is issued. Windows 11 may
+show the integration under its legacy context-menu view. This feature
+requires interactive Newtest validation before production qualification.
+
+V6 SERVER-SIDE SECURITY PROFILE
+- Newtest remains an explicitly scoped PILOT for legacy single-approver
+  qualification; one-time approvals now expire after 3 minutes for critical
+  tools, 5 for high risk and 15 for controlled Windows Installer help.
+- Future production enablement defaults to HARDENED. PowerShell and Registry
+  Editor are blocked unless the break-glass policy is explicitly enabled.
+  When enabled, two DIFFERENT technicians with both RMM policy-management
+  and security-settings permissions must approve separately. The first
+  approval is never executable. A second approval has a 3-minute window.
+- A high-risk tool running with full administrator rights can still change
+  Windows state and launch descendants; the five original Windows action
+  options are NOT a command sandbox. Future routine IT operations should
+  use typed, narrow workers (e.g. service state or allowlisted registry keys).
+- No policy permits unknown native UAC requests to release credentials.
