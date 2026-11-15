@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 
+// Display the exact pre-registered command that the Windows broker may run.
+// These labels are informational; the API and Windows broker enforce the
+// source-specific signed-file and arguments-digest binding independently.
+const managedCommands={
+  notepad: 'C:\\Windows\\System32\\notepad.exe (no arguments)',
+  regedit: 'C:\\Windows\\regedit.exe (no arguments)',
+  services: 'C:\\Windows\\System32\\mmc.exe services.msc',
+  powershell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -NoProfile -NoExit',
+  'msiexec-help': 'C:\\Windows\\System32\\msiexec.exe /?'
+}
 const base = window.__HI5_API_BASE__
 async function request(url, method = 'GET', body) {
   const response = await fetch(base + url, {
@@ -147,7 +157,7 @@ export function RmmEpmRequests() {
             ? 'Windows UAC — user explicitly selected and verified EXE'
             : 'Explorer / browser — selected EXE'}</small>
           {r.managed_action_code && <small>
-            <b>Verified operation:</b> {r.managed_action_code}
+            <b>Exact managed command:</b> {managedCommands[r.managed_action_code] || 'Unknown — do not approve'}
             {' '}· <b>Fixed arguments SHA-256:</b> {r.managed_arguments_sha256}
           </small>}
           <small><b>After approval:</b> {r.auto_launch_on_approval
