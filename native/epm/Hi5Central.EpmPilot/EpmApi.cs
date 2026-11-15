@@ -10,7 +10,8 @@ internal sealed class EpmApi : IDisposable
 
     public async Task<JsonDocument> PostAsync(string path, object data, CancellationToken ct)
     {
-        if (!path.StartsWith("/api/v1/agent/epm/file-requests", StringComparison.Ordinal))
+        if (!path.StartsWith("/api/v1/agent/epm/file-requests", StringComparison.Ordinal)
+            && !path.StartsWith("/api/v1/agent/epm/uac-reviews", StringComparison.Ordinal))
             throw new InvalidOperationException("EPM broker cannot call unrelated API endpoints.");
         // Keep device identity sourced from the Agent's machine-DPAPI state, but route
         // EPM requests only to the shared RMM API (the general API host has no EPM routes).
