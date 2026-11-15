@@ -44,9 +44,7 @@ if((Test-Path $provider) -or (Test-Path $com) -or (Test-Path $filter)){
 if(Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue){
   throw 'Existing UAC pilot rollback task found; inspect before another installation.'
 }
-if((Get-Service -Name Hi5CentralEpmPilot -ErrorAction SilentlyContinue).Status -ne 'Running'){
-  throw 'The existing Hi5Central EPM service must be Running, although this pilot never modifies it.'
-}
+# The display-only tile does not require or interact with the EPM service.
 $localUninstall=Join-Path $PSScriptRoot 'Uninstall-UacTilePilot.ps1'
 if(-not (Test-Path -LiteralPath $localUninstall -PathType Leaf)){
   throw 'The companion rollback script must be present; no changes made.'
