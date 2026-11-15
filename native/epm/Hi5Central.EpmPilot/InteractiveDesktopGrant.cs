@@ -27,6 +27,28 @@ internal sealed class InteractiveDesktopGrant : IDisposable
 
     private InteractiveDesktopGrant(SecurityIdentifier sid) { admin=sid; }
 
+    internal static void RunPreflight()
+    {
+        IntPtr station=OpenWindowStationW("WinSta0",false,0x00020000|0x00040000);
+        if(station==IntPtr.Zero)
+            throw new EpmLaunchException("desktop-client-station",Marshal.GetLastWin32Error());
+        IntPtr desktop=IntPtr.Zero;
+        try
+        {
+            desktop=OpenDesktopW("Default",0,false,0x00020000|0x00040000);
+            if(desktop==IntPtr.Zero)
+                throw new EpmLaunchException("desktop-client-default",Marshal.GetLastWin32Error());
+            if(!string.Equals(UserObjectInfo(station,UOI_NAME),"WinSta0",StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(UserObjectInfo(desktop,UOI_NAME),"Default",StringComparison.OrdinalIgnoreCase))
+                throw new EpmLaunchException("desktop-client-identity",5);
+        }
+        finally
+        {
+            if(desktop!=IntPtr.Zero)CloseDesktop(desktop);
+            CloseWindowStation(station);
+        }
+    }
+
     /// <summary>
     /// Called ONLY in the requesting user's interactive process. WinSta0 and
     /// Default are opened in that same Windows session, not duplicated from the
