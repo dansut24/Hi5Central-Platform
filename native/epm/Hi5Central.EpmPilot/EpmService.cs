@@ -17,6 +17,7 @@ internal sealed class EpmService : ServiceBase
     internal const string PipeName="Hi5CentralEpmPilot";
     private readonly CancellationTokenSource stop=new();
     private readonly ConcurrentDictionary<Guid,ApprovalCache> approvals=new();
+    private readonly ConcurrentDictionary<int,(string sid,int session)> launchedJobs=new();
     private readonly EpmApi api=new();
     private readonly SemaphoreSlim gate=new(1,1);
     private Task? running;
@@ -66,10 +67,6 @@ internal sealed class EpmService : ServiceBase
     }
     private async Task Handle(NamedPipeServerStream pipe,CancellationToken ct) {
         var caller=ClientIdentity(pipe);
-        // Cross-session desktop grants are valid only for handles owned by
-        // this actual named-pipe client, not a process ID provided in JSON.
-        if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var clientPid))
-            throw new UnauthorizedAccessException("Unable to validate EPM pipe client.");
         var bytes=new byte[16384];
         using var buffer=new MemoryStream();
         pipe.ReadMode=PipeTransmissionMode.Message;
@@ -90,10 +87,8 @@ internal sealed class EpmService : ServiceBase
                 "request"=>await Request(file, data.TryGetProperty("reason",out var reason)?reason.GetString()??"":"",
                     caller,ct),
                 "check"=>await Check(file,caller,ct),
-                "run"=>await Run(file,caller,ct,clientPid,
-                    data.TryGetProperty("stationHandle",out var wh)?wh.GetString()??"":"",
-                    data.TryGetProperty("desktopHandle",out var dh)?dh.GetString()??"":""),
-
+                "run"=>await Run(file,caller,ct,pipe),
+                "job"=>Job(data.TryGetProperty("processId",out var job)?job.GetInt32():0,caller),
                 "watch"=>await Watch(caller,ct),
                 _=>new {success=false,error="Unknown EPM request"}
             };
@@ -159,11 +154,43 @@ internal sealed class EpmService : ServiceBase
         }
         return new {success=true,requests=list};
     }
+    private object Job(int pid,(string sid,string name,int session) caller)
+    {
+        if(pid<=0 || !launchedJobs.TryGetValue(pid,out var owner)
+            || owner.sid!=caller.sid || owner.session!=caller.session)
+            throw new UnauthorizedAccessException("This EPM job belongs to a different Windows session.");
+        bool running=AdminLaunch.IsJobActive((uint)pid);
+        if(!running)launchedJobs.TryRemove(pid,out _);
+        return new {success=true,status=running?"running":"ended",processId=pid};
+    }
+
+    // Authenticated, single-use local pipe challenge; no cross-session handle
+    // duplication. The employee-side launcher edits only its own desktop ACL.
+    private static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid)
+    {
+        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(18));
+        var challenge=JsonSerializer.SerializeToUtf8Bytes(new {
+            action="grant-local-desktop",adminSid=sid
+        });
+        pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
+        pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
+        using var reply=new MemoryStream();
+        var bytes=new byte[1024];
+        do {
+            int n=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
+            if(n==0)throw new EpmLaunchException("desktop-grant-connection",109);
+            if(reply.Length+n>2048)
+                throw new EpmLaunchException("desktop-grant-invalid",87);
+            reply.Write(bytes,0,n);
+        } while(!pipe.IsMessageComplete);
+        using var ack=JsonDocument.Parse(reply.ToArray());
+        if(!ack.RootElement.TryGetProperty("granted",out var permitted)
+            || permitted.ValueKind!=JsonValueKind.True)
+            throw new EpmLaunchException("desktop-grant-rejected",5);
+    }
+
     private async Task<object> Run(string path,(string sid,string name,int session) caller,
-        CancellationToken ct,uint clientPid,string stationText,string desktopText) {
-        if(!long.TryParse(stationText,out var stationHandle) || stationHandle<=0
-            || !long.TryParse(desktopText,out var desktopHandle) || desktopHandle<=0)
-            throw new EpmLaunchException("desktop-client-handles",87);
+        CancellationToken ct,NamedPipeServerStream pipe) {
         var existing=Match(path,caller) ?? throw new InvalidOperationException("No request exists for this Windows user and file.");
         if(await Status(existing,ct)!="approved") throw new InvalidOperationException("This file has not been approved or the approval has expired.");
         // Hold a deny-write/deny-delete handle throughout redemption and process
@@ -187,7 +214,7 @@ internal sealed class EpmService : ServiceBase
                     if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)!=true)
                         throw new EpmLaunchException("service-security-context",5);
                     return AdminLaunch.Launch(existing.Proof.Path,caller.session,
-                        clientPid,stationHandle,desktopHandle,
+                        sid => RequestDesktopGrant(pipe,sid),
                         async observation => {
                             // Asynchronous completion is best-effort; the temporary
                             // administrator account is already cleaned up locally.
@@ -203,6 +230,7 @@ internal sealed class EpmService : ServiceBase
                         });
                 });
             approvals.TryRemove(existing.Id,out _);
+            launchedJobs[processId]=(caller.sid,caller.session);
             // This means Windows accepted the process. It does not mean the
             // installer rendered or successfully installed its package.
             try {
