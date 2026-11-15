@@ -175,9 +175,29 @@ internal sealed class EpmService : ServiceBase
                     using var identity=WindowsIdentity.GetCurrent();
                     if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)!=true)
                         throw new EpmLaunchException("service-security-context",5);
-                    return AdminLaunch.Launch(existing.Proof.Path,caller.session);
+                    return AdminLaunch.Launch(existing.Proof.Path,caller.session,
+                        async observation => {
+                            // Asynchronous completion is best-effort; the temporary
+                            // administrator account is already cleaned up locally.
+                            // Never send credentials, tokens or command lines.
+                            using var report=await api.PostAsync(
+                                "/api/v1/agent/epm/file-requests/"+existing.Id+"/lifecycle",
+                                new {
+                                    sid=caller.sid,phase="ended",pid=(int)observation.Pid,
+                                    exitCode=observation.ExitCode.HasValue
+                                        ? (long?)observation.ExitCode.Value : null,
+                                    reason=observation.EndReason,elapsedMs=observation.ElapsedMs
+                                },CancellationToken.None);
+                        });
                 });
             approvals.TryRemove(existing.Id,out _);
+            // This means Windows accepted the process. It does not mean the
+            // installer rendered or successfully installed its package.
+            try {
+                using var report=await api.PostAsync(
+                    "/api/v1/agent/epm/file-requests/"+existing.Id+"/lifecycle",
+                    new {sid=caller.sid,phase="started",pid=processId},ct);
+            } catch { /* never revoke an already redeemed approval on audit failure */ }
             return new {success=true,status="launched",processId};
         } catch (Exception error) {
             // The approval is already consumed, so never automatically retry.
