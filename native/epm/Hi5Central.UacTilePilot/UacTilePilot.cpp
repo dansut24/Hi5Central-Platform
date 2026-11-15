@@ -1,6 +1,6 @@
-// Hi5Central UAC research pilot — display-only Credential UI provider.
-// IMPORTANT: This DLL never authenticates, serializes a credential, starts
-// a process, reads a password or connects to the Hi5Central Agent.
+// Hi5Central UAC research pilot — review-only Credential UI provider.
+// IMPORTANT: This DLL NEVER authenticates, serializes a credential, starts
+// a process, reads a password or releases administrator privileges.
 // It supports ONLY CPUS_CREDUI. It does NOT implement a provider filter.
 // The Windows password / PIN / Hello providers must remain present.
 #include <windows.h>
@@ -27,17 +27,21 @@ enum FieldId : DWORD {
 constexpr wchar_t kTitle[] = L"Hi5Central EPM";
 constexpr wchar_t kDescription[] = L"Request administrator access";
 constexpr wchar_t kStatus[] =
-    L"Hi5Central cannot safely identify this Windows UAC target using "
-    L"the credential provider API. No approval is available in this tile yet.";
-constexpr wchar_t kAction[] = L"How to request Hi5Central approval";
+    L"Send a security review to Hi5Central RMM. The underlying UAC operation "
+    L"cannot be verified, so review will NOT grant administrator rights.";
+constexpr wchar_t kAction[] = L"Submit UAC security review to Hi5Central RMM";
 constexpr wchar_t kReasonLabel[] = L"Business justification (20-512 characters)";
 constexpr wchar_t kNeedReason[] =
-    L"Enter at least 20 characters to preview your justification. "
-    L"No request has been sent to RMM.";
-constexpr wchar_t kUnboundTarget[] =
-    L"Original application identity is not provided to this tile by Windows. "
-    L"No RMM request sent. Cancel UAC and choose Run with Hi5Central admin "
-    L"on the installer, or use the existing Edge download notification.";
+    L"Enter at least 20 characters explaining the action. No request was sent.";
+constexpr wchar_t kUnavailable[] =
+    L"Cannot contact the verified Hi5Central Windows broker. No request was sent, "
+    L"and nothing was elevated. Normal Windows credentials remain available.";
+constexpr wchar_t kReviewSent[] =
+    L"UAC review sent to Hi5Central RMM. No administrator credential or "
+    L"elevation has been issued; normal Windows UAC remains in control.";
+constexpr wchar_t kRejected[] =
+    L"Windows broker rejected the UAC review. No credential or elevation "
+    L"was issued. Use the existing file-bound Hi5Central approval workflow.";
 
 static const struct {
   CREDENTIAL_PROVIDER_FIELD_TYPE type;
@@ -64,6 +68,48 @@ HRESULT MakeString(const wchar_t* value,LPWSTR* output) noexcept {
 // parent process or an unrelated executable with a matching display name.
 // Until a separately authenticated PRE-LAUNCH intent is bound to this exact
 // request, do not submit an elevation approval from this secure-desktop tile.
+
+
+// The tile does not know, guess or accept an EXE path for this UAC operation.
+// Only an authenticated Windows consent.exe host may submit a *review* to
+// the existing EPM SYSTEM broker; that broker determines user SID/session.
+static std::string ToJsonString(const std::wstring& text) {
+  if(text.size()>512)return {};
+  int len=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+      text.c_str(),static_cast<int>(text.size()),nullptr,0,nullptr,nullptr);
+  if(len<=0)return {};
+  std::string utf8(static_cast<size_t>(len),'\0');
+  if(!WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,
+      text.c_str(),static_cast<int>(text.size()),utf8.data(),len,nullptr,nullptr))
+    return {};
+  std::string json="\"";
+  for(unsigned char ch:utf8) {
+    if(ch<0x20||ch==0x7f)return {};
+    if(ch=='\"'||ch=='\\')json.push_back('\\');
+    json.push_back(static_cast<char>(ch));
+  }
+  json.push_back('\"');
+  return json;
+}
+
+static std::wstring SendNativeUacReview(const std::wstring& reason) {
+  auto escaped=ToJsonString(reason);
+  if(escaped.empty())return kRejected;
+  const std::string request="{\"type\":\"uac-review\",\"reason\":"+escaped+"}";
+  char answer[4096]{};
+  DWORD returned=0;
+  // Message-mode pipe. This is a bounded synchronous operation only for
+  // review submission; it NEVER issues or submits a Windows credential.
+  BOOL ok=CallNamedPipeW(L"\\\\.\\pipe\\Hi5CentralEpmPilot",
+      const_cast<char*>(request.data()),static_cast<DWORD>(request.size()),
+      answer,sizeof(answer)-1,&returned,8000);
+  if(!ok||returned>=sizeof(answer))return kUnavailable;
+  const std::string response(answer,answer+returned);
+  if(response.find("\"success\":true")!=std::string::npos &&
+      response.find("\"credentialReleaseEnabled\":false")!=std::string::npos)
+    return kReviewSent;
+  return kRejected;
+}
 
 class Tile final : public ICredentialProviderCredential {
   std::atomic<ULONG> refs_{1};
@@ -150,10 +196,10 @@ public:
   STDMETHODIMP CommandLinkClicked(DWORD id) override {
     if(id!=F_ACTION)return E_INVALIDARG;
     clicked_=true;
-    // There is deliberately NO request dispatch without a trusted
-    // application identity. The reason field is a local UI preview only.
+    // Review is not elevation. Never authenticate or grant administrator
+    // rights in the unbound/native UAC case.
     if(reason_.size()<20)status_=kNeedReason;
-    else status_=kUnboundTarget;
+    else status_=SendNativeUacReview(reason_);
     if(events_)events_->SetFieldString(this,F_STATUS,status_.c_str());
     return S_OK;
   }
