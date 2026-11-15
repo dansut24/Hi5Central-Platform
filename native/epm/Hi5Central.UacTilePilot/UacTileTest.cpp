@@ -46,16 +46,16 @@ int wmain(int argc,wchar_t** argv) {
     L"prefer native CredUI tile index 0 but never auto-logon");
 
   DWORD fields=0;
-  Must(provider->GetFieldDescriptorCount(&fields)==S_OK&&fields==6,
-    L"six fields: status, reason, exact EXE path and request action");
+  Must(provider->GetFieldDescriptorCount(&fields)==S_OK&&fields==5,
+    L"five fields: status, reason and safe instructions (no path field)");
   for(DWORD i=0;i<fields;i++) {
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* f=nullptr;
     Must(provider->GetFieldDescriptorAt(i,&f)==S_OK&&f!=nullptr,
       L"field descriptor");
     Must(f->cpft!=CPFT_PASSWORD_TEXT&&f->cpft!=CPFT_SUBMIT_BUTTON,
       L"password and credential submit controls prohibited");
-    Must((i==3||i==4)==(f->cpft==CPFT_EDIT_TEXT),
-      L"only justification and signed EXE path are editable");
+    Must((i==3)==(f->cpft==CPFT_EDIT_TEXT),
+      L"only business justification is editable, never an EXE path");
     CoTaskMemFree(f->pszLabel);CoTaskMemFree(f);
   }
   ICredentialProviderCredential* tile=nullptr;
@@ -69,7 +69,7 @@ int wmain(int argc,wchar_t** argv) {
     L"tile label visible");
   CoTaskMemFree(title);
   Must(tile->SetStringValue(3,L"short")==S_OK,L"short reason editable");
-  Must(tile->CommandLinkClicked(5)==S_OK,L"request link requires validated reason");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"safe link validates reason without submitting");
   LPWSTR details=nullptr;
   Must(tile->GetStringValue(2,&details)==S_OK&&details
     &&std::wstring(details).find(L"at least 20")!=std::wstring::npos,
@@ -78,10 +78,10 @@ int wmain(int argc,wchar_t** argv) {
   Must(tile->SetStringValue(3,
     L"I need administrator access to update this application")==S_OK,
     L"valid justification must be editable inside native UAC");
-  Must(tile->CommandLinkClicked(5)==S_OK,L"exact EXE path is required after valid reason");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"no EXE is bound to the native Windows UAC tile");
   Must(tile->GetStringValue(2,&details)==S_OK&&details
-    &&std::wstring(details).find(L"full local path")!=std::wstring::npos,
-    L"never submit an unbound RMM approval");
+    &&std::wstring(details).find(L"No RMM request sent")!=std::wstring::npos,
+    L"never submit RMM approval without authenticated original EXE identity");
   CoTaskMemFree(details);
   LPWSTR retained=nullptr;
   Must(tile->GetStringValue(3,&retained)==S_OK&&retained
@@ -89,12 +89,13 @@ int wmain(int argc,wchar_t** argv) {
   CoTaskMemFree(retained);
   Must(tile->SetStringValue(3,L"bad\nreason")==E_INVALIDARG,
     L"control characters must be rejected");
-  Must(tile->SetStringValue(4,L"untrusted-relative.exe")==S_OK,
-    L"editable EXE path field");
-  Must(tile->CommandLinkClicked(5)==S_OK,L"reject unqualified executable path");
+  Must(tile->SetStringValue(4,L"untrusted-relative.exe")==E_INVALIDARG,
+    L"manual path input is completely removed");
+  Must(tile->CommandLinkClicked(4)==S_OK,
+    L"reason is never a substitute for trustworthy target identity");
   Must(tile->GetStringValue(2,&details)==S_OK&&details
-    &&std::wstring(details).find(L"full local path")!=std::wstring::npos,
-    L"reject relative EXE paths before any RMM request");
+    &&std::wstring(details).find(L"No RMM request sent")!=std::wstring::npos,
+    L"native UAC tile must fail closed with no EXE identity");
   CoTaskMemFree(details);
 
   CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE response=CPGSR_RETURN_CREDENTIAL_FINISHED;
