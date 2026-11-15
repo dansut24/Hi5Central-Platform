@@ -48,14 +48,11 @@ internal static class AdminLaunch
                 if (GetTokenInformation(token, 19, out var linked, IntPtr.Size, out _)
                     && linked != IntPtr.Zero) elevated = linked;
                 try {
-                var adminSid=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null);
-                var sid=new byte[adminSid.BinaryLength]; adminSid.GetBinaryForm(sid,0);
-                var ptr=Marshal.AllocHGlobal(sid.Length);
-                try {
-                    Marshal.Copy(sid,0,ptr,sid.Length);
-                    if(!CheckTokenMembership(elevated,ptr,out var memberEnabled) || !memberEnabled)
-                        throw new EpmLaunchException("validate-elevated-token",0);
-                } finally {Marshal.FreeHGlobal(ptr);}
+                // CheckTokenMembership requires an IMPERSONATION token.
+                // LogonUser and TokenLinkedToken return PRIMARY tokens. Passing
+                // either directly can fail or incorrectly reject a valid admin.
+                if (!IsEnabledAdministratorToken(elevated))
+                    throw new EpmLaunchException("validate-elevated-token",0);
                 if(!DuplicateTokenEx(elevated,0xF01FF,IntPtr.Zero,2,1,out var primary))
                     throw new EpmLaunchException("duplicate-primary-token",Marshal.GetLastWin32Error());
                 try {
@@ -73,6 +70,41 @@ internal static class AdminLaunch
                 } finally { if (elevated != token) CloseHandle(elevated); }
             } finally {CloseHandle(token);}
         } finally {NetUserDel(null,account);}
+    }
+
+    // A primary token cannot be used directly with CheckTokenMembership.
+    // Explicitly duplicate it as TokenImpersonation, then ask Windows whether
+    // the Administrators SID is enabled. Never accept deny-only membership.
+    internal static bool IsEnabledAdministratorToken(IntPtr primaryToken)
+    {
+        const uint TOKEN_QUERY_AND_DUPLICATE = 0x0008 | 0x0002;
+        if (!DuplicateTokenEx(primaryToken,TOKEN_QUERY_AND_DUPLICATE,
+            IntPtr.Zero,2,2,out var impersonationToken))
+            throw new EpmLaunchException("duplicate-check-token",Marshal.GetLastWin32Error());
+        try {
+            var adminSid=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null);
+            var sid=new byte[adminSid.BinaryLength];
+            adminSid.GetBinaryForm(sid,0);
+            var ptr=Marshal.AllocHGlobal(sid.Length);
+            try {
+                Marshal.Copy(sid,0,ptr,sid.Length);
+                if (!CheckTokenMembership(impersonationToken,ptr,out var isEnabled))
+                    throw new EpmLaunchException("check-token-membership",Marshal.GetLastWin32Error());
+                return isEnabled;
+            } finally { Marshal.FreeHGlobal(ptr); }
+        } finally { CloseHandle(impersonationToken); }
+    }
+
+    internal static void RunTokenSelfTest()
+    {
+        // CI exercising the exact primary-token → impersonation-token validation
+        // path against the runner's actual access token, without launching or
+        // creating any administrator account.
+        if (!OpenProcessToken(GetCurrentProcess(),0x0008|0x0002,out var token))
+            throw new EpmLaunchException("self-test-open-process-token",Marshal.GetLastWin32Error());
+        try {
+            _=IsEnabledAdministratorToken(token);
+        } finally { CloseHandle(token); }
     }
 
     [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]
@@ -113,5 +145,8 @@ internal static class AdminLaunch
     [DllImport("advapi32.dll",SetLastError=true,CharSet=CharSet.Unicode)]
     private static extern bool CreateProcessAsUser(IntPtr token,string app,string cmd,IntPtr processAttr,
         IntPtr threadAttr,bool inherit,uint flags,IntPtr environment,string? workingDirectory,ref STARTUPINFO startup,out PROCESS_INFORMATION info);
+    [DllImport("kernel32.dll")]private static extern IntPtr GetCurrentProcess();
+    [DllImport("advapi32.dll",SetLastError=true)]
+    private static extern bool OpenProcessToken(IntPtr process,uint desiredAccess,out IntPtr token);
     [DllImport("kernel32.dll",SetLastError=true)]private static extern bool CloseHandle(IntPtr handle);
 }
