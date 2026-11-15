@@ -46,13 +46,18 @@ internal static class Program
         }
         Application.Run(new LauncherContext(args[0]));
     }
-    internal static async Task<JsonDocument> AskBroker(string type,string path="",string reason="")
+    internal static async Task<JsonDocument> AskBroker(string type,string path="",string reason="",
+        InteractiveDesktopHandles? interactiveDesktop=null)
     {
         using var client=new NamedPipeClientStream(".",EpmService.PipeName,PipeDirection.InOut,
             PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
         using var limit=new CancellationTokenSource(TimeSpan.FromSeconds(38));
         await client.ConnectAsync(3500,limit.Token);
-        var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{type,path,reason}));
+        var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{
+            type,path,reason,
+            stationHandle=interactiveDesktop?.Station.ToInt64().ToString(),
+            desktopHandle=interactiveDesktop?.Desktop.ToInt64().ToString()
+        }));
         await client.WriteAsync(bytes,limit.Token);
         await client.FlushAsync(limit.Token);
         using var response=new MemoryStream();
@@ -77,7 +82,10 @@ internal static class Program
                     Path.GetFileName(path)+"\n\nThis approval is one-time and expires after 15 minutes.",
                     "Hi5Central Elevation",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
                 if(choice!=DialogResult.Yes)return;
-                using var launched=await AskBroker("run",path);
+                // The desktop handles belong to this standard-user session;
+                // the service validates their kernel type/name before adding any ACE.
+                using var desktop=InteractiveDesktopHandles.Open();
+                using var launched=await AskBroker("run",path,interactiveDesktop:desktop);
                 if(!Ok(launched.RootElement))throw new InvalidOperationException(Value(launched.RootElement,"error"));
                 MessageBox.Show("Hi5Central started the approved executable. No administrator password was shared.",
                     "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
