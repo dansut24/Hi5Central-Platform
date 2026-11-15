@@ -25,6 +25,9 @@ internal sealed class EpmService : ServiceBase
     protected override void OnStop() {
         stop.Cancel();
         try{running?.Wait(TimeSpan.FromSeconds(5));}catch{}
+        // Do not leave temporary administrator identities when the pilot service stops.
+        // Active process jobs are closed (and terminated) before profile/account cleanup.
+        AdminLaunch.StopActiveLaunches();
         api.Dispose();gate.Dispose();stop.Dispose();
     }
     private static PipeSecurity Acl() {
