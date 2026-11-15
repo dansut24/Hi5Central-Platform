@@ -30,6 +30,7 @@ constexpr wchar_t kStatus[] =
     L"Send a security review to Hi5Central RMM. The underlying UAC operation "
     L"cannot be verified, so review will NOT grant administrator rights.";
 constexpr wchar_t kAction[] = L"Submit UAC security review to Hi5Central RMM";
+constexpr wchar_t kCheckAction[] = L"Check technician review status";
 constexpr wchar_t kReasonLabel[] = L"Business justification (20-512 characters)";
 constexpr wchar_t kNeedReason[] =
     L"Enter at least 20 characters explaining the action. No request was sent.";
@@ -42,6 +43,14 @@ constexpr wchar_t kReviewSent[] =
 constexpr wchar_t kRejected[] =
     L"Windows broker rejected the UAC review. No credential or elevation "
     L"was issued. Use the existing file-bound Hi5Central approval workflow.";
+constexpr wchar_t kStillPending[] =
+    L"Waiting for technician review. This is not an elevation grant; "
+    L"normal Windows credentials remain required.";
+constexpr wchar_t kReviewed[] =
+    L"Technician review recorded. No administrator credential was released. "
+    L"Cancel UAC or use normal Windows credentials.";
+constexpr wchar_t kExpired[] =
+    L"UAC review expired or was rejected. No elevation was granted.";
 
 static const struct {
   CREDENTIAL_PROVIDER_FIELD_TYPE type;
@@ -92,7 +101,8 @@ static std::string ToJsonString(const std::wstring& text) {
   return json;
 }
 
-static std::wstring SendNativeUacReview(const std::wstring& reason) {
+static std::wstring SendNativeUacReview(const std::wstring& reason,
+    std::string& reviewId) {
   auto escaped=ToJsonString(reason);
   if(escaped.empty())return kRejected;
   const std::string request="{\"type\":\"uac-review\",\"reason\":"+escaped+"}";
@@ -106,9 +116,42 @@ static std::wstring SendNativeUacReview(const std::wstring& reason) {
   if(!ok||returned>=sizeof(answer))return kUnavailable;
   const std::string response(answer,answer+returned);
   if(response.find("\"success\":true")!=std::string::npos &&
-      response.find("\"credentialReleaseEnabled\":false")!=std::string::npos)
+      response.find("\"credentialReleaseEnabled\":false")!=std::string::npos) {
+    const std::string needle="\"requestId\":\"";
+    auto offset=response.find(needle);
+    if(offset==std::string::npos)return kRejected;
+    offset+=needle.size();
+    if(offset+36>=response.size()||response[offset+36]!='\"')return kRejected;
+    auto candidate=response.substr(offset,36);
+    for(size_t i=0;i<candidate.size();i++) {
+      char c=candidate[i];
+      if((i==8||i==13||i==18||i==23) ? c!='-' :
+         !(c>='0'&&c<='9'||c>='a'&&c<='f'||c>='A'&&c<='F'))
+        return kRejected;
+    }
+    reviewId=candidate;
     return kReviewSent;
+  }
   return kRejected;
+}
+
+
+static std::wstring FetchNativeUacReviewStatus(const std::string& id) {
+  if(id.size()!=36)return kRejected;
+  const std::string message="{\"type\":\"uac-review-status\",\"requestId\":\""+id+"\"}";
+  char buffer[4096]{};
+  DWORD received=0;
+  if(!CallNamedPipeW(L"\\\\.\\pipe\\Hi5CentralEpmPilot",
+       const_cast<char*>(message.data()),static_cast<DWORD>(message.size()),
+       buffer,sizeof(buffer)-1,&received,8000)
+     ||received>=sizeof(buffer))return kUnavailable;
+  const std::string response(buffer,buffer+received);
+  if(response.find("\"success\":true")==std::string::npos ||
+      response.find("\"credentialReleaseEnabled\":false")==std::string::npos)
+    return kRejected;
+  if(response.find("\"status\":\"reviewed\"")!=std::string::npos)return kReviewed;
+  if(response.find("\"status\":\"pending\"")!=std::string::npos)return kStillPending;
+  return kExpired;
 }
 
 class Tile final : public ICredentialProviderCredential {
@@ -118,6 +161,7 @@ class Tile final : public ICredentialProviderCredential {
   bool clicked_{false};
   std::wstring reason_;
   std::wstring status_;
+  std::string reviewId_;
 public:
   Tile() {g_objects.fetch_add(1);}
   ~Tile() {
@@ -168,6 +212,7 @@ public:
     if(id>=F_COUNT)return E_INVALIDARG;
     if(id==F_STATUS&&clicked_)return MakeString(status_.c_str(),value);
     if(id==F_REASON)return MakeString(reason_.c_str(),value);
+    if(id==F_ACTION&&!reviewId_.empty())return MakeString(kCheckAction,value);
     return MakeString(kFields[id].label,value);
   }
   STDMETHODIMP GetBitmapValue(DWORD,HBITMAP*) override {return E_NOTIMPL;}
@@ -176,7 +221,7 @@ public:
   STDMETHODIMP GetComboBoxValueCount(DWORD,DWORD*,DWORD*) override {return E_NOTIMPL;}
   STDMETHODIMP GetComboBoxValueAt(DWORD,DWORD,LPWSTR*) override {return E_NOTIMPL;}
   STDMETHODIMP SetStringValue(DWORD id,LPCWSTR input) override {
-    if(id!=F_REASON||!input)return E_INVALIDARG;
+    if(id!=F_REASON||!input||!reviewId_.empty())return E_INVALIDARG;
     const size_t length=wcsnlen_s(input,513);
     if(length>512)return E_INVALIDARG;
     // This display-only pilot neither transmits nor persists the reason.
@@ -198,9 +243,14 @@ public:
     clicked_=true;
     // Review is not elevation. Never authenticate or grant administrator
     // rights in the unbound/native UAC case.
-    if(reason_.size()<20)status_=kNeedReason;
-    else status_=SendNativeUacReview(reason_);
-    if(events_)events_->SetFieldString(this,F_STATUS,status_.c_str());
+    if(!reviewId_.empty())status_=FetchNativeUacReviewStatus(reviewId_);
+    else if(reason_.size()<20)status_=kNeedReason;
+    else status_=SendNativeUacReview(reason_,reviewId_);
+    if(events_) {
+      events_->SetFieldString(this,F_STATUS,status_.c_str());
+      events_->SetFieldString(this,F_ACTION,
+          reviewId_.empty()?kAction:kCheckAction);
+    }
     return S_OK;
   }
   STDMETHODIMP GetSerialization(
