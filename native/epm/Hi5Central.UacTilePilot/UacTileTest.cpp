@@ -42,8 +42,8 @@ int wmain(int argc,wchar_t** argv) {
   DWORD count=0,defaultCredential=0;
   BOOL autoLogon=TRUE;
   Must(provider->GetCredentialCount(&count,&defaultCredential,&autoLogon)==S_OK
-    &&count==1&&autoLogon==FALSE&&defaultCredential==CREDENTIAL_PROVIDER_NO_DEFAULT,
-    L"one non-default non-autologon tile");
+    &&count==1&&autoLogon==FALSE&&defaultCredential==0,
+    L"prefer native CredUI tile index 0 but never auto-logon");
 
   DWORD fields=0;
   Must(provider->GetFieldDescriptorCount(&fields)==S_OK&&fields==5,
@@ -105,7 +105,8 @@ int wmain(int argc,wchar_t** argv) {
     Must(provider->SetUsageScenario(CPUS_CREDUI,flag)==S_OK,L"CredUI flags");
     count=5;
     Must(provider->GetCredentialCount(&count,&defaultCredential,&autoLogon)==S_OK
-      &&count==0,L"must avoid restrictive CredUI modes");
+      &&count==0&&defaultCredential==CREDENTIAL_PROVIDER_NO_DEFAULT&&autoLogon==FALSE,
+      L"restrictive CredUI modes must not enumerate or select Hi5Central");
   }
   provider->Release();factory->Release();
   Must(canUnload()==S_OK,L"COM instances fully released");
