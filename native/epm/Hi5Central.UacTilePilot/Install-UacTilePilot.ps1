@@ -1,9 +1,10 @@
 #requires -RunAsAdministrator
 <#
 Hi5Central EPM — DISPOSABLE UAC CREDENTIAL UI RESEARCH PILOT.
-Registers a DISPLAY-ONLY tile. It does NOT authenticate users, submit a
-request, or elevate a process. The native Windows password/PIN/Hello providers
-and Windows UAC policies are not changed.
+Registers a REVIEW-ONLY tile. For verified Windows consent hosts it sends a
+business justification through the EPM SYSTEM broker to the RMM review queue.
+It NEVER submits credentials, resumes UAC, or elevates a process. Native
+Windows password/PIN/Hello providers and UAC policies remain unchanged.
 
 Recovery:
   An automatic SYSTEM rollback task removes this tile after RollbackMinutes.
@@ -44,7 +45,8 @@ if((Test-Path $provider) -or (Test-Path $com) -or (Test-Path $filter)){
 if(Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue){
   throw 'Existing UAC pilot rollback task found; inspect before another installation.'
 }
-# The display-only tile does not require or interact with the EPM service.
+# Review submission requires the authenticated EPM service on the endpoint.
+# An unavailable or untrusted service fails closed, leaving native UAC intact.
 $localUninstall=Join-Path $PSScriptRoot 'Uninstall-UacTilePilot.ps1'
 if(-not (Test-Path -LiteralPath $localUninstall -PathType Leaf)){
   throw 'The companion rollback script must be present; no changes made.'
@@ -88,9 +90,10 @@ catch {
   try { & $uninstall } catch { Write-Warning ('Rollback: '+$_.Exception.Message) }
   throw $original
 }
-Write-Host 'PASS: Display-only Hi5Central CPUS_CREDUI research tile registered.' -ForegroundColor Green
+Write-Host 'PASS: Review-only Hi5Central CPUS_CREDUI pilot tile registered.' -ForegroundColor Green
 Write-Host "Automatic SYSTEM rollback in $RollbackMinutes minutes." -ForegroundColor Cyan
 Write-Host "Rollback file: $uninstall"
 Write-Host 'Keep your existing elevated PowerShell session open during testing.'
 Write-Host 'Normal Windows sign-in, built-in providers, UAC policy and EPM service are unchanged.'
-Write-Host 'The tile does NOT yet request approval or elevate applications.' -ForegroundColor Yellow
+Write-Host 'UAC reason can be sent for RMM review, but review is NOT elevation approval.' -ForegroundColor Yellow
+Write-Host 'No administrator credentials are provided, and Windows UAC will not automatically resume.' -ForegroundColor Yellow
