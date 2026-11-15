@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Hi5Central EPM — Download approvals (Newtest)",
+  "version": "0.1.0",
+  "description": "Request technician approval for signed Windows EXE downloads. Never bypasses native UAC.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAytJxgxebcIYPgI6Y3yvD4MKTcjvvshS0B3TPtiJYAX+7ZoxAVMcB117NV02dJuk1CR8gEdOTEVZ+IQlSTSrpUlceurcP2CKTMb262G74ImVN+LLxWzeIyZEpplSNFVzbCgA6GarWL5llov1nsVamn+CXayyzfRZV2+qXGbggVugnx6cMpvxnmP3JfH/qmYwFcNg0xjlNOOpCvaPCistWtnwb8bxJ9JkqyGrwQ63VpTUd12IsoCWMzIrjkOPa5ht8yPPkF07Kd1oN4RE1fjNwx/gEL+Ay3JbfdH5/p4r73U1hmMUoD4C3svcKUYRRGsMjbbz4+uaAfVjJ0XdJIRdBuwIDAQAB",
+  "permissions": [
+    "downloads",
+    "notifications",
+    "nativeMessaging"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Hi5Central: Request elevation for latest EXE"
+  },
+  "icons": {
+    "128": "icon-128.png"
+  }
+}
