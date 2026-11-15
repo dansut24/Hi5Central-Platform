@@ -277,6 +277,17 @@ internal static class AdminLaunch
             if(!SetInformationJobObject(job,9,ref info,(uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new EpmLaunchException("self-test-set-job-limit",Marshal.GetLastWin32Error());
         }
+            // Regression test for the real Win32 API and exact P/Invoke
+            // memory layout: a job without processes must query as zero.
+            int nativeSize=Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>();
+            if(nativeSize!=48)
+                throw new InvalidOperationException("EPM job-accounting structure must be 48 bytes, got "+nativeSize);
+            if(!QueryInformationJobObject(job,1,out var accounting,
+                (uint)nativeSize,out var used))
+                throw new EpmLaunchException("self-test-query-job-accounting",Marshal.GetLastWin32Error());
+            if(accounting.ActiveProcesses!=0 || used>nativeSize)
+                throw new InvalidOperationException("EPM job accounting self-test returned invalid empty-job state.");
+        }
         finally {CloseHandle(job);}
     }
 
@@ -337,7 +348,12 @@ internal static class AdminLaunch
     }
     [StructLayout(LayoutKind.Sequential)]
     private struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION {
+        // Native winnt.h has FOUR LARGE_INTEGER fields, then FOUR DWORDs.
+        // Omitting the period fields produced a 32-byte buffer instead of
+        // 48 bytes; QueryInformationJobObject failed, and the cleanup then
+        // terminated the newly started installer via KILL_ON_JOB_CLOSE.
         public long TotalUserTime,TotalKernelTime;
+        public long ThisPeriodTotalUserTime,ThisPeriodTotalKernelTime;
         public uint TotalPageFaultCount,TotalProcesses,ActiveProcesses,TotalTerminatedProcesses;
     }
 
