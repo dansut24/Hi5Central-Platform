@@ -182,7 +182,11 @@ internal sealed class EpmService : ServiceBase
             // WriteAsync already sends a complete message to the named pipe.
             // FlushAsync may block while peer is trying to write its ACK, causing
             // a duplex deadlock before this service can read that ACK.
-            pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
+            // The callback is synchronous inside CreateProcessAsUser setup.
+            // Blocking on overlapped WriteAsync here can deadlock even after
+            // Windows delivers the bytes to the peer. Use a small synchronous
+            // message write (always under 512 bytes), then read ACK separately.
+            pipe.Write(challenge,0,challenge.Length);
             diagnosticStage?.Invoke("challenge-written");
             // ACK is a single bounded JSON pipe message under 1 KiB.
             // Avoid IsMessageComplete here: its disconnected/read-state
