@@ -107,11 +107,17 @@ internal static class VerifiedFile
                 throw new InvalidOperationException("Windows could not verify the executable Authenticode signature.");
             cert=new X509Certificate2(X509Certificate.CreateFromSignedFile(full));
         }
+        // Keep the certificate alive through publisher extraction and proof
+        // construction. A bare using(cert) scopes only the next statement!
         using(cert)
-        if (string.IsNullOrEmpty(cert.Thumbprint)) throw new InvalidOperationException("Publisher certificate is missing.");
-        var publisher=cert.GetNameInfo(X509NameType.SimpleName,false);
-        if (string.IsNullOrWhiteSpace(publisher)) throw new InvalidOperationException("Publisher identity is missing.");
-        return new FileProof(full,info.Name,hash,publisher,cert.Thumbprint.ToUpperInvariant());
+        {
+            if(string.IsNullOrEmpty(cert.Thumbprint))
+                throw new InvalidOperationException("Publisher certificate is missing.");
+            var publisher=cert.GetNameInfo(X509NameType.SimpleName,false);
+            if(string.IsNullOrWhiteSpace(publisher))
+                throw new InvalidOperationException("Publisher identity is missing.");
+            return new FileProof(full,info.Name,hash,publisher,cert.Thumbprint.ToUpperInvariant());
+        }
     }
 
     internal static void ManagedVerifierSelfTest()
