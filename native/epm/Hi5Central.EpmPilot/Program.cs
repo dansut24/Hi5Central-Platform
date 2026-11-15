@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using System.IO.Pipes;
 using System.Security.Principal;
@@ -37,7 +38,9 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         if(args.Length==1 && args[0]=="--desktop-preflight") {
             try {
-                using var desktop=InteractiveDesktopHandles.Open();
+                // No ACL changes: ensure the two handles can be opened locally.
+                // AcquireLocal is only called after a signed approval is redeemed.
+                using var station=OpenDesktopPreflight();
                 MessageBox.Show(
                     "PASS: This Windows session can open WinSta0 and Default desktop with the required ACL rights.\n\n"+
                     "No elevation request was sent and no Windows security settings were changed.",
@@ -62,29 +65,106 @@ internal static class Program
         }
         Application.Run(new LauncherContext(args[0]));
     }
-    internal static async Task<JsonDocument> AskBroker(string type,string path="",string reason="",
-        InteractiveDesktopHandles? interactiveDesktop=null)
+    private static IDisposable OpenDesktopPreflight()=>InteractiveDesktopPreflight.Open();
+
+    private static readonly ConcurrentDictionary<int,InteractiveDesktopGrant> ActiveDesktopGrants=new();
+
+    private static async Task<JsonDocument> ReadBrokerMessage(
+        NamedPipeClientStream client,CancellationToken ct)
+    {
+        using var data=new MemoryStream();
+        var bytes=new byte[8192];
+        do {
+            int n=await client.ReadAsync(bytes,ct);
+            if(n==0)throw new EndOfStreamException("The Hi5Central broker connection closed.");
+            if(data.Length+n>262144)throw new InvalidDataException("EPM broker response exceeds size limit.");
+            data.Write(bytes,0,n);
+        } while(!client.IsMessageComplete);
+        return JsonDocument.Parse(data.ToArray());
+    }
+
+    internal static async Task<JsonDocument> AskBroker(string type,string path="",
+        string reason="",int processId=0)
     {
         using var client=new NamedPipeClientStream(".",EpmService.PipeName,PipeDirection.InOut,
             PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
-        using var limit=new CancellationTokenSource(TimeSpan.FromSeconds(38));
-        await client.ConnectAsync(3500,limit.Token);
-        var bytes=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new{
-            type,path,reason,
-            stationHandle=interactiveDesktop?.Station.ToInt64().ToString(),
-            desktopHandle=interactiveDesktop?.Desktop.ToInt64().ToString()
-        }));
-        await client.WriteAsync(bytes,limit.Token);
-        await client.FlushAsync(limit.Token);
-        using var response=new MemoryStream();
-        var buffer=new byte[8192];
-        int n;
-        while((n=await client.ReadAsync(buffer,limit.Token))>0){
-            if(response.Length+n>262144) throw new InvalidDataException("Broker response exceeded size limit.");
-            response.Write(buffer,0,n);
+        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(38));
+        await client.ConnectAsync(3500,timeout.Token);
+        client.ReadMode=PipeTransmissionMode.Message;
+        var message=JsonSerializer.SerializeToUtf8Bytes(new{type,path,reason,processId});
+        await client.WriteAsync(message,timeout.Token);
+        await client.FlushAsync(timeout.Token);
+        InteractiveDesktopGrant? grant=null;
+        string? localFailure=null;
+        try
+        {
+            while(true)
+            {
+                using var received=await ReadBrokerMessage(client,timeout.Token);
+                var root=received.RootElement;
+                if(root.TryGetProperty("action",out var action)
+                    && action.GetString()=="grant-local-desktop")
+                {
+                    if(type!="run" || grant!=null)
+                        throw new InvalidOperationException("Unexpected EPM desktop grant challenge.");
+                    bool granted=false;
+                    try {
+                        string sid=root.GetProperty("adminSid").GetString()
+                            ?? throw new InvalidOperationException("Missing EPM account SID.");
+                        grant=InteractiveDesktopGrant.AcquireLocal(sid);
+                        granted=true;
+                    } catch(Exception e) {
+                        localFailure=e.Message;
+                    }
+                    var ack=JsonSerializer.SerializeToUtf8Bytes(new{granted});
+                    await client.WriteAsync(ack,timeout.Token);
+                    await client.FlushAsync(timeout.Token);
+                    continue;
+                }
+                var result=JsonDocument.Parse(root.GetRawText());
+                if(grant!=null && type=="run"
+                    && root.TryGetProperty("success",out var success) && success.GetBoolean()
+                    && root.TryGetProperty("processId",out var pid))
+                {
+                    int id=pid.GetInt32();
+                    if(id<=0 || !ActiveDesktopGrants.TryAdd(id,grant))
+                        throw new InvalidOperationException("Unable to retain the EPM session grant.");
+                    grant=null; // Owned by the monitor until the job ends.
+                }
+                if(localFailure is not null && type=="run")
+                {
+                    result.Dispose();
+                    throw new InvalidOperationException("Desktop grant failed: "+localFailure);
+                }
+                return result;
+            }
         }
-        return JsonDocument.Parse(response.ToArray());
+        finally {grant?.Dispose();}
     }
+
+    private static async Task WaitForJobAndRevokeGrant(int processId)
+    {
+        try
+        {
+            var deadline=DateTime.UtcNow.AddMinutes(46);
+            while(DateTime.UtcNow<deadline)
+            {
+                await Task.Delay(2000);
+                try {
+                    using var state=await AskBroker("job",processId:processId);
+                    if(Ok(state.RootElement) && Value(state.RootElement,"status")=="ended")
+                        return;
+                }
+                catch { /* Retry intermittent broker failures until the bounded deadline. */ }
+            }
+        }
+        finally
+        {
+            if(ActiveDesktopGrants.TryRemove(processId,out var grant))
+                grant.Dispose();
+        }
+    }
+
     private static bool Ok(JsonElement data)=>data.TryGetProperty("success",out var value)&&value.GetBoolean();
     private static string Value(JsonElement data,string key)=>data.TryGetProperty(key,out var item)?item.ToString():"";
     internal static async Task RequestOrLaunch(string path)
@@ -98,13 +178,15 @@ internal static class Program
                     Path.GetFileName(path)+"\n\nThis approval is one-time and expires after 15 minutes.",
                     "Hi5Central Elevation",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
                 if(choice!=DialogResult.Yes)return;
-                // The desktop handles belong to this standard-user session;
-                // the service validates their kernel type/name before adding any ACE.
-                using var desktop=InteractiveDesktopHandles.Open();
-                using var launched=await AskBroker("run",path,interactiveDesktop:desktop);
-                if(!Ok(launched.RootElement))throw new InvalidOperationException(Value(launched.RootElement,"error"));
-                MessageBox.Show("Hi5Central started the approved executable. No administrator password was shared.",
+                using var launched=await AskBroker("run",path);
+                if(!Ok(launched.RootElement))
+                    throw new InvalidOperationException(Value(launched.RootElement,"error"));
+                int pid=launched.RootElement.GetProperty("processId").GetInt32();
+                MessageBox.Show("Hi5Central started the approved executable.\n\n"+
+                    "The launcher will remain in the background to revoke temporary "+
+                    "desktop access when the installer exits. Do not end the EPM launcher in Task Manager.",
                     "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                await WaitForJobAndRevokeGrant(pid);
                 return;
             }
             if(state=="pending"){
