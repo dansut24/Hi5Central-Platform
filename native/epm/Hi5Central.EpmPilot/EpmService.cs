@@ -92,6 +92,9 @@ internal sealed class EpmService : ServiceBase
                 "uac-request"=>await RequestFromCredentialUi(file,
                     data.TryGetProperty("reason",out var uacReason)?uacReason.GetString()??"":"",
                     pipe,caller,ct),
+                "uac-review"=>await SubmitNativeUacReview(
+                    data.TryGetProperty("reason",out var reviewReason)
+                      ? reviewReason.GetString()??"": "",pipe,caller,ct),
                 "check"=>await Check(file,caller,ct),
                 "run"=>await Run(file,caller,ct,pipe),
                 "job"=>Job(data.TryGetProperty("processId",out var job)?job.GetInt32():0,caller),
@@ -107,6 +110,47 @@ internal sealed class EpmService : ServiceBase
         // Named-pipe writes are not buffered like StreamWriter. No FlushAsync:
         // flushing a duplex pipe can wait on its peer and deadlock.
     }
+    private async Task<object> SubmitNativeUacReview(string reason,
+        NamedPipeServerStream pipe,(string sid,string name,int session) caller,CancellationToken ct)
+    {
+        if(!NativeUacReviewPolicy.TryValidateReason(reason,out var trimmed))
+            throw new InvalidOperationException("Enter a 20–512 character business justification.");
+        if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var pid)
+            || pid==0 || pid>int.MaxValue)
+            throw new UnauthorizedAccessException("Cannot verify the Windows UAC host.");
+        using var clientProcess=System.Diagnostics.Process.GetProcessById((int)pid);
+        var root=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var started=new DateTimeOffset(clientProcess.StartTime.ToUniversalTime(),TimeSpan.Zero);
+        if(!NativeUacReviewPolicy.ValidConsentInstance(
+                GetProcessImage(pid),root,caller.sid,clientProcess.SessionId,
+                caller.session,started,DateTimeOffset.UtcNow))
+            throw new UnauthorizedAccessException("Native UAC host verification failed.");
+        if(!WTSQueryUserToken((uint)caller.session,out var userToken))
+            throw new UnauthorizedAccessException("Cannot resolve interactive Windows user.");
+        using(userToken)
+        using(var identity=new WindowsIdentity(userToken.DangerousGetHandle()))
+        {
+            string sid=identity.User?.Value??"";
+            if(!sid.StartsWith("S-1-5-21-",StringComparison.Ordinal)
+                || identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)==true)
+                throw new UnauthorizedAccessException("Only a standard interactive user may request UAC review.");
+            // No guessed application path. No Windows administrator credential.
+            using var response=await api.PostAsync("/api/v1/agent/epm/uac-reviews",new {
+                sid,username=identity.Name,sessionId=caller.session,
+                consentProcessId=(int)pid,consentStartedAt=started.ToString("O"),
+                reason=trimmed
+            },ct);
+            var r=response.RootElement;
+            return new {
+                success=r.GetProperty("success").GetBoolean(),
+                requestId=r.GetProperty("requestId").GetString(),
+                status=r.GetProperty("status").GetString(),
+                credentialReleaseEnabled=false,
+                message="Request submitted for review. No administrator credential or elevation was issued."
+            };
+        }
+    }
+
     internal async Task<object> RequestFromCredentialUi(string file,string reason,
         NamedPipeServerStream pipe,(string sid,string name,int session) caller,CancellationToken ct)
     {
