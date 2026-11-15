@@ -219,12 +219,14 @@ public:
   }
   STDMETHODIMP GetCredentialCount(DWORD* count,DWORD* defaultCredential,BOOL* autoLogon) override {
     if(!count||!defaultCredential||!autoLogon)return E_INVALIDARG;
+    // Prefer the Hi5Central tile for the supported CredUI scenario only.
+    // Windows may choose an existing system credential provider instead;
+    // never auto-submit or filter the built-in password providers.
     *defaultCredential=CREDENTIAL_PROVIDER_NO_DEFAULT;
     *autoLogon=FALSE;
-    // Never contribute a tile to Windows sign-in/unlock or restrictive
-    // Credential UI contexts that require an actual auth package.
     const DWORD restrictive=CREDUIWIN_GENERIC|CREDUIWIN_IN_CRED_ONLY|CREDUIWIN_AUTHPACKAGE_ONLY;
     *count=(scenario_==CPUS_CREDUI&&(flags_&restrictive)==0)?1:0;
+    if(*count==1)*defaultCredential=0;
     return S_OK;
   }
   STDMETHODIMP GetCredentialAt(DWORD index,ICredentialProviderCredential** credential) override {
