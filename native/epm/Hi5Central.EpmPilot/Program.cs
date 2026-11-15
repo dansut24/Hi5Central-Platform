@@ -136,7 +136,6 @@ internal static class Program
         client.ReadMode=PipeTransmissionMode.Message;
         var message=JsonSerializer.SerializeToUtf8Bytes(new{type,path,reason,processId});
         await client.WriteAsync(message,timeout.Token);
-        await client.FlushAsync(timeout.Token);
         InteractiveDesktopGrant? grant=null;
         string? localFailure=null;
         try
@@ -172,7 +171,6 @@ internal static class Program
                         granted,stage=failureStage,win32Code=failureCode
                     });
                     await client.WriteAsync(ack,timeout.Token);
-                    await client.FlushAsync(timeout.Token);
                     continue;
                 }
                 var result=JsonDocument.Parse(root.GetRawText());
