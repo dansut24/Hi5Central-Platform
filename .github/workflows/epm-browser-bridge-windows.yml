@@ -1,0 +1,67 @@
+name: EPM Browser Bridge Windows CI
+on:
+  push:
+    branches:
+      - feature/epm-file-elevation-pilot-20261114
+    paths:
+      - native/epm/Hi5Central.EpmBrowserHost/**
+      - native/epm/browser-extension/**
+      - native/epm/Install-EpmBrowserHost.ps1
+      - .github/workflows/epm-browser-bridge-windows.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-epm-browser-bridge:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Validate extension JavaScript
+        shell: pwsh
+        run: |
+          node --check native/epm/browser-extension/background.js
+          node --check native/epm/browser-extension/build-icon.js
+          node native/epm/browser-extension/build-icon.js
+          if (!(Test-Path native/epm/browser-extension/icon-128.png)) { throw "Icon was not created" }
+          $m=Get-Content native/epm/browser-extension/manifest.json -Raw | ConvertFrom-Json
+          if ($m.manifest_version -ne 3 -or $m.permissions -notcontains 'nativeMessaging') { throw "Unexpected extension manifest" }
+      - name: Publish isolated unprivileged browser host
+        shell: pwsh
+        run: |
+          dotnet publish native/epm/Hi5Central.EpmBrowserHost/Hi5Central.EpmBrowserHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=false -o artifact/host
+      - name: Browser protocol and input validation self-test
+        shell: pwsh
+        run: |
+          & ./artifact/host/Hi5CentralEpmBrowserHost.exe --self-test
+          if ($LASTEXITCODE -ne 0) { throw "Native Messaging host self-test failed" }
+      - name: Check installer PowerShell syntax
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path native/epm/Install-EpmBrowserHost.ps1),[ref]$tokens,[ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+      - name: Stage browser bridge artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifact/extension -Force | Out-Null
+          Copy-Item native/epm/browser-extension/manifest.json artifact/extension/
+          Copy-Item native/epm/browser-extension/background.js artifact/extension/
+          Copy-Item native/epm/browser-extension/icon-128.png artifact/extension/
+          Copy-Item native/epm/Install-EpmBrowserHost.ps1 artifact/
+          $hash=(Get-FileHash artifact/host/Hi5CentralEpmBrowserHost.exe -Algorithm SHA256).Hash
+          "HOST_EXE_SHA256=$hash" | Set-Content artifact/SHA256.txt -Encoding Ascii
+          Write-Host "BROWSER_HOST_SHA256=$hash"
+      - name: Upload Windows browser bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-EPM-Browser-Bridge-CI
+          path: artifact/
+          retention-days: 14
