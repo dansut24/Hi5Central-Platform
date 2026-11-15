@@ -191,7 +191,23 @@ internal sealed class EpmService : ServiceBase
             using var ack=JsonDocument.Parse(reply.ToArray());
             if(!ack.RootElement.TryGetProperty("granted",out var permitted)
                 || permitted.ValueKind!=JsonValueKind.True)
-                throw new EpmLaunchException("desktop-grant-rejected",5);
+            {
+                // The client is the only process that can inspect the requesting
+                // user's interactive desktop. Accept only known, bounded audit
+                // codes from this authenticated pipe exchange.
+                var root=ack.RootElement;
+                string stage=root.TryGetProperty("stage",out var st)
+                    && st.ValueKind==JsonValueKind.String
+                    ? st.GetString()??"" : "";
+                int nativeCode=root.TryGetProperty("win32Code",out var wc)
+                    && wc.ValueKind==JsonValueKind.Number
+                    && wc.TryGetInt32(out var code) ? code : 0;
+                bool allowed=stage.StartsWith("desktop-",StringComparison.Ordinal)
+                    && stage.Length<=64
+                    && stage.All(c=>char.IsAsciiLetterOrDigit(c)||c=='-');
+                throw new EpmLaunchException(allowed?stage:"desktop-grant-rejected",
+                    nativeCode is >=0 and <=65535 ? nativeCode : 0);
+            }
         }
         catch(Exception failure) when(failure is not EpmLaunchException) {
             string stage=failure switch {
