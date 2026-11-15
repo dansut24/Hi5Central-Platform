@@ -1,9 +1,9 @@
 // Windows CI tests the real COM DLL without registering a credential provider.
 // It checks the policy boundaries, visible tile metadata, and NO-CREDENTIAL
 // serialization. No UAC dialog, passwords, local admin or account changes.
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <credentialprovider.h>
+#include <wincred.h>
 #include <iostream>
 #include <string>
 #include "UacTilePilot.h"
