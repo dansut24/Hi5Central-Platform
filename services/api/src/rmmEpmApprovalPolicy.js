@@ -4,7 +4,9 @@
 const CRITICAL=new Set(['powershell','regedit'])
 const HIGH=new Set(['services','notepad'])
 const CONTROLLED=new Set(['msiexec-help'])
-export function assessEpmApproval(row,{profile='hardened',breakGlassEnabled=false}={}) {
+export function assessEpmApproval(row,{
+  profile='hardened',breakGlassEnabled=false,allowedFileHashes=[]
+}={}) {
   const managed=row?.request_source==='managed-uac'
   const action=managed?String(row.managed_action_code||''):''
   let risk='high'
@@ -23,6 +25,13 @@ export function assessEpmApproval(row,{profile='hardened',breakGlassEnabled=fals
       ttlMinutes:0,minNoteLength:0,description:'Unrecognised managed Windows action.'}
   }
   const isPilot=profile==='pilot'
+  // A valid signature alone is NOT an approval to execute arbitrary code.
+  // Hardened production requires exact SHA-256 admission of selected EXEs,
+  // with no network path, publisher-name or wildcard bypass.
+  if(!managed && !isPilot && !allowedFileHashes.includes(
+      String(row.file_sha256||'').toUpperCase()))
+    return {risk,allowed:false,requiredApprovers:0,ttlMinutes:0,
+      minNoteLength:10,description:description+' This exact file SHA-256 is not admitted by EPM policy.'}
   const requiresBreakGlass=risk==='critical'
   if(requiresBreakGlass && !isPilot && !breakGlassEnabled)
     return {risk,allowed:false,requiredApprovers:0,ttlMinutes:0,

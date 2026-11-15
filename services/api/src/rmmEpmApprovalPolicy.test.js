@@ -45,3 +45,12 @@ test('unknown managed operations and malformed approvals fail closed',()=>{
   assert.equal(decideEpmApproval(ordinary,'wrong','not a valid decision').ok,false)
   assert.equal(decideEpmApproval(ordinary,'rejected','An explicit rejection can always stop the request').stage,'reject')
 })
+
+test('production selected EXE requires exact admitted SHA256; signatures alone are insufficient',()=>{
+  const fileHash='A'.repeat(64)
+  const request={request_source:'explorer',file_sha256:fileHash}
+  assert.equal(assessEpmApproval(request).allowed,false)
+  assert.equal(assessEpmApproval(request,{allowedFileHashes:['B'.repeat(64)]}).allowed,false)
+  assert.equal(assessEpmApproval(request,{allowedFileHashes:[fileHash]}).allowed,true)
+  assert.equal(assessEpmApproval(request,{profile:'pilot'}).allowed,true)
+})

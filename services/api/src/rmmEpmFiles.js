@@ -17,7 +17,12 @@ const pilotDevice = (process.env.RMM_EPM_PILOT_DEVICE || '').trim().toLowerCase(
 // explicit 'pilot' profile until dual-person tests are qualified.
 const approvalProfile=process.env.RMM_EPM_APPROVAL_PROFILE==='pilot'?'pilot':'hardened'
 const breakGlassEnabled=process.env.RMM_EPM_BREAKGLASS_ENABLED==='true'
-const epmRisk=(row)=>assessEpmApproval(row,{profile:approvalProfile,breakGlassEnabled})
+const allowedFileHashes=(process.env.RMM_EPM_ADMITTED_EXE_SHA256||'')
+  .split(',').map(value=>value.trim().toUpperCase())
+  .filter(value=>/^[A-F0-9]{64}$/.test(value))
+const epmRisk=(row)=>assessEpmApproval(row,{
+  profile:approvalProfile,breakGlassEnabled,allowedFileHashes
+})
 
 const clean = (v) => String(v ?? '').trim()
 const validId = (v) => /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(clean(v))
