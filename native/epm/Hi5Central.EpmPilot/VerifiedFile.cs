@@ -93,8 +93,21 @@ internal static class VerifiedFile
             throw new InvalidOperationException("Links and reparse points are not approved.");
         using var stream=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.Read);
         var hash=Convert.ToHexString(SHA256.HashData(stream));
-        if (VerifyTrust(full)!=0) throw new InvalidOperationException("Windows could not verify the executable Authenticode signature.");
-        using var cert=new X509Certificate2(X509Certificate.CreateFromSignedFile(full));
+        X509Certificate2 cert;
+        if(managedWindowsAction && VerifyTrust(full)!=0)
+        {
+            // Most Windows system binaries are catalog-signed, not PE-signed.
+            // Verify the exact member hash against Windows' trusted catalog
+            // and extract the actual Microsoft signer. No generic fallback.
+            cert=WindowsCatalogSignature.VerifyMicrosoftSignedFile(full);
+        }
+        else
+        {
+            if(VerifyTrust(full)!=0)
+                throw new InvalidOperationException("Windows could not verify the executable Authenticode signature.");
+            cert=new X509Certificate2(X509Certificate.CreateFromSignedFile(full));
+        }
+        using(cert)
         if (string.IsNullOrEmpty(cert.Thumbprint)) throw new InvalidOperationException("Publisher certificate is missing.");
         var publisher=cert.GetNameInfo(X509NameType.SimpleName,false);
         if (string.IsNullOrWhiteSpace(publisher)) throw new InvalidOperationException("Publisher identity is missing.");
