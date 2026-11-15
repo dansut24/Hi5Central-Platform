@@ -276,7 +276,6 @@ internal static class AdminLaunch
             info.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
             if(!SetInformationJobObject(job,9,ref info,(uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new EpmLaunchException("self-test-set-job-limit",Marshal.GetLastWin32Error());
-        }
             // Regression test for the real Win32 API and exact P/Invoke
             // memory layout: a job without processes must query as zero.
             int nativeSize=Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>();
