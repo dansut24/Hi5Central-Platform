@@ -20,12 +20,20 @@ export function RmmEpmRequests() {
   const [message,setMessage] = useState('')
   const [active,setActive] = useState(null)
   const [note,setNote] = useState('')
+  const [uacReviews,setUacReviews] = useState([])
+  const [review,setReview] = useState(null)
+  const [reviewNote,setReviewNote] = useState('')
+  const [reviewBusy,setReviewBusy] = useState(false)
 
   async function refresh() {
     setError('')
     try {
-      const data=await request('/api/v1/rmm/epm/file-requests')
+      const [data,uac]=await Promise.all([
+        request('/api/v1/rmm/epm/file-requests'),
+        request('/api/v1/rmm/epm/uac-reviews'),
+      ])
       setRows(data.requests || [])
+      setUacReviews(uac.requests || [])
     } catch (e) { setError(e.message) }
   }
   useEffect(() => { refresh() }, [])
@@ -44,6 +52,20 @@ export function RmmEpmRequests() {
     } catch (e) {setError(e.message)}
     finally {setBusy(false)}
   }
+  async function decideReview() {
+    if(!review || reviewNote.trim().length<10)return
+    setReviewBusy(true);setError('');setMessage('')
+    try {
+      await request('/api/v1/rmm/epm/uac-reviews/'+encodeURIComponent(review.id)+'/decision','POST',{
+        decision:review.decision,note:reviewNote.trim(),
+      })
+      setMessage(review.decision==='reviewed'
+        ? 'UAC request reviewed. No administrator credential or elevation has been released.'
+        : 'UAC review rejected. No elevation occurred.')
+      setReview(null);setReviewNote('');await refresh()
+    }catch(e){setError(e.message)}
+    finally{setReviewBusy(false)}
+  }
   return <div className="app-portal-admin">
     <header className="app-portal-hero">
       <div><span className="rmm-eyebrow">Endpoint security / privilege management</span>
@@ -57,6 +79,44 @@ export function RmmEpmRequests() {
       <article><strong>{rows.filter(r=>r.status==='pending').length}</strong><span>Awaiting review</span></article>
       <article><strong>{rows.filter(r=>r.status==='approved').length}</strong><span>Approved</span></article>
       <article><strong>{rows.filter(r=>r.status==='redeemed').length}</strong><span>Redeemed once</span></article>
+    </section>
+    <section className="app-portal-card app-portal-wide">
+      <div className="app-portal-card-title"><div>
+        <h3><ShieldCheck size={17}/> Native Windows UAC requests — security review</h3>
+        <p>These requests come from the Windows credential prompt, but Windows does not disclose a verified underlying application or operation to this provider. A technician can record a review decision; this build cannot release administrator credentials, resume UAC or elevate an unknown operation.</p>
+      </div></div>
+      {!uacReviews.length && <p>No native UAC review requests have been received.</p>}
+      {uacReviews.map(r=><article className="app-portal-approval-item" key={'uac-'+r.id}>
+        <div className="app-portal-approval-summary" style={{overflowWrap:'anywhere'}}>
+          <strong>Unidentified Windows UAC operation</strong>
+          <small>{r.requester_name || r.requester_sid} · {new Date(r.created_at).toLocaleString()}</small>
+          <small><b>Device:</b> {r.agent_device_id} · <b>Session:</b> {r.requester_session_id}</small>
+          <small><b>UAC process:</b> {r.consent_process_id} · <b>Started:</b> {new Date(r.consent_process_started_at).toLocaleString()}</small>
+          <small><b>Expires:</b> {new Date(r.expires_at).toLocaleTimeString()}</small>
+          <p><b>Business justification:</b> {r.business_reason}</p>
+          {r.decision_note && <p><b>Technician review:</b> {r.decision_note}</p>}
+          <p><b>Security boundary:</b> No verified target, no credential release and no elevation. This is not an elevation approval.</p>
+        </div>
+        <span className="app-portal-state">{r.status}</span>
+        {r.status==='pending' && <span className="app-portal-request-actions">
+          <button type="button" disabled={reviewBusy||busy} className="app-portal-text-action"
+            onClick={()=>{setReview({id:r.id,decision:'reviewed'});setReviewNote('')}}>Record review</button>
+          <button type="button" disabled={reviewBusy||busy} className="app-portal-text-action"
+            onClick={()=>{setReview({id:r.id,decision:'rejected'});setReviewNote('')}}>Reject</button>
+        </span>}
+      </article>)}
+      {review && <section className="app-portal-card">
+        <h3>{review.decision==='reviewed'?'Record UAC security review':'Reject UAC request'}</h3>
+        <p>No administrator credential will be released and Windows UAC will not resume from this decision. The underlying operation remains unidentified.</p>
+        <label>Review explanation<textarea value={reviewNote} rows="3"
+          onChange={e=>setReviewNote(e.target.value)}
+          placeholder="Explanation (minimum 10 characters)" /></label>
+        <div className="app-portal-request-actions">
+          <button type="button" className="rmm-primary" disabled={reviewBusy||reviewNote.trim().length<10}
+            onClick={decideReview}>Save review</button>
+          <button type="button" disabled={reviewBusy} onClick={()=>setReview(null)}>Cancel</button>
+        </div>
+      </section>}
     </section>
     <section className="app-portal-card app-portal-wide">
       <div className="app-portal-card-title"><div><h3><ShieldCheck size={17}/> Executable approval queue</h3>
