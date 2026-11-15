@@ -21,3 +21,12 @@ target_link_libraries(Hi5CentralUacTileTest PRIVATE ole32)
 enable_testing()
 add_test(NAME CredentialUiOnlyAndNoAuthentication
   COMMAND Hi5CentralUacTileTest "$<TARGET_FILE:Hi5CentralUacTilePilot>")
+
+# Feasibility only: tests Windows CredUI serialization with invented data.
+# It neither creates a local account nor allows native UAC elevation.
+add_executable(Hi5CentralUacCredentialPackTest CredentialPackingTest.cpp)
+target_compile_features(Hi5CentralUacCredentialPackTest PRIVATE cxx_std_17)
+target_compile_definitions(Hi5CentralUacCredentialPackTest PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
+target_link_libraries(Hi5CentralUacCredentialPackTest PRIVATE credui)
+add_test(NAME SyntheticCredUiSerializationOnly
+  COMMAND Hi5CentralUacCredentialPackTest)
