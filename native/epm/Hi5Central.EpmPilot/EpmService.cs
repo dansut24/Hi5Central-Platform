@@ -98,7 +98,8 @@ internal sealed class EpmService : ServiceBase
         } finally {gate.Release();}
         var output=Encoding.UTF8.GetBytes(JsonSerializer.Serialize(response));
         await pipe.WriteAsync(output.AsMemory(),ct);
-        await pipe.FlushAsync(ct);
+        // Named-pipe writes are not buffered like StreamWriter. No FlushAsync:
+        // flushing a duplex pipe can wait on its peer and deadlock.
     }
     private ApprovalCache? Match(string path,(string sid,string name,int session) caller) {
         return approvals.Values.OrderByDescending(x=>x.Id)
@@ -178,8 +179,10 @@ internal sealed class EpmService : ServiceBase
         });
         try {
             diagnosticStage?.Invoke("before-challenge-write");
+            // WriteAsync already sends a complete message to the named pipe.
+            // FlushAsync may block while peer is trying to write its ACK, causing
+            // a duplex deadlock before this service can read that ACK.
             pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
-            pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
             diagnosticStage?.Invoke("challenge-written");
             // ACK is a single bounded JSON pipe message under 1 KiB.
             // Avoid IsMessageComplete here: its disconnected/read-state
