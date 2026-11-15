@@ -1,0 +1,80 @@
+name: Hi5Central EPM UAC Credential UI Tile Pilot
+on:
+  push:
+    branches:
+      - feature/epm-file-elevation-pilot-20261114
+    paths:
+      - native/epm/Hi5Central.UacTilePilot/**
+      - .github/workflows/epm-uac-tile-windows.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uac-cred-ui-only:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Win64 native COM project
+        shell: pwsh
+        run: cmake -S native/epm/Hi5Central.UacTilePilot -B build/epm-uac-pilot -G "Visual Studio 17 2022" -A x64
+      - name: Compile proof-of-concept provider and test
+        shell: pwsh
+        run: cmake --build build/epm-uac-pilot --config Release --parallel
+      - name: Test CredUI only, non-auth and COM lifetime
+        shell: pwsh
+        run: |
+          ctest --test-dir build/epm-uac-pilot -C Release --output-on-failure
+          if($LASTEXITCODE -ne 0){throw "UAC COM test failed"}
+      - name: Verify PowerShell installer syntax
+        shell: pwsh
+        run: |
+          foreach($p in @('native/epm/Hi5Central.UacTilePilot/Install-UacTilePilot.ps1',
+                          'native/epm/Hi5Central.UacTilePilot/Uninstall-UacTilePilot.ps1')){
+            $tokens=$null; $errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $p),[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors){throw ($errors | Out-String)}
+          }
+      - name: Install and remove isolated CredUI registration (no UAC shown)
+        shell: pwsh
+        run: |
+          $dll=(Resolve-Path 'build/epm-uac-pilot/Release/Hi5CentralUacTilePilot.dll').Path
+          $sha=(Get-FileHash $dll -Algorithm SHA256).Hash
+          $installer=(Resolve-Path native/epm/Hi5Central.UacTilePilot/Install-UacTilePilot.ps1).Path
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $installer -DllPath $dll -ExpectedSha256 $sha -RollbackMinutes 20
+          if($LASTEXITCODE -ne 0){throw "UAC tile installer failed"}
+          $guid='{7464D2E2-202B-4546-953D-9AFCDA3201E6}'
+          $provider="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\$guid"
+          $factory="HKLM:\SOFTWARE\Classes\CLSID\$guid\InprocServer32"
+          if(!(Test-Path $provider) -or !(Test-Path $factory)){throw "CredUI registration missing"}
+          $noFilter="HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\$guid"
+          if(Test-Path $noFilter){throw "Pilot must never register a provider filter"}
+          if(!(Get-ScheduledTask -TaskName 'Hi5Central-EPM-UacTilePilot-Rollback' -ErrorAction SilentlyContinue)){
+            throw "Automatic rollback task missing"
+          }
+          $uninstall=Join-Path $env:ProgramFiles 'Hi5Central\EPM\UacTilePilot\Uninstall-UacTilePilot.ps1'
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $uninstall
+          if($LASTEXITCODE -ne 0){throw "Uninstall failed"}
+          if((Test-Path $provider) -or (Test-Path $factory)){
+            throw "Credential provider registration not removed"
+          }
+          Write-Host 'PASS: safe provider registration and automatic rollback task; clean uninstall.'
+      - name: Stage checksum-pinned Windows DLL and scripts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path artifact -Force | Out-Null
+          Copy-Item build/epm-uac-pilot/Release/Hi5CentralUacTilePilot.dll artifact/
+          Copy-Item native/epm/Hi5Central.UacTilePilot/Install-UacTilePilot.ps1 artifact/
+          Copy-Item native/epm/Hi5Central.UacTilePilot/Uninstall-UacTilePilot.ps1 artifact/
+          $sha=(Get-FileHash artifact/Hi5CentralUacTilePilot.dll -Algorithm SHA256).Hash
+          "DLL_SHA256=$sha" | Set-Content artifact/SHA256.txt -Encoding Ascii
+          Write-Host "UAC_TILE_DLL_SHA256=$sha"
+      - name: Publish Windows pilot
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-EPM-UAC-CredUI-Tile-CI
+          path: artifact/
+          retention-days: 14
