@@ -52,6 +52,7 @@ export function registerRmmEpmFileRoutes(app) {
     const sid=clean(b.sid), name=clean(b.username), filePath=clean(b.path)
     const hash=clean(b.sha256).toUpperCase(), thumb=clean(b.signerThumbprint).toUpperCase()
     const publisher=clean(b.publisher), reason=clean(b.reason)
+    const requestSource=clean(b.source)==='native-uac'?'native-uac':'explorer'
     if (!/^S-1-[0-9-]{5,220}$/.test(sid) || sid.length > 255
       || !Number.isInteger(b.sessionId) || b.sessionId < 1 || b.sessionId > 2147483647
       || !safePath(filePath) || !validSha(hash) || !allowed(thumb)
@@ -71,9 +72,9 @@ export function registerRmmEpmFileRoutes(app) {
     const result=await pool.query(
       `INSERT INTO rmm_epm_file_requests
       (tenant_id,agent_device_id,requester_sid,requester_name,requester_session_id,
-      file_path,file_name,file_sha256,publisher,signer_thumbprint,business_reason)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id,status`,
-      [auth.agent.tenant_id,auth.agent.id,sid,name,b.sessionId,filePath,filePath.split('\\').pop(),hash,publisher,thumb,reason])
+      file_path,file_name,file_sha256,publisher,signer_thumbprint,business_reason,request_source)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,status`,
+      [auth.agent.tenant_id,auth.agent.id,sid,name,b.sessionId,filePath,filePath.split('\\').pop(),hash,publisher,thumb,reason,requestSource])
     return c.json({success:true,requestId:result.rows[0].id,status:'pending'},201)
   })
   app.post('/api/v1/agent/epm/file-requests/:id/status', async c => {
@@ -189,7 +190,7 @@ export function registerRmmEpmFileRoutes(app) {
     const auth=await requireTechnician(c); if(auth.error) return auth.error
     const q=await pool.query(
       `SELECT id,agent_device_id,requester_sid,requester_name,file_name,file_path,
-       file_sha256,publisher,signer_thumbprint,business_reason,status,
+       file_sha256,publisher,signer_thumbprint,business_reason,status,request_source,
        decision_note,created_at,decided_at,approval_expires_at,redeemed_at,
        launch_failure_stage,launch_failure_code,launch_failure_at,
        launch_pid,launch_started_at,launch_ended_at,launch_exit_code,
