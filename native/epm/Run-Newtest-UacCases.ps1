@@ -25,6 +25,14 @@ if($svc.Status -ne 'Running' -or !(Test-Path $tileKey)){throw 'Pilot is incomple
 # Idempotent per-user watcher (its own mutex prevents duplicate instances).
 Start-Process -FilePath $exe -ArgumentList '--watch' -WindowStyle Hidden | Out-Null
 Write-Host 'Windows notification watcher started for this user.'
+$preflight=Join-Path $PSScriptRoot 'Test-Newtest-EpmBroker.ps1'
+if(Test-Path -LiteralPath $preflight) {
+  Write-Host 'Checking the actual EPM service named-pipe handshake before opening UAC...'
+  & $preflight
+  if(-not $?) {throw 'Hi5Central EPM local broker test failed; do not attempt the UAC prompts yet.'}
+} else {
+  Write-Warning 'Broker diagnostic is missing; run the updated unified Newtest build.'
+}
 if($CheckOnly){return}
 $cases=@(
   [pscustomobject]@{Name='Notepad – explicit Run as administrator';Path="$env:WINDIR\System32\notepad.exe";Args=''},
