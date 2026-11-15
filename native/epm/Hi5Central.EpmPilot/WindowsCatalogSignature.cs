@@ -101,10 +101,17 @@ internal static class WindowsCatalogSignature
                 IntPtr signerCert=WTHelperGetProvCertFromChain(signer,0);
                 if(signerCert==IntPtr.Zero)return null;
                 var header=Marshal.PtrToStructure<CRYPT_PROVIDER_CERT_HEADER>(signerCert);
-                if(header.pCert==IntPtr.Zero)return null;
-                // Certificate constructor duplicates the trusted native
-                // CERT_CONTEXT before the WTD_STATEACTION_CLOSE releases it.
-                return new X509Certificate2(header.pCert);
+                if(header.cbStruct < IntPtr.Size+4 || header.cbStruct > 2048
+                    || header.pCert==IntPtr.Zero)return null;
+                // CRYPT_PROVIDER_CERT.pCert is a CERT_CONTEXT*, not an
+                // X509Certificate2 managed handle. Copy its DER-encoded
+                // signer certificate while WinTrust still owns the state.
+                var context=Marshal.PtrToStructure<CERT_CONTEXT_HEADER>(header.pCert);
+                if(context.pbCertEncoded==IntPtr.Zero
+                    || context.cbCertEncoded is <128 or >1048576)return null;
+                var encoded=new byte[context.cbCertEncoded];
+                Marshal.Copy(context.pbCertEncoded,encoded,0,encoded.Length);
+                return new X509Certificate2(encoded);
             }
             finally
             {
@@ -159,6 +166,14 @@ internal static class WindowsCatalogSignature
     {
         public uint cbStruct;
         public IntPtr pCert;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CERT_CONTEXT_HEADER
+    {
+        public uint dwCertEncodingType;
+        public IntPtr pbCertEncoded;
+        public uint cbCertEncoded;
     }
 
     [DllImport("wintrust.dll",EntryPoint="CryptCATAdminAcquireContext2",
