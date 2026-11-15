@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 2a121cf0f03f89c866599ad2aba07eea9e2536c7
       - name: Verify exact source-matched 510 baseline
         shell: pwsh
         run: |
