@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {
-  validateNativeUacRequest,canReleaseNativeUacCredential,
+  validateNativeUacRequest,validateNativeUacStatusRequest,canReleaseNativeUacCredential,
   NATIVE_UAC_REVIEW_TTL_MS
 } from './rmmEpmUacPolicy.js'
 
@@ -45,4 +45,15 @@ test('spoofed, stale and malformed UAC session requests fail closed',()=>{
   for(const item of invalid){
     assert.equal(validateNativeUacRequest(item,now).ok,false,JSON.stringify(item))
   }
+})
+
+test('read-only notification polling survives the UAC process closing without granting elevation',()=>{
+  const sixMinutes=now+6*60*1000
+  const parsed=validateNativeUacStatusRequest(good,sixMinutes)
+  assert.equal(parsed.ok,true)
+  assert.equal(parsed.credentialReleaseEnabled,false)
+  assert.equal(validateNativeUacRequest(good,sixMinutes).ok,false)
+  assert.equal(validateNativeUacStatusRequest({...good,sessionId:0},sixMinutes).ok,false)
+  assert.equal(validateNativeUacStatusRequest({...good,target:'c:\\\\untrusted.exe'},sixMinutes).ok,false)
+  assert.equal(validateNativeUacStatusRequest(good,now+25*60*60*1000).ok,false)
 })

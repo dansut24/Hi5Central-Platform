@@ -329,42 +329,104 @@ internal sealed class ApprovalTray : ApplicationContext
     private readonly HashSet<string> notified=new(StringComparer.OrdinalIgnoreCase);
     private readonly ContextMenuStrip menu=new();
     private bool querying;
-    private string lastApproved="";
+    private string clickableApprovedFile="";
     internal ApprovalTray()
     {
-        icon=new NotifyIcon {Visible=true,Icon=SystemIcons.Shield,Text="Hi5Central Elevation approvals",
-            ContextMenuStrip=menu};
-        menu.Items.Add("Hi5Central elevation monitor (Newtest)",null,(_,_)=>{});
-        menu.Items.Add("Refresh requests",null,async(_,_)=>await Check());
+        icon=new NotifyIcon {Visible=true,Icon=SystemIcons.Shield,
+            Text="Hi5Central EPM request notifications",ContextMenuStrip=menu};
+        menu.Items.Add("Hi5Central EPM (Newtest)",null,(_,_)=>{});
+        menu.Items.Add("Refresh request outcomes",null,async(_,_)=>await Check());
         menu.Items.Add("Exit",null,(_,_)=>ExitThread());
-        icon.BalloonTipClicked+=async(_,_)=>{if(!string.IsNullOrEmpty(lastApproved))await Program.RequestOrLaunch(lastApproved);};
-        timer=new System.Windows.Forms.Timer {Interval=15000};
+        icon.BalloonTipClicked+=async(_,_)=>{
+            // A link is offered only for an EXE whose verified content,
+            // signer, user and session are subject to a one-time approval.
+            string file=clickableApprovedFile;
+            if(!string.IsNullOrEmpty(file))await Program.RequestOrLaunch(file);
+        };
+        timer=new System.Windows.Forms.Timer {Interval=5000};
         timer.Tick+=async(_,_)=>await Check();
         timer.Start();
         _=Check();
     }
+
+    private static string Read(JsonElement row,string key) =>
+        row.TryGetProperty(key,out var field) && field.ValueKind==JsonValueKind.String
+          ? field.GetString()??"": "";
+
+    private static string Short(string text,int maximum=175)
+    {
+        string sanitized=new string(text.Where(ch=>!char.IsControl(ch)).ToArray()).Trim();
+        return sanitized.Length<=maximum?sanitized:sanitized[..(maximum-1)]+"…";
+    }
+
+    private void Notify(string title,string message,string? approvedFile=null)
+    {
+        // Never expose a clickable link to an unbound UAC action.
+        clickableApprovedFile=approvedFile??"";
+        icon.BalloonTipTitle=Short(title,60);
+        icon.BalloonTipText=Short(message,240);
+        icon.ShowBalloonTip(10000);
+    }
+
     private async Task Check()
     {
         if(querying)return;
         querying=true;
-        try{
+        try {
             using var response=await Program.AskBroker("watch");
-            if(!response.RootElement.TryGetProperty("requests",out var requests))return;
-            foreach(var row in requests.EnumerateArray()) {
-                string status=row.GetProperty("status").GetString()??"";
-                string path=row.GetProperty("path").GetString()??"";
-                if(status=="approved"&&notified.Add(path)) {
-                    lastApproved=path;
-                    icon.BalloonTipTitle="Hi5Central elevation approved";
-                    icon.BalloonTipText=Path.GetFileName(path)+" is approved. Click to run or right-click the file again.";
-                    icon.ShowBalloonTip(10000);
+            if(response.RootElement.TryGetProperty("requests",out var files)
+                && files.ValueKind==JsonValueKind.Array)
+                foreach(var row in files.EnumerateArray()) {
+                    string status=Read(row,"status");
+                    string path=Read(row,"path");
+                    string id=Read(row,"requestId");
+                    string note=Read(row,"decisionNote");
+                    if(string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(path)
+                        || !notified.Add("file:"+id+":"+status))continue;
+                    if(status=="approved") {
+                        Notify("Hi5Central EPM approved",
+                            Path.GetFileName(path)+" approved once. Click this notification to run the verified file, or use Run with Hi5Central admin again.",
+                            path);
+                    } else if(status=="rejected") {
+                        Notify("Hi5Central EPM request denied",
+                            Path.GetFileName(path)+" was rejected. "+(note.Length>0?"Reason: "+note:"Contact your IT administrator."));
+                    } else if(status=="expired") {
+                        Notify("Hi5Central EPM approval expired",
+                            "Approval expired for "+Path.GetFileName(path)+". Submit a new request.");
+                    } else if(status=="launch_failed") {
+                        Notify("Hi5Central EPM launch failed",
+                            Path.GetFileName(path)+" could not be launched. Contact IT to review the device activity.");
+                    }
                 }
-                if(status!="approved")notified.Remove(path);
-            }
-        }catch{/* offline is not authorisation */}
-        finally{querying=false;}
+            if(response.RootElement.TryGetProperty("uacReviews",out var uac)
+                && uac.ValueKind==JsonValueKind.Array)
+                foreach(var row in uac.EnumerateArray()) {
+                    string status=Read(row,"status");
+                    string id=Read(row,"requestId");
+                    string note=Read(row,"decisionNote");
+                    if(string.IsNullOrWhiteSpace(id)
+                        || !notified.Add("uac:"+id+":"+status))continue;
+                    if(status=="rejected") {
+                        Notify("Hi5Central EPM UAC request denied",
+                            "Your UAC request was rejected. "+(note.Length>0?"Reason: "+note:"Contact IT for details."));
+                    } else if(status=="reviewed") {
+                        // This cannot be called 'approved': native CredUI does
+                        // not expose a verified executable/operation to bind.
+                        Notify("Hi5Central EPM UAC review completed",
+                            "IT reviewed your UAC request, but administrator access was NOT granted. Contact IT for a supported launch method."
+                            +(note.Length>0?" Note: "+note:""));
+                    } else if(status=="expired") {
+                        Notify("Hi5Central EPM UAC review expired",
+                            "The UAC review expired. No administrator access was granted.");
+                    }
+                }
+        } catch {
+            // Network errors never mean that an action was approved.
+        } finally {querying=false;}
     }
-    protected override void ExitThreadCore(){
+
+    protected override void ExitThreadCore()
+    {
         timer.Stop();timer.Dispose();icon.Visible=false;icon.Dispose();menu.Dispose();
         base.ExitThreadCore();
     }

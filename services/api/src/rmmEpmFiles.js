@@ -6,7 +6,7 @@ import { pool } from './db.js'
 import { authenticateAgent } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
-import { validateNativeUacRequest, canReleaseNativeUacCredential } from './rmmEpmUacPolicy.js'
+import { validateNativeUacRequest, validateNativeUacStatusRequest, canReleaseNativeUacCredential } from './rmmEpmUacPolicy.js'
 
 const pilotTenant = (process.env.RMM_EPM_PILOT_TENANT || '').trim().toLowerCase()
 const pilotDevice = (process.env.RMM_EPM_PILOT_DEVICE || '').trim().toLowerCase()
@@ -266,10 +266,10 @@ export function registerRmmEpmFileRoutes(app) {
   app.post('/api/v1/agent/epm/uac-reviews/:id/status', async c => {
     const auth=await requireAgent(c); if (auth.error) return auth.error
     if (!validId(c.req.param('id'))) return c.json({error:'Invalid request ID.'},400)
-    const checked=validateNativeUacRequest(await c.req.json().catch(()=>({})))
+    const checked=validateNativeUacStatusRequest(await c.req.json().catch(()=>({})))
     if (!checked.ok) return c.json({error:checked.error},400)
     const q=await pool.query(
-      `SELECT status,expires_at FROM rmm_epm_native_uac_reviews
+      `SELECT status,expires_at,decision_note,decided_at FROM rmm_epm_native_uac_reviews
         WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3
           AND requester_sid=$4 AND requester_session_id=$5
           AND consent_process_id=$6 AND consent_process_started_at=$7`,
@@ -277,7 +277,11 @@ export function registerRmmEpmFileRoutes(app) {
        checked.sessionId,checked.consentProcessId,checked.consentStartedAt])
     if (!q.rowCount) return c.json({error:'UAC request instance not found.'},404)
     return c.json({success:true,
-      status:Date.parse(q.rows[0].expires_at)<Date.now()?'expired':q.rows[0].status,
+      status:Date.parse(q.rows[0].expires_at)<Date.now() && q.rows[0].status==='pending'
+        ? 'expired':q.rows[0].status,
+      decisionNote:['reviewed','rejected'].includes(q.rows[0].status)
+        ? q.rows[0].decision_note : null,
+      decidedAt:q.rows[0].decided_at,
       credentialReleaseEnabled:canReleaseNativeUacCredential()})
   })
   app.get('/api/v1/rmm/epm/uac-reviews', async c => {

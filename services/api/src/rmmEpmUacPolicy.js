@@ -3,9 +3,12 @@
 // Windows administrative operation; no API authorization can grant it.
 export const NATIVE_UAC_CREDENTIAL_RELEASE_ENABLED = false
 export const NATIVE_UAC_REVIEW_TTL_MS = 5 * 60 * 1000
+// Status polling is read-only; permit the local notification watcher to
+// retrieve a decision after the original secure-desktop consent window closes.
+export const NATIVE_UAC_STATUS_TTL_MS = 24 * 60 * 60 * 1000
 const sidRe = /^S-1-5-21-(?:[0-9]+-){3}[0-9]+$/
 const controls = /[\u0000-\u001F\u007F]/
-export function validateNativeUacRequest(body, now = Date.now()) {
+export function validateNativeUacRequest(body, now = Date.now(), ttlMs = NATIVE_UAC_REVIEW_TTL_MS) {
   const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {}
   const sid = typeof b.sid === 'string' ? b.sid : ''
   const username = typeof b.username === 'string' ? b.username.trim() : ''
@@ -19,7 +22,7 @@ export function validateNativeUacRequest(body, now = Date.now()) {
     !Number.isInteger(sessionId) || sessionId < 1 || sessionId > 2147483647 ||
     !Number.isInteger(consentProcessId) || consentProcessId < 1 ||
     consentProcessId > 2147483647 || !Number.isFinite(stamp) ||
-    stamp > now + 15000 || stamp < now - NATIVE_UAC_REVIEW_TTL_MS)
+    stamp > now + 15000 || stamp < now - ttlMs)
       return { ok: false, error: 'Invalid Windows user, UAC instance or justification.' }
   if (b.targetPath || b.file || b.executable || b.target) {
     // The native credential provider does not know these values; accepting
@@ -38,4 +41,10 @@ export function canReleaseNativeUacCredential() {
   // Do not permit a toggle, env var or technician decision to grant broad
   // local administrator credentials without a separately qualified design.
   return false
+}
+
+export function validateNativeUacStatusRequest(body, now = Date.now()) {
+  // This is never an elevation grant. Full user/session/consent-instance
+  // binding remains mandatory even for read-only notification status.
+  return validateNativeUacRequest(body, now, NATIVE_UAC_STATUS_TTL_MS)
 }

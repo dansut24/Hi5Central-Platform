@@ -191,8 +191,9 @@ internal sealed class EpmService : ServiceBase
                     consentStartedAt=review.ConsentStarted.ToString("O"),reason=review.Reason
                 },ct);
             var status=result.RootElement.GetProperty("status").GetString()??"unknown";
-            if(status is "expired" or "rejected")
-                uacReviews.TryRemove(review.Id,out _);
+            // Retain the binding after the secure desktop closes so the
+            // requesting employee's notification watcher can receive a
+            // technician rejection reason. Aged bindings are pruned in Watch.
             return new {success=true,status,requestId=review.Id,credentialReleaseEnabled=false};
         }
     }
@@ -303,12 +304,51 @@ internal sealed class EpmService : ServiceBase
         return new {success=true,status=await Status(existing,ct),requestId=existing.Id,publisher=original.Publisher};
     }
     private async Task<object> Watch((string sid,string name,int session) caller,CancellationToken ct) {
-        var list=new List<object>();
+        // Called from the employee's non-elevated notification tray. All
+        // results are scoped to the Windows identity/session measured from
+        // the named pipe, not a username supplied by the caller.
+        var files=new List<object>();
         foreach(var item in approvals.Values.Where(x=>x.Sid==caller.sid && x.SessionId==caller.session)){
-            try {list.Add(new {path=item.Proof.Path,status=await Status(item,ct),requestId=item.Id});}
-            catch { /* disconnected status is not an approval */ }
+            try {
+                using var response=await api.PostAsync(
+                    "/api/v1/agent/epm/file-requests/"+item.Id+"/status",ToApiBinding(item),ct);
+                var row=response.RootElement;
+                files.Add(new {
+                    path=item.Proof.Path,requestId=item.Id,
+                    status=row.GetProperty("status").GetString()??"unknown",
+                    decisionNote=row.TryGetProperty("decisionNote",out var note)
+                        && note.ValueKind==JsonValueKind.String?note.GetString():""
+                });
+            } catch { /* lost agent session/network is not approval */ }
         }
-        return new {success=true,requests=list};
+        var reviews=new List<object>();
+        foreach(var review in uacReviews.Values.Where(x=>x.Sid==caller.sid && x.Session==caller.session)){
+            if(review.ConsentStarted<DateTimeOffset.UtcNow.AddHours(-24)) {
+                uacReviews.TryRemove(review.Id,out _);
+                continue;
+            }
+            try {
+                // This read-only status lookup may outlive consent.exe. It
+                // does not resume UAC, authenticate or issue admin credentials.
+                using var response=await api.PostAsync(
+                    "/api/v1/agent/epm/uac-reviews/"+review.Id+"/status",new {
+                        sid=review.Sid,username=caller.name,
+                        sessionId=review.Session,consentProcessId=review.ConsentPid,
+                        consentStartedAt=review.ConsentStarted.ToString("O"),
+                        reason=review.Reason
+                    },ct);
+                var row=response.RootElement;
+                reviews.Add(new {
+                    requestId=review.Id,
+                    status=row.GetProperty("status").GetString()??"unknown",
+                    decisionNote=row.TryGetProperty("decisionNote",out var note)
+                        && note.ValueKind==JsonValueKind.String?note.GetString():"",
+                    credentialReleaseEnabled=false,
+                    scope="unidentified-native-uac"
+                });
+            } catch { /* a failed lookup can never convey approval */ }
+        }
+        return new {success=true,requests=files,uacReviews=reviews};
     }
     private object Job(int pid,(string sid,string name,int session) caller)
     {

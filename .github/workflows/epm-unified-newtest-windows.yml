@@ -1,0 +1,107 @@
+name: Hi5Central Newtest EPM and Native UAC Unified Pilot
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/epm-uac-unified-pilot-20261115]
+    paths: ['native/epm/**', '.github/workflows/epm-unified-newtest-windows.yml']
+permissions:
+  contents: read
+jobs:
+  unified-windows:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build Windows broker and run safety checks
+        shell: pwsh
+        run: |
+          dotnet restore native/epm/Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj
+          if($LASTEXITCODE -ne 0){throw 'Restore failed'}
+          dotnet build native/epm/Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release --no-restore
+          if($LASTEXITCODE -ne 0){throw 'Build failed'}
+          dotnet run --project native/epm/Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release --no-build -- --self-test
+          if($LASTEXITCODE -ne 0){throw 'EPM self-test failed'}
+      - name: Compile and test native CredUI tile
+        shell: pwsh
+        run: |
+          cmake -S native/epm/Hi5Central.UacTilePilot -B build/epm-uac-pilot -G "Visual Studio 17 2022" -A x64
+          if($LASTEXITCODE -ne 0){throw 'CMake configure failed'}
+          cmake --build build/epm-uac-pilot --config Release --parallel
+          if($LASTEXITCODE -ne 0){throw 'Native build failed'}
+          ctest --test-dir build/epm-uac-pilot -C Release --output-on-failure
+          if($LASTEXITCODE -ne 0){throw 'Native COM test failed'}
+      - name: Verify unified installer, rollback and test scripts parse
+        shell: pwsh
+        run: |
+          $scripts=@(
+            'native/epm/Install-Newtest-UacPilot.ps1',
+            'native/epm/Uninstall-Newtest-UacPilot.ps1',
+            'native/epm/Run-Newtest-UacCases.ps1',
+            'native/epm/Install-EpmPilot.ps1',
+            'native/epm/Uninstall-EpmPilot.ps1',
+            'native/epm/Hi5Central.UacTilePilot/Install-UacTilePilot.ps1',
+            'native/epm/Hi5Central.UacTilePilot/Uninstall-UacTilePilot.ps1'
+          )
+          foreach($p in $scripts){
+            $tokens=$null;$errors=$null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $p),[ref]$tokens,[ref]$errors)|Out-Null
+            if($errors){throw "Script syntax failed: $p - $($errors|Out-String)"}
+          }
+      - name: Publish binaries and create single checksum-pinned package
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified'
+          New-Item -ItemType Directory -Path $root -Force|Out-Null
+          dotnet publish native/epm/Hi5Central.EpmPilot/Hi5Central.EpmPilot.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishTrimmed=false -o (Join-Path $env:RUNNER_TEMP 'epm-publish')
+          if($LASTEXITCODE -ne 0){throw 'Publish failed'}
+          Copy-Item (Join-Path $env:RUNNER_TEMP 'epm-publish\Hi5CentralEpmPilot.exe') $root
+          Copy-Item 'build/epm-uac-pilot/Release/Hi5CentralUacTilePilot.dll' $root
+          Copy-Item native/epm/README-Newtest-UacPilot.txt $root
+          foreach($p in @('Install-Newtest-UacPilot.ps1','Uninstall-Newtest-UacPilot.ps1','Run-Newtest-UacCases.ps1','Install-EpmPilot.ps1','Uninstall-EpmPilot.ps1')){
+            Copy-Item (Join-Path 'native/epm' $p) $root
+          }
+          foreach($p in @('Install-UacTilePilot.ps1','Uninstall-UacTilePilot.ps1')){
+            Copy-Item (Join-Path 'native/epm/Hi5Central.UacTilePilot' $p) $root
+          }
+          $e=(Get-FileHash (Join-Path $root 'Hi5CentralEpmPilot.exe') -Algorithm SHA256).Hash
+          $d=(Get-FileHash (Join-Path $root 'Hi5CentralUacTilePilot.dll') -Algorithm SHA256).Hash
+          @("EPM_EXE_SHA256=$e","UAC_DLL_SHA256=$d")|Set-Content (Join-Path $root 'SHA256.txt') -Encoding ASCII
+          & (Join-Path $root 'Install-Newtest-UacPilot.ps1') -ValidateOnly
+          if($LASTEXITCODE -ne 0){throw 'Bundle validation failed'}
+      - name: Install both parts on isolated CI runner and uninstall (no actual UAC)
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified'
+          $exe=Join-Path $root 'Hi5CentralEpmPilot.exe'
+          $dll=Join-Path $root 'Hi5CentralUacTilePilot.dll'
+          try {
+            & (Join-Path $root 'Install-EpmPilot.ps1') -Executable $exe -ExpectedSha256 (Get-FileHash $exe -Algorithm SHA256).Hash
+            if((Get-Service Hi5CentralEpmPilot -ErrorAction Stop).Status -ne 'Running'){throw 'EPM broker offline'}
+            & (Join-Path $root 'Install-UacTilePilot.ps1') -DllPath $dll -ExpectedSha256 (Get-FileHash $dll -Algorithm SHA256).Hash -RollbackMinutes 20
+            $key='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{7464D2E2-202B-4546-953D-9AFCDA3201E6}'
+            if(!(Test-Path $key)){throw 'Native UAC tile not registered'}
+            Write-Host 'PASS: EPM service and CredUI tile coexist on isolated Windows runner'
+          } finally {
+            $remove=Join-Path $env:ProgramFiles 'Hi5Central\EPM\UacTilePilot\Uninstall-UacTilePilot.ps1'
+            if(Test-Path $remove){& $remove}
+            & (Join-Path $root 'Uninstall-EpmPilot.ps1')
+          }
+      - name: Produce ONE portable ZIP and independent checksum
+        shell: pwsh
+        run: |
+          $root=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified'
+          $zip=Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified-20261115.zip'
+          Compress-Archive -Path "$root\*" -DestinationPath $zip -Force -CompressionLevel Optimal
+          "ZIP_SHA256=$((Get-FileHash $zip -Algorithm SHA256).Hash)"|Set-Content (Join-Path $env:RUNNER_TEMP 'Hi5Central-EPM-Newtest-Unified-ZIP-SHA256.txt') -Encoding ASCII
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-EPM-Newtest-Unified-20261115
+          path: |
+            ${{ runner.temp }}/Hi5Central-EPM-Newtest-Unified-20261115.zip
+            ${{ runner.temp }}/Hi5Central-EPM-Newtest-Unified-ZIP-SHA256.txt
+          if-no-files-found: error
+          retention-days: 14
