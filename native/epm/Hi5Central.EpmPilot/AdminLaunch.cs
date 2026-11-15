@@ -178,6 +178,8 @@ internal static class AdminLaunch
         }
     }
 
+    internal static bool IsJobActive(uint processId)=>Active.ContainsKey(processId);
+
     // Stop-Service must not orphan any temporary local administrator account.
     internal static void StopActiveLaunches()
     {
