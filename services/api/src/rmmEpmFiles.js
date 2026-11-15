@@ -119,7 +119,8 @@ export function registerRmmEpmFileRoutes(app) {
       'desktop-client-handles','desktop-open-client','desktop-duplicate-station',
       'desktop-duplicate-desktop','desktop-handle-identity','desktop-query-identity',
       'desktop-read-acl','desktop-missing-acl','desktop-write-acl',
-      'desktop-duplicate-admin-sid',
+      'desktop-duplicate-admin-sid','desktop-grant-connection',
+      'desktop-grant-invalid','desktop-grant-rejected',
       'track-approved-process','unexpected-launch-error',
     ])
     const stage=clean(b.stage)
