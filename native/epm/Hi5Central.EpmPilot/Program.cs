@@ -44,6 +44,7 @@ internal static class Program
             PipeProtocolSelfTest.RunAsync().GetAwaiter().GetResult();
             ElevationCoverageTests.Run();
             UacLaunchIntents.SelfTest();
+            NativeUacReviewPolicy.SelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
