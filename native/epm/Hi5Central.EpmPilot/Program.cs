@@ -47,6 +47,7 @@ internal static class Program
             NativeUacReviewPolicy.SelfTest();
             ApprovalAutoLaunchPolicy.SelfTest();
             ManagedUacActions.SelfTest();
+            VerifiedFile.ManagedVerifierSelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
@@ -181,7 +182,7 @@ internal static class Program
                 if(root.TryGetProperty("action",out var action)
                     && action.GetString()=="grant-local-desktop")
                 {
-                    if(type!="run" || grant!=null)
+                    if((type!="run" && type!="managed-run") || grant!=null)
                         throw new InvalidOperationException("Unexpected EPM desktop grant challenge.");
                     bool granted=false;
                     string failureStage="";
@@ -208,7 +209,7 @@ internal static class Program
                     continue;
                 }
                 var result=JsonDocument.Parse(root.GetRawText());
-                if(grant!=null && type=="run"
+                if(grant!=null && (type=="run" || type=="managed-run")
                     && root.TryGetProperty("success",out var success) && success.GetBoolean()
                     && root.TryGetProperty("processId",out var pid))
                 {
@@ -217,7 +218,7 @@ internal static class Program
                         throw new InvalidOperationException("Unable to retain the EPM session grant.");
                     grant=null; // Owned by the monitor until the job ends.
                 }
-                if(localFailure is not null && type=="run")
+                if(localFailure is not null && (type=="run" || type=="managed-run"))
                 {
                     result.Dispose();
                     throw new InvalidOperationException("Desktop grant failed: "+localFailure);
@@ -235,14 +236,27 @@ internal static class Program
             throw new UnauthorizedAccessException("This managed Windows action is not supported.");
         using var response=await AskBroker("managed-prepare",path:code);
         var root=response.RootElement;
-        if(!root.TryGetProperty("success",out var ok)
-            || ok.ValueKind!=JsonValueKind.True
-            || root.GetProperty("actionCode").GetString()!=code
-            || !string.Equals(root.GetProperty("path").GetString(),action.Path,
-                StringComparison.OrdinalIgnoreCase)
-            || root.GetProperty("arguments").GetString()!=action.Arguments
-            || root.GetProperty("argumentsSha256").GetString()!=action.ArgumentsSha256)
-            throw new UnauthorizedAccessException("Managed Windows UAC preparation failed identity validation.");
+        if(!root.TryGetProperty("success",out var ok) || ok.ValueKind!=JsonValueKind.True)
+        {
+            string detail=root.TryGetProperty("error",out var err)
+                && err.ValueKind==JsonValueKind.String ? err.GetString()??"" : "";
+            throw new InvalidOperationException(
+                "Managed Windows UAC broker refused preparation: "+
+                (detail.Length>200?detail[..200]:detail.Length>0?detail:"unknown broker error"));
+        }
+        if(!root.TryGetProperty("actionCode",out var returnedCode)
+            || returnedCode.GetString()!=code)
+            throw new UnauthorizedAccessException("Managed Windows UAC action code mismatch.");
+        if(!root.TryGetProperty("path",out var returnedPath)
+            || !string.Equals(returnedPath.GetString(),action.Path,
+                StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Managed Windows UAC executable path mismatch.");
+        if(!root.TryGetProperty("arguments",out var returnedArgs)
+            || returnedArgs.GetString()!=action.Arguments)
+            throw new UnauthorizedAccessException("Managed Windows UAC fixed arguments mismatch.");
+        if(!root.TryGetProperty("argumentsSha256",out var returnedDigest)
+            || returnedDigest.GetString()!=action.ArgumentsSha256)
+            throw new UnauthorizedAccessException("Managed Windows UAC argument digest mismatch.");
         try
         {
             // The real Windows UAC credential screen still appears. Choosing

@@ -138,7 +138,7 @@ internal sealed class EpmService : ServiceBase
         // Trust the Microsoft signature and exact installed image before a
         // secure desktop request is even presented. Paths and command lines
         // are not read from the employee or UAC field.
-        _=VerifiedFile.Inspect(action.Path);
+        _=VerifiedFile.InspectManaged(action);
         preparedManaged.Begin(caller.sid,caller.session,action);
         return new {success=true,actionCode=action.Code,actionName=action.Name,
             path=action.Path,arguments=action.Arguments,
@@ -351,7 +351,9 @@ internal sealed class EpmService : ServiceBase
             throw new UnauthorizedAccessException("Unbound native UAC cannot request a managed operation.");
         bool mayAutoLaunch=managedRoute || ApprovalAutoLaunchPolicy.CanEnable(
             autoLaunchOnApproval,requestSource,caller.sid);
-        var original=VerifiedFile.Inspect(path);
+        var original=managedRoute
+            ? VerifiedFile.InspectManaged(ManagedUacActions.Resolve(operationCode)!)
+            : VerifiedFile.Inspect(path);
         var cached=Match(original.Path,caller,operationCode);
         if(cached is not null && cached.Proof.Hash==original.Hash && cached.Proof.Thumbprint==original.Thumbprint) {
             var status=await Status(cached,ct);
@@ -563,7 +565,7 @@ internal sealed class EpmService : ServiceBase
         // Hold a deny-write/deny-delete handle throughout redemption and process
         // creation. If the file changes, disappears, is replaced, or is unsigned,
         // redemption is refused before consuming the one-time authorisation.
-        using var pinnedFile=VerifiedFile.LockForApprovedLaunch(existing.Proof);
+        using var pinnedFile=VerifiedFile.LockForApprovedLaunch(existing.Proof,action);
         using (var consumed=await api.PostAsync("/api/v1/agent/epm/file-requests/"+existing.Id+"/redeem",
             ToApiBinding(existing),ct)) {
             if(!consumed.RootElement.GetProperty("redeemed").GetBoolean())

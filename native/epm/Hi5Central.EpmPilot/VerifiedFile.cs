@@ -24,7 +24,7 @@ internal static class VerifiedFile
     /// Re-validate SHA-256 and Windows Authenticode while the handle remains open.
     /// Nothing is copied to ProgramData and no persistent file cache is created.
     /// </summary>
-    public static FileStream LockForApprovedLaunch(FileProof approved)
+    public static FileStream LockForApprovedLaunch(FileProof approved, ManagedAction? managedAction=null)
     {
         var full=System.IO.Path.GetFullPath(approved.Path);
         if (!StringComparer.OrdinalIgnoreCase.Equals(full,approved.Path))
@@ -35,7 +35,10 @@ internal static class VerifiedFile
             throw new InvalidOperationException("File must be on a local fixed disk.");
         var lockStream=new FileStream(full,FileMode.Open,FileAccess.Read,FileShare.Read);
         try {
-            var current=Inspect(full);
+            if(managedAction is not null && !string.Equals(
+                    managedAction.Path,full,StringComparison.OrdinalIgnoreCase))
+                throw new UnauthorizedAccessException("Managed action file does not match its approved executable.");
+            var current=managedAction is null ? Inspect(full) : InspectManaged(managedAction);
             if (!StringComparer.OrdinalIgnoreCase.Equals(current.Path,approved.Path)
                 || current.Hash!=approved.Hash
                 || current.Thumbprint!=approved.Thumbprint
@@ -50,14 +53,28 @@ internal static class VerifiedFile
         }
     }
 
-    public static FileProof Inspect(string candidate)
+    // The downloaded-executable policy remains strict. Only the FIVE fixed,
+    // compiled-in Microsoft Windows actions may use this separate verifier.
+    public static FileProof InspectManaged(ManagedAction action)
+    {
+        if(ManagedUacActions.Resolve(action.Code)!=action)
+            throw new UnauthorizedAccessException("Unknown managed Windows action.");
+        var verified=InspectCore(action.Path,true);
+        if(!verified.Publisher.StartsWith("Microsoft",StringComparison.OrdinalIgnoreCase))
+            throw new UnauthorizedAccessException("Managed Windows action must have a trusted Microsoft publisher.");
+        return verified;
+    }
+
+    public static FileProof Inspect(string candidate) => InspectCore(candidate,false);
+
+    private static FileProof InspectCore(string candidate,bool managedWindowsAction)
     {
         var full=System.IO.Path.GetFullPath(candidate);
         if (!System.IO.Path.IsPathFullyQualified(full) || !string.Equals(System.IO.Path.GetExtension(full),".exe",StringComparison.OrdinalIgnoreCase)
             || full.StartsWith(@"\\",StringComparison.Ordinal) || full.StartsWith(@"\\?\",StringComparison.Ordinal)
             || full.StartsWith(@"\\.\",StringComparison.Ordinal)
-            || full.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.Windows)+@"\",StringComparison.OrdinalIgnoreCase)
-            || Forbidden.Contains(System.IO.Path.GetFileName(full)))
+            || (!managedWindowsAction && full.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.Windows)+@"\",StringComparison.OrdinalIgnoreCase))
+            || (!managedWindowsAction && Forbidden.Contains(System.IO.Path.GetFileName(full))))
             throw new InvalidOperationException("This executable is not eligible for the signed-file pilot.");
         // Reject junction/symlink parents as well as a reparse-point executable:
         // process creation accepts a path, so its directory chain must not move.
@@ -82,6 +99,30 @@ internal static class VerifiedFile
         var publisher=cert.GetNameInfo(X509NameType.SimpleName,false);
         if (string.IsNullOrWhiteSpace(publisher)) throw new InvalidOperationException("Publisher identity is missing.");
         return new FileProof(full,info.Name,hash,publisher,cert.Thumbprint.ToUpperInvariant());
+    }
+
+    internal static void ManagedVerifierSelfTest()
+    {
+        // Regression: all five Microsoft system images must be eligible ONLY
+        // through a registered operation, while the downloaded-EXE policy
+        // must continue rejecting C:\Windows and general-purpose runtimes.
+        foreach(string code in ManagedUacActions.Codes)
+        {
+            var action=ManagedUacActions.Resolve(code)
+                ?? throw new InvalidOperationException("Missing Windows managed-action fixture.");
+            bool rejectedByOrdinaryPolicy=false;
+            try { _=Inspect(action.Path); }
+            catch(InvalidOperationException) {rejectedByOrdinaryPolicy=true;}
+            if(!rejectedByOrdinaryPolicy)
+                throw new InvalidOperationException("The ordinary EXE policy accepted a Windows system binary: "+code);
+            var proof=InspectManaged(action);
+            if(proof.Hash.Length!=64 || proof.Thumbprint.Length<40)
+                throw new InvalidOperationException("The managed Windows file signature/hash was not bound: "+code);
+            using var locked=LockForApprovedLaunch(proof,action);
+            if(!locked.CanRead)
+                throw new InvalidOperationException("System file lock failed: "+code);
+            Console.WriteLine("PASS: managed Windows system image verified (signed Microsoft image, deny-write lock, original downloaded-EXE prohibition): "+code);
+        }
     }
 
     private static int VerifyTrust(string path)
