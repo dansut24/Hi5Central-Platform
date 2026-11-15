@@ -136,7 +136,7 @@ internal sealed class EpmService : ServiceBase
                 throw new UnauthorizedAccessException("Invalid interactive user identity.");
             // Existing Request performs Authenticode, SHA-256, signer, path,
             // identity binding, API submission and one-time approval caching.
-            return await Request(file,reason,(sid,identity.Name,caller.session),ct);
+            return await Request(file,reason,(sid,identity.Name,caller.session),ct,"native-uac");
         }
     }
 
@@ -179,7 +179,7 @@ internal sealed class EpmService : ServiceBase
         using var r=await api.PostAsync("/api/v1/agent/epm/file-requests/"+item.Id+"/status",ToApiBinding(item),ct);
         return r.RootElement.GetProperty("status").GetString()??"unknown";
     }
-    private async Task<object> Request(string path,string reason,(string sid,string name,int session) caller,CancellationToken ct) {
+    private async Task<object> Request(string path,string reason,(string sid,string name,int session) caller,CancellationToken ct,string requestSource="explorer") {
         if(string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Choose an executable first.");
         var original=VerifiedFile.Inspect(path);
         var cached=Match(original.Path,caller);
@@ -195,7 +195,7 @@ internal sealed class EpmService : ServiceBase
         using (var result=await api.PostAsync("/api/v1/agent/epm/file-requests",new {
                 sid=caller.sid,username=caller.name,sessionId=caller.session,path=original.Path,
                 sha256=original.Hash,signerThumbprint=original.Thumbprint,publisher=original.Publisher,
-                signatureStatus="Valid",reason=reason.Trim()
+                signatureStatus="Valid",reason=reason.Trim(),source=requestSource
             },ct)) {
             var id=Guid.Parse(result.RootElement.GetProperty("requestId").GetString()!);
             approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original);
