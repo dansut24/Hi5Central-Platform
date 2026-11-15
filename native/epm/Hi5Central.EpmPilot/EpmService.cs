@@ -66,6 +66,10 @@ internal sealed class EpmService : ServiceBase
     }
     private async Task Handle(NamedPipeServerStream pipe,CancellationToken ct) {
         var caller=ClientIdentity(pipe);
+        // Cross-session desktop grants are valid only for handles owned by
+        // this actual named-pipe client, not a process ID provided in JSON.
+        if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var clientPid))
+            throw new UnauthorizedAccessException("Unable to validate EPM pipe client.");
         var bytes=new byte[16384];
         using var buffer=new MemoryStream();
         pipe.ReadMode=PipeTransmissionMode.Message;
@@ -86,7 +90,10 @@ internal sealed class EpmService : ServiceBase
                 "request"=>await Request(file, data.TryGetProperty("reason",out var reason)?reason.GetString()??"":"",
                     caller,ct),
                 "check"=>await Check(file,caller,ct),
-                "run"=>await Run(file,caller,ct),
+                "run"=>await Run(file,caller,ct,clientPid,
+                    data.TryGetProperty("stationHandle",out var wh)?wh.GetString()??"":"",
+                    data.TryGetProperty("desktopHandle",out var dh)?dh.GetString()??"":""),
+
                 "watch"=>await Watch(caller,ct),
                 _=>new {success=false,error="Unknown EPM request"}
             };
@@ -152,7 +159,11 @@ internal sealed class EpmService : ServiceBase
         }
         return new {success=true,requests=list};
     }
-    private async Task<object> Run(string path,(string sid,string name,int session) caller,CancellationToken ct) {
+    private async Task<object> Run(string path,(string sid,string name,int session) caller,
+        CancellationToken ct,uint clientPid,string stationText,string desktopText) {
+        if(!long.TryParse(stationText,out var stationHandle) || stationHandle<=0
+            || !long.TryParse(desktopText,out var desktopHandle) || desktopHandle<=0)
+            throw new EpmLaunchException("desktop-client-handles",87);
         var existing=Match(path,caller) ?? throw new InvalidOperationException("No request exists for this Windows user and file.");
         if(await Status(existing,ct)!="approved") throw new InvalidOperationException("This file has not been approved or the approval has expired.");
         // Hold a deny-write/deny-delete handle throughout redemption and process
@@ -176,6 +187,7 @@ internal sealed class EpmService : ServiceBase
                     if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)!=true)
                         throw new EpmLaunchException("service-security-context",5);
                     return AdminLaunch.Launch(existing.Proof.Path,caller.session,
+                        clientPid,stationHandle,desktopHandle,
                         async observation => {
                             // Asynchronous completion is best-effort; the temporary
                             // administrator account is already cleaned up locally.
