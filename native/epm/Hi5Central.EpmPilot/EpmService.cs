@@ -156,8 +156,12 @@ internal sealed class EpmService : ServiceBase
     }
     private object Job(int pid,(string sid,string name,int session) caller)
     {
-        if(pid<=0 || !launchedJobs.TryGetValue(pid,out var owner)
-            || owner.sid!=caller.sid || owner.session!=caller.session)
+        if(pid<=0)throw new InvalidOperationException("Invalid EPM job ID.");
+        // A broker restart destroys the one-time job cache. The user companion
+        // must revoke its temporary ACL immediately, not retain it for 45 minutes.
+        if(!launchedJobs.TryGetValue(pid,out var owner))
+            return new {success=true,status="unknown",processId=pid};
+        if(owner.sid!=caller.sid || owner.session!=caller.session)
             throw new UnauthorizedAccessException("This EPM job belongs to a different Windows session.");
         bool running=AdminLaunch.IsJobActive((uint)pid);
         if(!running)launchedJobs.TryRemove(pid,out _);
