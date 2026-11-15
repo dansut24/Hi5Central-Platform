@@ -4,7 +4,9 @@ This script does not alter registry, services, device policy or user groups.
 Run in an unelevated Windows PowerShell window after installing the bundle.
 For each prompt: More choices > Hi5Central EPM > enter a 20+ char reason
 > Submit review. Return to RMM to Record review/Reject with a reason.
-The native tile cannot grant a verified elevation: close/cancel native UAC.
+For five trusted managed-action cases, it queues an exact action for RMM one-time approval.
+The original Windows UAC is CANCELLED. An approved operation starts separately.
+Other unknown Windows UAC prompts remain review-only.
 #>
 param([switch]$CheckOnly)
 $ErrorActionPreference='Stop'
@@ -35,15 +37,16 @@ if(Test-Path -LiteralPath $preflight) {
 }
 if($CheckOnly){return}
 $cases=@(
-  [pscustomobject]@{Name='Notepad – explicit Run as administrator';Path="$env:WINDIR\System32\notepad.exe";Args=''},
-  [pscustomobject]@{Name='Registry Editor – explicit Run as administrator';Path="$env:WINDIR\regedit.exe";Args=''},
-  [pscustomobject]@{Name='Windows services console – elevated MMC';Path="$env:WINDIR\System32\mmc.exe";Args='services.msc'},
-  [pscustomobject]@{Name='PowerShell – explicit Run as administrator';Path="$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe";Args='-NoProfile -NoExit'},
-  [pscustomobject]@{Name='Windows Installer – msiexec help only';Path="$env:WINDIR\System32\msiexec.exe";Args='/?'}
+  [pscustomobject]@{Code='notepad';Name='Notepad – Windows managed elevated launch'},
+  [pscustomobject]@{Code='regedit';Name='Registry Editor – Windows managed elevated launch'},
+  [pscustomobject]@{Code='services';Name='Windows Services MMC – fixed services.msc arguments'},
+  [pscustomobject]@{Code='powershell';Name='Windows PowerShell – fixed -NoProfile -NoExit arguments'},
+  [pscustomobject]@{Code='msiexec-help';Name='Windows Installer – fixed /? help-only arguments'}
 )
 Write-Host ''
 Write-Host 'Different prompts are tested one at a time. Choose More choices > Hi5Central EPM.'
-Write-Host 'These requests can be REVIEWED/REJECTED, but cannot complete unknown native UAC elevation.'
+Write-Host 'These five cases use a Hi5Central-registered operation BEFORE Windows UAC, then an RMM one-time exact command approval.'
+Write-Host 'Unrelated UAC prompts remain REVIEW-ONLY and never elevate an unidentified operation.'
 Write-Host 'Do not enter real administrator credentials as part of this smoke test.'
 while($true){
   Write-Host ''
@@ -63,23 +66,13 @@ while($true){
     Write-Warning 'Choose a numbered case.';continue
   }
   $item=$cases[$num-1]
-  if(!(Test-Path -LiteralPath $item.Path)){Write-Warning "Not installed: $($item.Path)";continue}
-  Write-Host "Triggering a real Windows UAC prompt: $($item.Name)"
-  Write-Host 'Choose Hi5Central EPM, enter a reason, then close/cancel the prompt after submitting.'
+  Write-Host "Opening an authentic Windows UAC prompt for: $($item.Name)"
+  Write-Host 'Choose More choices > Hi5Central EPM; enter reason; Submit.'
+  Write-Host 'After the managed request is confirmed, CANCEL the original Windows UAC immediately.'
+  Write-Host 'RMM will show the verified Windows program, immutable arguments and user. Approve once, then verify a process ID.'
   try {
-    if($item.Args){
-      Start-Process -FilePath $item.Path -ArgumentList $item.Args -Verb RunAs -ErrorAction Stop
-    } else {
-      Start-Process -FilePath $item.Path -Verb RunAs -ErrorAction Stop
-    }
-    Write-Host 'A Windows process was started. If you used normal credentials, terminate the test instance.'
-  } catch {
-    if($_.Exception.Message -match 'cancel|cancell|1223'){
-      Write-Host 'Windows UAC was cancelled (expected for review-only EPM).'
-    } else {
-      Write-Warning ('Windows returned: '+$_.Exception.Message)
-    }
-  }
+    Start-Process -FilePath $exe -ArgumentList @('--managed-uac',$item.Code) -Wait -ErrorAction Stop
+  } catch {Write-Warning ('Hi5Central managed launcher reported: '+$_.Exception.Message)}
   Read-Host 'After checking the RMM review and Windows notification, press Enter to continue' | Out-Null
 }
-Write-Host 'Newtest UAC smoke tests concluded. The pilot timed rollback remains active.'
+Write-Host 'Newtest managed Windows UAC tests concluded. The pilot timed rollback remains active.'

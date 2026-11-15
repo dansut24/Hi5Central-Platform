@@ -44,6 +44,16 @@ static std::wstring BrokerUnavailable(DWORD code) {
       std::to_wstring(code)+L").";
 }
 
+constexpr wchar_t kManagedSent[] =
+    L"Hi5Central sent the exact preselected Windows action to RMM for approval. "
+    L"Cancel this Windows UAC prompt now. Once approved, Hi5Central starts "
+    L"the verified operation separately. NO UAC credential was issued.";
+constexpr wchar_t kManagedApproved[] =
+    L"The preselected Windows action was approved. Cancel this UAC prompt; "
+    L"the Hi5Central companion will start the exact operation separately.";
+constexpr wchar_t kManagedLaunched[] =
+    L"Hi5Central redeemed the approved managed action once. "
+    L"No Windows UAC credential was released.";
 constexpr wchar_t kReviewSent[] =
     L"UAC review sent to Hi5Central RMM. No administrator credential or "
     L"elevation has been issued; normal Windows UAC remains in control.";
@@ -138,7 +148,8 @@ static std::wstring SendNativeUacReview(const std::wstring& reason,
         return kRejected;
     }
     reviewId=candidate;
-    return kReviewSent;
+    return response.find("\"managedAction\":true")!=std::string::npos
+        ? kManagedSent : kReviewSent;
   }
   return kRejected;
 }
@@ -158,6 +169,12 @@ static std::wstring FetchNativeUacReviewStatus(const std::string& id) {
   if(response.find("\"success\":true")==std::string::npos ||
       response.find("\"credentialReleaseEnabled\":false")==std::string::npos)
     return kRejected;
+  if(response.find("\"managedAction\":true")!=std::string::npos) {
+    if(response.find("\"status\":\"approved\"")!=std::string::npos)
+      return kManagedApproved;
+    if(response.find("\"status\":\"redeemed\"")!=std::string::npos)
+      return kManagedLaunched;
+  }
   if(response.find("\"status\":\"reviewed\"")!=std::string::npos)return kReviewed;
   if(response.find("\"status\":\"pending\"")!=std::string::npos)return kStillPending;
   return kExpired;

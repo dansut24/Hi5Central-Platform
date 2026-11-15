@@ -8,6 +8,7 @@ import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
 import { validateNativeUacRequest, validateNativeUacStatusRequest, canReleaseNativeUacCredential } from './rmmEpmUacPolicy.js'
 import { validateFileAutoLaunchIntent } from './rmmEpmAutoLaunchPolicy.js'
+import { validateManagedAction } from './rmmEpmManagedUacPolicy.js'
 
 const pilotTenant = (process.env.RMM_EPM_PILOT_TENANT || '').trim().toLowerCase()
 const pilotDevice = (process.env.RMM_EPM_PILOT_DEVICE || '').trim().toLowerCase()
@@ -46,6 +47,8 @@ function matchBinding(body,row) {
     && clean(body.path) === row.file_path
     && clean(body.sha256).toUpperCase() === row.file_sha256
     && clean(body.signerThumbprint).toUpperCase() === row.signer_thumbprint
+    && (clean(body.operationCode) || null) === row.managed_action_code
+    && (clean(body.argumentsSha256).toUpperCase() || null) === row.managed_arguments_sha256
 }
 export function registerRmmEpmFileRoutes(app) {
   app.post('/api/v1/agent/epm/file-requests', async c => {
@@ -54,12 +57,17 @@ export function registerRmmEpmFileRoutes(app) {
     const sid=clean(b.sid), name=clean(b.username), filePath=clean(b.path)
     const hash=clean(b.sha256).toUpperCase(), thumb=clean(b.signerThumbprint).toUpperCase()
     const publisher=clean(b.publisher), reason=clean(b.reason)
-    const requestSource=clean(b.source)==='native-uac'?'native-uac':'explorer'
+    const requestSource=['native-uac','managed-uac'].includes(clean(b.source))?clean(b.source):'explorer'
     // Only an explicitly requested, trusted Explorer EXE may auto-run.
     // This flag is never accepted for an unbound/native UAC operation.
     const autoLaunch=validateFileAutoLaunchIntent(b)
     if (!autoLaunch.ok) return c.json({error:autoLaunch.error},400)
     const autoLaunchOnApproval=autoLaunch.autoLaunchOnApproval
+    const managed=validateManagedAction({
+      source:requestSource,operationCode:b.operationCode,argumentsSha256:b.argumentsSha256,
+      filePath,autoLaunchOnApproval
+    })
+    if (!managed.ok) return c.json({error:managed.error},400)
     if (!/^S-1-[0-9-]{5,220}$/.test(sid) || sid.length > 255
       || !Number.isInteger(b.sessionId) || b.sessionId < 1 || b.sessionId > 2147483647
       || !safePath(filePath) || !validSha(hash) || !allowed(thumb)
@@ -70,9 +78,12 @@ export function registerRmmEpmFileRoutes(app) {
       `SELECT id,status,approval_expires_at,auto_launch_on_approval FROM rmm_epm_file_requests
        WHERE tenant_id=$1 AND agent_device_id=$2 AND requester_sid=$3
          AND requester_session_id=$4 AND file_path=$5 AND file_sha256=$6
-         AND signer_thumbprint=$7 AND status IN ('pending','approved')
+         AND signer_thumbprint=$7 AND request_source=$8
+         AND managed_action_code IS NOT DISTINCT FROM $9
+         AND managed_arguments_sha256 IS NOT DISTINCT FROM $10
+         AND status IN ('pending','approved')
        ORDER BY created_at DESC LIMIT 1`,
-      [auth.agent.tenant_id,auth.agent.id,sid,b.sessionId,filePath,hash,thumb])
+      [auth.agent.tenant_id,auth.agent.id,sid,b.sessionId,filePath,hash,thumb,requestSource,managed.code,managed.digest])
     const cur=existing.rows[0]
     if (cur && (cur.status==='pending' || (cur.approval_expires_at && Date.parse(cur.approval_expires_at)>Date.now())))
       return c.json({success:true,requestId:cur.id,status:cur.status,duplicate:true,
@@ -80,9 +91,9 @@ export function registerRmmEpmFileRoutes(app) {
     const result=await pool.query(
       `INSERT INTO rmm_epm_file_requests
       (tenant_id,agent_device_id,requester_sid,requester_name,requester_session_id,
-      file_path,file_name,file_sha256,publisher,signer_thumbprint,business_reason,request_source,auto_launch_on_approval)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id,status,auto_launch_on_approval`,
-      [auth.agent.tenant_id,auth.agent.id,sid,name,b.sessionId,filePath,filePath.split('\\').pop(),hash,publisher,thumb,reason,requestSource,autoLaunchOnApproval])
+      file_path,file_name,file_sha256,publisher,signer_thumbprint,business_reason,request_source,auto_launch_on_approval,managed_action_code,managed_arguments_sha256)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id,status,auto_launch_on_approval`,
+      [auth.agent.tenant_id,auth.agent.id,sid,name,b.sessionId,filePath,filePath.split('\\').pop(),hash,publisher,thumb,reason,requestSource,autoLaunchOnApproval,managed.code,managed.digest])
     return c.json({success:true,requestId:result.rows[0].id,status:'pending',
       autoLaunchOnApproval:result.rows[0].auto_launch_on_approval},201)
   })
@@ -98,7 +109,8 @@ export function registerRmmEpmFileRoutes(app) {
     const expired=item.status==='approved' && new Date(item.approval_expires_at)<=new Date()
     return c.json({success:true,status:expired?'expired':item.status,
       approvalExpiresAt:item.approval_expires_at,decisionNote:item.decision_note,
-      autoLaunchOnApproval:item.auto_launch_on_approval===true})
+      autoLaunchOnApproval:item.auto_launch_on_approval===true,
+      operationCode:item.managed_action_code,argumentsSha256:item.managed_arguments_sha256})
   })
   app.post('/api/v1/agent/epm/file-requests/:id/redeem', async c => {
     const auth=await requireAgent(c); if(auth.error) return auth.error
@@ -110,9 +122,12 @@ export function registerRmmEpmFileRoutes(app) {
       `UPDATE rmm_epm_file_requests SET status='redeemed',redeemed_at=now(),updated_at=now()
        WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3 AND status='approved'
          AND approval_expires_at>now() AND requester_sid=$4 AND requester_session_id=$5
-         AND file_path=$6 AND file_sha256=$7 AND signer_thumbprint=$8 RETURNING id`,
+         AND file_path=$6 AND file_sha256=$7 AND signer_thumbprint=$8
+         AND managed_action_code IS NOT DISTINCT FROM $9
+         AND managed_arguments_sha256 IS NOT DISTINCT FROM $10 RETURNING id`,
       [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,clean(b.sid),b.sessionId,
-       clean(b.path),clean(b.sha256).toUpperCase(),clean(b.signerThumbprint).toUpperCase()])
+       clean(b.path),clean(b.sha256).toUpperCase(),clean(b.signerThumbprint).toUpperCase(),
+       clean(b.operationCode)||null,clean(b.argumentsSha256).toUpperCase()||null])
     if (!result.rowCount) return c.json({error:'Approval expired, changed or already used.'},409)
     return c.json({success:true,redeemed:true})
   })
@@ -200,7 +215,7 @@ export function registerRmmEpmFileRoutes(app) {
     const auth=await requireTechnician(c); if(auth.error) return auth.error
     const q=await pool.query(
       `SELECT id,agent_device_id,requester_sid,requester_name,file_name,file_path,
-       file_sha256,publisher,signer_thumbprint,business_reason,status,request_source,auto_launch_on_approval,
+       file_sha256,publisher,signer_thumbprint,business_reason,status,request_source,auto_launch_on_approval,managed_action_code,managed_arguments_sha256,
        decision_note,created_at,decided_at,approval_expires_at,redeemed_at,
        launch_failure_stage,launch_failure_code,launch_failure_at,
        launch_pid,launch_started_at,launch_ended_at,launch_exit_code,

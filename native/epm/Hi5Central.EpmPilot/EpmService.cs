@@ -10,7 +10,8 @@ using System.Text.Json;
 namespace Hi5Central.EpmPilot;
 
 internal sealed record ApprovalCache(
-    Guid Id,string Sid,int SessionId,FileProof Proof,bool AutoLaunchOnApproval);
+    Guid Id,string Sid,int SessionId,FileProof Proof,bool AutoLaunchOnApproval,
+    string OperationCode="",string ArgumentsSha256="");
 internal sealed record UacReviewCache(
     Guid Id,string Sid,int Session,int ConsentPid,DateTimeOffset ConsentStarted,string Reason);
 
@@ -20,6 +21,7 @@ internal sealed class EpmService : ServiceBase
     private readonly CancellationTokenSource stop=new();
     private readonly ConcurrentDictionary<Guid,ApprovalCache> approvals=new();
     private readonly ConcurrentDictionary<Guid,UacReviewCache> uacReviews=new();
+    private readonly PreparedManagedUac preparedManaged=new();
     private readonly ConcurrentDictionary<int,(string sid,int session)> launchedJobs=new();
     private readonly EpmApi api=new();
     private readonly SemaphoreSlim gate=new(1,1);
@@ -110,7 +112,10 @@ internal sealed class EpmService : ServiceBase
                      && Guid.TryParse(reviewId.GetString(),out var parsedReviewId)
                        ? parsedReviewId:Guid.Empty,pipe,caller,ct),
                 "check"=>await Check(file,caller,ct),
+                "managed-prepare"=>PrepareManagedAction(file,caller),
+                "managed-abandon"=>new {success=preparedManaged.Abandon(caller.sid,caller.session,file)},
                 "run"=>await Run(file,caller,ct,pipe),
+                "managed-run"=>await Run(file,caller,ct,pipe,true),
                 "job"=>Job(data.TryGetProperty("processId",out var job)?job.GetInt32():0,caller),
                 "watch"=>await Watch(caller,ct),
                 _=>new {success=false,error="Unknown EPM request"}
@@ -124,6 +129,22 @@ internal sealed class EpmService : ServiceBase
         // Named-pipe writes are not buffered like StreamWriter. No FlushAsync:
         // flushing a duplex pipe can wait on its peer and deadlock.
     }
+    private object PrepareManagedAction(string code,(string sid,string name,int session) caller)
+    {
+        if(!caller.sid.StartsWith("S-1-5-21-",StringComparison.Ordinal) || caller.session<=0)
+            throw new UnauthorizedAccessException("Only an interactive employee can prepare a managed UAC action.");
+        var action=ManagedUacActions.Resolve(code)
+            ?? throw new UnauthorizedAccessException("This Windows operation is not on the Newtest allowlist.");
+        // Trust the Microsoft signature and exact installed image before a
+        // secure desktop request is even presented. Paths and command lines
+        // are not read from the employee or UAC field.
+        _=VerifiedFile.Inspect(action.Path);
+        preparedManaged.Begin(caller.sid,caller.session,action);
+        return new {success=true,actionCode=action.Code,actionName=action.Name,
+            path=action.Path,arguments=action.Arguments,
+            argumentsSha256=action.ArgumentsSha256,expiresInSeconds=180};
+    }
+
     private async Task<object> SubmitNativeUacReview(string reason,
         NamedPipeServerStream pipe,(string sid,string name,int session) caller,CancellationToken ct)
     {
@@ -148,6 +169,31 @@ internal sealed class EpmService : ServiceBase
             if(!sid.StartsWith("S-1-5-21-",StringComparison.Ordinal)
                 || identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)==true)
                 throw new UnauthorizedAccessException("Only a standard interactive user may request UAC review.");
+            // A prior Hi5Central-controlled prelaunch selection may bind
+            // exactly ONE of five known Windows operations to this session.
+            // This NEVER resumes or authenticates the ORIGINAL consent.exe
+            // operation; after approval the broker launches only the recorded
+            // image and immutable arguments as a separate, one-time job.
+            var managed=preparedManaged.Consume(sid,caller.session);
+            if(managed is not null)
+            {
+                var request=await Request(managed.Path,trimmed,
+                    (sid,identity.Name,caller.session),ct,"managed-uac",true,
+                    managed.Code,managed.ArgumentsSha256);
+                using var parsed=JsonDocument.Parse(JsonSerializer.Serialize(request));
+                var item=parsed.RootElement;
+                if(!item.GetProperty("success").GetBoolean())
+                    throw new InvalidOperationException("Managed UAC request was not accepted.");
+                Guid id=Guid.Parse(item.GetProperty("requestId").ToString());
+                uacReviews[id]=new UacReviewCache(
+                    id,sid,caller.session,(int)pid,started,trimmed);
+                return new {success=true,requestId=id.ToString(),
+                    status=item.GetProperty("status").GetString()??"pending",
+                    managedAction=true,managedActionName=managed.Name,
+                    credentialReleaseEnabled=false,
+                    message="The exact Hi5Central-managed Windows action was queued. Cancel the current UAC; after RMM approval it will start as a separate, verified operation."};
+            }
+
             // No guessed application path. No Windows administrator credential.
             using var response=await api.PostAsync("/api/v1/agent/epm/uac-reviews",new {
                 sid,username=identity.Name,sessionId=caller.session,
@@ -191,6 +237,10 @@ internal sealed class EpmService : ServiceBase
         {
             if(user.User?.Value!=review.Sid)
                 throw new UnauthorizedAccessException("Windows requester changed.");
+            if(approvals.TryGetValue(id,out var managedApproval)
+                && managedApproval.OperationCode.Length>0)
+                return new {success=true,status=await Status(managedApproval,ct),
+                    requestId=id,managedAction=true,credentialReleaseEnabled=false};
             using var result=await api.PostAsync(
                 "/api/v1/agent/epm/uac-reviews/"+review.Id+"/status",new {
                     sid=review.Sid,username=user.Name,sessionId=review.Session,
@@ -264,32 +314,50 @@ internal sealed class EpmService : ServiceBase
         finally {CloseHandle(process);}
     }
 
-    private ApprovalCache? Match(string path,(string sid,string name,int session) caller) {
+    private ApprovalCache? Match(string path,(string sid,string name,int session) caller,
+        string operationCode="") {
         return approvals.Values.OrderByDescending(x=>x.Id)
             .FirstOrDefault(x=>x.Sid==caller.sid && x.SessionId==caller.session
+                && x.OperationCode==operationCode
                 && StringComparer.OrdinalIgnoreCase.Equals(x.Proof.Path,Path.GetFullPath(path)));
     }
     private object ToApiBinding(ApprovalCache item) => new {
         sid=item.Sid,sessionId=item.SessionId,path=item.Proof.Path,sha256=item.Proof.Hash,
-        signerThumbprint=item.Proof.Thumbprint
+        signerThumbprint=item.Proof.Thumbprint,
+        operationCode=item.OperationCode,
+        argumentsSha256=item.ArgumentsSha256
     };
     private async Task<string> Status(ApprovalCache item,CancellationToken ct) {
         using var r=await api.PostAsync("/api/v1/agent/epm/file-requests/"+item.Id+"/status",ToApiBinding(item),ct);
         return r.RootElement.GetProperty("status").GetString()??"unknown";
     }
     private async Task<object> Request(string path,string reason,(string sid,string name,int session) caller,CancellationToken ct,
-        string requestSource="explorer",bool autoLaunchOnApproval=false) {
+        string requestSource="explorer",bool autoLaunchOnApproval=false,
+        string operationCode="",string argumentsSha256="") {
         if(string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Choose an executable first.");
         // The consent-host request is never permitted to supply an executable
         // or request automatic launch. Only a standard user-selected EXE can.
-        bool mayAutoLaunch=ApprovalAutoLaunchPolicy.CanEnable(
+        bool managedRoute=requestSource=="managed-uac";
+        if(managedRoute)
+        {
+            var action=ManagedUacActions.Resolve(operationCode);
+            if(action is null
+                || !string.Equals(action.Path,path,StringComparison.OrdinalIgnoreCase)
+                || action.ArgumentsSha256!=argumentsSha256
+                || !caller.sid.StartsWith("S-1-5-21-",StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("Untrusted managed operation identity or fixed argument digest.");
+        }
+        else if(operationCode.Length>0 || argumentsSha256.Length>0)
+            throw new UnauthorizedAccessException("Unbound native UAC cannot request a managed operation.");
+        bool mayAutoLaunch=managedRoute || ApprovalAutoLaunchPolicy.CanEnable(
             autoLaunchOnApproval,requestSource,caller.sid);
         var original=VerifiedFile.Inspect(path);
-        var cached=Match(original.Path,caller);
+        var cached=Match(original.Path,caller,operationCode);
         if(cached is not null && cached.Proof.Hash==original.Hash && cached.Proof.Thumbprint==original.Thumbprint) {
             var status=await Status(cached,ct);
             if(status is "pending" or "approved")
-                return new {success=true,status,requestId=cached.Id,file=original.Name};
+                return new {success=true,status,requestId=cached.Id,file=original.Name,
+                    autoLaunchOnApproval=cached.AutoLaunchOnApproval};
         }
         if(reason.Trim().Length is < 20 or > 2000)
             throw new InvalidOperationException("Provide a business reason between 20 and 2000 characters.");
@@ -299,16 +367,19 @@ internal sealed class EpmService : ServiceBase
                 sid=caller.sid,username=caller.name,sessionId=caller.session,path=original.Path,
                 sha256=original.Hash,signerThumbprint=original.Thumbprint,publisher=original.Publisher,
                 signatureStatus="Valid",reason=reason.Trim(),source=requestSource,
-                autoLaunchOnApproval=mayAutoLaunch
+                autoLaunchOnApproval=mayAutoLaunch,operationCode=managedRoute?operationCode:null,
+                argumentsSha256=managedRoute?argumentsSha256:null
             },ct)) {
             var id=Guid.Parse(result.RootElement.GetProperty("requestId").GetString()!);
             bool acceptedAutoLaunch=mayAutoLaunch
                 && result.RootElement.TryGetProperty("autoLaunchOnApproval",out var ackAuto)
                 && ackAuto.ValueKind==JsonValueKind.True;
-            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original,acceptedAutoLaunch);
+            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original,
+                acceptedAutoLaunch,operationCode,argumentsSha256);
             string status=result.RootElement.GetProperty("status").GetString()??"pending";
             return new {success=true,status,requestId=id,file=original.Name,
-                publisher=original.Publisher,autoLaunchOnApproval=acceptedAutoLaunch};
+                publisher=original.Publisher,autoLaunchOnApproval=acceptedAutoLaunch,
+                operationCode=managedRoute?operationCode:null};
         }
     }
     private async Task<object> Check(string path,(string sid,string name,int session) caller,CancellationToken ct) {
@@ -332,6 +403,7 @@ internal sealed class EpmService : ServiceBase
                 var row=response.RootElement;
                 files.Add(new {
                     path=item.Proof.Path,requestId=item.Id,
+                    operationCode=item.OperationCode,
                     status=row.GetProperty("status").GetString()??"unknown",
                     autoLaunchOnApproval=ApprovalAutoLaunchPolicy.ShouldStart(
                         row.GetProperty("status").GetString()??"unknown",
@@ -344,7 +416,8 @@ internal sealed class EpmService : ServiceBase
             } catch { /* lost agent session/network is not approval */ }
         }
         var reviews=new List<object>();
-        foreach(var review in uacReviews.Values.Where(x=>x.Sid==caller.sid && x.Session==caller.session)){
+        foreach(var review in uacReviews.Values.Where(x=>x.Sid==caller.sid && x.Session==caller.session
+            && (!approvals.TryGetValue(x.Id,out var mapped)||mapped.OperationCode.Length==0))){
             if(review.ConsentStarted<DateTimeOffset.UtcNow.AddHours(-24)) {
                 uacReviews.TryRemove(review.Id,out _);
                 continue;
@@ -473,9 +546,19 @@ internal sealed class EpmService : ServiceBase
         }
     }
 
-    private async Task<object> Run(string path,(string sid,string name,int session) caller,
-        CancellationToken ct,NamedPipeServerStream pipe) {
-        var existing=Match(path,caller) ?? throw new InvalidOperationException("No request exists for this Windows user and file.");
+    private async Task<object> Run(string requested,(string sid,string name,int session) caller,
+        CancellationToken ct,NamedPipeServerStream pipe,bool managedRun=false) {
+        // This is a separate privileged execution job, not a resumed UAC
+        // consent operation. The operation name is compiled into our allowlist.
+        var action=managedRun ? ManagedUacActions.Resolve(requested) : null;
+        if(managedRun && action is null)
+            throw new UnauthorizedAccessException("Unknown managed Windows action.");
+        string path=action?.Path??requested;
+        var existing=Match(path,caller,action?.Code??"")
+            ?? throw new InvalidOperationException("No approval exists for this user, exact Windows action and session.");
+        if(managedRun && (!existing.AutoLaunchOnApproval
+            || existing.ArgumentsSha256!=action!.ArgumentsSha256))
+            throw new UnauthorizedAccessException("The operation code or command arguments differ from the approved action.");
         if(await Status(existing,ct)!="approved") throw new InvalidOperationException("This file has not been approved or the approval has expired.");
         // Hold a deny-write/deny-delete handle throughout redemption and process
         // creation. If the file changes, disappears, is replaced, or is unsigned,
@@ -511,7 +594,7 @@ internal sealed class EpmService : ServiceBase
                                         ? (long?)observation.ExitCode.Value : null,
                                     reason=observation.EndReason,elapsedMs=observation.ElapsedMs
                                 },CancellationToken.None);
-                        });
+                        },approvedArguments:action?.Arguments??"");
                 });
             approvals.TryRemove(existing.Id,out _);
             launchedJobs[processId]=(caller.sid,caller.session);

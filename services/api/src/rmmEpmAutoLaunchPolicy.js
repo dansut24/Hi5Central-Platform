@@ -3,7 +3,7 @@
 export function validateFileAutoLaunchIntent(body) {
   const value=body?.autoLaunchOnApproval
   if (value===undefined || value===false) return {ok:true, autoLaunchOnApproval:false}
-  if (value!==true || body?.source!=='explorer')
+  if (value!==true || !['explorer','managed-uac'].includes(body?.source))
     return {ok:false,error:'Automatic launch requires an explicit verified Explorer EXE request.'}
   return {ok:true,autoLaunchOnApproval:true}
 }

@@ -20,3 +20,8 @@ test('native UAC reviews, missing origin, and malformed settings cannot auto-sta
     {source:'explorer',autoLaunchOnApproval:null},
   ])assert.equal(validateFileAutoLaunchIntent(body).ok,false)
 })
+
+test('a typed managed request still needs explicit auto-launch consent',()=>{
+  assert.equal(validateFileAutoLaunchIntent({source:'managed-uac',autoLaunchOnApproval:true}).ok,true)
+  assert.equal(validateFileAutoLaunchIntent({source:'managed-uac',autoLaunchOnApproval:false}).autoLaunchOnApproval,false)
+})

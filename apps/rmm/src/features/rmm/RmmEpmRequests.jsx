@@ -134,16 +134,22 @@ export function RmmEpmRequests() {
       </section>}
     </section>
     <section className="app-portal-card app-portal-wide">
-      <div className="app-portal-card-title"><div><h3><ShieldCheck size={17}/> Executable approval queue</h3>
-        <p>Trust status and SHA-256 are independently rechecked by the Windows broker before execution. A UAC tile request targets the EXE manually selected by the employee; it does not automatically resume the original UAC action.</p></div></div>
+      <div className="app-portal-card-title"><div><h3><ShieldCheck size={17}/> Executable and managed Windows action approvals</h3>
+        <p>Trust status and SHA-256 are independently rechecked by the Windows broker before execution. Managed Windows action requests bind one of five approved Windows binaries and its fixed arguments before the UAC prompt. They never resume the original UAC or elevate an unknown operation.</p></div></div>
       {!rows.length && <p>No file elevation requests. The Newtest Lenovo pilot only accepts signed, locally verified EXE files.</p>}
       {rows.map(r=><article className="app-portal-approval-item" key={r.id}>
         <div className="app-portal-approval-summary" style={{overflowWrap:'anywhere'}}>
           <strong>{r.file_name}</strong>
           <small>{r.requester_name || r.requester_sid} · {new Date(r.created_at).toLocaleString()}</small>
-          <small><b>Origin:</b> {r.request_source==='native-uac'
+          <small><b>Origin:</b> {r.request_source==='managed-uac'
+            ? 'Managed Windows UAC — exact operation preselected by employee'
+            : r.request_source==='native-uac'
             ? 'Windows UAC — user explicitly selected and verified EXE'
             : 'Explorer / browser — selected EXE'}</small>
+          {r.managed_action_code && <small>
+            <b>Verified operation:</b> {r.managed_action_code}
+            {' '}· <b>Fixed arguments SHA-256:</b> {r.managed_arguments_sha256}
+          </small>}
           <small><b>After approval:</b> {r.auto_launch_on_approval
             ? 'Auto-start the exact verified EXE (explicit employee opt-in)'
             : 'Notify employee to launch the EXE manually'}</small>
@@ -153,6 +159,9 @@ export function RmmEpmRequests() {
           <small><b>Signing thumbprint:</b> {r.signer_thumbprint}</small>
           <small><b>User SID:</b> {r.requester_sid} · <b>Device:</b> {r.agent_device_id}</small>
           <p><b>Business reason:</b> {r.business_reason}</p>
+          {r.managed_action_code && <p><b>Execution:</b> RMM approval permits one
+            separately launched Windows job for this preselected managed action.
+            The original Windows UAC prompt is never authenticated or resumed.</p>}
           {r.decision_note && <p><b>Technician decision:</b> {r.decision_note}</p>}
           {r.launch_pid && <p>
             <b>Windows launch:</b> Process ID {r.launch_pid}.

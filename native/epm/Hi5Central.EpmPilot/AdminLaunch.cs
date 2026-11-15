@@ -32,7 +32,7 @@ internal static class AdminLaunch
     private const uint WAIT_FAILED=0xFFFFFFFF;
 
     public static int Launch(string approvedFile,int sessionId,Action<string> grantInteractiveDesktop,
-        Func<EpmProcessObservation,Task>? onExited=null)
+        Func<EpmProcessObservation,Task>? onExited=null,string approvedArguments="")
     {
         string account="H5EP"+Convert.ToHexString(RandomNumberGenerator.GetBytes(5));
         string password=Convert.ToHexString(RandomNumberGenerator.GetBytes(24))+"!qA9";
@@ -112,7 +112,9 @@ internal static class AdminLaunch
             phase="create-elevated-process";
             var startup=new STARTUPINFO {
                 cb=Marshal.SizeOf<STARTUPINFO>(),lpDesktop=@"winsta0\default" };
-            string command="\""+approvedFile+"\"";
+            // Command arguments are selected only by compiled-in managed action policy.
+            string command="\""+approvedFile+"\""
+                +(approvedArguments.Length==0?"":" "+approvedArguments);
             if(!CreateProcessAsUser(lease.Token,approvedFile,command,
                 IntPtr.Zero,IntPtr.Zero,false,
                 CREATE_NEW_CONSOLE|CREATE_SUSPENDED|CREATE_UNICODE_ENVIRONMENT,

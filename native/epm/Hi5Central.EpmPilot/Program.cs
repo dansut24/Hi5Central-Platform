@@ -46,6 +46,7 @@ internal static class Program
             UacLaunchIntents.SelfTest();
             NativeUacReviewPolicy.SelfTest();
             ApprovalAutoLaunchPolicy.SelfTest();
+            ManagedUacActions.SelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
@@ -88,6 +89,18 @@ internal static class Program
             if(!created)return;
             try {Application.Run(new ApprovalTray());}
             finally {singleton.ReleaseMutex();}
+            return;
+        }
+        if(args.Length==2 && args[0]=="--managed-uac")
+        {
+            if(ManagedUacActions.Resolve(args[1]) is null)
+            {
+                MessageBox.Show("This operation is not enabled for Hi5Central EPM.",
+                    "Hi5Central Managed UAC",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+                return;
+            }
+            EnsureWatcherForCurrentUser();
+            Application.Run(new ManagedUacLauncherContext(args[1]));
             return;
         }
         if(args.Length!=1 || !args[0].EndsWith(".exe",StringComparison.OrdinalIgnoreCase)) {
@@ -215,6 +228,66 @@ internal static class Program
         finally {grant?.Dispose();}
     }
 
+    internal static async Task StartManagedUacPrompt(string code)
+    {
+        var action=ManagedUacActions.Resolve(code);
+        if(action is null)
+            throw new UnauthorizedAccessException("This managed Windows action is not supported.");
+        using var response=await AskBroker("managed-prepare",path:code);
+        var root=response.RootElement;
+        if(!root.TryGetProperty("success",out var ok)
+            || ok.ValueKind!=JsonValueKind.True
+            || root.GetProperty("actionCode").GetString()!=code
+            || !string.Equals(root.GetProperty("path").GetString(),action.Path,
+                StringComparison.OrdinalIgnoreCase)
+            || root.GetProperty("arguments").GetString()!=action.Arguments
+            || root.GetProperty("argumentsSha256").GetString()!=action.ArgumentsSha256)
+            throw new UnauthorizedAccessException("Managed Windows UAC preparation failed identity validation.");
+        try
+        {
+            // The real Windows UAC credential screen still appears. Choosing
+            // Hi5Central in that screen queues only this known managed intent.
+            // The original UAC must be cancelled; it is never authenticated.
+            using var process=Process.Start(new ProcessStartInfo {
+                FileName=action.Path,Arguments=action.Arguments,
+                Verb="runas",UseShellExecute=true
+            });
+        }
+        catch(System.ComponentModel.Win32Exception error) when(error.NativeErrorCode==1223)
+        {
+            // Expected when the employee closes the original UAC after
+            // submitting a managed EPM request. No Windows credential passed.
+        }
+        finally
+        {
+            // If the user cancelled before requesting Hi5Central EPM,
+            // release the three-minute prelaunch reservation immediately.
+            // A request already consumed by trusted consent.exe is unaffected.
+            try {using var abandoned=await AskBroker("managed-abandon",path:code);} catch { }
+        }
+    }
+
+    internal static async Task LaunchApprovedManagedAction(string code)
+    {
+        try
+        {
+            if(ManagedUacActions.Resolve(code) is null)
+                throw new UnauthorizedAccessException("Unknown Hi5Central managed action.");
+            using var response=await AskBroker("managed-run",path:code);
+            if(!Ok(response.RootElement))
+                throw new InvalidOperationException(Value(response.RootElement,"error"));
+            int pid=response.RootElement.GetProperty("processId").GetInt32();
+            // Retain and revoke the temporary desktop ACL for the lifetime
+            // of the exact approved process tree.
+            await WaitForJobAndRevokeGrant(pid);
+        }
+        catch(Exception error)
+        {
+            MessageBox.Show("Hi5Central couldn't launch the approved Windows action.\n\n"+error.Message,
+                "Hi5Central Managed UAC",MessageBoxButtons.OK,MessageBoxIcon.Warning);
+        }
+    }
+
     private static async Task WaitForJobAndRevokeGrant(int processId)
     {
         try
@@ -284,6 +357,30 @@ internal static class Program
             MessageBox.Show("Hi5Central elevation could not continue.\n\n"+e.Message,
                 "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Warning);
         }
+    }
+}
+internal sealed class ManagedUacLauncherContext : ApplicationContext
+{
+    private readonly System.Windows.Forms.Timer once;
+    internal ManagedUacLauncherContext(string code)
+    {
+        once=new System.Windows.Forms.Timer {Interval=120};
+        once.Tick+=async(_,_)=>{
+            once.Stop();
+            try {await Program.StartManagedUacPrompt(code);}
+            catch(Exception error)
+            {
+                MessageBox.Show(error.Message,"Hi5Central Managed UAC",
+                    MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+            finally {ExitThread();}
+        };
+        once.Start();
+    }
+    protected override void ExitThreadCore()
+    {
+        once.Stop();once.Dispose();
+        base.ExitThreadCore();
     }
 }
 internal sealed class LauncherContext : ApplicationContext
@@ -408,7 +505,13 @@ internal sealed class ApprovalTray : ApplicationContext
                             // requester SID/session and one-time API redemption.
                             Notify("Hi5Central EPM approved — launching",
                                 Path.GetFileName(path)+" approved. Attempting one-time verified launch.");
-                            if(autoStarted.Add(id))_ = Program.RequestOrLaunch(path,true);
+                            if(autoStarted.Add(id)) {
+                                string code=Read(row,"operationCode");
+                                if(code.Length>0)
+                                    _ = Program.LaunchApprovedManagedAction(code);
+                                else
+                                    _ = Program.RequestOrLaunch(path,true);
+                            }
                         } else {
                             Notify("Hi5Central EPM approved",
                                 Path.GetFileName(path)+" approved once. Click this notification to run the verified file, or use Run with Hi5Central admin again.",

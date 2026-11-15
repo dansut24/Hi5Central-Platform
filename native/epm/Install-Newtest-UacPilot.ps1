@@ -91,10 +91,33 @@ try {
   }
   $tileKey='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{7464D2E2-202B-4546-953D-9AFCDA3201E6}'
   if(!(Test-Path $tileKey)){throw 'Windows UAC tile was not registered.'}
+  # Pilot-only shortcuts launch the five known operation adapters BEFORE the
+  # actual Windows UAC screen. The adapter carries no arbitrary executable
+  # or arguments and the broker always verifies their Microsoft signatures.
+  $shortcuts=Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Hi5Central EPM Newtest'
+  New-Item -Path $shortcuts -ItemType Directory -Force | Out-Null
+  $shortcutShell=New-Object -ComObject WScript.Shell
+  $target=Join-Path $env:ProgramFiles 'Hi5Central\EPM\Hi5CentralEpmPilot.exe'
+  $actions=@(
+    @{Code='notepad';Name='01 - Notepad (admin approval)'},
+    @{Code='regedit';Name='02 - Registry Editor (admin approval)'},
+    @{Code='services';Name='03 - Windows Services (admin approval)'},
+    @{Code='powershell';Name='04 - PowerShell (admin approval)'},
+    @{Code='msiexec-help';Name='05 - Windows Installer help (admin approval)'}
+  )
+  foreach($item in $actions) {
+    $link=$shortcutShell.CreateShortcut((Join-Path $shortcuts ($item.Name+'.lnk')))
+    $link.TargetPath=$target
+    $link.Arguments='--managed-uac '+$item.Code
+    $link.WorkingDirectory=Split-Path -Parent $target
+    $link.Description='Hi5Central EPM: registered Windows action with RMM one-time approval'
+    $link.Save()
+  }
+  Write-Host 'Five registered Hi5Central-managed Windows UAC shortcuts added to Start Menu.'
   Write-Host 'PASS: Newtest EPM service + native Windows UAC review tile installed.' -ForegroundColor Green
   Write-Host "Timed automatic rollback: $RollbackMinutes minutes." -ForegroundColor Cyan
   Write-Host 'Run Run-Newtest-UacCases.ps1 as the STANDARD Windows user; it starts the notification watcher.'
-  Write-Warning 'Review-only UAC requests do not authenticate, elevate or resume Windows UAC.'
+  Write-Warning 'Unmatched UAC requests remain review-only. Registered managed actions launch separately after explicit RMM approval; original UAC is cancelled.'
 } catch {
   $errorText=$_.Exception.Message
   try {& (Join-Path $installedRoot 'Uninstall-Newtest-UacPilot.ps1')} catch {

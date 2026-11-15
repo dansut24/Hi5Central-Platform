@@ -47,5 +47,9 @@ $existingTask=Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
 if($existingTask){
   Unregister-ScheduledTask -TaskName $task -Confirm:$false -ErrorAction Stop
 }
+$pilotShortcuts=Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Hi5Central EPM Newtest'
+if(Test-Path -LiteralPath $pilotShortcuts){
+  Remove-Item -LiteralPath $pilotShortcuts -Recurse -Force -ErrorAction Stop
+}
 Write-Host ('PASS: Newtest UAC pilot rollback completed'+ $(if($Automatic){' (automatic).'}else{'.'}))
 Write-Host 'Windows built-in password/PIN/Hello providers were not modified.'

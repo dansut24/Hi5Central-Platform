@@ -71,3 +71,32 @@ legacy approval cannot be converted into automatic execution retrospectively.
 Native UAC reviews without a verified target remain review-only and do not
 launch or authenticate Windows prompts. Log off/on after upgrading the broker
 to replace an earlier notification watcher; then create a fresh EXE request.
+
+
+FIVE REGISTERED WINDOWS UAC ACTIONS (MANAGED PILOT V4)
+This pilot adds five Start Menu entries in 'Hi5Central EPM Newtest' and
+an interactive test menu. Each entry has a fixed, compiled operation code.
+It registers the exact Windows-signed executable and immutable arguments
+with the authenticated local SYSTEM broker BEFORE opening a real UAC prompt:
+  notepad        = System32/notepad.exe (no arguments)
+  regedit        = Windows/regedit.exe (no arguments)
+  services       = System32/mmc.exe services.msc
+  powershell     = System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -NoExit
+  msiexec-help   = System32/msiexec.exe /?
+The employee selects More choices > Hi5Central EPM in the resulting native
+UAC screen and enters a justification. The broker checks the trusted UAC host,
+consumes the short-lived, SID/session-bound intent, then records a separate
+managed-uac signed-file request in RMM. RMM must approve the exact file and
+fixed argument digest. The employee CANCELS the original Windows UAC prompt.
+After approval, the Windows watcher requests a separate single-use launch with
+the pre-registered program/arguments. The broker rechecks Authenticode, hash,
+SID/session, operation code, argument digest and one-time redemption.
+
+An unprepared UAC prompt is still REVIEW-ONLY: the credential tile cannot
+identify its target from Windows and never grants generic admin credentials.
+The managed action is NOT a continuation of a cancelled Windows UAC request.
+Do not approve PowerShell or Registry Editor casually: they are broad-purpose
+administrative applications despite their fixed initial invocation.
+The environment remains scoped to the Newtest Lenovo device and time-limited
+automatic rollback remains in force. The five real Lenovo tests must be run
+interactively; Windows CI cannot exercise a live secure desktop approval.
