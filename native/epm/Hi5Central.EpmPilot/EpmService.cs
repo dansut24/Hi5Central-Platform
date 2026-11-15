@@ -122,10 +122,7 @@ internal sealed class EpmService : ServiceBase
         // SYSTEM process or a user application, may use this special route.
         var expectedRoot=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
         var actual=GetProcessImage(pid);
-        bool windowsHost=new[]{"consent.exe","CredentialUIBroker.exe"}
-            .Any(name=>string.Equals(actual,
-                Path.Combine(expectedRoot,"System32",name),
-                StringComparison.OrdinalIgnoreCase));
+        bool windowsHost=IsTrustedWindowsCredentialHostPath(actual,expectedRoot);
         if(!windowsHost || process.SessionId!=caller.session)
             throw new UnauthorizedAccessException("Untrusted credential host or Windows session.");
         if(!WTSQueryUserToken((uint)caller.session,out var interactiveToken))
@@ -141,6 +138,16 @@ internal sealed class EpmService : ServiceBase
             // identity binding, API submission and one-time approval caching.
             return await Request(file,reason,(sid,identity.Name,caller.session),ct);
         }
+    }
+
+    internal static bool IsTrustedWindowsCredentialHostPath(string actual,string windowsRoot)
+    {
+        // No path prefix, executable basename, or user-provided alias is
+        // authoritative. Only the two exact Microsoft-hosted paths qualify.
+        return new[]{"consent.exe","CredentialUIBroker.exe"}
+            .Any(name=>string.Equals(actual,
+                Path.Combine(windowsRoot,"System32",name),
+                StringComparison.OrdinalIgnoreCase));
     }
 
     private static string GetProcessImage(uint pid)
