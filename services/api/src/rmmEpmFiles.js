@@ -131,13 +131,51 @@ export function registerRmmEpmFileRoutes(app) {
       [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,clean(b.sid),stage,win32Code])
     return c.json({success:Boolean(result.rowCount)})
   })
+  // Agent-authenticated, request-bound process telemetry. Completion of a
+  // process is deliberately NOT treated as successful software installation.
+  app.post('/api/v1/agent/epm/file-requests/:id/lifecycle', async c => {
+    const auth=await requireAgent(c); if(auth.error) return auth.error
+    if(!validId(c.req.param('id'))) return c.json({error:'Invalid request.'},400)
+    const b=await c.req.json().catch(()=>({}))
+    const phase=clean(b.phase), pid=b.pid, sid=clean(b.sid)
+    const reasons=new Set(['job-empty','timeout','job-query-error','monitor-error','service-stopped'])
+    if(!['started','ended'].includes(phase) || !/^S-1-[0-9-]{5,220}$/.test(sid)
+      || !Number.isInteger(pid) || pid<1 || pid>2147483647)
+      return c.json({error:'Invalid process lifecycle.'},400)
+    if(phase==='started') {
+      const q=await pool.query(
+        `UPDATE rmm_epm_file_requests
+           SET launch_pid=$5,launch_started_at=coalesce(launch_started_at,now()),updated_at=now()
+         WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3 AND requester_sid=$4
+           AND status='redeemed' AND launch_pid IS NULL
+         RETURNING id`,
+        [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,sid,pid])
+      return c.json({success:Boolean(q.rowCount)})
+    }
+    const reason=clean(b.reason), exitCode=b.exitCode, elapsedMs=b.elapsedMs
+    if(!reasons.has(reason) || (exitCode!==null && (!Number.isInteger(exitCode) || exitCode<0 || exitCode>4294967295))
+      || !Number.isInteger(elapsedMs) || elapsedMs<0 || elapsedMs>2700000)
+      return c.json({error:'Invalid process exit observation.'},400)
+    const q=await pool.query(
+      `UPDATE rmm_epm_file_requests SET launch_pid=coalesce(launch_pid,$5),
+         launch_started_at=coalesce(launch_started_at,now()-($8::integer*interval '1 millisecond')),
+         launch_ended_at=now(),launch_exit_code=$6,launch_end_reason=$7,launch_elapsed_ms=$8,
+         updated_at=now()
+       WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3 AND requester_sid=$4
+         AND status='redeemed' AND (launch_pid IS NULL OR launch_pid=$5)
+         AND launch_ended_at IS NULL RETURNING id`,
+      [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,sid,pid,exitCode,reason,elapsedMs])
+    return c.json({success:Boolean(q.rowCount)})
+  })
   app.get('/api/v1/rmm/epm/file-requests', async c => {
     const auth=await requireTechnician(c); if(auth.error) return auth.error
     const q=await pool.query(
       `SELECT id,agent_device_id,requester_sid,requester_name,file_name,file_path,
        file_sha256,publisher,signer_thumbprint,business_reason,status,
        decision_note,created_at,decided_at,approval_expires_at,redeemed_at,
-       launch_failure_stage,launch_failure_code,launch_failure_at
+       launch_failure_stage,launch_failure_code,launch_failure_at,
+       launch_pid,launch_started_at,launch_ended_at,launch_exit_code,
+       launch_end_reason,launch_elapsed_ms
        FROM rmm_epm_file_requests WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 150`,
       [auth.session.tenant_id])
     return c.json({requests:q.rows,pilot:true})
