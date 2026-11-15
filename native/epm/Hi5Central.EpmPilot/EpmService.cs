@@ -173,7 +173,10 @@ internal sealed class EpmService : ServiceBase
     // duplication. The employee-side launcher edits only its own desktop ACL.
     internal static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid,Action<string>? diagnosticStage=null)
     {
-        using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(18));
+        // A request-bound 18-second watchdog closes the pipe if an
+        // authenticated user process never acknowledges its desktop grant.
+        // The broker must fail closed rather than leave its privileged
+        // launch thread waiting forever on a synchronous Win32 pipe read.
         var challenge=JsonSerializer.SerializeToUtf8Bytes(new {
             action="grant-local-desktop",adminSid=sid
         });
@@ -193,11 +196,27 @@ internal sealed class EpmService : ServiceBase
             // InvalidOperationException obscured actual desktop Win32 errors.
             var bytes=new byte[1024];
             diagnosticStage?.Invoke("awaiting-ack");
-            // The launch callback is synchronous. Do not block on an overlapped
-            // ReadAsync completion from inside it; Windows may deliver bytes
-            // but .NET's async completion can throw an InvalidOperationException.
-            // The session helper responds with a single bounded JSON message.
-            int count=pipe.Read(bytes,0,bytes.Length);
+            // Do not use sync-over-async here. This exact path is exercised by
+            // Windows CI in PipeProtocolSelfTest.
+            int watchdogState=0; // 0=pending, 1=complete, 2=timed out
+            using var watchdog=new System.Threading.Timer(_ => {
+                if(Interlocked.CompareExchange(ref watchdogState,2,0)==0) {
+                    try { pipe.Dispose(); } catch { }
+                }
+            },null,TimeSpan.FromSeconds(18),Timeout.InfiniteTimeSpan);
+            int count;
+            try {
+                count=pipe.Read(bytes,0,bytes.Length);
+                if(Interlocked.CompareExchange(ref watchdogState,1,0)!=0)
+                    throw new EpmLaunchException("desktop-grant-timeout",0);
+            }
+            catch(Exception) when(Volatile.Read(ref watchdogState)==2) {
+                throw new EpmLaunchException("desktop-grant-timeout",0);
+            }
+            finally {
+                Interlocked.CompareExchange(ref watchdogState,1,0);
+                watchdog.Change(Timeout.InfiniteTimeSpan,Timeout.InfiniteTimeSpan);
+            }
             diagnosticStage?.Invoke("ack-read");
             if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
             if(count>=bytes.Length)
