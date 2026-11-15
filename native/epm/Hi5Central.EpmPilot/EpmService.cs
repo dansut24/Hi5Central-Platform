@@ -170,24 +170,29 @@ internal sealed class EpmService : ServiceBase
 
     // Authenticated, single-use local pipe challenge; no cross-session handle
     // duplication. The employee-side launcher edits only its own desktop ACL.
-    internal static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid)
+    internal static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid,Action<string>? diagnosticStage=null)
     {
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(18));
         var challenge=JsonSerializer.SerializeToUtf8Bytes(new {
             action="grant-local-desktop",adminSid=sid
         });
         try {
+            diagnosticStage?.Invoke("before-challenge-write");
             pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
             pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
+            diagnosticStage?.Invoke("challenge-written");
             // ACK is a single bounded JSON pipe message under 1 KiB.
             // Avoid IsMessageComplete here: its disconnected/read-state
             // InvalidOperationException obscured actual desktop Win32 errors.
             var bytes=new byte[1024];
+            diagnosticStage?.Invoke("awaiting-ack");
             int count=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
+            diagnosticStage?.Invoke("ack-read");
             if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
             if(count>=bytes.Length)
                 throw new EpmLaunchException("desktop-grant-invalid",87);
             using var ack=JsonDocument.Parse(bytes.AsMemory(0,count));
+            diagnosticStage?.Invoke("ack-parsed");
             if(!ack.RootElement.TryGetProperty("granted",out var permitted)
                 || permitted.ValueKind!=JsonValueKind.True)
             {
