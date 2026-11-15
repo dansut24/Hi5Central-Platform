@@ -11,12 +11,15 @@ namespace Hi5Central.EpmPilot;
 
 internal sealed record ApprovalCache(
     Guid Id,string Sid,int SessionId,FileProof Proof);
+internal sealed record UacReviewCache(
+    Guid Id,string Sid,int Session,int ConsentPid,DateTimeOffset ConsentStarted,string Reason);
 
 internal sealed class EpmService : ServiceBase
 {
     internal const string PipeName="Hi5CentralEpmPilot";
     private readonly CancellationTokenSource stop=new();
     private readonly ConcurrentDictionary<Guid,ApprovalCache> approvals=new();
+    private readonly ConcurrentDictionary<Guid,UacReviewCache> uacReviews=new();
     private readonly ConcurrentDictionary<int,(string sid,int session)> launchedJobs=new();
     private readonly EpmApi api=new();
     private readonly SemaphoreSlim gate=new(1,1);
@@ -95,6 +98,10 @@ internal sealed class EpmService : ServiceBase
                 "uac-review"=>await SubmitNativeUacReview(
                     data.TryGetProperty("reason",out var reviewReason)
                       ? reviewReason.GetString()??"": "",pipe,caller,ct),
+                "uac-review-status"=>await NativeUacReviewStatus(
+                    data.TryGetProperty("requestId",out var reviewId)
+                     && Guid.TryParse(reviewId.GetString(),out var parsedReviewId)
+                       ? parsedReviewId:Guid.Empty,pipe,caller,ct),
                 "check"=>await Check(file,caller,ct),
                 "run"=>await Run(file,caller,ct,pipe),
                 "job"=>Job(data.TryGetProperty("processId",out var job)?job.GetInt32():0,caller),
@@ -141,13 +148,52 @@ internal sealed class EpmService : ServiceBase
                 reason=trimmed
             },ct);
             var r=response.RootElement;
+            var reviewId=Guid.Parse(r.GetProperty("requestId").GetString()!);
+            uacReviews[reviewId]=new UacReviewCache(
+                reviewId,sid,caller.session,(int)pid,started,trimmed);
             return new {
                 success=r.GetProperty("success").GetBoolean(),
-                requestId=r.GetProperty("requestId").GetString(),
+                requestId=reviewId.ToString(),
                 status=r.GetProperty("status").GetString(),
                 credentialReleaseEnabled=false,
                 message="Request submitted for review. No administrator credential or elevation was issued."
             };
+        }
+    }
+
+    private async Task<object> NativeUacReviewStatus(Guid id,
+        NamedPipeServerStream pipe,(string sid,string name,int session) caller,CancellationToken ct)
+    {
+        if(id==Guid.Empty || !uacReviews.TryGetValue(id,out var review))
+            throw new UnauthorizedAccessException("Unknown UAC review instance.");
+        if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var pid)
+            || pid!=(uint)review.ConsentPid
+            || caller.sid!="S-1-5-18" || caller.session!=review.Session)
+            throw new UnauthorizedAccessException("UAC review belongs to a different secure process.");
+        using var process=System.Diagnostics.Process.GetProcessById((int)pid);
+        var started=new DateTimeOffset(process.StartTime.ToUniversalTime(),TimeSpan.Zero);
+        if(started!=review.ConsentStarted ||
+            !NativeUacReviewPolicy.ValidConsentInstance(
+                GetProcessImage(pid),Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                caller.sid,process.SessionId,review.Session,started,DateTimeOffset.UtcNow))
+            throw new UnauthorizedAccessException("Windows consent process changed.");
+        if(!WTSQueryUserToken((uint)review.Session,out var userToken))
+            throw new UnauthorizedAccessException("Cannot verify original Windows requester.");
+        using(userToken)
+        using(var user=new WindowsIdentity(userToken.DangerousGetHandle()))
+        {
+            if(user.User?.Value!=review.Sid)
+                throw new UnauthorizedAccessException("Windows requester changed.");
+            using var result=await api.PostAsync(
+                "/api/v1/agent/epm/uac-reviews/"+review.Id+"/status",new {
+                    sid=review.Sid,username=user.Name,sessionId=review.Session,
+                    consentProcessId=review.ConsentPid,
+                    consentStartedAt=review.ConsentStarted.ToString("O"),reason=review.Reason
+                },ct);
+            var status=result.RootElement.GetProperty("status").GetString()??"unknown";
+            if(status is "expired" or "rejected")
+                uacReviews.TryRemove(review.Id,out _);
+            return new {success=true,status,requestId=review.Id,credentialReleaseEnabled=false};
         }
     }
 
