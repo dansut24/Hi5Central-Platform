@@ -86,6 +86,12 @@ internal sealed class EpmService : ServiceBase
             response=type switch {
                 "request"=>await Request(file, data.TryGetProperty("reason",out var reason)?reason.GetString()??"":"",
                     caller,ct),
+                // UAC is hosted by a protected Windows credential UI process.
+                // Never accept the caller SID as the employee SID; authenticate
+                // the Windows host and resolve the interactive session user.
+                "uac-request"=>await RequestFromCredentialUi(file,
+                    data.TryGetProperty("reason",out var uacReason)?uacReason.GetString()??"",
+                    pipe,caller,ct),
                 "check"=>await Check(file,caller,ct),
                 "run"=>await Run(file,caller,ct,pipe),
                 "job"=>Job(data.TryGetProperty("processId",out var job)?job.GetInt32():0,caller),
@@ -101,6 +107,58 @@ internal sealed class EpmService : ServiceBase
         // Named-pipe writes are not buffered like StreamWriter. No FlushAsync:
         // flushing a duplex pipe can wait on its peer and deadlock.
     }
+    internal async Task<object> RequestFromCredentialUi(string file,string reason,
+        NamedPipeServerStream pipe,(string sid,string name,int session) caller,CancellationToken ct)
+    {
+        // UAC request is a non-elevating route to the EXISTING per-file RMM
+        // approval. The credential provider cannot submit admin credentials
+        // and cannot resume the original Windows UAC operation.
+        if(caller.sid!="S-1-5-18")
+            throw new UnauthorizedAccessException("UAC requests require a trusted Windows credential host.");
+        if(!GetNamedPipeClientProcessId(pipe.SafePipeHandle.DangerousGetHandle(),out var pid))
+            throw new UnauthorizedAccessException("Unable to identify Windows credential host.");
+        using var process=System.Diagnostics.Process.GetProcessById((int)pid);
+        // Only the actual Microsoft Windows Credential UI host, not a regular
+        // SYSTEM process or a user application, may use this special route.
+        var expectedRoot=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var actual=GetProcessImage(pid);
+        bool windowsHost=new[]{"consent.exe","CredentialUIBroker.exe"}
+            .Any(name=>string.Equals(actual,
+                Path.Combine(expectedRoot,"System32",name),
+                StringComparison.OrdinalIgnoreCase));
+        if(!windowsHost || process.SessionId!=caller.session)
+            throw new UnauthorizedAccessException("Untrusted credential host or Windows session.");
+        if(!WTSQueryUserToken((uint)caller.session,out var interactiveToken))
+            throw new UnauthorizedAccessException("No interactive Windows user is available.");
+        using(interactiveToken)
+        using(var identity=new WindowsIdentity(interactiveToken.DangerousGetHandle()))
+        {
+            string sid=identity.User?.Value??"";
+            if(!sid.StartsWith("S-1-5-21-",StringComparison.Ordinal)
+                || identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)==true)
+                throw new UnauthorizedAccessException("Invalid interactive user identity.");
+            // Existing Request performs Authenticode, SHA-256, signer, path,
+            // identity binding, API submission and one-time approval caching.
+            return await Request(file,reason,(sid,identity.Name,caller.session),ct);
+        }
+    }
+
+    private static string GetProcessImage(uint pid)
+    {
+        const uint PROCESS_QUERY_LIMITED_INFORMATION=0x1000;
+        var process=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,false,pid);
+        if(process==IntPtr.Zero)
+            throw new UnauthorizedAccessException("Cannot inspect credential host.");
+        try {
+            var buffer=new StringBuilder(32768);
+            uint chars=(uint)buffer.Capacity;
+            if(!QueryFullProcessImageNameW(process,0,buffer,ref chars))
+                throw new UnauthorizedAccessException("Cannot verify credential host path.");
+            return buffer.ToString();
+        }
+        finally {CloseHandle(process);}
+    }
+
     private ApprovalCache? Match(string path,(string sid,string name,int session) caller) {
         return approvals.Values.OrderByDescending(x=>x.Id)
             .FirstOrDefault(x=>x.Sid==caller.sid && x.SessionId==caller.session
@@ -332,6 +390,10 @@ internal sealed class EpmService : ServiceBase
             throw;
         }
     }
+    [DllImport("kernel32.dll",SetLastError=true)]private static extern IntPtr OpenProcess(uint desiredAccess,bool inherit,uint pid);
+    [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)]private static extern bool QueryFullProcessImageNameW(IntPtr process,uint flags,StringBuilder image,ref uint length);
+    [DllImport("kernel32.dll",SetLastError=true)]private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("wtsapi32.dll",SetLastError=true)]private static extern bool WTSQueryUserToken(uint sessionId,out Microsoft.Win32.SafeHandles.SafeAccessTokenHandle userToken);
     [DllImport("kernel32.dll",SetLastError=true)]private static extern bool GetNamedPipeClientProcessId(IntPtr pipe,out uint pid);
     [DllImport("kernel32.dll",SetLastError=true)]private static extern bool ProcessIdToSessionId(uint pid,out uint session);
 }
