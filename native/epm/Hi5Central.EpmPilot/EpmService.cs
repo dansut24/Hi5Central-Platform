@@ -176,21 +176,34 @@ internal sealed class EpmService : ServiceBase
         var challenge=JsonSerializer.SerializeToUtf8Bytes(new {
             action="grant-local-desktop",adminSid=sid
         });
-        pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
-        pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
-        using var reply=new MemoryStream();
-        var bytes=new byte[1024];
-        do {
-            int n=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
-            if(n==0)throw new EpmLaunchException("desktop-grant-connection",109);
-            if(reply.Length+n>2048)
-                throw new EpmLaunchException("desktop-grant-invalid",87);
-            reply.Write(bytes,0,n);
-        } while(!pipe.IsMessageComplete);
-        using var ack=JsonDocument.Parse(reply.ToArray());
-        if(!ack.RootElement.TryGetProperty("granted",out var permitted)
-            || permitted.ValueKind!=JsonValueKind.True)
-            throw new EpmLaunchException("desktop-grant-rejected",5);
+        try {
+            pipe.WriteAsync(challenge,timeout.Token).GetAwaiter().GetResult();
+            pipe.FlushAsync(timeout.Token).GetAwaiter().GetResult();
+            using var reply=new MemoryStream();
+            var bytes=new byte[1024];
+            do {
+                int count=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
+                if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
+                if(reply.Length+count>2048)
+                    throw new EpmLaunchException("desktop-grant-invalid",87);
+                reply.Write(bytes,0,count);
+            } while(!pipe.IsMessageComplete);
+            using var ack=JsonDocument.Parse(reply.ToArray());
+            if(!ack.RootElement.TryGetProperty("granted",out var permitted)
+                || permitted.ValueKind!=JsonValueKind.True)
+                throw new EpmLaunchException("desktop-grant-rejected",5);
+        }
+        catch(Exception failure) when(failure is not EpmLaunchException) {
+            string stage=failure switch {
+                OperationCanceledException => "desktop-grant-timeout",
+                System.IO.IOException => "desktop-grant-pipe-io",
+                System.Text.Json.JsonException => "desktop-grant-json",
+                InvalidOperationException => "desktop-grant-protocol",
+                UnauthorizedAccessException => "desktop-grant-access",
+                _ => "desktop-grant-unexpected"
+            };
+            throw new EpmLaunchException(stage,0);
+        }
     }
 
     private async Task<object> Run(string path,(string sid,string name,int session) caller,
@@ -247,10 +260,20 @@ internal sealed class EpmService : ServiceBase
             // The approval is already consumed, so never automatically retry.
             // Persist only bounded diagnostic codes, not the executable arguments,
             // device credential, account password or Windows token.
-            string stage=error is EpmLaunchException launch
-                ? launch.Stage : "unexpected-launch-error";
+            string stage=error switch {
+                EpmLaunchException launch => launch.Stage,
+                UnauthorizedAccessException => "launch-access-denied",
+                OperationCanceledException => "launch-cancelled",
+                System.IO.IOException => "launch-io",
+                InvalidOperationException => "launch-invalid-operation",
+                System.ComponentModel.Win32Exception => "launch-win32-error",
+                System.Text.Json.JsonException => "launch-json",
+                _ => "unexpected-launch-error"
+            };
             int nativeCode=error is EpmLaunchException native
-                ? native.WindowsCode : 0;
+                ? native.WindowsCode
+                : error is System.ComponentModel.Win32Exception win32
+                    ? Math.Clamp(win32.NativeErrorCode,0,65535) : 0;
             try {
                 using var failed=await api.PostAsync(
                     "/api/v1/agent/epm/file-requests/"+existing.Id+"/failed",
