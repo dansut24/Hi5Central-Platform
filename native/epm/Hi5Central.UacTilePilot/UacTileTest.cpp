@@ -46,14 +46,16 @@ int wmain(int argc,wchar_t** argv) {
     L"one non-default non-autologon tile");
 
   DWORD fields=0;
-  Must(provider->GetFieldDescriptorCount(&fields)==S_OK&&fields==4,
-    L"four display-only fields");
+  Must(provider->GetFieldDescriptorCount(&fields)==S_OK&&fields==5,
+    L"five display-only/justification fields");
   for(DWORD i=0;i<fields;i++) {
     CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR* f=nullptr;
     Must(provider->GetFieldDescriptorAt(i,&f)==S_OK&&f!=nullptr,
       L"field descriptor");
-    Must(f->cpft!=CPFT_PASSWORD_TEXT&&f->cpft!=CPFT_EDIT_TEXT&&f->cpft!=CPFT_SUBMIT_BUTTON,
-      L"credential entry fields prohibited");
+    Must(f->cpft!=CPFT_PASSWORD_TEXT&&f->cpft!=CPFT_SUBMIT_BUTTON,
+      L"password and credential submit controls prohibited");
+    Must((i==3)==(f->cpft==CPFT_EDIT_TEXT),
+      L"exactly one user-editable justification field");
     CoTaskMemFree(f->pszLabel);CoTaskMemFree(f);
   }
   ICredentialProviderCredential* tile=nullptr;
@@ -66,12 +68,27 @@ int wmain(int argc,wchar_t** argv) {
     &&std::wstring(title).find(L"Hi5Central")!=std::wstring::npos,
     L"tile label visible");
   CoTaskMemFree(title);
-  Must(tile->CommandLinkClicked(3)==S_OK,L"explanation link");
+  Must(tile->SetStringValue(3,L"short")==S_OK,L"short reason editable");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"preview link");
   LPWSTR details=nullptr;
   Must(tile->GetStringValue(2,&details)==S_OK&&details
-    &&std::wstring(details).find(L"Cancel")!=std::wstring::npos,
-    L"show safe existing EPM fallback");
+    &&std::wstring(details).find(L"at least 20")!=std::wstring::npos,
+    L"short reason cannot be presented as approved");
   CoTaskMemFree(details);
+  Must(tile->SetStringValue(3,
+    L"I need administrator access to update this application")==S_OK,
+    L"valid justification must be editable inside native UAC");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"valid reason preview");
+  Must(tile->GetStringValue(2,&details)==S_OK&&details
+    &&std::wstring(details).find(L"No approval has been submitted")!=std::wstring::npos,
+    L"never claim RMM submission from UAC");
+  CoTaskMemFree(details);
+  LPWSTR retained=nullptr;
+  Must(tile->GetStringValue(3,&retained)==S_OK&&retained
+    &&std::wstring(retained).size()>=20,L"reason retained in the selected tile only");
+  CoTaskMemFree(retained);
+  Must(tile->SetStringValue(3,L"bad\nreason")==E_INVALIDARG,
+    L"control characters must be rejected");
 
   CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE response=CPGSR_RETURN_CREDENTIAL_FINISHED;
   CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION serialization{};
