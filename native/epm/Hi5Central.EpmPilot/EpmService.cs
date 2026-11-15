@@ -90,7 +90,7 @@ internal sealed class EpmService : ServiceBase
                 // Never accept the caller SID as the employee SID; authenticate
                 // the Windows host and resolve the interactive session user.
                 "uac-request"=>await RequestFromCredentialUi(file,
-                    data.TryGetProperty("reason",out var uacReason)?uacReason.GetString()??"",
+                    data.TryGetProperty("reason",out var uacReason)?uacReason.GetString()??"":"",
                     pipe,caller,ct),
                 "check"=>await Check(file,caller,ct),
                 "run"=>await Run(file,caller,ct,pipe),
