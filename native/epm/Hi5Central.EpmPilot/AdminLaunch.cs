@@ -41,6 +41,7 @@ internal static class AdminLaunch
         int created=NetUserAdd(null,1,ref user,out _);
         if(created!=0)throw new EpmLaunchException("create-admin-identity",created);
         var lease=new LaunchLease(account);
+        string phase="resolve-admin-group";
         try
         {
             string administrators=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null)
@@ -49,10 +50,12 @@ internal static class AdminLaunch
                 lgrmi3_domainandname=Environment.MachineName+"\\"+account };
             int joined=NetLocalGroupAddMembers(null,administrators,3,ref member,1);
             if(joined!=0)throw new EpmLaunchException("assign-admin-group",joined);
+            phase="logon-identity";
             if(!LogonUser(account,Environment.MachineName,password,2,0,out var token))
                 throw new EpmLaunchException("logon-identity",Marshal.GetLastWin32Error());
             try
             {
+                phase="validate-admin-token";
                 IntPtr elevated=token;
                 if(GetTokenInformation(token,19,out var linked,IntPtr.Size,out _) && linked!=IntPtr.Zero)
                     elevated=linked;
@@ -68,29 +71,35 @@ internal static class AdminLaunch
             }
             finally { CloseHandle(token); }
 
+            phase="bind-desktop-session";
             int session=sessionId;
             if(!SetTokenInformation(lease.Token,12,ref session,sizeof(int)))
                 throw new EpmLaunchException("bind-desktop-session",Marshal.GetLastWin32Error());
 
+            phase="resolve-admin-sid";
             using(var identity=new WindowsIdentity(lease.Token))
                 lease.Sid=identity.User?.Value ?? throw new EpmLaunchException("resolve-admin-sid",0);
 
             // Never duplicate a desktop handle between Session 0 and the user
             // session. Request a bounded ACL grant in the authenticated user's
             // interactive companion before creating this elevated process.
+            phase="desktop-grant-handshake";
             grantInteractiveDesktop(lease.Sid);
 
             // Windows does not load HKCU or create USERPROFILE for CreateProcessAsUser.
+            phase="load-admin-profile";
             var profile=new PROFILEINFO {
                 dwSize=(uint)Marshal.SizeOf<PROFILEINFO>(),dwFlags=1,lpUserName=account
             };
             if(!LoadUserProfile(lease.Token,ref profile))
                 throw new EpmLaunchException("load-admin-profile",Marshal.GetLastWin32Error());
             lease.Profile=profile.hProfile;
+            phase="create-user-environment";
             if(!CreateEnvironmentBlock(out var environment,lease.Token,false))
                 throw new EpmLaunchException("create-user-environment",Marshal.GetLastWin32Error());
             lease.Environment=environment;
 
+            phase="create-process-job";
             lease.Job=CreateJobObject(IntPtr.Zero,null);
             if(lease.Job==IntPtr.Zero)
                 throw new EpmLaunchException("create-process-job",Marshal.GetLastWin32Error());
@@ -100,6 +109,7 @@ internal static class AdminLaunch
                 (uint)Marshal.SizeOf<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()))
                 throw new EpmLaunchException("set-process-job-limits",Marshal.GetLastWin32Error());
 
+            phase="create-elevated-process";
             var startup=new STARTUPINFO {
                 cb=Marshal.SizeOf<STARTUPINFO>(),lpDesktop=@"winsta0\default" };
             string command="\""+approvedFile+"\"";
@@ -111,12 +121,15 @@ internal static class AdminLaunch
             lease.Process=process.hProcess;
             try
             {
+                phase="assign-process-job";
                 if(!AssignProcessToJobObject(lease.Job,lease.Process))
                     throw new EpmLaunchException("assign-process-job",Marshal.GetLastWin32Error());
+                phase="resume-approved-process";
                 uint resumed=ResumeThread(process.hThread);
                 if(resumed==WAIT_FAILED)
                     throw new EpmLaunchException("resume-approved-process",Marshal.GetLastWin32Error());
                 uint pid=process.dwProcessId;
+                phase="track-approved-process";
                 if(!Active.TryAdd(pid,lease))
                     throw new EpmLaunchException("track-approved-process",0);
                 // Monitor the process tree without blocking the interactive approval dialog.
@@ -125,11 +138,15 @@ internal static class AdminLaunch
             }
             finally { CloseHandle(process.hThread); }
         }
-        catch
+        catch(Exception failure)
         {
             // Fail closed: job close terminates any created, still-suspended process.
             lease.Dispose();
-            throw;
+            if(failure is EpmLaunchException)throw;
+            // Never forward raw exception text, Windows usernames, file paths
+            // or ephemeral-account credentials in the remote audit record.
+            int nativeCode=failure is Win32Exception win32 ? Math.Clamp(win32.NativeErrorCode,0,65535) : 0;
+            throw new EpmLaunchException("launch-"+phase,nativeCode);
         }
     }
 
