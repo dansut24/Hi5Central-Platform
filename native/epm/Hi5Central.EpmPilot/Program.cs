@@ -257,10 +257,9 @@ internal static class Program
                 if(!Ok(launched.RootElement))
                     throw new InvalidOperationException(Value(launched.RootElement,"error"));
                 int pid=launched.RootElement.GetProperty("processId").GetInt32();
-                MessageBox.Show("Hi5Central started the approved executable.\n\n"+
-                    "The launcher will remain in the background to revoke temporary "+
-                    "desktop access when the installer exits. Do not end the EPM launcher in Task Manager.",
-                    "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                // Start release monitoring immediately: a modal MessageBox
+                // could leave temporary desktop access granted indefinitely
+                // if the employee walks away after technician approval.
                 await WaitForJobAndRevokeGrant(pid);
                 return;
             }
@@ -407,8 +406,8 @@ internal sealed class ApprovalTray : ApplicationContext
                             // One local launch attempt per approved request. The
                             // broker separately rechecks the signed file identity,
                             // requester SID/session and one-time API redemption.
-                            Notify("Hi5Central EPM approved — starting",
-                                Path.GetFileName(path)+" approved. Starting your verified EXE.");
+                            Notify("Hi5Central EPM approved — launching",
+                                Path.GetFileName(path)+" approved. Attempting one-time verified launch.");
                             if(autoStarted.Add(id))_ = Program.RequestOrLaunch(path,true);
                         } else {
                             Notify("Hi5Central EPM approved",
