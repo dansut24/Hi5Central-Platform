@@ -41,10 +41,12 @@ if($extension.manifest_version -ne 3 -or
 }
 # Developer key fixes the unpacked extension ID for both Edge/Chrome.
 $public=[Convert]::FromBase64String([string]$extension.key)
-$sha=[Security.Cryptography.SHA256]::HashData($public)
+$hasher=[Security.Cryptography.SHA256]::Create()
+try { $sha=$hasher.ComputeHash($public) }
+finally { $hasher.Dispose() }
 $alphabet='abcdefghijklmnop'
 $actualId=-join ($sha[0..15] | ForEach-Object {
-    $alphabet[[int]($_ -shr 4)] + $alphabet[[int]($_ -band 15)]
+    ([string]$alphabet[[int]($_ -shr 4)] + [string]$alphabet[[int]($_ -band 15)])
 })
 if($actualId -ne $expectedId){throw 'Unexpected browser extension identity. Nothing registered.'}
 
