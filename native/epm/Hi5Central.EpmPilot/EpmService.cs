@@ -170,7 +170,7 @@ internal sealed class EpmService : ServiceBase
 
     // Authenticated, single-use local pipe challenge; no cross-session handle
     // duplication. The employee-side launcher edits only its own desktop ACL.
-    private static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid)
+    internal static void RequestDesktopGrant(NamedPipeServerStream pipe,string sid)
     {
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(18));
         var challenge=JsonSerializer.SerializeToUtf8Bytes(new {
