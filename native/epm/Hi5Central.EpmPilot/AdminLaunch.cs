@@ -22,6 +22,8 @@ internal sealed class EpmLaunchException : Exception
 /// that account's profile alive until the installer and its child processes end.
 /// No installer copy or generic SYSTEM command shell is created.
 /// </summary>
+internal sealed record EpmProcessObservation(uint Pid,uint? ExitCode,string EndReason,int ElapsedMs);
+
 internal static class AdminLaunch
 {
     private static readonly ConcurrentDictionary<uint, LaunchLease> Active = new();
@@ -29,7 +31,7 @@ internal static class AdminLaunch
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE=0x2000;
     private const uint WAIT_FAILED=0xFFFFFFFF;
 
-    public static int Launch(string approvedFile,int sessionId)
+    public static int Launch(string approvedFile,int sessionId,Func<EpmProcessObservation,Task>? onExited=null)
     {
         string account="H5EP"+Convert.ToHexString(RandomNumberGenerator.GetBytes(5));
         string password=Convert.ToHexString(RandomNumberGenerator.GetBytes(24))+"!qA9";
@@ -112,7 +114,7 @@ internal static class AdminLaunch
                 if(!Active.TryAdd(pid,lease))
                     throw new EpmLaunchException("track-approved-process",0);
                 // Monitor the process tree without blocking the interactive approval dialog.
-                _=Task.Run(()=>MonitorJob(pid,lease));
+                _=Task.Run(()=>MonitorJob(pid,lease,onExited));
                 return checked((int)pid);
             }
             finally { CloseHandle(process.hThread); }
@@ -125,27 +127,48 @@ internal static class AdminLaunch
         }
     }
 
-    private static async Task MonitorJob(uint pid,LaunchLease lease)
+    private static async Task MonitorJob(uint pid,LaunchLease lease,
+        Func<EpmProcessObservation,Task>? onExited)
     {
+        var started=DateTime.UtcNow;
+        string reason="job-empty";
+        uint? exitCode=null;
         try
         {
-            // Forty-five-minute pilot upper bound; close the job (and terminate
-            // remaining children) before removing temporary admin credentials.
-            var deadline=DateTime.UtcNow.AddMinutes(45);
+            var deadline=started.AddMinutes(45);
             while(DateTime.UtcNow<deadline)
             {
                 if(!QueryInformationJobObject(lease.Job,1,out var accounting,
                     (uint)Marshal.SizeOf<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>(),out _))
+                {
+                    reason="job-query-error";
                     break;
+                }
                 if(accounting.ActiveProcesses==0)break;
                 await Task.Delay(1000).ConfigureAwait(false);
             }
+            if(DateTime.UtcNow>=deadline)reason="timeout";
         }
-        catch { /* cleanup remains mandatory on monitor failure */ }
+        catch { reason="monitor-error"; }
         finally
         {
+            try
+            {
+                // Exit status is valid only after the initial process is signaled.
+                // It does not prove an installer completed successfully.
+                if(lease.Process!=IntPtr.Zero && WaitForSingleObject(lease.Process,0)==0
+                    && GetExitCodeProcess(lease.Process,out var nativeExit))
+                    exitCode=nativeExit;
+            }
+            catch { /* unknown exit is not success */ }
+            var elapsed=(int)Math.Clamp((DateTime.UtcNow-started).TotalMilliseconds,0,2700000);
             lease.Dispose();
             Active.TryRemove(pid,out _);
+            if(onExited is not null)
+            {
+                try {await onExited(new EpmProcessObservation(pid,exitCode,reason,elapsed)).ConfigureAwait(false);}
+                catch { /* audit network loss must not keep an admin identity alive */ }
+            }
         }
     }
 
@@ -310,6 +333,7 @@ internal static class AdminLaunch
     [DllImport("kernel32.dll",SetLastError=true)] private static extern bool AssignProcessToJobObject(IntPtr job,IntPtr process);
     [DllImport("kernel32.dll",SetLastError=true)] private static extern bool SetInformationJobObject(IntPtr job,int infoClass,ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION info,uint size);
     [DllImport("kernel32.dll",SetLastError=true)] private static extern bool QueryInformationJobObject(IntPtr job,int infoClass,out JOBOBJECT_BASIC_ACCOUNTING_INFORMATION info,uint size,out uint returned);
+    [DllImport("kernel32.dll",SetLastError=true)] private static extern bool GetExitCodeProcess(IntPtr process,out uint exitCode);
     [DllImport("kernel32.dll",SetLastError=true)] private static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll",SetLastError=true)] private static extern uint WaitForSingleObject(IntPtr handle,uint milliseconds);
     [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
