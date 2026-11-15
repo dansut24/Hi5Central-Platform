@@ -9,6 +9,7 @@
 #include <shlwapi.h>
 #include <new>
 #include <atomic>
+#include <string>
 #include "UacTilePilot.h"
 
 namespace {
@@ -18,18 +19,26 @@ enum FieldId : DWORD {
   F_TITLE=0,
   F_DESCRIPTION=1,
   F_STATUS=2,
-  F_ACTION=3,
-  F_COUNT=4
+  F_REASON=3,
+  F_ACTION=4,
+  F_COUNT=5
 };
 
 constexpr wchar_t kTitle[] = L"Hi5Central EPM";
 constexpr wchar_t kDescription[] = L"Request administrator access";
 constexpr wchar_t kStatus[] =
     L"UAC research pilot only. Approval will not be submitted here.";
-constexpr wchar_t kAction[] = L"How to request approval";
+constexpr wchar_t kAction[] = L"Check justification (preview only)";
+constexpr wchar_t kReasonLabel[] = L"Business justification (20-512 characters)";
 constexpr wchar_t kActionStatus[] =
-    L"Cancel this Windows prompt, then use Run with Hi5Central admin. "
-    L"Your reason and technician approval will be handled by the existing EPM service.";
+    L"Local preview only. Cancel Windows UAC and use Run with Hi5Central admin "
+    L"to submit a REAL technician request for the signed executable.";
+constexpr wchar_t kNeedReason[] =
+    L"Enter at least 20 characters explaining the administrator access needed. "
+    L"No approval has been sent.";
+constexpr wchar_t kValidReason[] =
+    L"Justification entered locally. No approval has been submitted. "
+    L"Cancel native UAC and use Run with Hi5Central admin for real approval.";
 
 static const struct {
   CREDENTIAL_PROVIDER_FIELD_TYPE type;
@@ -39,6 +48,7 @@ static const struct {
   {CPFT_LARGE_TEXT,kTitle,CPFS_DISPLAY_IN_BOTH},
   {CPFT_SMALL_TEXT,kDescription,CPFS_DISPLAY_IN_BOTH},
   {CPFT_SMALL_TEXT,kStatus,CPFS_DISPLAY_IN_SELECTED_TILE},
+  {CPFT_EDIT_TEXT,kReasonLabel,CPFS_DISPLAY_IN_SELECTED_TILE},
   {CPFT_COMMAND_LINK,kAction,CPFS_DISPLAY_IN_SELECTED_TILE}
 };
 
@@ -53,10 +63,12 @@ class Tile final : public ICredentialProviderCredential {
   ICredentialProviderCredentialEvents* events_{nullptr};
   bool selected_{false};
   bool clicked_{false};
+  std::wstring reason_;
 public:
   Tile() {g_objects.fetch_add(1);}
   ~Tile() {
     if(events_) events_->Release();
+    if(!reason_.empty()) SecureZeroMemory(reason_.data(),reason_.size()*sizeof(wchar_t));
     g_objects.fetch_sub(1);
   }
   STDMETHODIMP QueryInterface(REFIID riid,void** ptr) override {
@@ -100,7 +112,9 @@ public:
   }
   STDMETHODIMP GetStringValue(DWORD id,LPWSTR* value) override {
     if(id>=F_COUNT)return E_INVALIDARG;
-    if(id==F_STATUS&&clicked_)return MakeString(kActionStatus,value);
+    if(id==F_STATUS&&clicked_)
+      return MakeString(reason_.size()<20 ? kNeedReason : kValidReason,value);
+    if(id==F_REASON)return MakeString(reason_.c_str(),value);
     return MakeString(kFields[id].label,value);
   }
   STDMETHODIMP GetBitmapValue(DWORD,HBITMAP*) override {return E_NOTIMPL;}
@@ -108,13 +122,29 @@ public:
   STDMETHODIMP GetSubmitButtonValue(DWORD,DWORD*) override {return E_NOTIMPL;}
   STDMETHODIMP GetComboBoxValueCount(DWORD,DWORD*,DWORD*) override {return E_NOTIMPL;}
   STDMETHODIMP GetComboBoxValueAt(DWORD,DWORD,LPWSTR*) override {return E_NOTIMPL;}
-  STDMETHODIMP SetStringValue(DWORD,LPCWSTR) override {return E_NOTIMPL;}
+  STDMETHODIMP SetStringValue(DWORD id,LPCWSTR input) override {
+    if(id!=F_REASON||!input)return E_INVALIDARG;
+    const size_t length=wcsnlen_s(input,513);
+    if(length>512)return E_INVALIDARG;
+    // This display-only pilot neither transmits nor persists the reason.
+    // Reject control characters to avoid obscured/truncated prompt content.
+    for(size_t i=0;i<length;i++) {
+      if(input[i]<0x20 || input[i]==0x7f)return E_INVALIDARG;
+    }
+    std::wstring incoming(input,length);
+    if(!reason_.empty())SecureZeroMemory(reason_.data(),reason_.size()*sizeof(wchar_t));
+    reason_.swap(incoming);
+    if(!incoming.empty())SecureZeroMemory(incoming.data(),incoming.size()*sizeof(wchar_t));
+    clicked_=false;
+    return S_OK;
+  }
   STDMETHODIMP SetCheckboxValue(DWORD,BOOL) override {return E_NOTIMPL;}
   STDMETHODIMP SetComboBoxSelectedValue(DWORD,DWORD) override {return E_NOTIMPL;}
   STDMETHODIMP CommandLinkClicked(DWORD id) override {
     if(id!=F_ACTION)return E_INVALIDARG;
     clicked_=true;
-    if(events_)events_->SetFieldString(this,F_STATUS,kActionStatus);
+    if(events_)events_->SetFieldString(this,F_STATUS,
+      reason_.size()<20 ? kNeedReason : kValidReason);
     return S_OK;
   }
   STDMETHODIMP GetSerialization(
