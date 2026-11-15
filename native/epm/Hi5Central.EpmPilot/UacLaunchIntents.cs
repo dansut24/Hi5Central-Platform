@@ -18,6 +18,10 @@ internal sealed class UacLaunchIntents
     private readonly Func<DateTimeOffset> now;
     internal UacLaunchIntents(Func<DateTimeOffset>? clock=null) => now=clock??(()=>DateTimeOffset.UtcNow);
 
+    private bool RemoveExact(int session,UacLaunchIntent intent) =>
+        ((ICollection<KeyValuePair<int,UacLaunchIntent>>)current)
+            .Remove(new KeyValuePair<int,UacLaunchIntent>(session,intent));
+
     internal UacLaunchIntent Begin(string sid,string userName,int session,FileProof proof)
     {
         if(!sid.StartsWith("S-1-5-21-",StringComparison.Ordinal) || session<=0)
@@ -29,7 +33,7 @@ internal sealed class UacLaunchIntents
                 if(now()-old.CreatedAt<=ValidFor)
                     throw new InvalidOperationException(
                         "An existing Hi5Central UAC launch is active. Finish or cancel it first.");
-                current.TryRemove(new KeyValuePair<int,UacLaunchIntent>(session,old));
+                RemoveExact(session,old);
                 continue;
             }
             var created=new UacLaunchIntent(Guid.NewGuid(),sid,userName,session,proof,now());
@@ -40,7 +44,7 @@ internal sealed class UacLaunchIntents
     {
         if(!current.TryGetValue(session,out var item))return null;
         if(now()-item.CreatedAt>ValidFor) {
-            current.TryRemove(new KeyValuePair<int,UacLaunchIntent>(session,item));
+            RemoveExact(session,item);
             return null;
         }
         return item.Sid==sid?item:null;
@@ -51,7 +55,7 @@ internal sealed class UacLaunchIntents
         if(intent is null || intent.Nonce!=nonce)
             throw new UnauthorizedAccessException(
                 "This managed UAC launch has expired or belongs to another request.");
-        if(!current.TryRemove(new KeyValuePair<int,UacLaunchIntent>(session,intent)))
+        if(!RemoveExact(session,intent))
             throw new UnauthorizedAccessException("The launch was already used.");
         return intent;
     }
@@ -59,7 +63,7 @@ internal sealed class UacLaunchIntents
     {
         var intent=Peek(sid,session);
         return intent is not null && intent.Nonce==nonce
-            && current.TryRemove(new KeyValuePair<int,UacLaunchIntent>(session,intent));
+            && RemoveExact(session,intent);
     }
     internal static void SelfTest()
     {
