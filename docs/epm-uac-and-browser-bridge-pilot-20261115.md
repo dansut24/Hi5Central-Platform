@@ -83,6 +83,27 @@ not installed or interactively tested on the Lenovo yet.
 - Files staged on original VPS; **no Windows browser-side live test yet**.
 - Main RMM API/web healthy; Agent and EPM service untouched.
 
+## Final Windows CI packaging and installation verification
+After the initial green build, Windows CI was extended to invoke the real
+Native Messaging host via framed STDIO and perform a **PowerShell 5.1**
+installation on an isolated runner with exact Edge/Chrome native host
+registry origin verification and cleanup.
+- Windows CI run `43720018811`, commit
+  `bf62047afcdfe48b0291b38ad06266ee681c8172`: **success**.
+- Final verified bundle:
+  `https://downloads.hi5central.com/epm/browser-bridge-v2-20261115/Hi5Central-EPM-Browser-Bridge-FinalCI.zip`
+  ZIP SHA-256 `5881AEAB8393DA7B868A011AB707E2555EA43A91A41349E0A9400AAC1D242381`.
+- Final Windows host SHA-256
+  `B497AE294E1141C45435534AE008DB9836E5B445213AB45469BE8344699B00C9`.
+- Final Windows installer
+  `https://downloads.hi5central.com/epm/browser-bridge-v2-20261115/Install-Hi5Central-Browser-EPM-V2-20261115.ps1`
+  SHA-256 `2CF33C8231199177A88BCF4F5AC7CB47A31991DF2B96EC5D82AF5604E2D99CA2`.
+- This final version **supersedes the earlier initial build and installer**
+  documented above. Install the V2 build; do not mix artifact versions.
+- No EPM service upgrade, Agent change or browser extension installation
+  has yet occurred on the Lenovo. The CI smoke test uses a disposable
+  runner and a non-executed placeholder for prerequisite detection.
+
 ## Real UAC credential-tile R&D — next major engineering track
 Microsoft documents a custom credential provider interface used by Credential
 UI; specifically `CREDENTIAL_PROVIDER_USAGE_SCENARIO.CPUS_CREDUI`
