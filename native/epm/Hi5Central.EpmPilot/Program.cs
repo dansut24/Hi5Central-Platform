@@ -38,9 +38,9 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         if(args.Length==1 && args[0]=="--desktop-preflight") {
             try {
-                // No ACL changes: ensure the two handles can be opened locally.
-                // AcquireLocal is only called after a signed approval is redeemed.
-                using var station=OpenDesktopPreflight();
+                // Read-only preflight: open WinSta0/Default with ACL access
+                // without editing a desktop security descriptor or approval.
+                InteractiveDesktopGrant.RunPreflight();
                 MessageBox.Show(
                     "PASS: This Windows session can open WinSta0 and Default desktop with the required ACL rights.\n\n"+
                     "No elevation request was sent and no Windows security settings were changed.",
@@ -65,8 +65,6 @@ internal static class Program
         }
         Application.Run(new LauncherContext(args[0]));
     }
-    private static IDisposable OpenDesktopPreflight()=>InteractiveDesktopPreflight.Open();
-
     private static readonly ConcurrentDictionary<int,InteractiveDesktopGrant> ActiveDesktopGrants=new();
 
     private static async Task<JsonDocument> ReadBrokerMessage(
