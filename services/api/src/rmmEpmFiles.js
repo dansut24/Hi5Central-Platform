@@ -6,6 +6,7 @@ import { pool } from './db.js'
 import { authenticateAgent } from './rmmAgent.js'
 import { recordRmmActivity } from './rmmActivity.js'
 import { resolveSession } from './session.js'
+import { validateNativeUacRequest, canReleaseNativeUacCredential } from './rmmEpmUacPolicy.js'
 
 const pilotTenant = (process.env.RMM_EPM_PILOT_TENANT || '').trim().toLowerCase()
 const pilotDevice = (process.env.RMM_EPM_PILOT_DEVICE || '').trim().toLowerCase()
@@ -226,4 +227,98 @@ export function registerRmmEpmFileRoutes(app) {
     }).catch(()=>null)
     return c.json({success:true,status:decision,approvalMinutes:decision==='approved'?15:0})
   })
+  // Review-only UAC requests. This queue never contains a trusted executable
+  // identity and MUST NEVER issue, return or authorize an admin credential.
+  app.post('/api/v1/agent/epm/uac-reviews', async c => {
+    const auth=await requireAgent(c); if (auth.error) return auth.error
+    const b=await c.req.json().catch(()=>({}))
+    const checked=validateNativeUacRequest(b)
+    if (!checked.ok) return c.json({error:checked.error},400)
+    const result=await pool.query(
+      `INSERT INTO rmm_epm_native_uac_reviews
+        (tenant_id,agent_device_id,requester_sid,requester_name,
+        requester_session_id,consent_process_id,consent_process_started_at,business_reason)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (tenant_id,agent_device_id,requester_session_id,
+          consent_process_id,consent_process_started_at)
+        DO NOTHING RETURNING id,status,expires_at`,
+      [auth.agent.tenant_id,auth.agent.id,checked.sid,checked.username,
+       checked.sessionId,checked.consentProcessId,checked.consentStartedAt,checked.reason])
+    let row=result.rows[0]
+    if (!row) {
+      const existing=await pool.query(
+        `SELECT id,status,expires_at,requester_sid,business_reason
+           FROM rmm_epm_native_uac_reviews
+          WHERE tenant_id=$1 AND agent_device_id=$2 AND requester_session_id=$3
+            AND consent_process_id=$4 AND consent_process_started_at=$5`,
+        [auth.agent.tenant_id,auth.agent.id,checked.sessionId,
+         checked.consentProcessId,checked.consentStartedAt])
+      row=existing.rows[0]
+      if (!row || row.requester_sid!==checked.sid || row.business_reason!==checked.reason)
+        return c.json({error:'UAC instance already belongs to a different request.'},409)
+    }
+    return c.json({success:true,requestId:row.id,
+      status:Date.parse(row.expires_at)<Date.now()?'expired':row.status,
+      scope:'unidentified-native-uac',credentialReleaseEnabled:false,
+      notice:'Review only. Windows UAC will not resume or authenticate.'},
+      result.rowCount ? 201 : 200)
+  })
+  app.post('/api/v1/agent/epm/uac-reviews/:id/status', async c => {
+    const auth=await requireAgent(c); if (auth.error) return auth.error
+    if (!validId(c.req.param('id'))) return c.json({error:'Invalid request ID.'},400)
+    const checked=validateNativeUacRequest(await c.req.json().catch(()=>({})))
+    if (!checked.ok) return c.json({error:checked.error},400)
+    const q=await pool.query(
+      `SELECT status,expires_at FROM rmm_epm_native_uac_reviews
+        WHERE id=$1 AND tenant_id=$2 AND agent_device_id=$3
+          AND requester_sid=$4 AND requester_session_id=$5
+          AND consent_process_id=$6 AND consent_process_started_at=$7`,
+      [c.req.param('id'),auth.agent.tenant_id,auth.agent.id,checked.sid,
+       checked.sessionId,checked.consentProcessId,checked.consentStartedAt])
+    if (!q.rowCount) return c.json({error:'UAC request instance not found.'},404)
+    return c.json({success:true,
+      status:Date.parse(q.rows[0].expires_at)<Date.now()?'expired':q.rows[0].status,
+      credentialReleaseEnabled:canReleaseNativeUacCredential()})
+  })
+  app.get('/api/v1/rmm/epm/uac-reviews', async c => {
+    const auth=await requireTechnician(c); if(auth.error) return auth.error
+    const q=await pool.query(
+      `SELECT id,agent_device_id,requester_sid,requester_name,requester_session_id,
+        consent_process_id,consent_process_started_at,business_reason,scope,
+        CASE WHEN expires_at<now() AND status='pending' THEN 'expired'
+             ELSE status END AS status,
+        credential_release_enabled,decision_note,created_at,expires_at,decided_at
+        FROM rmm_epm_native_uac_reviews
+        WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 100`,
+      [auth.session.tenant_id])
+    return c.json({requests:q.rows,mode:'review-only',credentialReleaseEnabled:false})
+  })
+  app.post('/api/v1/rmm/epm/uac-reviews/:id/decision', async c => {
+    const auth=await requireTechnician(c); if(auth.error) return auth.error
+    if (!validId(c.req.param('id'))) return c.json({error:'Invalid request.'},400)
+    const b=await c.req.json().catch(()=>({}))
+    const note=clean(b.note), decision=clean(b.decision)
+    if (!['reviewed','rejected'].includes(decision)|| note.length<10 ||
+      note.length>2000) return c.json({error:'Review or rejection and an explanation are required.'},400)
+    const q=await pool.query(
+      `UPDATE rmm_epm_native_uac_reviews
+        SET status=$3,decision_note=$4,decided_by_user_id=$5,
+        decided_at=now(),updated_at=now()
+        WHERE id=$1 AND tenant_id=$2 AND status='pending' AND expires_at>now()
+        RETURNING id,agent_device_id`,
+      [c.req.param('id'),auth.session.tenant_id,decision,note,auth.session.user_id])
+    if(!q.rowCount) return c.json({error:'UAC request expired or already reviewed.'},409)
+    await recordRmmActivity({
+      tenantId:auth.session.tenant_id,agentDeviceId:q.rows[0].agent_device_id,
+      actorType:'technician',actorUserId:auth.session.user_id,
+      actorLabel:auth.session.name||auth.session.email||'Technician',
+      category:'security',eventType:'epm.uac.review.'+decision,
+      summary:'Unbound Windows UAC review '+decision+' (no elevation permission)',
+      detail:note,outcome:decision==='rejected'?'rejected':'success',
+      metadata:{requestId:q.rows[0].id,unidentifiedTarget:true,credentialRelease:false},
+    }).catch(()=>null)
+    return c.json({success:true,status:decision,credentialReleaseEnabled:false,
+      notice:'Review recorded; no Windows elevation was authorized.'})
+  })
+
 }
