@@ -36,6 +36,17 @@ internal static class Program
             // Reproduce the production one-time desktop-grant handshake,
             // including an explicit Windows denial, before publishing a pilot.
             PipeProtocolSelfTest.RunAsync().GetAwaiter().GetResult();
+            string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if(!EpmService.IsTrustedWindowsCredentialHostPath(
+                    Path.Combine(windows,"System32","consent.exe"),windows)
+                || !EpmService.IsTrustedWindowsCredentialHostPath(
+                    Path.Combine(windows,"System32","CredentialUIBroker.exe"),windows)
+                || EpmService.IsTrustedWindowsCredentialHostPath(
+                    Path.Combine(Path.GetTempPath(),"consent.exe"),windows)
+                || EpmService.IsTrustedWindowsCredentialHostPath(
+                    Path.Combine(windows,"SysWOW64","consent.exe"),windows))
+                throw new InvalidOperationException("UAC request host executable validation failed.");
+            Console.WriteLine("PASS: native UAC bridge rejects forged user-host executable paths.");
             Environment.ExitCode=0;
             return;
         }
