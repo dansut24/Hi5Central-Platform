@@ -39,6 +39,25 @@ jobs:
           $hash=(Get-FileHash -Algorithm SHA256 $exe).Hash
           "SHA256: $hash" | Set-Content (Join-Path $out 'SHA256.txt')
           Write-Host "EPM Windows pilot SHA256 $hash"
+      - name: Read-only Windows elevation coverage report
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'hi5-epm-pilot'
+          $exe = Join-Path $out 'Hi5CentralEpmPilot.exe'
+          $json = Join-Path $env:RUNNER_TEMP 'epm-coverage-report.json'
+          $process = Start-Process -FilePath $exe -ArgumentList '--coverage-report' -PassThru -Wait -RedirectStandardOutput $json
+          if ($process.ExitCode -ne 0) { throw 'Coverage probe failed' }
+          $report = Get-Content -LiteralPath $json -Raw | ConvertFrom-Json
+          if ($report.schemaVersion -ne 'hi5central-epm-coverage-v1' -or $report.coverage.Count -lt 9) {
+            throw 'Missing typed EPM operation coverage report'
+          }
+          $unbound = $report.coverage | Where-Object scenario -eq 'unmanaged_native_uac'
+          if ($unbound.automaticTarget -ne $false -or $unbound.executionWorker -ne $false) {
+            throw 'Native UAC was falsely reported as universally supported'
+          }
+          $msi = $report.coverage | Where-Object scenario -eq 'windows_installer_msi'
+          if ($msi.executionWorker -ne $false) { throw 'Unqualified MSI worker falsely reported as ready' }
+          Write-Host 'PASS: read-only Windows capabilities report and honest unsupported-operation statuses.'
       - name: Install and uninstall broker on isolated Windows CI runner
         shell: pwsh
         run: |
