@@ -236,7 +236,7 @@ internal static class ElevationCoverageTests
             ElevationCapture.EndpointPolicy,"restricted-file",digest,"Microsoft","H5C.File.Copy");
         var nested=new ElevationTarget(ElevationKind.NestedChildProcess,
             ElevationCapture.ManagedApplication,@"C:\Apps\Child.exe",digest,"Publisher",
-            ParentOperationId="opaque-approved-parent");
+            ParentOperationId:"opaque-approved-parent");
         var unbound=new ElevationTarget(ElevationKind.UnmanagedNativeUac,
             ElevationCapture.None,"",digest,"");
         Check(ElevationPolicy.Assess(exe).Route==ElevationRoute.ExistingSignedExeBroker,
