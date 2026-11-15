@@ -69,7 +69,10 @@ internal sealed class EpmService : ServiceBase
         return (sid,name,(int)session);
     }
     private async Task Handle(NamedPipeServerStream pipe,CancellationToken ct) {
-        var caller=ClientIdentity(pipe);
+        // IMPORTANT: ImpersonateNamedPipeClient (used by RunAsClient) binds
+        // to the LAST message read from this pipe. Reading the request first
+        // is required before authenticating its Windows access token.
+        // Never fall back to the LocalSystem service identity on failure.
         var bytes=new byte[16384];
         using var buffer=new MemoryStream();
         pipe.ReadMode=PipeTransmissionMode.Message;
@@ -82,6 +85,9 @@ internal sealed class EpmService : ServiceBase
         object response;
         await gate.WaitAsync(ct);
         try{
+            // Fail closed if impersonation fails, but return a bounded denial
+            // response instead of silently dropping the client's pipe.
+            var caller=ClientIdentity(pipe);
             using var json=JsonDocument.Parse(buffer.ToArray());
             var data=json.RootElement;
             string type=data.TryGetProperty("type",out var t)?t.GetString()??"":"";
