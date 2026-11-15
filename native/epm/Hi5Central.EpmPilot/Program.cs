@@ -148,6 +148,8 @@ internal static class Program
                     if(type!="run" || grant!=null)
                         throw new InvalidOperationException("Unexpected EPM desktop grant challenge.");
                     bool granted=false;
+                    string failureStage="";
+                    int failureCode=0;
                     try {
                         string sid=root.GetProperty("adminSid").GetString()
                             ?? throw new InvalidOperationException("Missing EPM account SID.");
@@ -155,8 +157,17 @@ internal static class Program
                         granted=true;
                     } catch(Exception e) {
                         localFailure=e.Message;
+                        failureStage=e is EpmLaunchException epm
+                            ? epm.Stage : "desktop-grant-client-error";
+                        failureCode=e is EpmLaunchException native
+                            ? native.WindowsCode : 0;
                     }
-                    var ack=JsonSerializer.SerializeToUtf8Bytes(new{granted});
+                    // Preserve the actual local Win32 failure stage in the RMM
+                    // audit instead of reporting only "desktop-grant-protocol".
+                    // Never return freeform exception text or Windows identities.
+                    var ack=JsonSerializer.SerializeToUtf8Bytes(new{
+                        granted,stage=failureStage,win32Code=failureCode
+                    });
                     await client.WriteAsync(ack,timeout.Token);
                     await client.FlushAsync(timeout.Token);
                     continue;
