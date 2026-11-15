@@ -220,7 +220,7 @@ internal static class ElevationCoverageTests
 {
     internal static void Run()
     {
-        const string digest="AFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAFAF";
+        string digest=new string('A',64);
         var user=new ElevationActor("newtest","lenovo","S-1-5-21-11-22-33-1001",2);
         var another=user with {UserSid="S-1-5-21-11-22-33-1002"};
         var exe=new ElevationTarget(ElevationKind.SignedExecutable,
