@@ -73,6 +73,15 @@ export function RmmEpmRequests() {
           <small><b>User SID:</b> {r.requester_sid} · <b>Device:</b> {r.agent_device_id}</small>
           <p><b>Business reason:</b> {r.business_reason}</p>
           {r.decision_note && <p><b>Technician decision:</b> {r.decision_note}</p>}
+          {r.launch_pid && <p>
+            <b>Windows launch:</b> Process ID {r.launch_pid}.
+            {r.launch_ended_at
+              ? ' Process job ended after '+((r.launch_elapsed_ms||0)/1000).toFixed(1)+' seconds'+
+                (r.launch_exit_code!==null ? ', initial EXE exit code '+r.launch_exit_code : ', initial EXE exit code unknown')+
+                '. Reason: '+(r.launch_end_reason||'not recorded')+'.'
+              : ' Process completion not yet reported.'}
+            {' '}This does not confirm installation success.
+          </p>}
           {r.status==='launch_failed' && <p role="alert"><b>Windows launch:</b> Failed
             {r.launch_failure_stage
               ? ' · Stage: '+r.launch_failure_stage+' · Win32 code: '+r.launch_failure_code
