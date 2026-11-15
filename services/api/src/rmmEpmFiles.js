@@ -121,6 +121,16 @@ export function registerRmmEpmFileRoutes(app) {
       'desktop-read-acl','desktop-missing-acl','desktop-write-acl',
       'desktop-duplicate-admin-sid','desktop-grant-connection',
       'desktop-grant-invalid','desktop-grant-rejected',
+      'desktop-grant-timeout','desktop-grant-pipe-io','desktop-grant-json',
+      'desktop-grant-protocol','desktop-grant-access','desktop-grant-unexpected',
+      'launch-resolve-admin-group','launch-logon-identity','launch-validate-admin-token',
+      'launch-bind-desktop-session','launch-resolve-admin-sid',
+      'launch-desktop-grant-handshake','launch-load-admin-profile',
+      'launch-create-user-environment','launch-create-process-job',
+      'launch-create-elevated-process','launch-assign-process-job',
+      'launch-resume-approved-process','launch-track-approved-process',
+      'launch-access-denied','launch-cancelled','launch-io',
+      'launch-invalid-operation','launch-win32-error','launch-json',
       'track-approved-process','unexpected-launch-error',
     ])
     const stage=clean(b.stage)
