@@ -1,0 +1,4 @@
+LIBRARY Hi5CentralUacTilePilot
+EXPORTS
+    DllGetClassObject=H5DllGetClassObject
+    DllCanUnloadNow=H5DllCanUnloadNow
