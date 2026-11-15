@@ -111,7 +111,8 @@ export function registerRmmEpmFileRoutes(app) {
     const b=await c.req.json().catch(()=>({}))
     const stages=new Set([
       'service-security-context','create-admin-identity','assign-admin-group','logon-identity',
-      'validate-elevated-token','duplicate-primary-token',
+      'validate-elevated-token','duplicate-check-token',
+      'check-token-membership','duplicate-primary-token',
       'bind-desktop-session','create-elevated-process','unexpected-launch-error',
     ])
     const stage=clean(b.stage)
