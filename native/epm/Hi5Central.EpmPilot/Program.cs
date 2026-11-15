@@ -35,6 +35,22 @@ internal static class Program
             return;
         }
         ApplicationConfiguration.Initialize();
+        if(args.Length==1 && args[0]=="--desktop-preflight") {
+            try {
+                using var desktop=InteractiveDesktopHandles.Open();
+                MessageBox.Show(
+                    "PASS: This Windows session can open WinSta0 and Default desktop with the required ACL rights.\n\n"+
+                    "No elevation request was sent and no Windows security settings were changed.",
+                    "Hi5Central EPM Desktop Preflight",
+                    MessageBoxButtons.OK,MessageBoxIcon.Information);
+            } catch(Exception error) {
+                MessageBox.Show(
+                    "Desktop access preflight failed. No approval was consumed.\n\n"+error.Message,
+                    "Hi5Central EPM Desktop Preflight",
+                    MessageBoxButtons.OK,MessageBoxIcon.Warning);
+            }
+            return;
+        }
         if(args.Length==1 && args[0]=="--watch") {
             Application.Run(new ApprovalTray());
             return;
