@@ -64,6 +64,15 @@ internal static class ElevationCoverageProbe
             notes="Read-only diagnostic. No universal UAC interception or native prompt resumption is claimed."
         };
     }
-    internal static void Print() =>
-        Console.WriteLine(JsonSerializer.Serialize(Create()));
+    internal static void Print()
+    {
+        // WinExe is a GUI subsystem executable. Write directly to inherited
+        // stdout so a redirected PowerShell/RMM CI diagnostic captures the
+        // JSON even when no interactive console is attached.
+        byte[] bytes=System.Text.Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(Create())+Environment.NewLine);
+        using var output=Console.OpenStandardOutput();
+        output.Write(bytes);
+        output.Flush();
+    }
 }
