@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using System.Security.Principal;
@@ -22,7 +23,9 @@ internal static class PipeProtocolSelfTest
     private static async Task ExchangeAsync(bool grant)
     {
         string pipeName="H5CEPM-ProtocolTest-"+Guid.NewGuid().ToString("N");
-        using var cts=new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        using var cts=new CancellationTokenSource(TimeSpan.FromSeconds(27));
+        var steps=new ConcurrentQueue<string>();
+        void Mark(string step){steps.Enqueue(step);Console.WriteLine("EPM PIPE TEST: "+step);}
         using var server=new NamedPipeServerStream(pipeName,PipeDirection.InOut,1,
             PipeTransmissionMode.Message,PipeOptions.Asynchronous);
         using var client=new NamedPipeClientStream(".",pipeName,PipeDirection.InOut,
@@ -31,26 +34,30 @@ internal static class PipeProtocolSelfTest
         Task<Exception?> serverWork=Task.Run(async () =>
         {
             await server.WaitForConnectionAsync(cts.Token);
+            Mark("server-connected");
             server.ReadMode=PipeTransmissionMode.Message;
             byte[] originalRequest=new byte[256];
             int requestLength=await server.ReadAsync(originalRequest,cts.Token);
+            Mark("server-read-initial-"+requestLength);
             if(requestLength<=0)throw new InvalidDataException("Protocol self-test initial request missing.");
             try {
                 WindowsIdentity.RunImpersonated(
                     SafeAccessTokenHandle.InvalidHandle,
-                    () => EpmService.RequestDesktopGrant(server,"S-1-5-32-545"));
+                    () => EpmService.RequestDesktopGrant(server,"S-1-5-32-545",Mark));
                 return null;
             }
             catch(Exception ex) {return ex;}
         },cts.Token);
 
         await client.ConnectAsync(3500,cts.Token);
+        Mark("client-connected");
         client.ReadMode=PipeTransmissionMode.Message;
         await client.WriteAsync(new byte[]{0x7B,0x7D},cts.Token); // {}
         await client.FlushAsync(cts.Token);
 
         byte[] challengeData=new byte[1024];
         int received=await client.ReadAsync(challengeData,cts.Token);
+        Mark("client-read-challenge-"+received);
         if(received<1) throw new InvalidDataException("Protocol self-test challenge absent.");
         using(var challenge=JsonDocument.Parse(challengeData.AsMemory(0,received)))
         {
@@ -65,8 +72,14 @@ internal static class PipeProtocolSelfTest
         });
         await client.WriteAsync(response,cts.Token);
         await client.FlushAsync(cts.Token);
+        Mark("client-wrote-ack");
 
-        Exception? failure=await serverWork.WaitAsync(cts.Token);
+        Exception? failure;
+        try { failure=await serverWork.WaitAsync(cts.Token); }
+        catch(OperationCanceledException) {
+            throw new InvalidOperationException("EPM pipe protocol timeout. Steps: "+string.Join(" > ",steps));
+        }
+        Mark("server-finished");
         if(grant && failure!=null)
             throw new InvalidOperationException("Desktop grant protocol accepted response but broker threw.",failure);
         if(!grant && (failure is not EpmLaunchException epm
