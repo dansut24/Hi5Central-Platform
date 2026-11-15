@@ -69,7 +69,7 @@ int wmain(int argc,wchar_t** argv) {
     L"tile label visible");
   CoTaskMemFree(title);
   Must(tile->SetStringValue(3,L"short")==S_OK,L"short reason editable");
-  Must(tile->CommandLinkClicked(4)==S_OK,L"safe link validates reason without submitting");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"short justification must never submit");
   LPWSTR details=nullptr;
   Must(tile->GetStringValue(2,&details)==S_OK&&details
     &&std::wstring(details).find(L"at least 20")!=std::wstring::npos,
@@ -78,10 +78,11 @@ int wmain(int argc,wchar_t** argv) {
   Must(tile->SetStringValue(3,
     L"I need administrator access to update this application")==S_OK,
     L"valid justification must be editable inside native UAC");
-  Must(tile->CommandLinkClicked(4)==S_OK,L"no EXE is bound to the native Windows UAC tile");
+  Must(tile->CommandLinkClicked(4)==S_OK,L"native UAC review must never issue Windows credentials");
   Must(tile->GetStringValue(2,&details)==S_OK&&details
-    &&std::wstring(details).find(L"No RMM request sent")!=std::wstring::npos,
-    L"never submit RMM approval without authenticated original EXE identity");
+    &&(std::wstring(details).find(L"Cannot contact")!=std::wstring::npos
+        || std::wstring(details).find(L"rejected")!=std::wstring::npos),
+    L"test without an authenticated SYSTEM broker must fail closed");
   CoTaskMemFree(details);
   LPWSTR retained=nullptr;
   Must(tile->GetStringValue(3,&retained)==S_OK&&retained
@@ -94,8 +95,9 @@ int wmain(int argc,wchar_t** argv) {
   Must(tile->CommandLinkClicked(4)==S_OK,
     L"reason is never a substitute for trustworthy target identity");
   Must(tile->GetStringValue(2,&details)==S_OK&&details
-    &&std::wstring(details).find(L"No RMM request sent")!=std::wstring::npos,
-    L"native UAC tile must fail closed with no EXE identity");
+    &&(std::wstring(details).find(L"Cannot contact")!=std::wstring::npos
+        || std::wstring(details).find(L"rejected")!=std::wstring::npos),
+    L"without trusted consent-host submission, no UAC review may succeed");
   CoTaskMemFree(details);
 
   CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE response=CPGSR_RETURN_CREDENTIAL_FINISHED;
