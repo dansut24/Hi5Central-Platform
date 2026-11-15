@@ -33,6 +33,9 @@ internal static class Program
             // not with the primary token returned from LogonUser.
             AdminLaunch.RunTokenSelfTest();
             Console.WriteLine("PASS: missing file denied; primary-to-impersonation token membership check works.");
+            // Reproduce the production one-time desktop-grant handshake,
+            // including an explicit Windows denial, before publishing a pilot.
+            PipeProtocolSelfTest.RunAsync().GetAwaiter().GetResult();
             Environment.ExitCode=0;
             return;
         }
