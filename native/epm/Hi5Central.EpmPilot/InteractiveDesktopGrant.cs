@@ -7,7 +7,7 @@ namespace Hi5Central.EpmPilot;
 
 /// <summary>
 /// Per-request access to ONLY the requesting user's WinSta0/Default desktop.
-/// Duplicates handles supplied by the OS-authenticated named-pipe client; NEVER
+/// Opens handles locally in the requester interactive session; NEVER
 /// opens a window station in service Session 0 or changes UAC/secure desktop.
 /// An ACE for the random ephemeral administrator SID is added and later removed.
 /// </summary>
@@ -15,10 +15,18 @@ internal sealed class InteractiveDesktopGrant : IDisposable
 {
     private const int UOI_NAME=2, UOI_TYPE=3;
     private const uint DACL_SECURITY_INFORMATION=4;
-    private const uint DUPLICATE_SAME_ACCESS=2;
-    private const uint PROCESS_DUP_HANDLE=0x40;
     private const int WINSTA_ALL_ACCESS=0x000F037F;
     private const int DESKTOP_ALL_ACCESS=0x000F01FF;
+    private const uint READ_CONTROL=0x00020000;
+    private const uint WRITE_DAC=0x00040000;
+    private const uint WINSTA_READATTRIBUTES=0x0002;
+    private const uint DESKTOP_READOBJECTS=0x0001;
+    private const uint DESKTOP_WRITEOBJECTS=0x0080;
+    // OpenDesktop requires BOTH READOBJECTS and WRITEOBJECTS when requesting
+    // READ_CONTROL or WRITE_DAC. See Microsoft OpenDesktop documentation.
+    // Omitting these rights caused UOI_NAME / UOI_TYPE access denied (Win32 5).
+    private const uint StationAclAccess=READ_CONTROL|WRITE_DAC|WINSTA_READATTRIBUTES;
+    private const uint DesktopAclAccess=READ_CONTROL|WRITE_DAC|DESKTOP_READOBJECTS|DESKTOP_WRITEOBJECTS;
     private static readonly object DaclLock=new();
     private readonly SecurityIdentifier admin;
     private IntPtr station;
@@ -29,13 +37,13 @@ internal sealed class InteractiveDesktopGrant : IDisposable
 
     internal static void RunPreflight()
     {
-        IntPtr station=OpenWindowStationW("WinSta0",false,0x00020000|0x00040000);
+        IntPtr station=OpenWindowStationW("WinSta0",false,StationAclAccess);
         if(station==IntPtr.Zero)
             throw new EpmLaunchException("desktop-client-station",Marshal.GetLastWin32Error());
         IntPtr desktop=IntPtr.Zero;
         try
         {
-            desktop=OpenDesktopW("Default",0,false,0x00020000|0x00040000);
+            desktop=OpenDesktopW("Default",0,false,DesktopAclAccess);
             if(desktop==IntPtr.Zero)
                 throw new EpmLaunchException("desktop-client-default",Marshal.GetLastWin32Error());
             if(!string.Equals(UserObjectInfo(station,UOI_NAME),"WinSta0",StringComparison.OrdinalIgnoreCase)
@@ -62,12 +70,12 @@ internal sealed class InteractiveDesktopGrant : IDisposable
         var lease=new InteractiveDesktopGrant(sid);
         try
         {
-            // Open the caller's own interactive desktop with READ_CONTROL|WRITE_DAC.
+            // Open caller desktop with mandatory read/write-object and ACL rights.
             // No desktop handle is passed to or from Session 0.
-            lease.station=OpenWindowStationW("WinSta0",false,0x00020000|0x00040000);
+            lease.station=OpenWindowStationW("WinSta0",false,StationAclAccess);
             if(lease.station==IntPtr.Zero)
                 throw new EpmLaunchException("desktop-open-station",Marshal.GetLastWin32Error());
-            lease.desktop=OpenDesktopW("Default",0,false,0x00020000|0x00040000);
+            lease.desktop=OpenDesktopW("Default",0,false,DesktopAclAccess);
             if(lease.desktop==IntPtr.Zero)
                 throw new EpmLaunchException("desktop-open-default",Marshal.GetLastWin32Error());
             if(!string.Equals(UserObjectInfo(lease.station,UOI_TYPE),"WindowStation",StringComparison.OrdinalIgnoreCase)
