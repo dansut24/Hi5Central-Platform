@@ -37,6 +37,13 @@ constexpr wchar_t kNeedReason[] =
 constexpr wchar_t kUnavailable[] =
     L"Cannot contact the verified Hi5Central Windows broker. No request was sent, "
     L"and nothing was elevated. Normal Windows credentials remain available.";
+// Include only a Windows error number: no user SID, credentials, path,
+ // justification or token data are exposed to the secure desktop UI.
+static std::wstring BrokerUnavailable(DWORD code) {
+  return std::wstring(kUnavailable)+L" (Windows pipe error "+
+      std::to_wstring(code)+L").";
+}
+
 constexpr wchar_t kReviewSent[] =
     L"UAC review sent to Hi5Central RMM. No administrator credential or "
     L"elevation has been issued; normal Windows UAC remains in control.";
@@ -113,7 +120,8 @@ static std::wstring SendNativeUacReview(const std::wstring& reason,
   BOOL ok=CallNamedPipeW(L"\\\\.\\pipe\\Hi5CentralEpmPilot",
       const_cast<char*>(request.data()),static_cast<DWORD>(request.size()),
       answer,sizeof(answer)-1,&returned,8000);
-  if(!ok||returned>=sizeof(answer))return kUnavailable;
+  if(!ok)return BrokerUnavailable(GetLastError());
+  if(returned>=sizeof(answer))return BrokerUnavailable(ERROR_MORE_DATA);
   const std::string response(answer,answer+returned);
   if(response.find("\"success\":true")!=std::string::npos &&
       response.find("\"credentialReleaseEnabled\":false")!=std::string::npos) {
@@ -143,8 +151,9 @@ static std::wstring FetchNativeUacReviewStatus(const std::string& id) {
   DWORD received=0;
   if(!CallNamedPipeW(L"\\\\.\\pipe\\Hi5CentralEpmPilot",
        const_cast<char*>(message.data()),static_cast<DWORD>(message.size()),
-       buffer,sizeof(buffer)-1,&received,8000)
-     ||received>=sizeof(buffer))return kUnavailable;
+       buffer,sizeof(buffer)-1,&received,8000))
+    return BrokerUnavailable(GetLastError());
+  if(received>=sizeof(buffer))return BrokerUnavailable(ERROR_MORE_DATA);
   const std::string response(buffer,buffer+received);
   if(response.find("\"success\":true")==std::string::npos ||
       response.find("\"credentialReleaseEnabled\":false")==std::string::npos)
