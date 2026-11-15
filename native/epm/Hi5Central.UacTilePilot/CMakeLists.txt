@@ -5,7 +5,7 @@ if (NOT WIN32)
   message(FATAL_ERROR "Windows-only Credential UI proof of concept")
 endif()
 
-add_library(Hi5CentralUacTilePilot SHARED UacTilePilot.cpp)
+add_library(Hi5CentralUacTilePilot SHARED UacTilePilot.cpp UacTilePilot.def)
 target_compile_features(Hi5CentralUacTilePilot PRIVATE cxx_std_17)
 target_compile_definitions(Hi5CentralUacTilePilot PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN)
 target_link_libraries(Hi5CentralUacTilePilot PRIVATE ole32 shlwapi)
