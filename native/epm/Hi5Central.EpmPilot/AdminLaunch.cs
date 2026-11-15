@@ -31,7 +31,8 @@ internal static class AdminLaunch
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE=0x2000;
     private const uint WAIT_FAILED=0xFFFFFFFF;
 
-    public static int Launch(string approvedFile,int sessionId,Func<EpmProcessObservation,Task>? onExited=null)
+    public static int Launch(string approvedFile,int sessionId,uint clientPid,long stationHandle,long desktopHandle,
+        Func<EpmProcessObservation,Task>? onExited=null)
     {
         string account="H5EP"+Convert.ToHexString(RandomNumberGenerator.GetBytes(5));
         string password=Convert.ToHexString(RandomNumberGenerator.GetBytes(24))+"!qA9";
@@ -73,6 +74,13 @@ internal static class AdminLaunch
 
             using(var identity=new WindowsIdentity(lease.Token))
                 lease.Sid=identity.User?.Value ?? throw new EpmLaunchException("resolve-admin-sid",0);
+
+            // A service runs in Session 0; its window-station handles cannot
+            // address the interactive desktop. Duplicate and verify the requesting
+            // client's actual WinSta0/Default handles, then grant the temporary
+            // admin SID only for the lifetime of this approved process job.
+            lease.DesktopGrant=InteractiveDesktopGrant.Acquire(clientPid,stationHandle,
+                desktopHandle,lease.Sid);
 
             // Windows does not load HKCU or create USERPROFILE for CreateProcessAsUser.
             var profile=new PROFILEINFO {
@@ -188,6 +196,7 @@ internal static class AdminLaunch
         public string Account {get;}
         public string Sid {get;set;}="";
         public IntPtr Token, Profile, Environment, Process, Job;
+        public InteractiveDesktopGrant? DesktopGrant;
         public LaunchLease(string account) {Account=account;}
         public void Dispose()
         {
@@ -206,6 +215,9 @@ internal static class AdminLaunch
                 UnloadUserProfile(Token,Profile);Profile=IntPtr.Zero;
             }
             if(Token!=IntPtr.Zero) {CloseHandle(Token);Token=IntPtr.Zero;}
+            // Revoke only the temporary isolated account's desktop ACE, never
+            // restore/replace the entire desktop security descriptor.
+            DesktopGrant?.Dispose(); DesktopGrant=null;
             // Only the random, internally generated H5EP identity is deleted.
             NetUserDel(null,Account);
             if(Sid.StartsWith("S-1-",StringComparison.Ordinal))
@@ -240,6 +252,8 @@ internal static class AdminLaunch
             throw new EpmLaunchException("self-test-open-process-token",Marshal.GetLastWin32Error());
         try {_=IsEnabledAdministratorToken(token);}
         finally {CloseHandle(token);}
+        // Test non-destructive ACL add/remove against a synthetic desktop ACL.
+        InteractiveDesktopGrant.RunAclSelfTest();
         // Exercise and verify job-limit marshalling on the Windows CI runner.
         var job=CreateJobObject(IntPtr.Zero,null);
         if(job==IntPtr.Zero)throw new EpmLaunchException("self-test-create-job",Marshal.GetLastWin32Error());
