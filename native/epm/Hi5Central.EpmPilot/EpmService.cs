@@ -162,7 +162,18 @@ internal sealed class EpmService : ServiceBase
                 throw new InvalidOperationException("Approval redemption failed.");
         }
         try {
-            var processId=AdminLaunch.Launch(existing.Proof.Path,caller.session);
+            // A named-pipe request originates from a standard user. Explicitly
+            // revert any inherited thread impersonation before touching the
+            // local SAM or launching a privileged Windows process.
+            // RunImpersonated must remain synchronous for the whole launch.
+            var processId=WindowsIdentity.RunImpersonated(
+                Microsoft.Win32.SafeHandles.SafeAccessTokenHandle.InvalidHandle,
+                () => {
+                    using var identity=WindowsIdentity.GetCurrent();
+                    if (identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)!=true)
+                        throw new EpmLaunchException("service-security-context",5);
+                    return AdminLaunch.Launch(existing.Proof.Path,caller.session);
+                });
             approvals.TryRemove(existing.Id,out _);
             return new {success=true,status="launched",processId};
         } catch (Exception error) {
