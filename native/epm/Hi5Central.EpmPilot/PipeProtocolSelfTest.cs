@@ -53,7 +53,6 @@ internal static class PipeProtocolSelfTest
         Mark("client-connected");
         client.ReadMode=PipeTransmissionMode.Message;
         await client.WriteAsync(new byte[]{0x7B,0x7D},cts.Token); // {}
-        await client.FlushAsync(cts.Token);
 
         byte[] challengeData=new byte[1024];
         int received=await client.ReadAsync(challengeData,cts.Token);
@@ -71,7 +70,6 @@ internal static class PipeProtocolSelfTest
             win32Code=grant?0:5
         });
         await client.WriteAsync(response,cts.Token);
-        await client.FlushAsync(cts.Token);
         Mark("client-wrote-ack");
 
         Exception? failure;
