@@ -17,7 +17,44 @@ internal static class PipeProtocolSelfTest
     {
         await ExchangeAsync(grant:true);
         await ExchangeAsync(grant:false);
-        Console.WriteLine("PASS: EPM bidirectional desktop-grant protocol; grant/rejection preserve diagnostic codes.");
+        await TimeoutAsync();
+        Console.WriteLine("PASS: EPM bidirectional pipe protocol: grant, explicit Windows denial, 18-second timeout.");
+    }
+
+    private static async Task TimeoutAsync()
+    {
+        // An unresponsive but authenticated client must never hold a SYSTEM
+        // launch worker indefinitely. No accounts or desktop ACLs are created.
+        string name="H5CEPM-Timeout-"+Guid.NewGuid().ToString("N");
+        using var cts=new CancellationTokenSource(TimeSpan.FromSeconds(28));
+        using var server=new NamedPipeServerStream(name,PipeDirection.InOut,1,
+            PipeTransmissionMode.Message,PipeOptions.Asynchronous);
+        using var client=new NamedPipeClientStream(".",name,PipeDirection.InOut,
+            PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
+        Task<string> serverTask=Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync(cts.Token);
+            server.ReadMode=PipeTransmissionMode.Message;
+            byte[] request=new byte[128];
+            int n=await server.ReadAsync(request,cts.Token);
+            if(n<1)throw new InvalidDataException("No initial request for timeout test.");
+            try {
+                WindowsIdentity.RunImpersonated(SafeAccessTokenHandle.InvalidHandle,
+                    () => EpmService.RequestDesktopGrant(server,"S-1-5-32-545"));
+                return "unexpected-success";
+            }
+            catch(EpmLaunchException error) {return error.Stage;}
+        },cts.Token);
+        await client.ConnectAsync(3500,cts.Token);
+        client.ReadMode=PipeTransmissionMode.Message;
+        await client.WriteAsync(new byte[]{0x7B,0x7D},cts.Token);
+        byte[] challenge=new byte[512];
+        int received=await client.ReadAsync(challenge,cts.Token);
+        if(received==0)throw new InvalidDataException("No desktop challenge received.");
+        // Intentionally do NOT send ACK. Broker watchdog must fail closed.
+        string outcome=await serverTask.WaitAsync(cts.Token);
+        if(outcome!="desktop-grant-timeout")
+            throw new InvalidOperationException("EPM broker did not enforce desktop grant timeout: "+outcome);
     }
 
     private static async Task ExchangeAsync(bool grant)
