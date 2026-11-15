@@ -59,6 +59,38 @@ jobs:
           $hash=(Get-FileHash artifact/host/Hi5CentralEpmBrowserHost.exe -Algorithm SHA256).Hash
           "HOST_EXE_SHA256=$hash" | Set-Content artifact/SHA256.txt -Encoding Ascii
           Write-Host "BROWSER_HOST_SHA256=$hash"
+      - name: Test real Windows native host STDIO
+        shell: pwsh
+        run: |
+          python native/epm/Hi5Central.EpmBrowserHost/test_native.py (Resolve-Path artifact/host/Hi5CentralEpmBrowserHost.exe)
+          if ($LASTEXITCODE -ne 0) { throw "Native host STDIO test failed" }
+      - name: Smoke test browser host installation in Windows PowerShell 5.1
+        shell: pwsh
+        run: |
+          $epmRoot=Join-Path $env:ProgramFiles 'Hi5Central\EPM'
+          New-Item -ItemType Directory -Path $epmRoot -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $epmRoot 'Hi5CentralEpmPilot.exe') -Value 'CI placeholder, never executed' -Encoding ascii
+          $hostExe=(Resolve-Path 'artifact/host/Hi5CentralEpmBrowserHost.exe').Path
+          $ext=(Resolve-Path 'artifact/extension').Path
+          $hash=(Get-FileHash $hostExe -Algorithm SHA256).Hash
+          $script=(Resolve-Path 'artifact/Install-EpmBrowserHost.ps1').Path
+          & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script -HostExecutable $hostExe -ExtensionDirectory $ext -ExpectedHostSha256 $hash
+          if ($LASTEXITCODE -ne 0) { throw "PowerShell 5.1 browser bridge install failed" }
+          $hostName='com.hi5central.epm_browser'
+          $manifest=(Join-Path $epmRoot 'BrowserBridge\native-messaging-host.json')
+          $actual=Get-Content $manifest -Raw | ConvertFrom-Json
+          if ($actual.name -ne $hostName -or $actual.type -ne 'stdio' -or
+              $actual.allowed_origins.Count -ne 1 -or
+              $actual.allowed_origins[0] -ne 'chrome-extension://mdablcgpimddfidkjilfglpcaolpopda/') {
+            throw "Unexpected native host registration permissions"
+          }
+          foreach($vendor in @('Microsoft\Edge','Google\Chrome')) {
+            $key="HKLM:\SOFTWARE\$vendor\NativeMessagingHosts\$hostName"
+            if ((Get-Item $key).GetValue('') -ne $manifest) { throw "Missing exact native host registry registration" }
+            Remove-Item $key -Recurse -Force
+          }
+          Remove-Item $epmRoot -Recurse -Force
+          Write-Host 'PASS: PowerShell 5.1 browser bridge install and exact-origin registry smoke test.'
       - name: Upload Windows browser bridge
         uses: actions/upload-artifact@v4
         with:
