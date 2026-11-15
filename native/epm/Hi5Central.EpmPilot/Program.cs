@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO.Pipes;
 using System.Security.Principal;
@@ -55,7 +56,14 @@ internal static class Program
             return;
         }
         if(args.Length==1 && args[0]=="--watch") {
-            Application.Run(new ApprovalTray());
+            // One notification watcher per user per interactive session.
+            // Signing out or restarting the EPM service is NOT required.
+            string sid=WindowsIdentity.GetCurrent().User?.Value??"unknown";
+            string mutexName=@"Local\Hi5CentralEpmPilotWatcher_"+sid;
+            using var singleton=new Mutex(true,mutexName,out bool created);
+            if(!created)return;
+            try {Application.Run(new ApprovalTray());}
+            finally {singleton.ReleaseMutex();}
             return;
         }
         if(args.Length!=1 || !args[0].EndsWith(".exe",StringComparison.OrdinalIgnoreCase)) {
@@ -63,8 +71,42 @@ internal static class Program
                 "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
             return;
         }
+        // Launch the watcher *as the requesting standard user* on the very
+        // first right-click invocation. This works even after an administrator
+        // upgrades the service while the user remains signed in.
+        EnsureWatcherForCurrentUser();
         Application.Run(new LauncherContext(args[0]));
     }
+    private static void EnsureWatcherForCurrentUser()
+    {
+        try {
+            string sid=WindowsIdentity.GetCurrent().User?.Value??"";
+            if(string.IsNullOrWhiteSpace(sid))return;
+            string name=@"Local\Hi5CentralEpmPilotWatcher_"+sid;
+            if(Mutex.TryOpenExisting(name,out var existing)) {
+                existing.Dispose();
+                return;
+            }
+            string? exe=Environment.ProcessPath;
+            if(string.IsNullOrWhiteSpace(exe) || !File.Exists(exe))return;
+            // Do not start the tray from an elevated administrator's session.
+            // The explorer shell invokes us with the requesting user's token.
+            using var identity=WindowsIdentity.GetCurrent();
+            if(identity.User?.IsWellKnown(WellKnownSidType.LocalSystemSid)==true)return;
+            Process.Start(new ProcessStartInfo {
+                FileName=exe,
+                Arguments="--watch",
+                UseShellExecute=false,
+                CreateNoWindow=true,
+                WorkingDirectory=Path.GetDirectoryName(exe)!
+            })?.Dispose();
+        }
+        catch {
+            // Notification bootstrap is best effort; request/elevation logic
+            // continues unchanged. User can also run the explicit --watch command.
+        }
+    }
+
     private static readonly ConcurrentDictionary<int,InteractiveDesktopGrant> ActiveDesktopGrants=new();
 
     private static async Task<JsonDocument> ReadBrokerMessage(
