@@ -27,50 +27,43 @@ internal sealed class InteractiveDesktopGrant : IDisposable
 
     private InteractiveDesktopGrant(SecurityIdentifier sid) { admin=sid; }
 
-    internal static InteractiveDesktopGrant Acquire(uint clientPid,long sourceStation,
-        long sourceDesktop,string adminSid)
+    /// <summary>
+    /// Called ONLY in the requesting user's interactive process. WinSta0 and
+    /// Default are opened in that same Windows session, not duplicated from the
+    /// SYSTEM broker's Session 0. The broker supplies a newly created, random
+    /// H5EP account SID after verifying the authenticated approval.
+    /// </summary>
+    internal static InteractiveDesktopGrant AcquireLocal(string adminSid)
     {
-        if(clientPid==0 || sourceStation<=0 || sourceDesktop<=0)
-            throw new EpmLaunchException("desktop-client-handles",87);
         var sid=new SecurityIdentifier(adminSid);
-        var result=new InteractiveDesktopGrant(sid);
-        IntPtr process=OpenProcess(PROCESS_DUP_HANDLE,false,clientPid);
-        if(process==IntPtr.Zero)
-            throw new EpmLaunchException("desktop-open-client",Marshal.GetLastWin32Error());
-        try {
-            if(!DuplicateHandle(process,new IntPtr(sourceStation),GetCurrentProcess(),
-                out result.station,0,false,DUPLICATE_SAME_ACCESS))
-                throw new EpmLaunchException("desktop-duplicate-station",Marshal.GetLastWin32Error());
-            if(!DuplicateHandle(process,new IntPtr(sourceDesktop),GetCurrentProcess(),
-                out result.desktop,0,false,DUPLICATE_SAME_ACCESS))
-                throw new EpmLaunchException("desktop-duplicate-desktop",Marshal.GetLastWin32Error());
-        }
-        catch {
-            result.Dispose();
-            throw;
-        }
-        finally { CloseHandle(process); }
-
+        if(!sid.IsAccountSid()) throw new EpmLaunchException("desktop-grant-sid",87);
+        var lease=new InteractiveDesktopGrant(sid);
         try
         {
-            // Do not accept arbitrary client handles; validate both kernel
-            // object TYPE and NAME before editing any security descriptor.
-            if(!string.Equals(UserObjectInfo(result.station,UOI_TYPE),"WindowStation",StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(UserObjectInfo(result.station,UOI_NAME),"WinSta0",StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(UserObjectInfo(result.desktop,UOI_TYPE),"Desktop",StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(UserObjectInfo(result.desktop,UOI_NAME),"Default",StringComparison.OrdinalIgnoreCase))
+            // Open the caller's own interactive desktop with READ_CONTROL|WRITE_DAC.
+            // No desktop handle is passed to or from Session 0.
+            lease.station=OpenWindowStationW("WinSta0",false,0x00020000|0x00040000);
+            if(lease.station==IntPtr.Zero)
+                throw new EpmLaunchException("desktop-open-station",Marshal.GetLastWin32Error());
+            lease.desktop=OpenDesktopW("Default",0,false,0x00020000|0x00040000);
+            if(lease.desktop==IntPtr.Zero)
+                throw new EpmLaunchException("desktop-open-default",Marshal.GetLastWin32Error());
+            if(!string.Equals(UserObjectInfo(lease.station,UOI_TYPE),"WindowStation",StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(UserObjectInfo(lease.station,UOI_NAME),"WinSta0",StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(UserObjectInfo(lease.desktop,UOI_TYPE),"Desktop",StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(UserObjectInfo(lease.desktop,UOI_NAME),"Default",StringComparison.OrdinalIgnoreCase))
                 throw new EpmLaunchException("desktop-handle-identity",5);
             lock(DaclLock)
             {
-                AddAce(result.station,sid,WINSTA_ALL_ACCESS);
-                result.stationGranted=true;
-                AddAce(result.desktop,sid,DESKTOP_ALL_ACCESS);
-                result.desktopGranted=true;
+                AddAce(lease.station,sid,WINSTA_ALL_ACCESS);
+                lease.stationGranted=true;
+                AddAce(lease.desktop,sid,DESKTOP_ALL_ACCESS);
+                lease.desktopGranted=true;
             }
-            return result;
+            return lease;
         }
         catch {
-            result.Dispose();
+            lease.Dispose();
             throw;
         }
     }
@@ -178,8 +171,8 @@ internal sealed class InteractiveDesktopGrant : IDisposable
                 stationGranted=false;
             }
         }
-        if(desktop!=IntPtr.Zero) {CloseHandle(desktop);desktop=IntPtr.Zero;}
-        if(station!=IntPtr.Zero) {CloseHandle(station);station=IntPtr.Zero;}
+        if(desktop!=IntPtr.Zero) {CloseDesktop(desktop);desktop=IntPtr.Zero;}
+        if(station!=IntPtr.Zero) {CloseWindowStation(station);station=IntPtr.Zero;}
     }
 
     internal static void RunAclSelfTest()
@@ -200,14 +193,14 @@ internal sealed class InteractiveDesktopGrant : IDisposable
             throw new InvalidOperationException("EPM DACL self-test failed to preserve old ACE.");
     }
 
-    [DllImport("kernel32.dll",SetLastError=true)]
-    private static extern IntPtr OpenProcess(uint access,bool inherit,uint pid);
-    [DllImport("kernel32.dll",SetLastError=true)]
-    private static extern bool DuplicateHandle(IntPtr sourceProcess,IntPtr sourceHandle,
-        IntPtr targetProcess,out IntPtr targetHandle,uint access,bool inherit,uint options);
-    [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
-    [DllImport("kernel32.dll",SetLastError=true)]
-    private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
+    private static extern IntPtr OpenWindowStationW(string name,bool inherit,uint access);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
+    private static extern IntPtr OpenDesktopW(string name,uint flags,bool inherit,uint access);
+    [DllImport("user32.dll",SetLastError=true)]
+    private static extern bool CloseWindowStation(IntPtr station);
+    [DllImport("user32.dll",SetLastError=true)]
+    private static extern bool CloseDesktop(IntPtr desktop);
     [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
     private static extern bool GetUserObjectInformationW(IntPtr handle,int index,IntPtr info,uint size,out uint required);
     [DllImport("user32.dll",SetLastError=true)]
@@ -216,43 +209,3 @@ internal sealed class InteractiveDesktopGrant : IDisposable
     private static extern bool SetUserObjectSecurity(IntPtr handle,ref uint info,byte[] security);
 }
 
-/// <summary>Handles opened in the requesting user's interactive session, not Session 0.</summary>
-internal sealed class InteractiveDesktopHandles : IDisposable
-{
-    private const uint READ_CONTROL=0x00020000,WRITE_DAC=0x00040000;
-    public IntPtr Station {get;private set;}
-    public IntPtr Desktop {get;private set;}
-
-    private InteractiveDesktopHandles(IntPtr station,IntPtr desktop)
-    { Station=station;Desktop=desktop; }
-
-    internal static InteractiveDesktopHandles Open()
-    {
-        // The ordinary user already owns access to their interactive desktop.
-        // If Windows denies READ_CONTROL|WRITE_DAC, fail closed; never alter
-        // a policy, take ownership, or disable the secure UAC desktop.
-        var station=OpenWindowStationW("WinSta0",false,READ_CONTROL|WRITE_DAC);
-        if(station==IntPtr.Zero)
-            throw new EpmLaunchException("desktop-client-station",Marshal.GetLastWin32Error());
-        var desktop=OpenDesktopW("Default",0,false,READ_CONTROL|WRITE_DAC);
-        if(desktop==IntPtr.Zero)
-        {
-            int code=Marshal.GetLastWin32Error();
-            CloseWindowStation(station);
-            throw new EpmLaunchException("desktop-client-default",code);
-        }
-        return new InteractiveDesktopHandles(station,desktop);
-    }
-    public void Dispose()
-    {
-        if(Desktop!=IntPtr.Zero){CloseDesktop(Desktop);Desktop=IntPtr.Zero;}
-        if(Station!=IntPtr.Zero){CloseWindowStation(Station);Station=IntPtr.Zero;}
-    }
-
-    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
-    private static extern IntPtr OpenWindowStationW(string name,bool inherit,uint access);
-    [DllImport("user32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
-    private static extern IntPtr OpenDesktopW(string name,uint flags,bool inherit,uint access);
-    [DllImport("user32.dll",SetLastError=true)] private static extern bool CloseWindowStation(IntPtr station);
-    [DllImport("user32.dll",SetLastError=true)] private static extern bool CloseDesktop(IntPtr desktop);
-}
