@@ -3,7 +3,6 @@
 // Proves the Windows CREDUI wire-buffer roundtrip using invented test data.
 #include <windows.h>
 #include <wincred.h>
-#include <credui.h>
 #include <vector>
 #include <string>
 #include <iostream>
