@@ -17,7 +17,7 @@ BEGIN
    CHECK (
     (first_approved_by_user_id IS NULL AND first_approved_at IS NULL AND first_approval_note IS NULL)
     OR (first_approved_by_user_id IS NOT NULL AND first_approved_at IS NOT NULL
-         AND length(first_approval_note)>=10)
+         AND first_approval_note IS NOT NULL AND length(first_approval_note)>=10)
    );
  END IF;
 END $$;
