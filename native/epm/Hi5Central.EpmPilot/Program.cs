@@ -18,12 +18,20 @@ internal static class Program
             return;
         }
         if(args.Length==1 && args[0]=="--self-test") {
+            bool refusedMissingFile=false;
             try {
                 VerifiedFile.Inspect(Path.Combine(Path.GetTempPath(),"missing-hi5central-epm-file.exe"));
+            } catch { refusedMissingFile=true; }
+            if (!refusedMissingFile) {
+                Console.Error.WriteLine("FAIL: missing executable accepted.");
                 Environment.ExitCode=1;
-            } catch {
-                Environment.ExitCode=0;
+                return;
             }
+            // Test CheckTokenMembership with a duplicated IMPERSONATION token,
+            // not with the primary token returned from LogonUser.
+            AdminLaunch.RunTokenSelfTest();
+            Console.WriteLine("PASS: missing file denied; primary-to-impersonation token membership check works.");
+            Environment.ExitCode=0;
             return;
         }
         ApplicationConfiguration.Initialize();
