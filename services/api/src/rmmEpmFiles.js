@@ -113,7 +113,10 @@ export function registerRmmEpmFileRoutes(app) {
       'service-security-context','create-admin-identity','assign-admin-group','logon-identity',
       'validate-elevated-token','duplicate-check-token',
       'check-token-membership','duplicate-primary-token',
-      'bind-desktop-session','create-elevated-process','unexpected-launch-error',
+      'bind-desktop-session','resolve-admin-sid','load-admin-profile',
+      'create-user-environment','create-process-job','set-process-job-limits',
+      'create-elevated-process','assign-process-job','resume-approved-process',
+      'track-approved-process','unexpected-launch-error',
     ])
     const stage=clean(b.stage)
     const win32Code=b.win32Code
