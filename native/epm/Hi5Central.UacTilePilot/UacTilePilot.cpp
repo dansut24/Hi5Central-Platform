@@ -20,25 +20,33 @@ enum FieldId : DWORD {
   F_DESCRIPTION=1,
   F_STATUS=2,
   F_REASON=3,
-  F_ACTION=4,
-  F_COUNT=5
+  F_EXE_PATH=4,
+  F_ACTION=5,
+  F_COUNT=6
 };
 
 constexpr wchar_t kTitle[] = L"Hi5Central EPM";
 constexpr wchar_t kDescription[] = L"Request administrator access";
 constexpr wchar_t kStatus[] =
-    L"UAC research pilot only. Approval will not be submitted here.";
-constexpr wchar_t kAction[] = L"Check justification (preview only)";
+    L"Select a signed EXE path, enter a reason, then send for Newtest RMM approval. "
+    L"The original Windows UAC action will NOT resume.";
+constexpr wchar_t kAction[] = L"Request approval in Hi5Central RMM";
 constexpr wchar_t kReasonLabel[] = L"Business justification (20-512 characters)";
-constexpr wchar_t kActionStatus[] =
-    L"Local preview only. Cancel Windows UAC and use Run with Hi5Central admin "
-    L"to submit a REAL technician request for the signed executable.";
+constexpr wchar_t kPathLabel[] = L"Full path to signed EXE (required)";
 constexpr wchar_t kNeedReason[] =
-    L"Enter at least 20 characters explaining the administrator access needed. "
-    L"No approval has been sent.";
-constexpr wchar_t kValidReason[] =
-    L"Justification entered locally. No approval has been submitted. "
-    L"Cancel native UAC and use Run with Hi5Central admin for real approval.";
+    L"Enter a business justification of at least 20 characters. No request was sent.";
+constexpr wchar_t kNeedTarget[] =
+    L"Enter a full local path to the signed EXE. The current UAC target is not "
+    L"available through the documented credential provider API.";
+constexpr wchar_t kPending[] =
+    L"Request submitted to Newtest RMM for the exact signed file. CANCEL this "
+    L"Windows UAC prompt. When approved, use the Hi5Central notification to launch.";
+constexpr wchar_t kUnavailable[] =
+    L"Hi5Central could not verify or submit this request. Nothing was elevated. "
+    L"Cancel UAC and use Run with Hi5Central admin.";
+constexpr wchar_t kRejected[] =
+    L"Hi5Central rejected this executable or request. No elevation occurred. "
+    L"Use the existing Run with Hi5Central admin flow.";
 
 static const struct {
   CREDENTIAL_PROVIDER_FIELD_TYPE type;
@@ -49,6 +57,7 @@ static const struct {
   {CPFT_SMALL_TEXT,kDescription,CPFS_DISPLAY_IN_BOTH},
   {CPFT_SMALL_TEXT,kStatus,CPFS_DISPLAY_IN_SELECTED_TILE},
   {CPFT_EDIT_TEXT,kReasonLabel,CPFS_DISPLAY_IN_SELECTED_TILE},
+  {CPFT_EDIT_TEXT,kPathLabel,CPFS_DISPLAY_IN_SELECTED_TILE},
   {CPFT_COMMAND_LINK,kAction,CPFS_DISPLAY_IN_SELECTED_TILE}
 };
 
@@ -58,17 +67,70 @@ HRESULT MakeString(const wchar_t* value,LPWSTR* output) noexcept {
   return SHStrDupW(value,output);
 }
 
+
+static bool IsCandidateExe(const std::wstring& p) noexcept {
+  if(p.size()<7||p.size()>2048||p[1]!=L':'||p[2]!=L'\\')return false;
+  if(!((p[0]>=L'A'&&p[0]<=L'Z')||(p[0]>=L'a'&&p[0]<=L'z')))return false;
+  if(_wcsicmp(p.c_str()+p.size()-4,L".exe")!=0)return false;
+  if(p.find(L"..\\")!=std::wstring::npos||p.find(L'\"')!=std::wstring::npos)return false;
+  return true;
+}
+
+// No credentials, Agent secret or approval tokens ever enter the UAC DLL.
+// The SYSTEM-owned, ACL-protected local service authenticates the actual
+// Windows Credential UI host and verifies the EXE via Authenticode/SHA-256.
+static std::string JsonString(const std::wstring& text) {
+  if(text.size()>4096)return {};
+  int count=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,text.c_str(),
+    static_cast<int>(text.size()),nullptr,0,nullptr,nullptr);
+  if(count<=0)return {};
+  std::string utf8(static_cast<size_t>(count),'\0');
+  if(!WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,text.c_str(),
+    static_cast<int>(text.size()),utf8.data(),count,nullptr,nullptr))return {};
+  std::string output="\"";
+  for(unsigned char c:utf8){
+    if(c==0||c<0x20)return {};
+    if(c=='\"'||c=='\\')output.push_back('\\');
+    output.push_back(static_cast<char>(c));
+  }
+  output.push_back('\"');
+  return output;
+}
+
+static std::wstring SendRequest(const std::wstring& path,const std::wstring& reason) {
+  auto p=JsonString(path),r=JsonString(reason);
+  if(p.empty()||r.empty())return kRejected;
+  const std::string message="{\"type\":\"uac-request\",\"path\":"+p+",\"reason\":"+r+"}";
+  char reply[4096]{};
+  DWORD received=0;
+  // CallNamedPipe has a bounded 5s timeout; failure to contact the service
+  // must never freeze the secure desktop indefinitely or authenticate UAC.
+  BOOL ok=CallNamedPipeW(L"\\\\.\\pipe\\Hi5CentralEpmPilot",
+      const_cast<char*>(message.data()),static_cast<DWORD>(message.size()),
+      reply,sizeof(reply)-1,&received,5000);
+  if(!ok||received>=sizeof(reply))return kUnavailable;
+  std::string result(reply,reply+received);
+  // This text is only a UI status hint. Server-side approval is authoritative;
+  // even a fabricated response here cannot grant rights or complete UAC.
+  if(result.find("\"success\":true")!=std::string::npos)
+    return kPending;
+  return kRejected;
+}
+
 class Tile final : public ICredentialProviderCredential {
   std::atomic<ULONG> refs_{1};
   ICredentialProviderCredentialEvents* events_{nullptr};
   bool selected_{false};
   bool clicked_{false};
   std::wstring reason_;
+  std::wstring path_;
+  std::wstring status_;
 public:
   Tile() {g_objects.fetch_add(1);}
   ~Tile() {
     if(events_) events_->Release();
     if(!reason_.empty()) SecureZeroMemory(reason_.data(),reason_.size()*sizeof(wchar_t));
+    if(!path_.empty()) SecureZeroMemory(path_.data(),path_.size()*sizeof(wchar_t));
     g_objects.fetch_sub(1);
   }
   STDMETHODIMP QueryInterface(REFIID riid,void** ptr) override {
@@ -112,9 +174,9 @@ public:
   }
   STDMETHODIMP GetStringValue(DWORD id,LPWSTR* value) override {
     if(id>=F_COUNT)return E_INVALIDARG;
-    if(id==F_STATUS&&clicked_)
-      return MakeString(reason_.size()<20 ? kNeedReason : kValidReason,value);
+    if(id==F_STATUS&&clicked_)return MakeString(status_.c_str(),value);
     if(id==F_REASON)return MakeString(reason_.c_str(),value);
+    if(id==F_EXE_PATH)return MakeString(path_.c_str(),value);
     return MakeString(kFields[id].label,value);
   }
   STDMETHODIMP GetBitmapValue(DWORD,HBITMAP*) override {return E_NOTIMPL;}
@@ -123,19 +185,21 @@ public:
   STDMETHODIMP GetComboBoxValueCount(DWORD,DWORD*,DWORD*) override {return E_NOTIMPL;}
   STDMETHODIMP GetComboBoxValueAt(DWORD,DWORD,LPWSTR*) override {return E_NOTIMPL;}
   STDMETHODIMP SetStringValue(DWORD id,LPCWSTR input) override {
-    if(id!=F_REASON||!input)return E_INVALIDARG;
-    const size_t length=wcsnlen_s(input,513);
-    if(length>512)return E_INVALIDARG;
+    if((id!=F_REASON && id!=F_EXE_PATH)||!input)return E_INVALIDARG;
+    const size_t maximum=id==F_REASON?512:2048;
+    const size_t length=wcsnlen_s(input,maximum+1);
+    if(length>maximum)return E_INVALIDARG;
     // This display-only pilot neither transmits nor persists the reason.
     // Reject control characters to avoid obscured/truncated prompt content.
     for(size_t i=0;i<length;i++) {
       if(input[i]<0x20 || input[i]==0x7f)return E_INVALIDARG;
     }
     std::wstring incoming(input,length);
-    if(!reason_.empty())SecureZeroMemory(reason_.data(),reason_.size()*sizeof(wchar_t));
-    reason_.swap(incoming);
+    auto& value=id==F_REASON?reason_:path_;
+    if(!value.empty())SecureZeroMemory(value.data(),value.size()*sizeof(wchar_t));
+    value.swap(incoming);
     if(!incoming.empty())SecureZeroMemory(incoming.data(),incoming.size()*sizeof(wchar_t));
-    clicked_=false;
+    clicked_=false;status_.clear();
     return S_OK;
   }
   STDMETHODIMP SetCheckboxValue(DWORD,BOOL) override {return E_NOTIMPL;}
@@ -143,8 +207,10 @@ public:
   STDMETHODIMP CommandLinkClicked(DWORD id) override {
     if(id!=F_ACTION)return E_INVALIDARG;
     clicked_=true;
-    if(events_)events_->SetFieldString(this,F_STATUS,
-      reason_.size()<20 ? kNeedReason : kValidReason);
+    if(reason_.size()<20)status_=kNeedReason;
+    else if(!IsCandidateExe(path_))status_=kNeedTarget;
+    else status_=SendRequest(path_,reason_);
+    if(events_)events_->SetFieldString(this,F_STATUS,status_.c_str());
     return S_OK;
   }
   STDMETHODIMP GetSerialization(
