@@ -19,6 +19,12 @@ internal static class Program
             ServiceBase.Run(new EpmService());
             return;
         }
+        if(args.Length==1 && args[0]=="--coverage-report") {
+            // Read-only posture report for automated Windows Newtest qualification.
+            // Does not open UAC, create a credential or alter the EPM service.
+            ElevationCoverageProbe.Print();
+            return;
+        }
         if(args.Length==1 && args[0]=="--self-test") {
             bool refusedMissingFile=false;
             try {
@@ -36,6 +42,8 @@ internal static class Program
             // Reproduce the production one-time desktop-grant handshake,
             // including an explicit Windows denial, before publishing a pilot.
             PipeProtocolSelfTest.RunAsync().GetAwaiter().GetResult();
+            ElevationCoverageTests.Run();
+            UacLaunchIntents.SelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
