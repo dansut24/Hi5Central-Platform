@@ -150,7 +150,7 @@ internal static class Program
                 await Task.Delay(2000);
                 try {
                     using var state=await AskBroker("job",processId:processId);
-                    if(Ok(state.RootElement) && Value(state.RootElement,"status")=="ended")
+                    if(Ok(state.RootElement) && Value(state.RootElement,"status") is "ended" or "unknown")
                         return;
                 }
                 catch { /* Retry intermittent broker failures until the bounded deadline. */ }
