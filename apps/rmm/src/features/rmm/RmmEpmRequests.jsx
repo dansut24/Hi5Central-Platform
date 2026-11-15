@@ -60,12 +60,15 @@ export function RmmEpmRequests() {
     </section>
     <section className="app-portal-card app-portal-wide">
       <div className="app-portal-card-title"><div><h3><ShieldCheck size={17}/> Executable approval queue</h3>
-        <p>Trust status and SHA-256 are independently rechecked by the Windows broker before execution.</p></div></div>
+        <p>Trust status and SHA-256 are independently rechecked by the Windows broker before execution. A UAC tile request targets the EXE manually selected by the employee; it does not automatically resume the original UAC action.</p></div></div>
       {!rows.length && <p>No file elevation requests. The Newtest Lenovo pilot only accepts signed, locally verified EXE files.</p>}
       {rows.map(r=><article className="app-portal-approval-item" key={r.id}>
         <div className="app-portal-approval-summary" style={{overflowWrap:'anywhere'}}>
           <strong>{r.file_name}</strong>
           <small>{r.requester_name || r.requester_sid} · {new Date(r.created_at).toLocaleString()}</small>
+          <small><b>Origin:</b> {r.request_source==='native-uac'
+            ? 'Windows UAC — user explicitly selected and verified EXE'
+            : 'Explorer / browser — selected EXE'}</small>
           <small><b>Publisher:</b> {r.publisher}</small>
           <small><b>File:</b> {r.file_path}</small>
           <small><b>SHA-256:</b> {r.file_sha256}</small>
