@@ -3,9 +3,9 @@
 // a process, reads a password or connects to the Hi5Central Agent.
 // It supports ONLY CPUS_CREDUI. It does NOT implement a provider filter.
 // The Windows password / PIN / Hello providers must remain present.
-#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <credentialprovider.h>
+#include <wincred.h>
 #include <shlwapi.h>
 #include <new>
 #include <atomic>
@@ -55,7 +55,7 @@ class Tile final : public ICredentialProviderCredential {
   bool clicked_{false};
 public:
   Tile() {g_objects.fetch_add(1);}
-  ~Tile() override {
+  ~Tile() {
     if(events_) events_->Release();
     g_objects.fetch_sub(1);
   }
@@ -142,7 +142,7 @@ class Provider final : public ICredentialProvider {
   DWORD flags_{0};
 public:
   Provider(){g_objects.fetch_add(1);}
-  ~Provider() override {g_objects.fetch_sub(1);}
+  ~Provider() {g_objects.fetch_sub(1);}
   STDMETHODIMP QueryInterface(REFIID riid,void** ptr) override {
     if(!ptr)return E_INVALIDARG;
     *ptr=nullptr;
@@ -215,7 +215,7 @@ class Factory final : public IClassFactory {
   std::atomic<ULONG> refs_{1};
 public:
   Factory(){g_objects.fetch_add(1);}
-  ~Factory() override {g_objects.fetch_sub(1);}
+  ~Factory() {g_objects.fetch_sub(1);}
   STDMETHODIMP QueryInterface(REFIID riid,void** ptr) override {
     if(!ptr)return E_INVALIDARG;*ptr=nullptr;
     if(IsEqualIID(riid,IID_IUnknown)||IsEqualIID(riid,IID_IClassFactory))
@@ -245,7 +245,7 @@ public:
 } // namespace
 
 extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE
-DllGetClassObject(REFCLSID clsid,REFIID iid,void** output) {
+H5DllGetClassObject(REFCLSID clsid,REFIID iid,void** output) {
   if(!output)return E_INVALIDARG;
   *output=nullptr;
   if(!IsEqualCLSID(clsid,CLSID_Hi5CentralUacTilePilot))
@@ -257,7 +257,7 @@ DllGetClassObject(REFCLSID clsid,REFIID iid,void** output) {
   return hr;
 }
 
-extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE DllCanUnloadNow() {
+extern "C" __declspec(dllexport) HRESULT STDAPICALLTYPE H5DllCanUnloadNow() {
   return g_objects.load()==0?S_OK:S_FALSE;
 }
 
