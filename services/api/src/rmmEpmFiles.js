@@ -116,6 +116,10 @@ export function registerRmmEpmFileRoutes(app) {
       'bind-desktop-session','resolve-admin-sid','load-admin-profile',
       'create-user-environment','create-process-job','set-process-job-limits',
       'create-elevated-process','assign-process-job','resume-approved-process',
+      'desktop-client-handles','desktop-open-client','desktop-duplicate-station',
+      'desktop-duplicate-desktop','desktop-handle-identity','desktop-query-identity',
+      'desktop-read-acl','desktop-missing-acl','desktop-write-acl',
+      'desktop-duplicate-admin-sid',
       'track-approved-process','unexpected-launch-error',
     ])
     const stage=clean(b.stage)
