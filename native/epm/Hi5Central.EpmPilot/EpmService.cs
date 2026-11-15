@@ -10,7 +10,7 @@ using System.Text.Json;
 namespace Hi5Central.EpmPilot;
 
 internal sealed record ApprovalCache(
-    Guid Id,string Sid,int SessionId,FileProof Proof);
+    Guid Id,string Sid,int SessionId,FileProof Proof,bool AutoLaunchOnApproval);
 internal sealed record UacReviewCache(
     Guid Id,string Sid,int Session,int ConsentPid,DateTimeOffset ConsentStarted,string Reason);
 
@@ -94,7 +94,8 @@ internal sealed class EpmService : ServiceBase
             string file=data.TryGetProperty("path",out var p)?p.GetString()??"":"";
             response=type switch {
                 "request"=>await Request(file, data.TryGetProperty("reason",out var reason)?reason.GetString()??"":"",
-                    caller,ct),
+                    caller,ct,"explorer",data.TryGetProperty("autoLaunchOnApproval",out var autoLaunch)
+                        && autoLaunch.ValueKind==JsonValueKind.True),
                 // UAC is hosted by a protected Windows credential UI process.
                 // Never accept the caller SID as the employee SID; authenticate
                 // the Windows host and resolve the interactive session user.
@@ -276,8 +277,13 @@ internal sealed class EpmService : ServiceBase
         using var r=await api.PostAsync("/api/v1/agent/epm/file-requests/"+item.Id+"/status",ToApiBinding(item),ct);
         return r.RootElement.GetProperty("status").GetString()??"unknown";
     }
-    private async Task<object> Request(string path,string reason,(string sid,string name,int session) caller,CancellationToken ct,string requestSource="explorer") {
+    private async Task<object> Request(string path,string reason,(string sid,string name,int session) caller,CancellationToken ct,
+        string requestSource="explorer",bool autoLaunchOnApproval=false) {
         if(string.IsNullOrWhiteSpace(path)) throw new InvalidOperationException("Choose an executable first.");
+        // The consent-host request is never permitted to supply an executable
+        // or request automatic launch. Only a standard user-selected EXE can.
+        bool mayAutoLaunch=ApprovalAutoLaunchPolicy.CanEnable(
+            autoLaunchOnApproval,requestSource,caller.sid);
         var original=VerifiedFile.Inspect(path);
         var cached=Match(original.Path,caller);
         if(cached is not null && cached.Proof.Hash==original.Hash && cached.Proof.Thumbprint==original.Thumbprint) {
@@ -292,12 +298,17 @@ internal sealed class EpmService : ServiceBase
         using (var result=await api.PostAsync("/api/v1/agent/epm/file-requests",new {
                 sid=caller.sid,username=caller.name,sessionId=caller.session,path=original.Path,
                 sha256=original.Hash,signerThumbprint=original.Thumbprint,publisher=original.Publisher,
-                signatureStatus="Valid",reason=reason.Trim(),source=requestSource
+                signatureStatus="Valid",reason=reason.Trim(),source=requestSource,
+                autoLaunchOnApproval=mayAutoLaunch
             },ct)) {
             var id=Guid.Parse(result.RootElement.GetProperty("requestId").GetString()!);
-            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original);
+            bool acceptedAutoLaunch=mayAutoLaunch
+                && result.RootElement.TryGetProperty("autoLaunchOnApproval",out var ackAuto)
+                && ackAuto.ValueKind==JsonValueKind.True;
+            approvals[id]=new ApprovalCache(id,caller.sid,caller.session,original,acceptedAutoLaunch);
             string status=result.RootElement.GetProperty("status").GetString()??"pending";
-            return new {success=true,status,requestId=id,file=original.Name,publisher=original.Publisher};
+            return new {success=true,status,requestId=id,file=original.Name,
+                publisher=original.Publisher,autoLaunchOnApproval=acceptedAutoLaunch};
         }
     }
     private async Task<object> Check(string path,(string sid,string name,int session) caller,CancellationToken ct) {
@@ -322,6 +333,11 @@ internal sealed class EpmService : ServiceBase
                 files.Add(new {
                     path=item.Proof.Path,requestId=item.Id,
                     status=row.GetProperty("status").GetString()??"unknown",
+                    autoLaunchOnApproval=ApprovalAutoLaunchPolicy.ShouldStart(
+                        row.GetProperty("status").GetString()??"unknown",
+                        item.AutoLaunchOnApproval,
+                        row.TryGetProperty("autoLaunchOnApproval",out var approvedAuto)
+                            && approvedAuto.ValueKind==JsonValueKind.True),
                     decisionNote=row.TryGetProperty("decisionNote",out var note)
                         && note.ValueKind==JsonValueKind.String?note.GetString():""
                 });

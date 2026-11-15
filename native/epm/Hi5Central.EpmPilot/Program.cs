@@ -45,6 +45,7 @@ internal static class Program
             ElevationCoverageTests.Run();
             UacLaunchIntents.SelfTest();
             NativeUacReviewPolicy.SelfTest();
+            ApprovalAutoLaunchPolicy.SelfTest();
             string windows=Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             if(!EpmService.IsTrustedWindowsCredentialHostPath(
                     Path.Combine(windows,"System32","consent.exe"),windows)
@@ -147,14 +148,14 @@ internal static class Program
     }
 
     internal static async Task<JsonDocument> AskBroker(string type,string path="",
-        string reason="",int processId=0)
+        string reason="",int processId=0,bool autoLaunchOnApproval=false)
     {
         using var client=new NamedPipeClientStream(".",EpmService.PipeName,PipeDirection.InOut,
             PipeOptions.Asynchronous,TokenImpersonationLevel.Impersonation);
         using var timeout=new CancellationTokenSource(TimeSpan.FromSeconds(38));
         await client.ConnectAsync(3500,timeout.Token);
         client.ReadMode=PipeTransmissionMode.Message;
-        var message=JsonSerializer.SerializeToUtf8Bytes(new{type,path,reason,processId});
+        var message=JsonSerializer.SerializeToUtf8Bytes(new{type,path,reason,processId,autoLaunchOnApproval});
         await client.WriteAsync(message,timeout.Token);
         InteractiveDesktopGrant? grant=null;
         string? localFailure=null;
@@ -239,17 +240,19 @@ internal static class Program
 
     private static bool Ok(JsonElement data)=>data.TryGetProperty("success",out var value)&&value.GetBoolean();
     private static string Value(JsonElement data,string key)=>data.TryGetProperty(key,out var item)?item.ToString():"";
-    internal static async Task RequestOrLaunch(string path)
+    internal static async Task RequestOrLaunch(string path,bool startAfterApproval=false)
     {
         try {
             using var checkedStatus=await AskBroker("check",path);
             var state=Value(checkedStatus.RootElement,"status");
             if(state=="approved"){
-                var choice=MessageBox.Show(
-                    "The exact executable has been approved. Run it with Hi5Central administrator privileges now?\n\n"+
-                    Path.GetFileName(path)+"\n\nThis approval is one-time and expires after 15 minutes.",
-                    "Hi5Central Elevation",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
-                if(choice!=DialogResult.Yes)return;
+                if(!startAfterApproval) {
+                    var choice=MessageBox.Show(
+                        "The exact executable has been approved. Run it with Hi5Central administrator privileges now?\n\n"+
+                        Path.GetFileName(path)+"\n\nThis approval is one-time and expires after 15 minutes.",
+                        "Hi5Central Elevation",MessageBoxButtons.YesNo,MessageBoxIcon.Information);
+                    if(choice!=DialogResult.Yes)return;
+                }
                 using var launched=await AskBroker("run",path);
                 if(!Ok(launched.RootElement))
                     throw new InvalidOperationException(Value(launched.RootElement,"error"));
@@ -266,11 +269,17 @@ internal static class Program
                     "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
                 return;
             }
-            string? justification=ReasonDialog.Prompt(path);
+            var justification=ReasonDialog.Prompt(path);
             if(justification is null)return;
-            using var result=await AskBroker("request",path,justification);
+            using var result=await AskBroker("request",path,justification.Reason,
+                autoLaunchOnApproval:justification.AutoLaunchOnApproval);
             if(!Ok(result.RootElement))throw new InvalidOperationException(Value(result.RootElement,"error"));
-            MessageBox.Show("Your elevation request has been submitted.\nIT can review it in RMM → Elevation requests.\nYou will be notified when it is approved.",
+            bool autoAccepted=result.RootElement.TryGetProperty("autoLaunchOnApproval",out var auto)
+                && auto.ValueKind==JsonValueKind.True;
+            MessageBox.Show("Your elevation request has been submitted.\nIT can review it in RMM → Elevation requests.\n"+
+                (autoAccepted
+                    ? "Once approved, Hi5Central will start the exact signed executable automatically in this Windows session."
+                    : "You will be notified when approved and can click to run the verified executable."),
                 "Hi5Central Elevation",MessageBoxButtons.OK,MessageBoxIcon.Information);
         } catch(Exception e) {
             MessageBox.Show("Hi5Central elevation could not continue.\n\n"+e.Message,
@@ -297,12 +306,14 @@ internal sealed class LauncherContext : ApplicationContext
         base.ExitThreadCore();
     }
 }
+internal sealed record ApprovalReason(string Reason,bool AutoLaunchOnApproval);
+
 internal static class ReasonDialog
 {
-    internal static string? Prompt(string path)
+    internal static ApprovalReason? Prompt(string path)
     {
         using var dialog=new Form {
-            Text="Hi5Central Elevation Approval",Width=550,Height=340,
+            Text="Hi5Central Elevation Approval",Width=550,Height=390,
             StartPosition=FormStartPosition.CenterScreen,FormBorderStyle=FormBorderStyle.FixedDialog,
             MaximizeBox=false,MinimizeBox=false,ShowInTaskbar=true
         };
@@ -313,13 +324,18 @@ internal static class ReasonDialog
             Left=20,Top=83,Width=495,Height=42};
         var input=new TextBox {Left=20,Top=137,Width=487,Height=92,Multiline=true,
             ScrollBars=ScrollBars.Vertical,MaxLength=2000};
-        var cancel=new Button {Text="Cancel",Left=291,Top=245,Width=96,Height=32,DialogResult=DialogResult.Cancel};
-        var submit=new Button {Text="Request approval",Left=393,Top=245,Width=114,Height=32,Enabled=false,
+        var autoLaunch=new CheckBox {
+            Text="Start this exact signed EXE automatically after IT approves",
+            Left=20,Top=240,Width=487,Height=28,Checked=true
+        };
+        var cancel=new Button {Text="Cancel",Left=291,Top=287,Width=96,Height=32,DialogResult=DialogResult.Cancel};
+        var submit=new Button {Text="Request approval",Left=393,Top=287,Width=114,Height=32,Enabled=false,
             DialogResult=DialogResult.OK};
         input.TextChanged+=(_,_)=>submit.Enabled=input.Text.Trim().Length>=20;
-        dialog.Controls.AddRange([title,file,explain,input,cancel,submit]);
+        dialog.Controls.AddRange([title,file,explain,input,autoLaunch,cancel,submit]);
         dialog.AcceptButton=submit;dialog.CancelButton=cancel;
-        return dialog.ShowDialog()==DialogResult.OK?input.Text.Trim():null;
+        return dialog.ShowDialog()==DialogResult.OK
+            ?new ApprovalReason(input.Text.Trim(),autoLaunch.Checked):null;
     }
 }
 internal sealed class ApprovalTray : ApplicationContext
@@ -327,6 +343,7 @@ internal sealed class ApprovalTray : ApplicationContext
     private readonly NotifyIcon icon;
     private readonly System.Windows.Forms.Timer timer;
     private readonly HashSet<string> notified=new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> autoStarted=new(StringComparer.OrdinalIgnoreCase);
     private readonly ContextMenuStrip menu=new();
     private bool querying;
     private string clickableApprovedFile="";
@@ -384,9 +401,20 @@ internal sealed class ApprovalTray : ApplicationContext
                     if(string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(path)
                         || !notified.Add("file:"+id+":"+status))continue;
                     if(status=="approved") {
-                        Notify("Hi5Central EPM approved",
-                            Path.GetFileName(path)+" approved once. Click this notification to run the verified file, or use Run with Hi5Central admin again.",
-                            path);
+                        bool shouldStart=row.TryGetProperty("autoLaunchOnApproval",out var auto)
+                            && auto.ValueKind==JsonValueKind.True;
+                        if(shouldStart) {
+                            // One local launch attempt per approved request. The
+                            // broker separately rechecks the signed file identity,
+                            // requester SID/session and one-time API redemption.
+                            Notify("Hi5Central EPM approved — starting",
+                                Path.GetFileName(path)+" approved. Starting your verified EXE.");
+                            if(autoStarted.Add(id))_ = Program.RequestOrLaunch(path,true);
+                        } else {
+                            Notify("Hi5Central EPM approved",
+                                Path.GetFileName(path)+" approved once. Click this notification to run the verified file, or use Run with Hi5Central admin again.",
+                                path);
+                        }
                     } else if(status=="rejected") {
                         Notify("Hi5Central EPM request denied",
                             Path.GetFileName(path)+" was rejected. "+(note.Length>0?"Reason: "+note:"Contact your IT administrator."));

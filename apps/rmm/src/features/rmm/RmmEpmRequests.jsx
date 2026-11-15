@@ -57,7 +57,9 @@ export function RmmEpmRequests() {
         decision:active.decision,note:note.trim(),
       })
       setMessage(active.decision==='approved'
-        ? 'Approved once for 15 minutes. The user must retry the exact file.'
+        ? active.autoLaunch
+          ? 'Approved once for 15 minutes. The endpoint can start the exact verified executable automatically when its signed-in watcher receives this approval.'
+          : 'Approved once for 15 minutes. The user can click the notification or retry the exact file.'
         : 'Request rejected. No executable has been elevated.')
       setActive(null);setNote('')
       await refresh()
@@ -142,6 +144,9 @@ export function RmmEpmRequests() {
           <small><b>Origin:</b> {r.request_source==='native-uac'
             ? 'Windows UAC — user explicitly selected and verified EXE'
             : 'Explorer / browser — selected EXE'}</small>
+          <small><b>After approval:</b> {r.auto_launch_on_approval
+            ? 'Auto-start the exact verified EXE (explicit employee opt-in)'
+            : 'Notify employee to launch the EXE manually'}</small>
           <small><b>Publisher:</b> {r.publisher}</small>
           <small><b>File:</b> {r.file_path}</small>
           <small><b>SHA-256:</b> {r.file_sha256}</small>
@@ -167,14 +172,19 @@ export function RmmEpmRequests() {
         <span className="app-portal-state">{r.status}{r.status==='approved' && r.approval_expires_at
           ? ' · until '+new Date(r.approval_expires_at).toLocaleTimeString() : ''}</span>
         {r.status==='pending' && <span className="app-portal-request-actions">
-          <button disabled={busy} className="app-portal-text-action approve" onClick={()=>{setActive({id:r.id,decision:'approved'});setNote('')}} type="button">Approve once</button>
+          <button disabled={busy} className="app-portal-text-action approve" onClick={()=>{setActive({id:r.id,decision:'approved',autoLaunch:r.auto_launch_on_approval===true});setNote('')}} type="button">Approve once</button>
           <button disabled={busy} className="app-portal-text-action" onClick={()=>{setActive({id:r.id,decision:'rejected'});setNote('')}} type="button">Reject</button>
         </span>}
       </article>)}
     </section>
     {active && <section className="app-portal-card">
       <h3>{active.decision==='approved'?'Approve one-time elevation':'Reject elevation'}</h3>
-      <p>{active.decision==='approved'?'Approval expires after 15 minutes and is consumed on its first attempted launch.':'No elevation will be permitted.'}</p>
+      <p>{active.decision==='approved'
+        ? 'Approval expires after 15 minutes and is consumed on its first attempted launch. '+
+          (active.autoLaunch
+            ? 'The user opted to start this exact signed executable automatically after your approval.'
+            : 'The user must click the notification or retry the verified file.')
+        : 'No elevation will be permitted.'}</p>
       <label>Decision explanation<textarea value={note} rows="3" onChange={e=>setNote(e.target.value)}
         placeholder="Explain this decision (minimum 10 characters)" /></label>
       <div className="app-portal-request-actions">

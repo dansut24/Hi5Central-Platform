@@ -60,3 +60,14 @@ The Windows Credential Provider registration and prior EPM broker are
 automatically rolled back after the configured test period.
 No Windows built-in providers, Windows UAC policy, self-service Company Portal
 or main RMM Agent are changed by this package.
+
+NEWTEST VERIFIED EXE AUTO-START (V3)
+If the user chooses Explorer > Run with Hi5Central admin and checks the
+opt-in to start automatically, the exact verified EXE can start once after
+technician approval. The user must remain in their Windows session and the
+Hi5Central EPM notification watcher must be running. The original signed
+file identity is rechecked and approval is consumed once. An already pending
+legacy approval cannot be converted into automatic execution retrospectively.
+Native UAC reviews without a verified target remain review-only and do not
+launch or authenticate Windows prompts. Log off/on after upgrading the broker
+to replace an earlier notification watcher; then create a fresh EXE request.

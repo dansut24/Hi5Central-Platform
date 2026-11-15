@@ -54,7 +54,7 @@ while($true){
   if($selected -eq '0'){break}
   if($selected -eq '6'){
     Write-Host 'In Explorer, right-click a trusted signed EXE > Show more options > Run with Hi5Central admin.'
-    Write-Host 'Submit your reason in that separate verified-file flow; RMM may approve once.'
+    Write-Host 'Submit your reason and opt into automatic start in the verified-file flow; RMM can approve once.'
     Write-Host 'The user does not type a file path into the native UAC tile.'
     continue
   }
