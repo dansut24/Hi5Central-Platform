@@ -193,7 +193,11 @@ internal sealed class EpmService : ServiceBase
             // InvalidOperationException obscured actual desktop Win32 errors.
             var bytes=new byte[1024];
             diagnosticStage?.Invoke("awaiting-ack");
-            int count=pipe.ReadAsync(bytes,timeout.Token).GetAwaiter().GetResult();
+            // The launch callback is synchronous. Do not block on an overlapped
+            // ReadAsync completion from inside it; Windows may deliver bytes
+            // but .NET's async completion can throw an InvalidOperationException.
+            // The session helper responds with a single bounded JSON message.
+            int count=pipe.Read(bytes,0,bytes.Length);
             diagnosticStage?.Invoke("ack-read");
             if(count==0)throw new EpmLaunchException("desktop-grant-connection",109);
             if(count>=bytes.Length)
