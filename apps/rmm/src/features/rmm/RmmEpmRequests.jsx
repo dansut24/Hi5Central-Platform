@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 
 const base = window.__HI5_API_BASE__
@@ -24,9 +24,12 @@ export function RmmEpmRequests() {
   const [review,setReview] = useState(null)
   const [reviewNote,setReviewNote] = useState('')
   const [reviewBusy,setReviewBusy] = useState(false)
+  const refreshPending=useRef(false)
 
-  async function refresh() {
-    setError('')
+  async function refresh({silent=false}={}) {
+    if (refreshPending.current) return
+    refreshPending.current=true
+    if (!silent) setError('')
     try {
       const [data,uac]=await Promise.all([
         request('/api/v1/rmm/epm/file-requests'),
@@ -34,9 +37,18 @@ export function RmmEpmRequests() {
       ])
       setRows(data.requests || [])
       setUacReviews(uac.requests || [])
-    } catch (e) { setError(e.message) }
+    } catch (e) { if (!silent) setError(e.message) }
+    finally { refreshPending.current=false }
   }
-  useEffect(() => { refresh() }, [])
+  useEffect(() => {
+    refresh()
+    // Native UAC reviews expire after five minutes. Keep the technician
+    // queue current without manual refreshes or overlapping fetches.
+    const timer=window.setInterval(() => {
+      if (document.visibilityState==='visible') refresh({silent:true})
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [])
   async function decide() {
     if (!active || note.trim().length<10) return
     setBusy(true); setError(''); setMessage('')
@@ -71,7 +83,7 @@ export function RmmEpmRequests() {
       <div><span className="rmm-eyebrow">Endpoint security / privilege management</span>
         <h2>File elevation requests</h2>
         <p>Approve a specific signed executable for one user and device. This does not deploy an App Portal package or grant general administrator membership.</p></div>
-      <button className="rmm-secondary" type="button" disabled={busy} onClick={refresh}><RefreshCw size={15}/> Refresh</button>
+      <button className="rmm-secondary" type="button" disabled={busy} onClick={() => refresh()}><RefreshCw size={15}/> Refresh</button>
     </header>
     {error && <p role="alert" className="app-portal-notice error">{error}</p>}
     {message && <p role="status" className="app-portal-notice success">{message}</p>}
@@ -83,6 +95,7 @@ export function RmmEpmRequests() {
     <section className="app-portal-card app-portal-wide">
       <div className="app-portal-card-title"><div>
         <h3><ShieldCheck size={17}/> Native Windows UAC requests — security review</h3>
+        <small>Automatically updates every 5 seconds while this page is open.</small>
         <p>These requests come from the Windows credential prompt, but Windows does not disclose a verified underlying application or operation to this provider. A technician can record a review decision; this build cannot release administrator credentials, resume UAC or elevate an unknown operation.</p>
       </div></div>
       {!uacReviews.length && <p>No native UAC review requests have been received.</p>}
