@@ -22,87 +22,11 @@ foreach($file in @($exe,$dll,$manifest,$epmInstall,$tileInstall,$tileUninstall,$
 }
 $checks=@{}
 Get-Content -LiteralPath $manifest | ForEach-Object {
-  if($_ -match '^([A-Z0-9_]+)=([0-9A-Fa-f]{64}) {$checks[$matches[1]]=$matches[2].ToUpperInvariant()}
+  if($_ -match '^([A-Z0-9_]+)=([0-9A-Fa-f]{64})$') {$checks[$matches[1]]=$matches[2].ToUpperInvariant()}
 }
-if(!$checks['EPM_EXE_SHA256'] -or !$checks['UAC_DLL_SHA256']){throw 'Manifest lacks both pinned SHA256 hashes.'}
-if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $checks['EPM_EXE_SHA256']){
-  throw 'EPM broker EXE hash mismatch; nothing installed.'
+if((-not $checks.ContainsKey('EPM_EXE_SHA256')) -or (-not $checks.ContainsKey('UAC_DLL_SHA256'))){
+  throw 'Manifest lacks both pinned SHA256 hashes.'
 }
-if((Get-FileHash -LiteralPath $dll -Algorithm SHA256).Hash -ne $checks['UAC_DLL_SHA256']){
-  throw 'Native UAC provider DLL hash mismatch; nothing installed.'
-}
-if($ValidateOnly){
-  Write-Host 'PASS: unified EPM/UAC bundle files and pinned binary hashes verified.'
-  return
-}
-if(-not [Environment]::Is64BitProcess){throw 'Use elevated 64-bit Windows PowerShell.'}
-# Newtest Lenovo pilot is bound to one enrolled device; no arbitrary endpoint rollout.
-$expectedDevice='8b416bc2-ba5a-42d0-9b43-777a6f47af20'
-$stateFile=Join-Path $env:ProgramData 'Hi5Central\Agent\state.dat'
-if(!(Test-Path -LiteralPath $stateFile)){throw 'Cannot verify Newtest Agent identity.'}
-Add-Type -AssemblyName System.Security
-$clear=[System.Security.Cryptography.ProtectedData]::Unprotect(
-  [System.IO.File]::ReadAllBytes($stateFile),$null,
-  [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
-try{
-  $identity=[System.Text.Encoding]::UTF8.GetString($clear)|ConvertFrom-Json
-  $id=if($identity.device_id){$identity.device_id}else{$identity.deviceId}
-  if($id -ne $expectedDevice){throw 'This bundle is restricted to the enrolled Newtest Lenovo pilot.'}
-} finally {
-  [Array]::Clear($clear,0,$clear.Length)
-}
-$installedRoot=Join-Path $env:ProgramFiles 'Hi5Central\EPM\UacPilotBundle'
-$backup=Join-Path $env:ProgramData 'Hi5Central\EPM\UacPilotPrevious'
-$previousExe=Join-Path $env:ProgramFiles 'Hi5Central\EPM\Hi5CentralEpmPilot.exe'
-$backupExe=Join-Path $backup 'Hi5CentralEpmPilot.previous.exe'
-$rollbackTask='Hi5Central-EPM-Newtest-UacPilot-Rollback'
-$legacyTile=Join-Path $env:ProgramFiles 'Hi5Central\EPM\UacTilePilot\Uninstall-UacTilePilot.ps1'
-if(Get-ScheduledTask -TaskName $rollbackTask -ErrorAction SilentlyContinue){
-  throw 'Previous combined pilot rollback is active. Run the previous uninstall first.'
-}
-New-Item -ItemType Directory -Path $backup,$installedRoot -Force | Out-Null
-$serviceExisted=[bool](Get-Service Hi5CentralEpmPilot -ErrorAction SilentlyContinue)
-if($serviceExisted -and !(Test-Path -LiteralPath $previousExe)){
-  throw 'Existing EPM service binary missing; no changes made.'
-}
-if($serviceExisted){Copy-Item -LiteralPath $previousExe -Destination $backupExe -Force}
-$state=@{serviceExisted=$serviceExisted; installedAt=(Get-Date).ToUniversalTime().ToString('O')}
-$state|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $backup 'state.json') -Encoding UTF8
-Copy-Item -LiteralPath $rollbackScript -Destination (Join-Path $installedRoot 'Uninstall-Newtest-UacPilot.ps1') -Force
-Copy-Item -LiteralPath (Join-Path $root 'Uninstall-EpmPilot.ps1') -Destination (Join-Path $installedRoot 'Uninstall-EpmPilot.ps1') -Force
-$ps=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-$action=New-ScheduledTaskAction -Execute $ps -Argument (
-  '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+
-  (Join-Path $installedRoot 'Uninstall-Newtest-UacPilot.ps1')+'" -Automatic'
-)
-$trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes($RollbackMinutes)
-Register-ScheduledTask -TaskName $rollbackTask -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force -ErrorAction Stop | Out-Null
-try {
-  if(Test-Path 'HKLM:\SOFTWARE\Classes\CLSID\{7464D2E2-202B-4546-953D-9AFCDA3201E6}'){
-    if(!(Test-Path -LiteralPath $legacyTile)){throw 'Existing unknown UAC pilot registration; aborting upgrade.'}
-    & $legacyTile
-    }
-  & $epmInstall -Executable $exe -ExpectedSha256 $checks['EPM_EXE_SHA256']
-  & $tileInstall -DllPath $dll -ExpectedSha256 $checks['UAC_DLL_SHA256'] -RollbackMinutes $RollbackMinutes
-  if((Get-Service Hi5CentralEpmPilot -ErrorAction Stop).Status -ne 'Running'){
-    throw 'EPM Windows service did not start.'
-  }
-  $tileKey='HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{7464D2E2-202B-4546-953D-9AFCDA3201E6}'
-  if(!(Test-Path $tileKey)){throw 'Windows UAC tile was not registered.'}
-  Write-Host 'PASS: Newtest EPM service + native Windows UAC review tile installed.' -ForegroundColor Green
-  Write-Host "Timed automatic rollback: $RollbackMinutes minutes." -ForegroundColor Cyan
-  Write-Host 'Run Run-Newtest-UacCases.ps1 as the STANDARD Windows user; it starts the notification watcher.'
-  Write-Warning 'Review-only UAC requests do not authenticate, elevate or resume Windows UAC.'
-} catch {
-  $errorText=$_.Exception.Message
-  try {& (Join-Path $installedRoot 'Uninstall-Newtest-UacPilot.ps1')} catch {
-    Write-Warning "Automatic rollback encountered an error: $($_.Exception.Message)"
-  }
-  throw "Unified EPM/UAC pilot installation failed and rollback was attempted: $errorText"
-}
-) {$checks[$matches[1]]=$matches[2].ToUpperInvariant()}
-}
-if(!$checks['EPM_EXE_SHA256'] -or !$checks['UAC_DLL_SHA256']){throw 'Manifest lacks both pinned SHA256 hashes.'}
 if((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $checks['EPM_EXE_SHA256']){
   throw 'EPM broker EXE hash mismatch; nothing installed.'
 }
