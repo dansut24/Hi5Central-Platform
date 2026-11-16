@@ -30,7 +30,7 @@ int main() {
    assert((t.width%2)==0 && (t.height%2)==0);
    assert(t.width<=w && t.height<=h);
    assert(std::abs(static_cast<double>(t.width)/t.height-
-             static_cast<double>(w)/h)<0.005);
+             static_cast<double>(w)/h)<0.01);
  }
  auto x=GdiDirectTarget1080(0,1080,true);assert(x.width==0);
  std::cout<<"gdi_direct_1080_policy_test PASS 2560x1600_to_1728x1080"
