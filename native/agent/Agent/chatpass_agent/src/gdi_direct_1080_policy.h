@@ -29,8 +29,8 @@ inline GdiDirectTarget GdiDirectTarget1080(int nativeWidth,int nativeHeight,
         h=1080;
         w=static_cast<std::int64_t>(nativeWidth)*1080/nativeHeight;
     }
-    w=std::max<std::int64_t>(2,std::min<std::int64_t>(1920,w)&~1ll);
-    h=std::max<std::int64_t>(2,std::min<std::int64_t>(1080,h)&~1ll);
+    w=std::max<std::int64_t>(2,(std::min<std::int64_t>(1920,w)+1ll)&~1ll);
+    h=std::max<std::int64_t>(2,(std::min<std::int64_t>(1080,h)+1ll)&~1ll);
     return {static_cast<int>(w),static_cast<int>(h),true};
 }
 inline bool GdiDirectEligible(bool flag,bool defaultInputDesktop,
