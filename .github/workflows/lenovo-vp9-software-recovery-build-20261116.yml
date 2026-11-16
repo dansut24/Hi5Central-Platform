@@ -1,0 +1,643 @@
+name: Lenovo 1.0.529 software VP9 libvpx recovery - Lenovo only, software capture and codec
+
+on:
+  pull_request:
+    branches:
+      - test/lenovo-streaming-stage2o-20261116
+    paths:
+      - .github/workflows/lenovo-vp9-software-recovery-build-20261116.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lenovo-streaming-stage2k-windows-canary:
+    runs-on: windows-2025
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2a121cf0f03f89c866599ad2aba07eea9e2536c7
+      - name: Verify exact source-matched 510 baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '2a121cf0f03f89c866599ad2aba07eea9e2536c7'
+          $base = (git rev-parse HEAD).Trim()
+          if ($base -ne $expected) {
+            $parent = (git rev-parse HEAD^1).Trim()
+            if ($parent -ne $expected) { throw "Unexpected source base. Got $base parent $parent" }
+          }
+          Write-Host "510 source base verified as $expected"
+
+      - name: Restore source-matched qualified 1.0.524 arrival probe baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url='https://downloads.hi5central.com/rmm-codec-review/hi5central-streaming-stage2k-lenovo-source-20261116.zip'
+          $sha='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
+          $zip=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source.zip'
+          $out=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -ne $sha){throw "Source package SHA256 mismatch $actual"}
+          Expand-Archive -Path $zip -DestinationPath $out
+          $src=Join-Path $out 'changed-files'
+          $files=@(Get-ChildItem -LiteralPath $src -Recurse -File)
+          if($files.Count -ne 36){throw "Expected exactly 36 source files, found $($files.Count)"}
+          foreach($file in $files){
+            $relative=$file.FullName.Substring($src.Length + 1) -replace '\\','/'
+            $dest=Join-Path (Get-Location).Path $relative
+            if(-not (Test-Path $dest)){
+              $newSource = @(
+                'native/agent/Agent/chatpass_agent/src/rtc_keyframe_recovery_gate.h',
+                'native/agent/Agent/chatpass_agent/src/secure_desktop_handoff_policy.h',
+                'native/agent/Agent/chatpass_agent/src/i420_text_scale.h',
+                'native/agent/Agent/chatpass_agent/src/frame_age_clock.h',
+                'native/agent/Agent/chatpass_agent/src/gdi_surface_reuse_policy.h',
+                'native/agent/Agent/chatpass_agent/src/capture_stage_split.h',
+                'native/agent/Agent/chatpass_agent/src/gdi_bitblt_policy.h',
+                'native/agent/Agent/chatpass_agent/src/bgra_luma_sse2.h',
+                'native/agent/Agent/chatpass_agent/src/secure_helper_restart_policy.h',
+                'native/agent/Agent/chatpass_agent/src/dxgi_context_policy.h',
+                'native/agent/Agent/chatpass_agent/src/dxgi_user_probe_policy.h',
+                'native/agent/Agent/chatpass_agent/src/dxgi_user_probe.h',
+                'native/agent/Agent/chatpass_agent/CMakeLists.txt',
+                'native/agent/Agent/chatpass_agent/src/wgc_user_probe.h',
+                'native/agent/Agent/chatpass_agent/src/wgc_probe_policy.h',
+                'native/agent/Agent/chatpass_agent/tests/rtc_keyframe_recovery_gate_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/secure_desktop_handoff_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/i420_text_scale_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/frame_age_clock_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/gdi_surface_reuse_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/capture_stage_split_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/gdi_bitblt_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/gdi_bitblt_win32_benchmark.cpp',
+                'native/agent/Agent/chatpass_agent/tests/bgra_luma_sse2_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/secure_helper_restart_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/dxgi_context_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/dxgi_user_probe_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/wgc_probe_policy_test.cpp'
+              )
+              if($newSource -notcontains $relative){throw "Unrecognized source path $relative"}
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+          }
+          Write-Host 'Applied qualified 523 plus on-demand WGC event-driven monitor probe'
+
+
+      - name: Integrate 528 event-only WGC and opt-in fast I420 diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $sha='efa7114062eed160d6f28ceeddd581149f6fdc14'
+          foreach($part in @('src/wgc_pixel_probe.h','src/wgc_pixel_probe_policy.h','tests/wgc_pixel_probe_policy_test.cpp','src/wgc_motion_probe_policy.h','src/wgc_motion_window.h','tests/wgc_motion_probe_policy_test.cpp','src/bgra_to_i420_fast.h','src/bgra_i420_benchmark.h','src/fast_capture_flags.h','tests/bgra_to_i420_fast_test.cpp')){
+            $relative=$root+'/'+$part
+            $uri='https://raw.githubusercontent.com/dansut24/Hi5Central-Platform/'+$sha+'/'+$relative
+            $target=Join-Path $root $part
+            Invoke-WebRequest -Uri $uri -OutFile $target
+            if(!(Test-Path -LiteralPath $target)){throw ('Pinned readback source missing '+$part)}
+          }
+          $path=Join-Path $root 'src/main.cpp'
+          $source=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+          $include='#include "wgc_user_probe.h"'
+          $needle='                return hi5::RunInteractiveWgcLauncher();'
+          if(($source.Split($include).Count - 1) -ne 1 -or ($source.Split($needle).Count - 1) -ne 1){throw 'Unexpected qualified 524 main entrypoints'}
+          $source=$source.Replace($include,$include+[Environment]::NewLine+'#include "wgc_pixel_probe.h"'+[Environment]::NewLine+'#include "bgra_i420_benchmark.h"')
+          $pixelEntry='            if (mode == "wgc-pixel-probe-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild();'+
+             [Environment]::NewLine+'            if (mode == "wgc-pixel-probe-launcher")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelLauncher();'+
+             [Environment]::NewLine+'            if (mode == "wgc-resolution-probe-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::InteractiveTextureDimensions);'+
+             [Environment]::NewLine+'            if (mode == "wgc-sustained-probe-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::SustainedReadback10s);'+
+             [Environment]::NewLine+'            if (mode == "wgc-fullres-probe-launcher")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcBenchmarkLauncher();'+
+             [Environment]::NewLine+'            if (mode == "wgc-motion-15-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::ControlledMotion15);'+
+             [Environment]::NewLine+'            if (mode == "wgc-motion-30-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::ControlledMotion30);'+
+             [Environment]::NewLine+'            if (mode == "wgc-motion-60-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::ControlledMotion60);'+
+             [Environment]::NewLine+'            if (mode == "wgc-motion-probe-launcher")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcMotionLauncher();'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-15-b2-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly15Buffer2);'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-30-b2-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly30Buffer2);'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-60-b2-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly60Buffer2);'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-15-b3-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly15Buffer3);'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-30-b3-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly30Buffer3);'+
+             [Environment]::NewLine+'            if (mode == "wgc-event-60-b3-child")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPixelChild(hi5::WgcProbeMode::EventOnly60Buffer3);'+
+             [Environment]::NewLine+'            if (mode == "wgc-pacing-probe-launcher")'+
+             [Environment]::NewLine+'                return hi5::RunInteractiveWgcPacingLauncher();'+
+             [Environment]::NewLine+'            if (mode == "i420-fast-benchmark")'+
+             [Environment]::NewLine+'                return hi5::RunBgraI420Microbenchmark();'
+          $source=$source.Replace($needle,$needle+[Environment]::NewLine+$pixelEntry)
+          [IO.File]::WriteAllText((Resolve-Path $path).Path,$source,(New-Object Text.UTF8Encoding($false)))
+          Write-Host 'Stage 2O 528 event-only 2/3 buffer probe and exact fast I420 benchmark; live defaults unchanged'
+
+      - name: Gate WGC callback safety, exact fast conversion and untouched baseline GDI before opt-in patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $s=Get-Content (Join-Path $root 'src/wgc_pixel_probe.h') -Raw
+          $main=Get-Content (Join-Path $root 'src/main.cpp') -Raw
+          foreach($term in @('frame.Surface()','IDirect3DDxgiInterfaceAccess','CopyResource(','D3D11_MAP_READ','privateBgraFrame','transmitted_frames=0','gdi_live_fallback_preserved=1','CanAttemptWgcMonitorProbe(','WgcProbeMode::SustainedReadback10s','PackWgcResolution(','PackWgcSustained(','texture_resolution_origin=interactive_user_d3d11','pixels_transmitted=0','RunInteractiveWgcMotionLauncher','WgcMotionTestWindow','motion_injection=0','WgcMotionMetricsValid(','RunInteractiveWgcPacingLauncher','WgcEventOnly(','WgcFramePoolBuffers(')){
+            if(-not $s.Contains($term)){throw ('Required isolated WGC readback missing '+$term)}
+          }
+          foreach($name in @('wgc-pixel-probe-child','wgc-pixel-probe-launcher','wgc-resolution-probe-child','wgc-sustained-probe-child','wgc-fullres-probe-launcher','wgc-motion-15-child','wgc-motion-30-child','wgc-motion-60-child','wgc-motion-probe-launcher','wgc-event-15-b2-child','wgc-event-30-b2-child','wgc-event-60-b2-child','wgc-event-15-b3-child','wgc-event-30-b3-child','wgc-event-60-b3-child','wgc-pacing-probe-launcher','i420-fast-benchmark')){
+            if(-not $main.Contains($name)){throw ('WGC diagnostic mode missing '+$name)}
+          }
+          if($main.IndexOf('RunInteractiveWgcPixelLauncher()') -gt $main.IndexOf('LogPlatformInfo();')){throw 'Probe dispatch must precede normal Agent init'}
+          if($s.Contains('SetThreadDesktop(') -or $s.Contains('SetTokenInformation(') -or $s.Contains('IsBorderRequired(false)') -or $s.Contains('SendFrame(')){throw 'Unsafe token/consent/data path'}
+          $motion=Get-Content (Join-Path $root 'src/wgc_motion_window.h') -Raw
+          foreach($marker in @('WS_EX_NOACTIVATE','WS_EX_TOOLWINDOW','WS_EX_TOPMOST','PaintNext(','WM_PAINT','DestroyWindow(')){
+            if(-not $motion.Contains($marker)){throw ('Animation isolation marker missing '+$marker)}
+          }
+          foreach($prohibited in @('SendInput(','SetCursorPos(','mouse_event(','keybd_event(','SetThreadDesktop(','SetTokenInformation(')){
+            if($motion.Contains($prohibited)){throw ('Unexpected interactive injection/desktop change '+$prohibited)}
+          }
+          if((Get-FileHash (Join-Path $root 'src/platform/windows/windows_screen.cpp') -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'bc7f702dc315aaa47023ab4b636da0d75a3e16d71dbdb8aaaa5f2b1e218791d3'){throw 'Qualified GDI fallback altered'}
+          if((Get-FileHash (Join-Path $root 'src/platform/windows/windows_service.cpp') -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3e1127cdb503de624cce7725f19220b5d22442c55cf5543743ee55c9f4f37dc6'){throw 'Secure desktop service altered'}
+          Write-Host 'Stage 2O event-only WGC, pixel exact converter and baseline GDI/service integrity PASS'
+
+      - name: Assert actual compiled DXGI implementation safely falls back
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmake = Get-Content native/agent/Agent/chatpass_agent/CMakeLists.txt -Raw
+          $source = Get-Content native/agent/Agent/chatpass_agent/src/platform/windows/windows_screen.cpp -Raw
+          if ($cmake -notmatch 'src/platform/windows/windows_screen\.cpp') { throw 'Windows capture source not in CMake' }
+          if ($source -notmatch 'enableGdiFallback\("DuplicateOutput failed"') { throw 'Compiled DXGI failure is not handled by GDI' }
+          if ($source -notmatch 'if \(useGdiFallback \|\| !duplication\)') { throw 'GDI capture fallback path missing' }
+          if ($source -match 'throw std::runtime_error\("DuplicateOutput failed"\)') { throw 'Old helper-crashing throw is present' }
+          Write-Host 'Actual compiled DXGI source protects against fatal DuplicateOutput errors'
+
+      - name: Verify RTC NACK PLI real H264 IDR source and capture canary safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $sender=Get-Content (Join-Path $r 'webrtc_sender.cpp') -Raw
+          $h264=Get-Content (Join-Path $r 'h264_mf_encoder.cpp') -Raw
+          $stream=Get-Content (Join-Path $r 'streamer_main.cpp') -Raw
+          foreach($s in @('RtcpNackResponder','PliHandler','requestRecoveryKeyframe','HI5_RTCP_RECOVERY_ENABLE')){
+            if(-not $sender.Contains($s)){throw "RTC recovery missing: $s"}
+          }
+          if(-not $h264.Contains('out.keyframe = ContainsH264Idr(out.data)')){throw 'H264 must mark only actual IDR'}
+          if($h264.Contains('out.keyframe = ContainsH264Idr(out.data) || forceKeyframe')){throw 'False IDR proof detected'}
+          if(-not $h264.Contains('CODECAPI_AVEncVideoForceKeyFrame')){throw 'H264 ICodecAPI canary missing'}
+          if(-not $stream.Contains('HI5_LATENCY_CAPTURE_CANARY')){throw 'Capture canary missing'}
+          Write-Host 'RTCP+IDR source safety assertions passed'
+
+      - name: Compile standalone MSVC recovery-gate test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC missing'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $test='native/agent/Agent/chatpass_agent/tests/rtc_keyframe_recovery_gate_test.cpp'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN '+$test+' /Fe:dist\rtc_keyframe_recovery_gate_test.exe && dist\rtc_keyframe_recovery_gate_test.exe'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Native keyframe gate test failed'}
+          Write-Host 'MSVC RTC keyframe gate test PASSED'
+
+      - name: Validate compiled service secure-mode ownership and text canary gating
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent/src'
+          $cmake=Get-Content 'native/agent/Agent/chatpass_agent/CMakeLists.txt' -Raw
+          $win=Get-Content (Join-Path $root 'platform/windows/windows_service.cpp') -Raw
+          $video=Get-Content (Join-Path $root 'webrtc_sender.cpp') -Raw
+          $scaling=Get-Content (Join-Path $root 'i420_text_scale.h') -Raw
+          if($cmake -notmatch 'src/platform/windows/windows_service[.]cpp'){throw 'Windows service not compiled'}
+          foreach($expected in @('ShouldHoldSecureDesktop', 'secureInputPipe.GetUACActive()', 'gotNormal && !useSecure', '!holdSecure && normalFresh')){
+            if(-not $win.Contains($expected)){throw "Missing secure handoff fence: $expected"}
+          }
+          if($video -notmatch 'HI5_H264_FILTERED_SCALING_CANARY"[,] 0[,] 0[,] 1'){throw 'Text scaler must default OFF'}
+          if(-not $scaling.Contains('ScalePlaneBilinear')){throw 'Filtered I420 scaler missing'}
+          Write-Host 'Secure handoff ownership and disabled-by-default H264 quality canary verified'
+
+      - name: Compile and run sixteen portable policy regression tests on Windows MSVC
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC not found'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          foreach($name in @('rtc_keyframe_recovery_gate_test','secure_desktop_handoff_policy_test','i420_text_scale_test','frame_age_clock_test','gdi_surface_reuse_policy_test','capture_stage_split_test','gdi_bitblt_policy_test','bgra_luma_sse2_test','secure_helper_restart_policy_test','dxgi_context_policy_test','dxgi_user_probe_policy_test','wgc_probe_policy_test','wgc_pixel_probe_policy_test','wgc_motion_probe_policy_test','bgra_to_i420_fast_test','vp9_realtime_policy_test')){
+            $src='native/agent/Agent/chatpass_agent/tests/'+$name+'.cpp'
+            $exe='dist\'+$name+'.exe'
+            $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN '+$src+' /Fe:'+$exe+' && '+$exe
+            cmd.exe /d /s /c $cmd
+            if($LASTEXITCODE -ne 0){throw "MSVC test failed: $name"}
+            Write-Host "PASSED: $name"
+          }
+
+      - name: Verify QPC capture and Intel async MFT instrumentation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $capture=Get-Content (Join-Path $r 'streamer_main.cpp') -Raw
+          $service=Get-Content (Join-Path $r 'platform/windows/windows_service.cpp') -Raw
+          $mft=Get-Content (Join-Path $r 'h264_mf_encoder.cpp') -Raw
+          $sender=Get-Content (Join-Path $r 'webrtc_sender.cpp') -Raw
+          $clock=Get-Content (Join-Path $r 'frame_age_clock.h') -Raw
+          foreach($term in @('ReadSharedFrameQpcNanoseconds','capture_avg_ms=','shmem_avg_ms=')){
+            if(-not $capture.Contains($term)){throw "Missing capture telemetry: $term"}
+          }
+          foreach($term in @('SharedFrameAgeMilliseconds','frame age session=')){
+            if(-not $service.Contains($term)){throw "Missing Windows-service frame-age telemetry: $term"}
+          }
+          if(-not $clock.Contains('kQpcTimeTag')){throw 'Missing clock epoch marker'}
+          foreach($term in @('MF_TRANSFORM_ASYNC','IMFMediaEventGenerator','MFT backpressure NOTACCEPTING')){
+            if(-not $mft.Contains($term)){throw "Missing read-only MFT diagnostics: $term"}
+          }
+          if(-not $sender.Contains('process_env_max=')){throw 'Effective encoder environment log missing'}
+          Write-Host 'QPC frame age and async-MFT state instrumentation verified'
+
+      - name: Verify persistent GDI cache default-off and secure fallback continuity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent/src'
+          $gdi=Get-Content (Join-Path $root 'platform/windows/windows_screen.cpp') -Raw
+          $reuse=Get-Content (Join-Path $root 'gdi_surface_reuse_policy.h') -Raw
+          foreach($k in @('HI5_GDI_PERSISTENT_DIB_CANARY','struct PersistentGdiDib','static thread_local PersistentGdiDib surface','surface.ensure','surface.reset','compositeCursorOnGdiSurface','SRCCOPY | CAPTUREBLT')){
+            if(-not $gdi.Contains($k)){throw "Missing GDI cache or fallback safeguard: $k"}
+          }
+          if(-not $gdi.Contains('if (PersistentGdiCanaryEnabled())')){throw 'GDI persistent cache is not gated'}
+          if(-not $gdi.Contains('HDC memDC = CreateCompatibleDC(screenDC)')){throw 'Known-good legacy GDI fallback missing'}
+          if(-not $reuse.Contains('CanReuseGdiSurface')){throw 'Surface reuse invariant missing'}
+          if(-not $gdi.Contains('enableGdiFallback("DuplicateOutput failed", hr)')){throw 'DXGI access-denied fallback missing'}
+          Write-Host 'Persistent DIB cache default OFF, legacy GDI fallback intact, secure-capture baseline preserved'
+
+      - name: Validate opt-in stage telemetry and unchanged capture fallback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src=Get-Content 'native/agent/Agent/chatpass_agent/src/platform/windows/windows_screen.cpp' -Raw
+          $header=Get-Content 'native/agent/Agent/chatpass_agent/src/capture_stage_split.h' -Raw
+          foreach($term in @('HI5_CAPTURE_STAGE_TIMING_CANARY','LogCaptureStageTiming','gdi_avg_ms=','i420_avg_ms=','persistent GDI blit failed err=','GetCurrentThreadId')){
+            if(-not $src.Contains($term)){throw "Missing capture diagnosis: $term"}
+          }
+          if(-not $src.Contains('HDC memDC = CreateCompatibleDC(screenDC)')){throw 'Known-good GDI path replaced'}
+          if(-not $src.Contains('if (PersistentGdiCanaryEnabled())')){throw 'Persistent DIB should remain opt-in'}
+          if(-not $header.Contains('CaptureStageWindow')){throw 'Stage counter missing'}
+          $codec=Get-Content 'native/agent/Agent/chatpass_agent/src/webrtc_sender.cpp' -Raw
+          if(-not $codec.Contains('HI5_H264_FILTERED_SCALING_CANARY')){throw 'Previous video quality canary missing'}
+          Write-Host 'Read-only capture-stage instrumentation, legacy fallback, and H264 quality gating verified'
+
+      - name: Validate isolated BitBlt gating and no undefined pixels
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $capture=Get-Content (Join-Path $r 'platform/windows/windows_screen.cpp') -Raw
+          $policy=Get-Content (Join-Path $r 'gdi_bitblt_policy.h') -Raw
+          foreach($term in @('HI5_GDI_BITBLT_CANARY','hi5::CanUseBitBlt','copied = BitBlt(','copied = StretchBlt(','if (!copied)','gdi_blit window','LogBlitTiming')){
+            if(-not $capture.Contains($term)){throw "Missing BitBlt fallback or bounded telemetry: $term"}
+          }
+          if(-not $policy.Contains('sourceW == destW && sourceH == destH')){throw 'BitBlt must be gated on exact same size'}
+          if(-not $capture.Contains('if (PersistentGdiCanaryEnabled())')){throw 'Existing DIB experiment must remain opt-in'}
+          if(-not $capture.Contains('if (useBitBlt)')){throw 'Legacy capture must be default'}
+          Write-Host 'BitBlt default OFF, dimension gate, fallback and no-uninitialized-image gate PASS'
+
+      - name: Run Windows GDI 2560x1600 synthetic DIB BitBlt comparison
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC unavailable'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $src='native/agent/Agent/chatpass_agent/tests/gdi_bitblt_win32_benchmark.cpp'
+          $exe='dist\gdi_bitblt_win32_benchmark.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN '+$src+' /Fe:'+$exe+' /link user32.lib gdi32.lib && '+$exe
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Windows GDI microbenchmark or pixel compare failed'}
+          Write-Host 'Microbenchmark is synthetic only, NOT Lenovo desktop capture proof'
+
+      - name: Verify SSE2 Y conversion opt-in and scalar fallback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $capture=Get-Content (Join-Path $r 'platform/windows/windows_screen.cpp') -Raw
+          $simd=Get-Content (Join-Path $r 'bgra_luma_sse2.h') -Raw
+          foreach($k in @('HI5_BGRA_Y_SSE2_CANARY','ShouldUseSse2Luma','BgraLumaRowSse2(row,','for (int x = 0; x < width; ++x)')){
+            if(-not $capture.Contains($k)){throw "Missing SIMD gate or scalar fallback: $k"}
+          }
+          if(-not $simd.Contains('_mm_madd_epi16')){throw 'SSE2 multiply-add not compiled'}
+          if(-not $simd.Contains('ScalarBgraY')){throw 'SSE2 tail scalar fallback missing'}
+          if(-not $capture.Contains('HI5_GDI_BITBLT_CANARY')){throw 'Prior GDI canary must remain separately controlled'}
+          Write-Host 'SSE2 Y path is optional and scalar YUV path remains default'
+
+      - name: Verify original first UAC launch and gated secure-helper restart safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $service=Get-Content (Join-Path $r 'platform/windows/windows_service.cpp') -Raw
+          $policy=Get-Content (Join-Path $r 'secure_helper_restart_policy.h') -Raw
+          if(-not $service.Contains('HI5_SECURE_RELAUNCH_GUARD_CANARY')){throw 'Opt-in secure helper guard absent'}
+          if(-not $service.Contains('lastSecureLaunchAttempt = {}')){throw 'Initial secure helper launch must be immediate'}
+          if(-not $policy.Contains('!guardEnabled || !hadPriorAttempt')){throw 'Initial/legacy launch policy must remain instantaneous'}
+          if(-not $policy.Contains('millisecondsSinceAttempt >= 500')){throw 'Bounded 500ms retry floor absent'}
+          if(($service.Split('if (mayLaunchSecure(now))').Count - 1) -ne 2){throw 'Two security-critical launch sites not both gated'}
+          if(-not $service.Contains('secure helper restart backoff session=')){throw 'Diagnostic telemetry missing'}
+          if(-not $service.Contains('ShouldHoldSecureDesktop')){throw 'Secure frame preservation removed'}
+          Write-Host 'No first-UAC delay, default OFF, both retry callsites and secure frame preservation validated'
+
+      - name: Verify DXGI diagnostics default-off, no token or fallback changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $capture=Get-Content (Join-Path $r 'platform/windows/windows_screen.cpp') -Raw
+          $policy=Get-Content (Join-Path $r 'dxgi_context_policy.h') -Raw
+          $service=Get-Content (Join-Path $r 'platform/windows/windows_service.cpp') -Raw
+          foreach($k in @('HI5_DXGI_CONTEXT_DIAGNOSTICS_CANARY','ShouldLogDxgiFailure','LogDxgiFailureContext(hr','ProcessIdToSessionId','GetThreadDesktop','GetProcessWindowStation','OpenInputDesktop','CloseDesktop(input)','enableGdiFallback("DuplicateOutput failed", hr)')){
+            if(-not $capture.Contains($k)){throw "DXGI context diagnostic or fallback missing: $k"}
+          }
+          if(-not $policy.Contains('return enabled && hr < 0')){throw 'DXGI diagnostics must be default off'}
+          if($capture.Contains('SetThreadDesktop(')){throw 'Capture code must not switch desktop'}
+          if($capture.Contains('DuplicateCurrentProcessPrimaryTokenForSession(')){throw 'Capture code must not modify tokens'}
+          if(-not $service.Contains('HI5_SECURE_RELAUNCH_GUARD_CANARY')){throw 'Qualified 521 secure guard removed'}
+          Write-Host 'DXGI diagnostics read-only and default off; GDI fallback and secure helper preserved'
+
+      - name: Verify interactive-user DXGI probe isolation and qualified 521 source integrity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $main=Get-Content (Join-Path $root 'src/main.cpp') -Raw
+          $probe=Get-Content (Join-Path $root 'src/dxgi_user_probe.h') -Raw
+          $policy=Get-Content (Join-Path $root 'src/dxgi_user_probe_policy.h') -Raw
+          $service=Join-Path $root 'src/platform/windows/windows_service.cpp'
+          $capture=Join-Path $root 'src/platform/windows/windows_screen.cpp'
+          $launcher=Join-Path $root 'src/ipc/session_launcher.cpp'
+          if((Get-FileHash $service -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3e1127cdb503de624cce7725f19220b5d22442c55cf5543743ee55c9f4f37dc6'){throw 'Qualified secure desktop service was modified'}
+          if((Get-FileHash $capture -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'bc7f702dc315aaa47023ab4b636da0d75a3e16d71dbdb8aaaa5f2b1e218791d3'){throw 'Qualified GDI/DXGI fallback was modified'}
+          # Windows git checkout may use CRLF for baseline sources; compare the
+          # launcher against the pinned commit, not OS-specific raw bytes.
+          git diff --exit-code -- $launcher
+          if($LASTEXITCODE -ne 0){throw 'Existing interactive launch token handling was modified'}
+          $entry=$main.Substring($main.IndexOf('int main('))
+          if($entry.IndexOf('if (mode == "dxgi-user-probe-child")') -lt 0 -or $entry.IndexOf('if (mode == "dxgi-user-probe-launcher")') -lt 0){throw 'Probe modes not reachable'}
+          if($entry.IndexOf('RunInteractiveDxgiChild()') -gt $entry.IndexOf('LogPlatformInfo();')){throw 'Probe is starting screen providers before dispatch'}
+          foreach($term in @('LaunchInInteractiveSession(','WTSGetActiveConsoleSessionId()','IsWellKnownSid(','GetThreadDesktop(','OpenInputDesktop(','D3D11CreateDevice(','DuplicateOutput(','WaitForSingleObject(child,8000)','TerminateProcess(child,','frame_bytes_read=0')){
+            if(-not $probe.Contains($term)){throw "Missing safe user DXGI test: $term"}
+          }
+          if($probe.Contains('AcquireNextFrame(') -and -not $probe.Contains('without AcquireNextFrame')){throw 'Probe must not acquire pixels'}
+          if($probe.Contains('SetThreadDesktop(') -or $probe.Contains('SetTokenInformation(')){throw 'Probe cannot change token or desktop'}
+          if(-not $policy.Contains('!localSystem && consoleMatches && threadDefault')){throw 'User/session gate absent'}
+          if(-not $policy.Contains('duplicate_output_access_denied')){throw 'Full DXGI access-denied status not classified'}
+          $cmake=Get-Content (Join-Path $root 'CMakeLists.txt') -Raw
+          foreach($lib in @('d3d11','dxgi','wtsapi32','user32','advapi32')){
+            if(-not $cmake.Contains($lib)){throw "Required Win32 link library missing $lib"}
+          }
+          Write-Host 'Read-only short-lived interactive-user DXGI probe passes source, token, timeout and stable baseline controls'
+
+      - name: Verify WGC event-driven probe isolation, Windows consent visibility, and secure GDI baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $main=Get-Content (Join-Path $root 'src/main.cpp') -Raw
+          $wgc=Get-Content (Join-Path $root 'src/wgc_user_probe.h') -Raw
+          $policy=Get-Content (Join-Path $root 'src/wgc_probe_policy.h') -Raw
+          $cmake=Get-Content (Join-Path $root 'CMakeLists.txt') -Raw
+          foreach($name in @('wgc-user-probe-launcher','wgc-user-probe-child')){
+            if(-not $main.Contains($name)){throw "On-demand probe mode absent: $name"}
+          }
+          foreach($name in @('LaunchInInteractiveSession(','CanAttemptWgcMonitorProbe(','CreateForMonitor(','GraphicsCaptureSession::IsSupported()','D3D11CreateDevice(','CreateDirect3D11DeviceFromDXGIDevice(','CreateFreeThreaded(','FrameArrived(','StartCapture()','TryGetNextFrame()','frame_bytes_read','pixels_read=0','transmitted_frames=0','WaitForSingleObject(child,9000)','TerminateProcess(child,')){
+            # Pixel read label is pixels_read, not frame_bytes_read
+            if($name -eq 'frame_bytes_read'){continue}
+            if(-not $wgc.Contains($name)){throw "WGC safety/capture event primitive absent: $name"}
+          }
+          # Exclude line comments: documentation may explicitly mention forbidden
+          # calls to explain why they are not used. Inspect executable source.
+          $wgcCode=($wgc -split "`n" | Where-Object {$_ -notmatch '^\s*//'}) -join "`n"
+          foreach($name in @('frame.Surface(','GetDC(','AcquireNextFrame(','IsBorderRequired(false)','SetThreadDesktop(','SetTokenInformation(')){
+            if($wgcCode.Contains($name)){throw "Prohibited WGC probe operation: $name"}
+          }
+          if(-not $policy.Contains('!localSystem&&sessionMatch&&threadDefault')){throw 'Interactive default desktop gate missing'}
+          if(-not $cmake.Contains('windowsapp')){throw 'WinRT runtime import library missing'}
+          if(-not $cmake.Contains('d3d11')){throw 'D3D11 link library missing'}
+          $stable=Join-Path $root 'src/platform/windows/windows_service.cpp'
+          if((Get-FileHash $stable -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3e1127cdb503de624cce7725f19220b5d22442c55cf5543743ee55c9f4f37dc6'){throw 'Qualified UAC secure-helper source changed'}
+          $capture=Join-Path $root 'src/platform/windows/windows_screen.cpp'
+          if((Get-FileHash $capture -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'bc7f702dc315aaa47023ab4b636da0d75a3e16d71dbdb8aaaa5f2b1e218791d3'){throw 'Qualified GDI fallback source changed'}
+          git diff --exit-code -- (Join-Path $root 'src/ipc/session_launcher.cpp')
+          if($LASTEXITCODE -ne 0){throw 'User token/desktop launcher modified'}
+          Write-Host 'WGC diagnostic: normal user only, WinRT events, no pixel access, no consent bypass, secure/GDI paths unchanged'
+
+      - name: Install native Windows dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup -y --no-progress
+          if($LASTEXITCODE -ne 0){throw 'Inno Setup installation failed'}
+          nuget install Microsoft.Web.WebView2 -OutputDirectory native/agent/Agent/chatpass_agent/external -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'WebView2 NuGet installation failed'}
+          $vcpkg='C:\vcpkg\vcpkg.exe'
+          if(-not(Test-Path $vcpkg)){throw 'vcpkg unavailable'}
+          & $vcpkg install openssl:x64-windows-static nlohmann-json:x64-windows-static libvpx:x64-windows-static 'libdatachannel[srtp,ws]:x64-windows-static'
+          if($LASTEXITCODE -ne 0){throw 'WebRTC static dependency build failed'}
+
+
+      - name: Insert two default-off opt-in live pipeline canaries with pinned source anchors
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent/src'
+          $path=Join-Path $root 'platform/windows/windows_screen.cpp'
+          $screen=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+          $include='#include "bgra_luma_sse2.h"'
+          $plane='        out.v.resize(static_cast<size_t>((width + 1) / 2) * ((height + 1) / 2));'
+          if(($screen.Split($include).Count-1) -ne 1 -or ($screen.Split($plane).Count-1) -ne 1){throw 'Qualified GDI source anchors changed'}
+          $screen=$screen.Replace($include,$include+[Environment]::NewLine+'#include "bgra_to_i420_fast.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
+          $fast=[Environment]::NewLine+
+            '        static const bool exactFastCanary=hi5::EnabledProcessOrMachineCanary("HI5_BGRA_I420_FAST_CANARY");'+
+            [Environment]::NewLine+'        if (exactFastCanary && hi5::BgraToI420FastPlanes(src,srcStride,width,height,out.y.data(),out.u.data(),out.v.data())) return;'
+          $screen=$screen.Replace($plane,$plane+$fast)
+          [IO.File]::WriteAllText((Resolve-Path $path).Path,$screen,(New-Object Text.UTF8Encoding($false)))
+
+          $path=Join-Path $root 'streamer_main.cpp'
+          $stream=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+          $fps='        const int requestedMaxFps = std::max(1, args.fps);'
+          $active='        const int activeFps = std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_ACTIVE_FPS",'
+          $motion='        const int motionFps = std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_MOTION_FPS",'
+          foreach($anchor in @($fps,$active,$motion)){
+            if(($stream.Split($anchor).Count-1) -ne 1){throw ('Streamer FPS anchor changed '+$anchor)}
+          }
+          $stream=$stream.Replace('#include "frame_age_clock.h"','#include "frame_age_clock.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
+          $stream=$stream.Replace($fps,$fps+[Environment]::NewLine+'        const bool fullRateCanary = hi5::EnabledProcessOrMachineCanary("HI5_STREAM_FULL_RATE_CANARY");')
+          $stream=$stream.Replace($active,'        const int activeFps = fullRateCanary ? std::min(60,requestedMaxFps) : std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_ACTIVE_FPS",')
+          $stream=$stream.Replace($motion,'        const int motionFps = fullRateCanary ? std::min(60,requestedMaxFps) : std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_MOTION_FPS",')
+          [IO.File]::WriteAllText((Resolve-Path $path).Path,$stream,(New-Object Text.UTF8Encoding($false)))
+
+          $senderPath=Join-Path $root 'webrtc_sender.cpp'
+          $sender=Get-Content -LiteralPath $senderPath -Raw -Encoding UTF8
+          $target='        p.fps = std::max(1, std::min(maxFps, p.fps));'
+          if(($sender.Split($target).Count - 1) -ne 1){throw 'VP8 encoder FPS profile anchor changed'}
+          $sender=$sender.Replace('#include "webrtc_sender.h"','#include "webrtc_sender.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
+          $canary='        if (hi5::EnabledProcessOrMachineCanary("HI5_STREAM_FULL_RATE_CANARY") && !backstage && !secureDesktop && mode>=1) {'+
+            [Environment]::NewLine+'            // Honor viewer ceiling, and capture hint, for normal desktop motion only.'+
+            [Environment]::NewLine+'            p.fps=std::min(60,std::min(maxFps,hintedFps>0?std::max(1,hintedFps):maxFps));'+
+            [Environment]::NewLine+'        }'
+          $sender=$sender.Replace($target,$target+[Environment]::NewLine+$canary)
+          [IO.File]::WriteAllText((Resolve-Path $senderPath).Path,$sender,(New-Object Text.UTF8Encoding($false)))
+          if(-not $sender.Contains('!backstage && !secureDesktop && mode>=1')){throw 'Encoder pacing security isolation missing'}
+          if(-not $sender.Contains('#include "fast_capture_flags.h"')){throw 'VP8 cross-platform scoped canary reader missing'}
+          Write-Host 'VP8 encoder now also honours full-rate canary, disabled by default; backstage/UAC unaffected'
+
+          foreach($flag in @('HI5_BGRA_I420_FAST_CANARY','HI5_STREAM_FULL_RATE_CANARY')){
+            if(-not ($screen+$stream).Contains($flag)){throw ('Missing default-off canary '+$flag)}
+          }
+          if($stream -match 'fullRateCanary\s*=\s*true' -or $screen -match 'exactFastCanary\s*=\s*true'){throw 'Canaries must default OFF'}
+          if($sender -match 'EnabledProcessOrMachineCanary\("HI5_STREAM_FULL_RATE_CANARY"\)\s*\?\s*true'){throw 'VP8 full rate must default OFF'}
+          $servicePath=Join-Path $root 'platform/windows/windows_service.cpp'
+          $service=Get-Content -LiteralPath $servicePath -Raw -Encoding UTF8
+          $readConfig='        static std::string ReadConfigValue(const char* name) {'
+          if(($service.Split($readConfig).Count - 1) -ne 1){throw 'Service config reader anchor changed'}
+          $machinePolicy='            if (std::string(name)=="HI5_STREAM_FPS" && ReadMachineEnvironmentValue("HI5_STREAM_FULL_RATE_CANARY")=="1") {'+
+            [Environment]::NewLine+'                const auto machineFps=ReadMachineEnvironmentValue("HI5_STREAM_FPS");'+
+            [Environment]::NewLine+'                if (!machineFps.empty()) return machineFps;'+
+            [Environment]::NewLine+'            }'
+          $service=$service.Replace($readConfig,$readConfig+[Environment]::NewLine+$machinePolicy)
+          [IO.File]::WriteAllText((Resolve-Path $servicePath).Path,$service,(New-Object Text.UTF8Encoding($false)))
+          if(-not $service.Contains('ReadMachineEnvironmentValue("HI5_STREAM_FULL_RATE_CANARY")=="1"')){throw 'Service FPS machine-policy guard missing'}
+          Write-Host 'Full FPS machine override remains disabled until 528 canary enabled; legacy process-first service behaviour preserved'
+          Write-Host 'Stage 2O optional 528 fast converter and full requested FPS pacing compiled; both OFF by default'
+
+
+      - name: Integrate software VP9 libvpx encoder and safe recovery in 528 baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $sourceSha='394d3d87e8965b48c73008d12d2742c103814683'
+          foreach($part in @('src/vp9_mf_encoder.cpp','src/vp9_mf_encoder.h','src/vp9_realtime_policy.h','tests/vp9_realtime_policy_test.cpp','experiments/vp9_software_profile_patch.inc','experiments/vp9_software_telemetry_patch.inc')){
+            $uri='https://raw.githubusercontent.com/dansut24/Hi5Central-Platform/'+$sourceSha+'/'+$root+'/'+$part
+            $target=Join-Path $root $part
+            New-Item -ItemType Directory -Force -Path (Split-Path $target -Parent)|Out-Null
+            Invoke-WebRequest -Uri $uri -OutFile $target -ErrorAction Stop
+            if(-not(Test-Path -LiteralPath $target)){throw ('VP9 software source missing '+$part)}
+          }
+          $path=Join-Path $root 'src/webrtc_sender.cpp'
+          $sender=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+          $include='#include "webrtc_sender.h"'
+          $anchor='        if (!m_vp9Encoder || sizeChangedVp9) {'
+          $emptyAnchor='static std::atomic<uint64_t> vp9EmptyCounter'
+          foreach($needle in @($include,$anchor,$emptyAnchor,'#include "fast_capture_flags.h"')){
+            if(($sender.Split($needle).Count-1) -ne 1){throw ('Qualified sender source anchor changed '+$needle)}
+          }
+          $profile=Get-Content (Join-Path $root 'experiments/vp9_software_profile_patch.inc') -Raw -Encoding UTF8
+          $telemetry=Get-Content (Join-Path $root 'experiments/vp9_software_telemetry_patch.inc') -Raw -Encoding UTF8
+          $sender=$sender.Replace($include,$include+[Environment]::NewLine+'#include "vp9_realtime_policy.h"')
+          $sender=$sender.Replace($anchor,$profile+$anchor)
+          $begin=$sender.IndexOf($emptyAnchor)
+          $end=$sender.IndexOf('                return;',$begin)
+          $catch=$sender.IndexOf('LogInfo("[vp9] exception session="',$end)
+          if($begin -lt 0 -or $end -lt 0 -or $catch -lt 0 -or ($catch-$end) -gt 185){throw 'VP9 encode-return location moved'}
+          $sender=$sender.Insert($end,$telemetry)
+          [IO.File]::WriteAllText((Resolve-Path $path).Path,$sender,(New-Object Text.UTF8Encoding($false)))
+          foreach($mark in @('m_vp9Encoder->reconfigure(','actual_sent_fps_5s=','Vp9SwProfileChange(','fast_capture_flags.h','vp9_realtime_policy.h')){
+            if(-not $sender.Contains($mark)){throw ('VP9 source integration incomplete '+$mark)}
+          }
+          $encoder=Get-Content (Join-Path $root 'src/vp9_mf_encoder.cpp') -Raw
+          foreach($mark in @('vpx_codec_vp9_cx()','vpx_codec_encode(','Vp9Clock90k(','VPX_FRAME_IS_KEY','return true;','outputAttempt < 8')){
+            if(-not $encoder.Contains($mark)){throw ('Libvpx source safety regression '+$mark)}
+          }
+          if($encoder.Contains('HI5_WGC_LIVE_CANARY')){throw 'GPU capture introduced into VP9 software path'}
+          Write-Host 'VP9 software libvpx: no WGC live capture, stable VP8/UAC fallback, source insertion PASS'
+
+      - name: Build Agent 1.0.529 from same 510 source (test only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'Visual Studio MSVC unavailable'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $vsVersion=& $vswhere -latest -products * -property installationVersion
+          $generator=if($vsVersion -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
+          $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -Generator "'+$generator+'" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "1.0.529"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Native diagnostic Agent build failed'}
+          $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
+          if(-not(Test-Path $exe)){throw 'Inno Setup installer missing'}
+          $bytes=[IO.File]::ReadAllBytes($exe)
+          if($bytes.Length -lt 1000000 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a){throw 'Invalid Windows installer'}
+          $dist='dist/lenovo-vp9sw-529'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $dist 'Hi5CentralAgentSetup-1.0.529-DIAGNOSTIC.exe')
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest=[ordered]@{
+            diagnostic_only=$true
+            no_automatic_deployment=$true
+            target='Lenovo DESKTOP-Q9LTF1M'
+            expected_installed_version='1.0.528'
+            version='1.0.529'
+            pixel_probe_source_commit='efa7114062eed160d6f28ceeddd581149f6fdc14'
+            vp9_software_source_commit='394d3d87e8965b48c73008d12d2742c103814683'
+            base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
+            source_package_sha256='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
+            new_installer_sha256=$hash
+            new_installer_bytes=$bytes.Length
+          }
+          $manifest|ConvertTo-Json|Set-Content (Join-Path $dist 'manifest.json') -Encoding utf8
+          $pdb=Get-ChildItem 'native/agent/Agent/chatpass_agent/build' -Recurse -Filter 'Hi5CentralAgent.pdb' -ErrorAction SilentlyContinue|Select-Object -First 1
+          if($pdb){Copy-Item -LiteralPath $pdb.FullName -Destination (Join-Path $dist 'Hi5CentralAgent-DIAGNOSTIC.pdb')}
+          Write-Host "CANARY_AGENT_VERSION=1.0.529 SHA256=$hash"
+
+      - name: Verify current 1.0.528 rollback SHA256
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $url='https://downloads.hi5central.com/rmm-agent/1.0.528-lenovo-stage2o/Hi5CentralAgentSetup-1.0.528-DIAGNOSTIC.exe'
+          $expected='9fdde0102c4348ccd266fb55f92ab63be7e4c6690bea989326050cca195dd1ed'
+          $path='dist/lenovo-vp9sw-529/Hi5CentralAgentSetup-1.0.528-ROLLBACK.exe'
+          Invoke-WebRequest -Uri $url -OutFile $path
+          $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -ne $expected){throw "Original 1.0.528 rollback installer hash mismatch $hash"}
+          Write-Host 'Verified original 1.0.528 rollback installer against release manifest'
+          $manifestPath='dist/lenovo-vp9sw-529/manifest.json'
+          $newPath='dist/lenovo-vp9sw-529/Hi5CentralAgentSetup-1.0.529-DIAGNOSTIC.exe'
+          $artifactRollback='dist/lenovo-vp9sw-529/Hi5CentralAgentSetup-1.0.528-ROLLBACK.exe'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if($manifest.version -ne '1.0.529' -or -not $manifest.diagnostic_only){throw 'Invalid test-only manifest version'}
+          if(-not (Test-Path $newPath) -or -not (Test-Path $artifactRollback)){throw 'New or rollback installer absent from upload directory'}
+          $newSha=(Get-FileHash -LiteralPath $newPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($newSha -ne $manifest.new_installer_sha256){throw 'New installer checksum mismatch in final artifact directory'}
+          $rollbackSha=(Get-FileHash -LiteralPath $artifactRollback -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($rollbackSha -ne $expected){throw 'Rollback installer checksum mismatch in final artifact directory'}
+          Write-Host "Final test-only artifact checksums verified; new=$newSha rollback=$rollbackSha"
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Hi5Central-Lenovo-VP9-SW-1.0.529-TEST-ONLY
+          path: dist/lenovo-vp9sw-529/
+          retention-days: 14
+          if-no-files-found: error
