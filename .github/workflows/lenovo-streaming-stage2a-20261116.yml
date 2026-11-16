@@ -47,7 +47,7 @@ jobs:
           $files=@(Get-ChildItem -LiteralPath $src -Recurse -File)
           if($files.Count -ne 9){throw "Expected exactly 9 source files, found $($files.Count)"}
           foreach($file in $files){
-            $relative=$file.FullName.Substring($src.Length + 1)
+            $relative=$file.FullName.Substring($src.Length + 1) -replace '\\','/'
             $dest=Join-Path (Get-Location).Path $relative
             if(-not (Test-Path $dest) -and $relative -notmatch '^(native/agent/Agent/chatpass_agent/(src/rtc_keyframe_recovery_gate[.]h|tests/rtc_keyframe_recovery_gate_test[.]cpp))$'){throw "Unrecognized source path $relative"}
           New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
