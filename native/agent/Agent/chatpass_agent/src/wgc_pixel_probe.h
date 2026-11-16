@@ -101,7 +101,7 @@ inline int RunInteractiveWgcPixelChild() {
                 auto frame = sender.TryGetNextFrame();
                 if (!frame) return;
                 auto surface = frame.Surface();
-                auto access = surface.as<::IDirect3DDxgiInterfaceAccess>();
+                auto access = surface.as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
                 Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
                 winrt::check_hresult(access->GetInterface(
                     __uuidof(ID3D11Texture2D),
