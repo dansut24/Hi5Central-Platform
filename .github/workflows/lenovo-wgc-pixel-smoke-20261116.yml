@@ -3,7 +3,7 @@ name: Lenovo 1.0.525 Stage 2L - isolated WGC pixel readback Windows SDK smoke
 on:
   pull_request:
     branches:
-      - feature/endpoint-setting-exceptions-20261114
+      - test/lenovo-streaming-stage2k-20261116
     paths:
       - .github/workflows/lenovo-wgc-pixel-smoke-20261116.yml
       - native/agent/Agent/chatpass_agent/src/wgc_pixel_probe.h
