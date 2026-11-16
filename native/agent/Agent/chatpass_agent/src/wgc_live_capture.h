@@ -6,6 +6,7 @@
 // alter UAC/secure-desktop policy, or replace the qualified GDI fallback.
 #include "wgc_user_probe.h"
 #include "fast_capture_flags.h"
+#include "wgc_live_policy.h"
 #include "bgra_to_i420_fast.h"
 #include "frame_source.h"
 #include <atomic>
@@ -54,7 +55,9 @@ public:
         HDESK input=OpenInputDesktop(0,FALSE,DESKTOP_READOBJECTS);
         const bool inputDefault=input && DxgiProbeObjectName(input)==L"Default";
         if(input)CloseDesktop(input);
-        if(!defaultDesktop || !defaultStation || !inputDefault){
+        if(!WgcLiveEligible(true,false,true,
+                            defaultDesktop && defaultStation && inputDefault,
+                            false,false,displayIndex)){
             reason="secure_or_nondefault_desktop";return false;
         }
         try {
