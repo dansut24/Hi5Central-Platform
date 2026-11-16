@@ -5,6 +5,7 @@
 // authenticated Agent session. It does not bypass the Windows capture border,
 // alter UAC/secure-desktop policy, or replace the qualified GDI fallback.
 #include "wgc_user_probe.h"
+#include <winrt/Windows.Foundation.Metadata.h>
 #include "fast_capture_flags.h"
 #include "wgc_live_policy.h"
 #include "bgra_to_i420_fast.h"
@@ -99,6 +100,20 @@ public:
                 direct3d,DirectXPixelFormat::B8G8R8A8UIntNormalized,
                 2,size);
             capture_=pool_.CreateCaptureSession(item);
+            // Windows 11 24H2+ can impose a compositor update floor.
+            // WGC itself remains opt-in; this only permits capture updates
+            // faster than 60Hz if there are genuinely new desktop frames.
+            // Compatibility-gate new WinRT property, never suppress border.
+            try {
+                if(winrt::Windows::Foundation::Metadata::ApiInformation::
+                   IsPropertyPresent(
+                     L"Windows.Graphics.Capture.GraphicsCaptureSession",
+                     L"MinUpdateInterval")) {
+                    capture_.MinUpdateInterval(std::chrono::milliseconds(4));
+                }
+            } catch(winrt::hresult_error const&) {
+                // Unsupported or rejected: preserve default WGC cadence.
+            }
             auto state=std::make_shared<State>();
             state->width=static_cast<unsigned>(size.Width);
             state->height=static_cast<unsigned>(size.Height);
@@ -175,7 +190,7 @@ public:
             state_=std::move(state);
             capture_.StartCapture();
             active_=true;
-            reason="started";
+            reason="started_min_interval_guarded";
             return true;
         }catch(winrt::hresult_error const& e){
             reason="winrt_hresult_"+std::to_string(
