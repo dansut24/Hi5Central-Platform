@@ -93,7 +93,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root='native/agent/Agent/chatpass_agent'
-          $sha='43c1d2e7f0328a4919ede487d7fa8038cc7af3a3'
+          $sha='6ed889a4579ee6748d4d103880e756a6ed382b6a'
           foreach($part in @('src/wgc_pixel_probe.h','src/wgc_pixel_probe_policy.h','tests/wgc_pixel_probe_policy_test.cpp','src/wgc_motion_probe_policy.h','src/wgc_motion_window.h','tests/wgc_motion_probe_policy_test.cpp')){
             $relative=$root+'/'+$part
             $uri='https://raw.githubusercontent.com/dansut24/Hi5Central-Platform/'+$sha+'/'+$relative
@@ -475,7 +475,7 @@ jobs:
             target='Lenovo DESKTOP-Q9LTF1M'
             expected_installed_version='1.0.526'
             version='1.0.527'
-            pixel_probe_source_commit='43c1d2e7f0328a4919ede487d7fa8038cc7af3a3'
+            pixel_probe_source_commit='6ed889a4579ee6748d4d103880e756a6ed382b6a'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
             source_package_sha256='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
             new_installer_sha256=$hash
