@@ -8,7 +8,7 @@ function Replace-Once([string]$source,[string]$before,[string]$after,[string]$na
 $path=Join-Path $Root 'src/platform/windows/windows_screen.cpp'
 $screen=(Get-Content -LiteralPath $path -Raw -Encoding UTF8).Replace("`r`n","`n")
 $screen=Replace-Once $screen '#include "fast_capture_flags.h"' ('#include "fast_capture_flags.h"'+[Environment]::NewLine+'#include "gdi_direct_1080_policy.h"') 'direct GDI policy include'
-$before='    static void compositeCursorBgra(int originX, int originY, int width, int height,'
+$before='    static bool captureRectBgraGdi(int x, int y, int srcW, int srcH, int dstW, int dstH,'
 $helper=@'
     // Fail closed for Secure Desktop, Winlogon/UAC and disconnected consoles.
     // No DXGI/WGC capture, desktop switching or token manipulation.
@@ -71,69 +71,55 @@ $screen=Replace-Once $screen $before ($helper+$before) 'GDI desktop and scaled c
 $before='        std::vector<uint8_t>& bgraOut, int& strideOut) {'
 $after='        std::vector<uint8_t>& bgraOut, int& strideOut, bool directGdi = false) {'
 $screen=Replace-Once $screen $before $after 'explicit direct GDI call parameter'
-$before=@'
-        HGDIOBJ old = SelectObject(memDC, bmp);
-        SetStretchBltMode(memDC, HALFTONE);
-
-        StretchBlt(
-            memDC,
-            0, 0, dstW, dstH,
-            screenDC,
-            x, y, srcW, srcH,
-            SRCCOPY | CAPTUREBLT
-        );
-
-        strideOut = dstW * 4;
-        bgraOut.resize(static_cast<size_t>(strideOut) * dstH);
-        std::memcpy(bgraOut.data(), bits, bgraOut.size());
-        compositeCursorBgra(x, y, dstW, dstH, bgraOut, strideOut);
-'@
-$after=@'
-        HGDIOBJ old = SelectObject(memDC, bmp);
-        // Keep legacy HALFTONE unchanged for normal capture and previews.
-        // Low-latency direct-1080 canary uses COLORONCOLOR to avoid the
-        // expensive high-quality GDI resampling kernel on every frame.
-        SetStretchBltMode(memDC, directGdi ? COLORONCOLOR : HALFTONE);
-
-        const BOOL blitOk = StretchBlt(
-            memDC,
-            0, 0, dstW, dstH,
-            screenDC,
-            x, y, srcW, srcH,
-            SRCCOPY | CAPTUREBLT
-        );
-        if (!blitOk) {
-            SelectObject(memDC, old);
-            DeleteObject(bmp);
-            DeleteDC(memDC);
-            ReleaseDC(nullptr, screenDC);
-            return false;
+$screen=Replace-Once $screen @'
+        if (PersistentGdiCanaryEnabled()) {
+            static thread_local PersistentGdiDib surface;
+'@ @'
+        if (PersistentGdiCanaryEnabled() || directGdi) {
+            // Reuse existing qualified DIB for 530 downscaled GDI output.
+            static thread_local PersistentGdiDib surface;
+'@ 'direct persistent GDI reuse'
+$screen=Replace-Once $screen @'
+                    const BOOL blitOk = StretchBlt(
+                        surface.memDC, 0, 0, dstW, dstH,
+                        screenDC, x, y, srcW, srcH, SRCCOPY | CAPTUREBLT);
+                    if (blitOk) {
+                        compositeCursorOnGdiSurface(
+                            surface.memDC, x, y, dstW, dstH);
+'@ @'
+                    if(directGdi)SetStretchBltMode(surface.memDC,COLORONCOLOR);
+                    const BOOL blitOk = StretchBlt(
+                        surface.memDC, 0, 0, dstW, dstH,
+                        screenDC, x, y, srcW, srcH, SRCCOPY | CAPTUREBLT);
+                    if (blitOk) {
+                        if(directGdi)
+                            GdiDirectDrawScaledCursor(
+                                surface.memDC,x,y,srcW,srcH,dstW,dstH);
+                        else
+                            compositeCursorOnGdiSurface(
+                                surface.memDC, x, y, dstW, dstH);
+'@ 'direct persistent cursor and fast resampling'
+$screen=Replace-Once $screen @'
+            // Never fail an entire stream only because opt-in reuse failed.
         }
-        if(directGdi)
-            GdiDirectDrawScaledCursor(memDC,x,y,srcW,srcH,dstW,dstH);
-        strideOut = dstW * 4;
-        bgraOut.resize(static_cast<size_t>(strideOut) * dstH);
-        std::memcpy(bgraOut.data(), bits, bgraOut.size());
-        if(!directGdi)
-            compositeCursorBgra(x, y, dstW, dstH, bgraOut, strideOut);
-'@
-$screen=Replace-Once $screen $before $after 'direct scaled BitBlt, inline cursor, fall back on failure'
-$before=@'
+
+        HDC screenDC = GetDC(nullptr);
+'@ @'
+            // Never fail an entire stream only because opt-in reuse failed.
+        }
+        if(directGdi)return false; // caller retries native verified GDI.
+
+        HDC screenDC = GetDC(nullptr);
+'@ 'persistent failure falls back to native frame'
+$start=$screen.IndexOf('    FrameCaptureResult captureCurrentDisplayGdiLocked() {')
+$end=$screen.IndexOf('    FrameCaptureResult captureOneLocked() {',$start)
+if($start -lt 0 -or $end -le $start){throw 'GDI single monitor source block changed'}
+$current=$screen.Substring($start,$end-$start)
+$current=Replace-Once $current @'
         std::vector<uint8_t> bgra;
         int stride = 0;
-        if (!captureRectBgraGdi(d.x, d.y, d.width, d.height, d.width, d.height, bgra, stride)) {
-            result.frame = lastFrame;
-            result.hasFrame = !lastFrame.y.empty();
-            result.frameId = frameId;
-            return result;
-        }
-
-        I420Frame out;
-        bgraToI420(bgra.data(), stride, d.width, d.height, out);
-'@
-$after=@'
-        // Default-off 530 feature is restricted to the normal interactive
-        // primary monitor. All-monitors and secure/UAC capture stay native.
+        const bool stageTiming = CaptureStageTimingEnabled();
+'@ @'
         const bool directEligible=hi5::GdiDirectEligible(
             hi5::EnabledProcessOrMachineCanary("HI5_GDI_DIRECT_1080_CANARY"),
             GdiDirectNormalUserDesktop(),currentIndex,false) &&
@@ -141,13 +127,21 @@ $after=@'
         const auto target=hi5::GdiDirectTarget1080(
             d.width,d.height,directEligible);
         std::vector<uint8_t> bgra;
-        int stride=0;
+        int stride = 0;
+        const bool stageTiming = CaptureStageTimingEnabled();
+'@ 'primary normal desktop target geometry'
+$current=Replace-Once $current @'
+        if (!captureRectBgraGdi(d.x, d.y, d.width, d.height, d.width, d.height, bgra, stride)) {
+            result.frame = lastFrame;
+            result.hasFrame = !lastFrame.y.empty();
+            result.frameId = frameId;
+            return result;
+        }
+'@ @'
         bool captured=captureRectBgraGdi(d.x,d.y,d.width,d.height,
             target.width,target.height,bgra,stride,directEligible);
         int outWidth=target.width,outHeight=target.height;
         if(!captured && directEligible){
-            // Recover immediately in the same frame without requiring an
-            // RMM reconnect or changing codec, stream or user permissions.
             captured=captureRectBgraGdi(d.x,d.y,d.width,d.height,
                 d.width,d.height,bgra,stride,false);
             outWidth=d.width;outHeight=d.height;
@@ -158,15 +152,10 @@ $after=@'
             result.frameId=frameId;
             return result;
         }
-        I420Frame out;
-        bgraToI420(bgra.data(),stride,outWidth,outHeight,out);
-'@
-# Occurs once in captureAll and once in captureCurrent. Modify only second.
-$count=($screen.Split([string[]]@($before),[System.StringSplitOptions]::None).Count-1)
-if($count -ne 2){throw "Expected native GDI capture in exactly two paths, found $count"}
-$first=$screen.IndexOf($before)
-$second=$screen.IndexOf($before,$first+$before.Length)
-$screen=$screen.Substring(0,$second)+$after+$screen.Substring($second+$before.Length)
+'@ 'direct 1080p capture fallback'
+$current=Replace-Once $current '        bgraToI420(bgra.data(), stride, d.width, d.height, out);' '        bgraToI420(bgra.data(), stride, outWidth, outHeight, out);' 'correct I420 output size'
+$current=Replace-Once $current '            LogCaptureStageTiming(gdiMs, i420Ms, d.width, d.height);' '            LogCaptureStageTiming(gdiMs, i420Ms, outWidth, outHeight);' 'correct captured stage dimensions'
+$screen=$screen.Substring(0,$start)+$current+$screen.Substring($end)
 $before=@'
     FrameCaptureResult captureOneLocked() {
         refreshDisplaysLocked();
@@ -211,58 +200,43 @@ $stream=Replace-Once $stream @'
         int directVideoW=0,directVideoH=0;
 '@ 'GDI 5s telemetry state'
 $stream=Replace-Once $stream @'
-                    FrameCaptureResult captured = source.nextFrameEx();
+                    ++captureTimingCount;
+                    const bool recentInput = (now - lastInputAt) <= activeHold;
 '@ @'
-                    const auto directStart=std::chrono::steady_clock::now();
-                    FrameCaptureResult captured = source.nextFrameEx();
-                    if(direct1080Requested){
-                        const auto elapsed=std::chrono::duration_cast<
-                            std::chrono::microseconds>(
-                            std::chrono::steady_clock::now()-directStart).count();
-                        const auto us=static_cast<std::uint64_t>(
-                            std::max<std::int64_t>(0,elapsed));
-                        ++directCaptureCount;
-                        directCaptureUsSum+=us;
-                        directCaptureUsMax=std::max(directCaptureUsMax,us);
-                        if(captured.hasFrame){
-                            directVideoW=captured.frame.width;
-                            directVideoH=captured.frame.height;
-                        }
+                    ++captureTimingCount;
+                    if(direct1080Requested && captured.hasFrame){
+                        directVideoW=captured.frame.width;
+                        directVideoH=captured.frame.height;
                     }
-'@ 'GDI capture timer'
+                    const bool recentInput = (now - lastInputAt) <= activeHold;
+'@ 'selected direct output dimensions'
 $stream=Replace-Once $stream @'
             if (currentTime >= nextStatsAt) {
                 LogInfo("[streamer] low-cpu stats session=" + args.sessionId +
 '@ @'
             if (currentTime >= nextStatsAt) {
-                if(direct1080Requested && directCaptureCount){
-                    const auto sourceGeometry=source.currentDisplayInfo();
-                    const double elapsedSeconds=std::max(0.001,
+                if(direct1080Requested && captureTimingCount){
+                    const auto native=source.currentDisplayInfo();
+                    const double seconds=std::max(0.001,
                         std::chrono::duration<double>(
                             currentTime-directWindowAt).count());
                     LogInfo("[gdi-direct] session="+args.sessionId+
-                        " native="+std::to_string(sourceGeometry.width)+"x"+
-                            std::to_string(sourceGeometry.height)+
+                        " native="+std::to_string(native.width)+"x"+
+                            std::to_string(native.height)+
                         " output="+std::to_string(directVideoW)+"x"+
                             std::to_string(directVideoH)+
-                        " capture_samples="+std::to_string(directCaptureCount)+
                         " actual_capture_fps="+std::to_string(
-                            directCaptureCount/elapsedSeconds)+
+                            captureTimingCount/seconds)+
                         " avg_capture_ms="+std::to_string(
-                            static_cast<double>(directCaptureUsSum)/
-                            (1000.0*directCaptureCount))+
-                        " max_capture_ms="+std::to_string(
-                            static_cast<double>(directCaptureUsMax)/1000.0)+
+                            captureMsTotal/std::max<uint64_t>(1,captureTimingCount))+
+                        " max_capture_ms="+std::to_string(captureMsMax)+
                         " requested_fps="+std::to_string(requestedMaxFps)+
                         " target_fps="+std::to_string(lastTargetFps)+
                         " gdi_software_only=1");
-                    directCaptureCount=0;
-                    directCaptureUsSum=0;
-                    directCaptureUsMax=0;
                     directWindowAt=currentTime;
                 }
                 LogInfo("[streamer] low-cpu stats session=" + args.sessionId +
-'@ 'GDI actual capture FPS and latency log'
+'@ 'measured native/output and FPS'
 foreach($marker in @('HI5_GDI_DIRECT_1080_CANARY','[gdi-direct]','actual_capture_fps=','avg_capture_ms=','isSecureHelper')){
     if(-not $stream.Contains($marker)){throw ('GDI streamer telemetry missing '+$marker)}
 }
