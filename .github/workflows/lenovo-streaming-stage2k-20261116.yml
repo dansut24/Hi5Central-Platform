@@ -422,11 +422,11 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $url='https://downloads.hi5central.com/rmm-agent/1.0.523-lenovo-stage2j/Hi5CentralAgentSetup.exe'
-          $expected='296695feeaa13ed976ec86cb89e4fe5fc4837add977ce4ca3cdc48cb3942cf0e'
+          $expected='e60d1b1ba3b48cd2a62cbcf5e3a8c7827d7587f4af3b01e9f0c0af9363c5a637'
           $path='dist/lenovo-streaming-stage2k/Hi5CentralAgentSetup-1.0.523-ROLLBACK.exe'
           Invoke-WebRequest -Uri $url -OutFile $path
           $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-          if($hash -ne $expected){throw "Original 514 rollback installer hash mismatch $hash"}
+          if($hash -ne $expected){throw "Original 1.0.523 rollback installer hash mismatch $hash"}
           Write-Host 'Verified original 1.0.523 rollback installer against release manifest'
           $manifestPath='dist/lenovo-streaming-stage2k/manifest.json'
           $newPath='dist/lenovo-streaming-stage2k/Hi5CentralAgentSetup-1.0.524-DIAGNOSTIC.exe'
