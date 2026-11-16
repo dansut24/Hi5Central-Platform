@@ -156,16 +156,27 @@ jobs:
           $ErrorActionPreference='Stop'
           $url='https://downloads.hi5central.com/rmm-agent/1.0.513-lenovo-dxgi-fix/Hi5CentralAgentSetup.exe'
           $expected='2b70fae71993abd4b5e68ffed260ed9334b2da495664176591194edf09db3560'
-          $path='dist/lenovo-streamer-diagnostic/Hi5CentralAgentSetup-1.0.513-ROLLBACK.exe'
+          $path='dist/lenovo-streaming-stage2a/Hi5CentralAgentSetup-1.0.513-ROLLBACK.exe'
           Invoke-WebRequest -Uri $url -OutFile $path
           $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
           if($hash -ne $expected){throw "Original 513 rollback installer hash mismatch $hash"}
           Write-Host 'Verified original 1.0.513 rollback installer against release manifest'
+          $manifestPath='dist/lenovo-streaming-stage2a/manifest.json'
+          $newPath='dist/lenovo-streaming-stage2a/Hi5CentralAgentSetup-1.0.514-DIAGNOSTIC.exe'
+          $artifactRollback='dist/lenovo-streaming-stage2a/Hi5CentralAgentSetup-1.0.513-ROLLBACK.exe'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if($manifest.version -ne '1.0.514' -or -not $manifest.diagnostic_only){throw 'Invalid test-only manifest version'}
+          if(-not (Test-Path $newPath) -or -not (Test-Path $artifactRollback)){throw 'New or rollback installer absent from upload directory'}
+          $newSha=(Get-FileHash -LiteralPath $newPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($newSha -ne $manifest.new_installer_sha256){throw 'New installer checksum mismatch in final artifact directory'}
+          $rollbackSha=(Get-FileHash -LiteralPath $artifactRollback -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($rollbackSha -ne $expected){throw 'Rollback installer checksum mismatch in final artifact directory'}
+          Write-Host "Final test-only artifact checksums verified; new=$newSha rollback=$rollbackSha"
 
       - uses: actions/upload-artifact@v4
         if: success()
         with:
           name: Hi5Central-Lenovo-Streaming-1.0.514-Stage2A-TEST-ONLY
-          path: dist/lenovo-streamer-diagnostic/
+          path: dist/lenovo-streaming-stage2a/
           retention-days: 14
           if-no-files-found: error
