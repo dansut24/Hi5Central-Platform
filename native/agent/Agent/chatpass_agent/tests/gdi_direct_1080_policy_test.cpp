@@ -17,6 +17,7 @@ int main() {
  auto d=GdiDirectTarget1080(1366,768,true);
  assert(d.width==1366 && d.height==768 && !d.scaled);
  assert(!GdiDirectEligible(true,true,-1,false));
+ assert(!GdiDirectEligible(true,true,1,false));
  assert(!GdiDirectEligible(true,false,0,false));
  assert(!GdiDirectEligible(true,true,0,true));
  assert(!GdiDirectEligible(false,true,0,false));
