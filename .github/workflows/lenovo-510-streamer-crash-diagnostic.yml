@@ -1,4 +1,4 @@
-name: Lenovo 1.0.510 streamer crash - source matched GDI fallback fix
+name: Lenovo 1.0.513 compiled DXGI crash fix (source matched)
 
 on:
   pull_request:
@@ -35,8 +35,8 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $url='https://downloads.hi5central.com/rmm-codec-review/lenovo-agent510-streamer-crashfix-20261115.zip'
-          $sha='adb35320380f9ec72702c0c3a3cc66ed9a044e792191203d97e9ce9d7a812b7b'
+          $url='https://downloads.hi5central.com/rmm-codec-review/lenovo-agent510-real-dxgi-fallback-20261116.zip'
+          $sha='29a644e2ebc93e337ac1f760a320c81fe4ab425513b915345d3ff60c3124e459'
           $zip=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source.zip'
           $out=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source'
           Invoke-WebRequest -Uri $url -OutFile $zip
@@ -45,14 +45,26 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $out
           $src=Join-Path $out 'changed-files'
           $files=@(Get-ChildItem -LiteralPath $src -Recurse -File)
-          if($files.Count -ne 3){throw "Expected exactly 3 source files, found $($files.Count)"}
+          if($files.Count -ne 4){throw "Expected exactly 4 source files, found $($files.Count)"}
           foreach($file in $files){
             $relative=$file.FullName.Substring($src.Length + 1)
             $dest=Join-Path (Get-Location).Path $relative
             if(-not (Test-Path $dest)){throw "Unrecognized source path $relative"}
             Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
           }
-          Write-Host 'Applied source-matched empty-DXGI-to-GDI recovery and startup exception tracing'
+          Write-Host 'Applied recovery to actual compiled windows_screen.cpp plus startup diagnostics'
+
+      - name: Assert actual compiled DXGI implementation safely falls back
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmake = Get-Content native/agent/Agent/chatpass_agent/CMakeLists.txt -Raw
+          $source = Get-Content native/agent/Agent/chatpass_agent/src/platform/windows/windows_screen.cpp -Raw
+          if ($cmake -notmatch 'src/platform/windows/windows_screen\.cpp') { throw 'Windows capture source not in CMake' }
+          if ($source -notmatch 'enableGdiFallback\("DuplicateOutput failed"') { throw 'Compiled DXGI failure is not handled by GDI' }
+          if ($source -notmatch 'if \(useGdiFallback \|\| !duplication\)') { throw 'GDI capture fallback path missing' }
+          if ($source -match 'throw std::runtime_error\("DuplicateOutput failed"\)') { throw 'Old helper-crashing throw is present' }
+          Write-Host 'Actual compiled DXGI source protects against fatal DuplicateOutput errors'
 
       - name: Install native Windows dependencies
         shell: pwsh
@@ -67,7 +79,7 @@ jobs:
           & $vcpkg install openssl:x64-windows-static nlohmann-json:x64-windows-static libvpx:x64-windows-static 'libdatachannel[srtp,ws]:x64-windows-static'
           if($LASTEXITCODE -ne 0){throw 'WebRTC static dependency build failed'}
 
-      - name: Build Agent 1.0.512 from same 510 source (test only)
+      - name: Build Agent 1.0.513 from same 510 source (test only)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -78,7 +90,7 @@ jobs:
           $vsVersion=& $vswhere -latest -products * -property installationVersion
           $generator=if($vsVersion -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
           $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
-          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -Generator "'+$generator+'" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "1.0.512"'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -Generator "'+$generator+'" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "1.0.513"'
           cmd.exe /d /s /c $cmd
           if($LASTEXITCODE -ne 0){throw 'Native diagnostic Agent build failed'}
           $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
@@ -87,23 +99,23 @@ jobs:
           if($bytes.Length -lt 1000000 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a){throw 'Invalid Windows installer'}
           $dist='dist/lenovo-streamer-diagnostic'
           New-Item -ItemType Directory -Force -Path $dist | Out-Null
-          Copy-Item -LiteralPath $exe -Destination (Join-Path $dist 'Hi5CentralAgentSetup-1.0.512-DIAGNOSTIC.exe')
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $dist 'Hi5CentralAgentSetup-1.0.513-DIAGNOSTIC.exe')
           $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest=[ordered]@{
             diagnostic_only=$true
             no_automatic_deployment=$true
             target='Lenovo DESKTOP-Q9LTF1M'
             expected_installed_version='1.0.510'
-            version='1.0.512'
+            version='1.0.513'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
-            source_package_sha256='adb35320380f9ec72702c0c3a3cc66ed9a044e792191203d97e9ce9d7a812b7b'
+            source_package_sha256='29a644e2ebc93e337ac1f760a320c81fe4ab425513b915345d3ff60c3124e459'
             new_installer_sha256=$hash
             new_installer_bytes=$bytes.Length
           }
           $manifest|ConvertTo-Json|Set-Content (Join-Path $dist 'manifest.json') -Encoding utf8
           $pdb=Get-ChildItem 'native/agent/Agent/chatpass_agent/build' -Recurse -Filter 'Hi5CentralAgent.pdb' -ErrorAction SilentlyContinue|Select-Object -First 1
           if($pdb){Copy-Item -LiteralPath $pdb.FullName -Destination (Join-Path $dist 'Hi5CentralAgent-DIAGNOSTIC.pdb')}
-          Write-Host "CANARY_AGENT_VERSION=1.0.512 SHA256=$hash"
+          Write-Host "CANARY_AGENT_VERSION=1.0.513 SHA256=$hash"
 
       - name: Verify exact original rollback installer
         shell: pwsh
@@ -120,7 +132,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: Hi5Central-Lenovo-Streamer-1.0.512-Diagnostic-DO-NOT-AUTO-DEPLOY
+          name: Hi5Central-Lenovo-Streamer-1.0.513-Diagnostic-DO-NOT-AUTO-DEPLOY
           path: dist/lenovo-streamer-diagnostic/
           retention-days: 14
           if-no-files-found: error
