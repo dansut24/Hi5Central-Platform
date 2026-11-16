@@ -232,7 +232,7 @@ jobs:
           if(-not $scaling.Contains('ScalePlaneBilinear')){throw 'Filtered I420 scaler missing'}
           Write-Host 'Secure handoff ownership and disabled-by-default H264 quality canary verified'
 
-      - name: Compile and run sixteen portable policy regression tests on Windows MSVC
+      - name: Compile and run fifteen qualified portable policy regression tests on Windows MSVC
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -241,7 +241,7 @@ jobs:
           if(-not $vs){throw 'MSVC not found'}
           $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          foreach($name in @('rtc_keyframe_recovery_gate_test','secure_desktop_handoff_policy_test','i420_text_scale_test','frame_age_clock_test','gdi_surface_reuse_policy_test','capture_stage_split_test','gdi_bitblt_policy_test','bgra_luma_sse2_test','secure_helper_restart_policy_test','dxgi_context_policy_test','dxgi_user_probe_policy_test','wgc_probe_policy_test','wgc_pixel_probe_policy_test','wgc_motion_probe_policy_test','bgra_to_i420_fast_test','vp9_realtime_policy_test')){
+          foreach($name in @('rtc_keyframe_recovery_gate_test','secure_desktop_handoff_policy_test','i420_text_scale_test','frame_age_clock_test','gdi_surface_reuse_policy_test','capture_stage_split_test','gdi_bitblt_policy_test','bgra_luma_sse2_test','secure_helper_restart_policy_test','dxgi_context_policy_test','dxgi_user_probe_policy_test','wgc_probe_policy_test','wgc_pixel_probe_policy_test','wgc_motion_probe_policy_test','bgra_to_i420_fast_test')){
             $src='native/agent/Agent/chatpass_agent/tests/'+$name+'.cpp'
             $exe='dist\'+$name+'.exe'
             $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN '+$src+' /Fe:'+$exe+' && '+$exe
@@ -569,7 +569,16 @@ jobs:
             if(-not $encoder.Contains($mark)){throw ('Libvpx source safety regression '+$mark)}
           }
           if($encoder.Contains('HI5_WGC_LIVE_CANARY')){throw 'GPU capture introduced into VP9 software path'}
-          Write-Host 'VP9 software libvpx: no WGC live capture, stable VP8/UAC fallback, source insertion PASS'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC required for VP9 timing regression'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $test=(Resolve-Path (Join-Path $root 'tests/vp9_realtime_policy_test.cpp')).Path
+          $exe=Join-Path $env:RUNNER_TEMP 'vp9_realtime_policy_test.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /MT /O2 /DNOMINMAX /DWIN32_LEAN_AND_MEAN "'+$test+'" /Fe:"'+$exe+'" && "'+$exe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'VP9 monotonic idle-to-motion regression failed'}
+          Write-Host 'VP9 software libvpx: no WGC live capture, stable VP8/UAC fallback, source insertion and timing PASS'
 
       - name: Build Agent 1.0.529 from same 510 source (test only)
         shell: pwsh
