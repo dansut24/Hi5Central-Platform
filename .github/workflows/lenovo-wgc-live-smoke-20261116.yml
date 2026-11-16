@@ -60,7 +60,7 @@ jobs:
           }
           $live=Get-Content native/agent/Agent/chatpass_agent/src/wgc_live_capture.h -Raw
           $policy=Get-Content native/agent/Agent/chatpass_agent/src/wgc_live_policy.h -Raw
-          foreach($term in @('HI5_WGC_LIVE_CANARY','WgcLiveEligible(','CreateFreeThreaded(','FrameArrived(','BgraToI420FastPlanes(','D3D11_MAP_READ','return false','gdi','stopping')){
+          foreach($term in @('HI5_WGC_LIVE_CANARY','WgcLiveEligible(','CreateFreeThreaded(','FrameArrived(','BgraToI420FastPlanes(','D3D11_MAP_READ','return false','GDI','stopping')){
             if(-not ($live+$policy).Contains($term)){throw ('Live WGC safety marker missing '+$term)}
           }
           foreach($danger in @('IsBorderRequired(false)','SetThreadDesktop(','SetTokenInformation(','SendInput(','SetCursorPos(')){
