@@ -349,8 +349,11 @@ jobs:
             if($name -eq 'frame_bytes_read'){continue}
             if(-not $wgc.Contains($name)){throw "WGC safety/capture event primitive absent: $name"}
           }
+          # Exclude line comments: documentation may explicitly mention forbidden
+          # calls to explain why they are not used. Inspect executable source.
+          $wgcCode=($wgc -split "`n" | Where-Object {$_ -notmatch '^\s*//'}) -join "`n"
           foreach($name in @('frame.Surface(','GetDC(','AcquireNextFrame(','IsBorderRequired(false)','SetThreadDesktop(','SetTokenInformation(')){
-            if($wgc.Contains($name)){throw "Prohibited WGC probe operation: $name"}
+            if($wgcCode.Contains($name)){throw "Prohibited WGC probe operation: $name"}
           }
           if(-not $policy.Contains('!localSystem&&sessionMatch&&threadDefault')){throw 'Interactive default desktop gate missing'}
           if(-not $cmake.Contains('windowsapp')){throw 'WinRT runtime import library missing'}
