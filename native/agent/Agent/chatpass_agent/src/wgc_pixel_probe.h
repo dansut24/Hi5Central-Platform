@@ -7,6 +7,8 @@
 #endif
 #include "wgc_user_probe.h"
 #include "wgc_pixel_probe_policy.h"
+#include "wgc_motion_probe_policy.h"
+#include "wgc_motion_window.h"
 #include <cstring>
 #include <vector>
 
@@ -30,8 +32,19 @@ struct WgcPixelStats {
 enum class WgcProbeMode {
     Baseline,
     InteractiveTextureDimensions,
-    SustainedReadback10s
+    SustainedReadback10s,
+    ControlledMotion15,
+    ControlledMotion30,
+    ControlledMotion60
 };
+inline unsigned WgcMotionRate(WgcProbeMode mode) noexcept {
+    switch (mode) {
+        case WgcProbeMode::ControlledMotion15: return 15u;
+        case WgcProbeMode::ControlledMotion30: return 30u;
+        case WgcProbeMode::ControlledMotion60: return 60u;
+        default: return 0u;
+    }
+}
 inline int RunInteractiveWgcPixelChild(
     WgcProbeMode mode = WgcProbeMode::Baseline) {
     const bool system = DxgiProbeIsSystem();
@@ -125,7 +138,9 @@ inline int RunInteractiveWgcPixelChild(
                 }
                 std::lock_guard<std::mutex> guard(stats->mutex);
                 if (stats->stopping.load() || stats->frames >=
-                    (mode == WgcProbeMode::SustainedReadback10s ? 900u : 200u)) return;
+                    (WgcMotionRate(mode) ? 480u :
+                     mode == WgcProbeMode::SustainedReadback10s ? 900u :
+                     200u)) return;
                 if (!stats->staging || stats->width != desc.Width ||
                     stats->height != desc.Height) {
                     // Geometry changes invalidate the same-resolution timing
@@ -204,14 +219,50 @@ inline int RunInteractiveWgcPixelChild(
                 return static_cast<int>(0x80070005u);
             return 308;
         }
-        // An animated desktop should produce events. Idle WGC can generate
-        // one frame only; never treat idle-event rate as maximum capture FPS.
-        const auto sampleWindow = mode == WgcProbeMode::SustainedReadback10s
-            ? 10000 : (mode == WgcProbeMode::InteractiveTextureDimensions
-                ? 2200 : 3200);
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(sampleWindow));
+        // Stage 2N: explicit user-desktop visual stimulus (small, visible,
+        // no-activate window), never mouse/keyboard injection or UAC.
+        // The frame pool remains unchanged from the 526 isolated experiment.
+        const unsigned motionHz = WgcMotionRate(mode);
+        WgcMotionTestWindow movingWindow;
+        unsigned motionPaints = 0u;
+        if (motionHz) {
+            if (!movingWindow.Open(monitor, motionHz)) {
+                stats->stopping.store(true);
+                pool.FrameArrived(token);
+                capture.Close();
+                pool.Close();
+                return 315;
+            }
+            const auto start = std::chrono::steady_clock::now();
+            const auto deadline = start +
+                std::chrono::milliseconds(kWgcMotionWindowMs);
+            const auto target = WgcMotionTargetFrames(motionHz);
+            for (unsigned tick = 1; tick < target; ++tick) {
+                const auto next = start + std::chrono::microseconds(
+                    (static_cast<unsigned long long>(tick) * 1000000ull)
+                    / motionHz);
+                std::this_thread::sleep_until(next);
+                movingWindow.Pump();
+                if (std::chrono::steady_clock::now() >= deadline) break;
+                if (!movingWindow.PaintNext()) {
+                    stats->failure.store(316u);
+                    break;
+                }
+            }
+            if (std::chrono::steady_clock::now() < deadline)
+                std::this_thread::sleep_until(deadline);
+            motionPaints = movingWindow.Painted();
+        } else {
+            // Idle event count is not a meaningful maximum FPS.
+            const auto sampleWindow =
+                mode == WgcProbeMode::SustainedReadback10s ? 10000 :
+                mode == WgcProbeMode::InteractiveTextureDimensions ? 2200
+                                                                    : 3200;
+            std::this_thread::sleep_for(
+                std::chrono::milliseconds(sampleWindow));
+        }
         stats->stopping.store(true);
+        movingWindow.Close();
         pool.FrameArrived(token);
         capture.Close();
         pool.Close();
@@ -222,6 +273,15 @@ inline int RunInteractiveWgcPixelChild(
                                     ? stats->failure.load() : 309u);
         }
         if (stats->failure.load()) return static_cast<int>(stats->failure.load());
+        if (motionHz) {
+            // Never label frames as 60fps. The SYSTEM launcher reports the
+            // observed copied-frame and painted-update counts separately.
+            return static_cast<int>(PackWgcMotionMetrics(
+                stats->frames, motionPaints,
+                static_cast<unsigned>((stats->readbackUsSum / stats->frames
+                                       + 500u) / 1000u),
+                static_cast<unsigned>((stats->readbackUsMax + 500u) / 1000u)));
+        }
         if (mode == WgcProbeMode::InteractiveTextureDimensions) {
             // This is the actual *interactive-user GPU texture* geometry, not
             // a potentially virtualized SYSTEM-session GetMonitorInfo value.
@@ -325,6 +385,120 @@ inline int RunInteractiveWgcBenchmarkLauncher() {
               << " pixels_persisted=0"
               << " pixels_transmitted=0"
               << " live_capture_backend_unchanged=1"
+              << " secure_desktop_unchanged=1\n";
+    return 0;
+}
+
+// Stage 2N guarded desktop stimulus launcher. Three isolated 6-second
+// children are sequential; the animation window lives and dies in each child.
+// The live WebRTC sender/GDI capture path is never referenced or altered.
+inline int RunInteractiveWgcMotionLauncher() {
+    const bool system = DxgiProbeIsSystem();
+    const DWORD console = WTSGetActiveConsoleSessionId();
+    if (!CanLaunchInteractiveDxgiProbe(system,
+                                      console != 0xffffffffu)) {
+        std::cout << "HI5_WGC_MOTION status=skipped reason="
+                  << (system ? "no_active_console" : "system_required") << "\n";
+        return 2;
+    }
+    wchar_t path[MAX_PATH]{};
+    const DWORD len = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (!len || len >= MAX_PATH) return 3;
+    const int bytes = WideCharToMultiByte(
+        CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+    if (bytes <= 1) return 3;
+    std::string exe(static_cast<size_t>(bytes), '\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, path, -1, exe.data(), bytes,
+                           nullptr, nullptr) <= 1) return 3;
+    exe.resize(static_cast<size_t>(bytes - 1));
+    auto launch = [&](const char* childMode, DWORD timeout) -> DWORD {
+        HANDLE child = LaunchInInteractiveSession(exe, childMode);
+        if (!child) return 0xffffffffu;
+        const DWORD wait = WaitForSingleObject(child, timeout);
+        if (wait != WAIT_OBJECT_0) {
+            TerminateProcess(child, 0x7e0001ffu);
+            WaitForSingleObject(child, 1000u);
+            CloseHandle(child);
+            return 0xfffffffeu;
+        }
+        DWORD result = 0xffffffffu;
+        if (!GetExitCodeProcess(child, &result)) result = 0xfffffffdu;
+        CloseHandle(child);
+        return result;
+    };
+    const DWORD before = launch("--mode wgc-resolution-probe-child", 9000u);
+    if (!WgcResolutionValid(before)) {
+        std::cout << "HI5_WGC_MOTION status=failed phase=geometry"
+                  << " child_exit_hex=0x" << std::hex << before
+                  << std::dec << "\n";
+        return 7;
+    }
+    const unsigned width = WgcResolutionWidth(before);
+    const unsigned height = WgcResolutionHeight(before);
+    // A 2560x1600 measurement is required for comparison to the Lenovo's
+    // GDI baseline. Different displays remain informative but not comparable.
+    std::cout << "HI5_WGC_MOTION status=started"
+              << " texture_width=" << width
+              << " texture_height=" << height
+              << " dimension_origin=interactive_user_d3d11"
+              << " test_duration_ms=" << kWgcMotionWindowMs
+              << " visual_stimulus=visible_nonactivating_window"
+              << " screenshots_saved=0 transmitted_frames=0\n";
+    struct Target {
+        unsigned fps;
+        const char* mode;
+    };
+    const Target targets[] = {
+        {15u, "--mode wgc-motion-15-child"},
+        {30u, "--mode wgc-motion-30-child"},
+        {60u, "--mode wgc-motion-60-child"}
+    };
+    for (const auto& test : targets) {
+        const DWORD code = launch(test.mode, 13000u);
+        if (!WgcMotionMetricsValid(code)) {
+            std::cout << "HI5_WGC_MOTION status=failed"
+                      << " phase=target" << " target_fps=" << test.fps
+                      << " reason=" << WgcPixelFailure(code)
+                      << " child_exit_hex=0x" << std::hex << code
+                      << std::dec << "\n";
+            return 8;
+        }
+        const unsigned frames = WgcMotionFrames(code);
+        const unsigned paints = WgcMotionPaints(code);
+        std::cout << "HI5_WGC_MOTION_SAMPLE status=completed"
+                  << " target_fps=" << test.fps
+                  << " attempted_paints=" << paints
+                  << " cpu_frames_copied=" << frames
+                  << " observed_capture_fps_x10="
+                  << (frames * 10000u / kWgcMotionWindowMs)
+                  << " avg_readback_ms=" << WgcMotionMeanMs(code)
+                  << " max_readback_ms_capped31="
+                  << WgcMotionMaxMs(code)
+                  << " duration_ms=" << kWgcMotionWindowMs
+                  << " texture_width=" << width
+                  << " texture_height=" << height
+                  << " data_logged=metrics_only"
+                  << " pixels_transmitted=0"
+                  << " frame_screenshots_written=0"
+                  << " capture_backend_unchanged=1\n";
+    }
+    const DWORD after = launch("--mode wgc-resolution-probe-child", 9000u);
+    if (!WgcResolutionValid(after) ||
+        WgcResolutionWidth(after) != width ||
+        WgcResolutionHeight(after) != height) {
+        std::cout << "HI5_WGC_MOTION status=failed"
+                     " reason=texture_geometry_drift\n";
+        return 9;
+    }
+    std::cout << "HI5_WGC_MOTION status=completed"
+              << " benchmark=measurement_only"
+              << " texture_width=" << width
+              << " texture_height=" << height
+              << " targets=15,30,60"
+              << " motion_injection=0"
+              << " screenshots_saved=0 pixels_transmitted=0"
+              << " live_web_rtc_unchanged=1"
+              << " gdi_fallback_preserved=1"
               << " secure_desktop_unchanged=1\n";
     return 0;
 }
