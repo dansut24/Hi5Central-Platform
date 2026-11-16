@@ -36,7 +36,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $url='https://downloads.hi5central.com/rmm-codec-review/hi5central-streaming-stage2k-lenovo-source-20261116.zip'
-          $sha='f1abc1b184c103a64198a0a5e29b37a58dfe4d1dd144a6155b675539bd2830bb'
+          $sha='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
           $zip=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source.zip'
           $out=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source'
           Invoke-WebRequest -Uri $url -OutFile $zip
@@ -408,7 +408,7 @@ jobs:
             expected_installed_version='1.0.523'
             version='1.0.524'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
-            source_package_sha256='f1abc1b184c103a64198a0a5e29b37a58dfe4d1dd144a6155b675539bd2830bb'
+            source_package_sha256='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
             new_installer_sha256=$hash
             new_installer_bytes=$bytes.Length
           }
