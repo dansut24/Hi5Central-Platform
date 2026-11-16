@@ -1,4 +1,7 @@
 #include "vp9_mf_encoder.h"
+#include "vp9_realtime_policy.h"
+#include <vpx/vpx_encoder.h>
+#include <vpx/vp8cx.h>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,6 +17,8 @@
 
 #include <algorithm>
 #include <cstring>
+#include <chrono>
+#include <cstdint>
 #include <sstream>
 #include <comdef.h>
 
@@ -102,6 +107,14 @@ struct Vp9MfEncoder::Impl {
     ComPtr<IMFTransform> transform;
     MFT_OUTPUT_STREAM_INFO outputInfo{};
     bool mfStarted = false;
+    // VP9 software no longer depends on Windows Media Foundation's
+    // asynchronous Video Extension encoder. The same already-linked libvpx
+    // runtime as VP8 supplies true software/low-latency VP9 output.
+    vpx_codec_ctx_t softwareCodec{};
+    vpx_codec_enc_cfg_t softwareCfg{};
+    bool softwareReady = false;
+    std::chrono::steady_clock::time_point epoch{};
+    std::uint64_t lastPts90k = 0;
 };
 
 Vp9MfEncoder::Vp9MfEncoder() = default;
@@ -112,6 +125,10 @@ Vp9MfEncoder::~Vp9MfEncoder() {
 
 void Vp9MfEncoder::shutdown() {
     if (m_impl) {
+        if (m_impl->softwareReady) {
+            vpx_codec_destroy(&m_impl->softwareCodec);
+            m_impl->softwareReady = false;
+        }
         if (m_impl->transform) {
             m_impl->transform->ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
             m_impl->transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
@@ -131,6 +148,55 @@ bool Vp9MfEncoder::init(int width, int height, int fps, int bitrateKbps, bool pr
     if (width <= 0 || height <= 0) {
         if (error) *error = "invalid size";
         return false;
+    }
+
+    if (!preferHardware) {
+        m_impl = new Impl();
+        m_width = width;
+        m_height = height;
+        m_fps = std::max(1,fps);
+        m_bitrateKbps = std::max(300,bitrateKbps);
+        m_frameIndex = 0;
+        auto& cfg = m_impl->softwareCfg;
+        if (vpx_codec_enc_config_default(vpx_codec_vp9_cx(),&cfg,0) != VPX_CODEC_OK) {
+            if(error)*error="libvpx VP9 encoder configuration unavailable";
+            shutdown();
+            return false;
+        }
+        cfg.g_w=static_cast<unsigned int>(width);
+        cfg.g_h=static_cast<unsigned int>(height);
+        cfg.g_threads=4;
+        cfg.g_timebase.num=1;
+        cfg.g_timebase.den=90000;
+        cfg.g_lag_in_frames=0;
+        cfg.g_pass=VPX_RC_ONE_PASS;
+        cfg.rc_end_usage=VPX_CBR;
+        cfg.rc_target_bitrate=m_bitrateKbps;
+        cfg.rc_resize_allowed=0;
+        cfg.rc_dropframe_thresh=0;
+        cfg.rc_buf_initial_sz=300;
+        cfg.rc_buf_optimal_sz=500;
+        cfg.rc_buf_sz=1000;
+        cfg.rc_min_quantizer=8;
+        cfg.rc_max_quantizer=48;
+        cfg.kf_mode=VPX_KF_AUTO;
+        cfg.kf_min_dist=0;
+        cfg.kf_max_dist=120;
+        cfg.g_error_resilient=VPX_ERROR_RESILIENT_DEFAULT;
+        const auto result=vpx_codec_enc_init(
+            &m_impl->softwareCodec,vpx_codec_vp9_cx(),&cfg,0);
+        if(result!=VPX_CODEC_OK){
+            if(error)*error="libvpx VP9 init failed code="+std::to_string(result);
+            shutdown();
+            return false;
+        }
+        m_impl->softwareReady=true;
+        vpx_codec_control(&m_impl->softwareCodec,VP8E_SET_CPUUSED,8);
+        m_impl->epoch=std::chrono::steady_clock::now();
+        m_impl->lastPts90k=0;
+        m_encoderName="libvpx-VP9-software-realtime";
+        m_open=true;
+        return true;
     }
 
     HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_LITE);
@@ -281,6 +347,55 @@ bool Vp9MfEncoder::encode(const I420Frame& frame, bool forceKeyframe, Vp9Encoded
 
     out = {};
 
+    if (m_open && m_impl && m_impl->softwareReady) {
+        if(frame.width!=m_width || frame.height!=m_height){
+            if(error)*error="libvpx VP9 frame size mismatch";
+            return false;
+        }
+        vpx_image_t image{};
+        if(!vpx_img_wrap(&image,VPX_IMG_FMT_I420,
+                         static_cast<unsigned int>(frame.width),
+                         static_cast<unsigned int>(frame.height),1,nullptr)){
+            if(error)*error="libvpx VP9 image wrap failed";
+            return false;
+        }
+        image.planes[0]=const_cast<unsigned char*>(frame.y.data());
+        image.planes[1]=const_cast<unsigned char*>(frame.u.data());
+        image.planes[2]=const_cast<unsigned char*>(frame.v.data());
+        image.stride[0]=frame.width;
+        image.stride[1]=(frame.width+1)/2;
+        image.stride[2]=(frame.width+1)/2;
+        const auto pts=hi5::Vp9Clock90k(m_impl->epoch,
+            std::chrono::steady_clock::now(),m_impl->lastPts90k);
+        const auto duration=hi5::Vp9FrameDuration90k(
+            pts,m_impl->lastPts90k);
+        const auto flags=forceKeyframe ? VPX_EFLAG_FORCE_KF : 0;
+        const auto status=vpx_codec_encode(&m_impl->softwareCodec,&image,
+            static_cast<vpx_codec_pts_t>(pts),duration,flags,VPX_DL_REALTIME);
+        if(status!=VPX_CODEC_OK){
+            if(error)*error=std::string("libvpx VP9 encode failed: ")+
+                vpx_codec_error(&m_impl->softwareCodec);
+            return false;
+        }
+        m_impl->lastPts90k=pts;
+        ++m_frameIndex;
+        vpx_codec_iter_t iter=nullptr;
+        const vpx_codec_cx_pkt_t* pkt=nullptr;
+        while((pkt=vpx_codec_get_cx_data(&m_impl->softwareCodec,&iter))){
+            if(pkt->kind!=VPX_CODEC_CX_FRAME_PKT)continue;
+            const auto* data=static_cast<const std::uint8_t*>(
+                pkt->data.frame.buf);
+            out.data.assign(data,data+pkt->data.frame.sz);
+            out.timestamp90k=static_cast<std::uint32_t>(
+                pkt->data.frame.pts);
+            out.keyframe=(pkt->data.frame.flags & VPX_FRAME_IS_KEY)!=0;
+            break;
+        }
+        // Empty packets are valid during encoder startup. Sender must
+        // NOT disable negotiated VP9 when no packet is produced.
+        return true;
+    }
+
     if (!m_open || !m_impl || !m_impl->transform) {
         if (error) *error = "encoder not open";
         return false;
@@ -356,7 +471,7 @@ bool Vp9MfEncoder::encode(const I420Frame& frame, bool forceKeyframe, Vp9Encoded
 
     ++m_frameIndex;
 
-    for (;;) {
+    for (int outputAttempt = 0; outputAttempt < 8; ++outputAttempt) {
         MFT_OUTPUT_DATA_BUFFER output{};
         DWORD status = 0;
 
@@ -373,7 +488,9 @@ bool Vp9MfEncoder::encode(const I420Frame& frame, bool forceKeyframe, Vp9Encoded
         hr = m_impl->transform->ProcessOutput(0, 1, &output, &status);
 
         if (hr == MF_E_TRANSFORM_NEED_MORE_INPUT) {
-            return !out.data.empty();
+            // This is a normal MFT state: caller should provide more input.
+            // An empty packet is not a fatal encoder failure.
+            return true;
         }
 
         if (hr == MF_E_TRANSFORM_STREAM_CHANGE) {
@@ -438,4 +555,18 @@ bool Vp9MfEncoder::encode(const I420Frame& frame, bool forceKeyframe, Vp9Encoded
             return true;
         }
     }
+    if(error)*error="VP9 MFT output loop exhausted without frame";
+    return false;
+}
+
+bool Vp9MfEncoder::reconfigure(int fps,int bitrateKbps) {
+    if(!m_impl || !m_impl->softwareReady || !m_open)return false;
+    auto updated=m_impl->softwareCfg;
+    updated.rc_target_bitrate=std::max(300,bitrateKbps);
+    if(vpx_codec_enc_config_set(&m_impl->softwareCodec,&updated)!=VPX_CODEC_OK)
+        return false;
+    m_impl->softwareCfg=updated;
+    m_fps=std::max(1,fps);
+    m_bitrateKbps=std::max(300,bitrateKbps);
+    return true;
 }
