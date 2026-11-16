@@ -22,7 +22,7 @@ public:
         wc.lpfnWndProc = &WndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
         wc.lpszClassName = L"Hi5CentralWgcMotion527";
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));
         if (!RegisterClassW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
             return false;
         MONITORINFO info{};
