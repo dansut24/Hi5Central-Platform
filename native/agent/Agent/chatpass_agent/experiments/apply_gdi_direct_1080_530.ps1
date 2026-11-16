@@ -6,7 +6,7 @@ function Replace-Once([string]$source,[string]$before,[string]$after,[string]$na
     return $source.Replace($before,$after)
 }
 $path=Join-Path $Root 'src/platform/windows/windows_screen.cpp'
-$screen=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+$screen=(Get-Content -LiteralPath $path -Raw -Encoding UTF8).Replace("`r`n","`n")
 $screen=Replace-Once $screen '#include "fast_capture_flags.h"' ('#include "fast_capture_flags.h"'+[Environment]::NewLine+'#include "gdi_direct_1080_policy.h"') 'direct GDI policy include'
 $before='    static void compositeCursorBgra(int originX, int originY, int width, int height,'
 $helper=@'
@@ -196,7 +196,7 @@ foreach($marker in @('GdiDirectTarget1080(','GdiDirectDrawScaledCursor(','COLORO
 Write-Host 'GDI native baseline preserved, primary direct 1728x1080 path default OFF; scaled cursor/fallback PASS'
 
 $path=Join-Path $Root 'src/streamer_main.cpp'
-$stream=Get-Content -LiteralPath $path -Raw -Encoding UTF8
+$stream=(Get-Content -LiteralPath $path -Raw -Encoding UTF8).Replace("`r`n","`n")
 $stream=Replace-Once $stream @'
         auto nextStatsAt = std::chrono::steady_clock::now() + statsEvery;
 '@ @'
