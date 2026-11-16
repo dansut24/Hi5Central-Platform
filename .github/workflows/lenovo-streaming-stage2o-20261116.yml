@@ -497,10 +497,24 @@ jobs:
           $stream=$stream.Replace($motion,'        const int motionFps = fullRateCanary ? std::min(60,requestedMaxFps) : std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_MOTION_FPS",')
           [IO.File]::WriteAllText((Resolve-Path $path).Path,$stream,(New-Object Text.UTF8Encoding($false)))
 
+          $senderPath=Join-Path $root 'webrtc_sender.cpp'
+          $sender=Get-Content -LiteralPath $senderPath -Raw -Encoding UTF8
+          $target='        p.fps = std::max(1, std::min(maxFps, p.fps));'
+          if(($sender.Split($target).Count - 1) -ne 1){throw 'VP8 encoder FPS profile anchor changed'}
+          $canary='        if (readEnvInt("HI5_STREAM_FULL_RATE_CANARY",0,0,1)==1 && !backstage && !secureDesktop && mode>=1) {'+
+            [Environment]::NewLine+'            // Honor viewer ceiling, and capture hint, for normal desktop motion only.'+
+            [Environment]::NewLine+'            p.fps=std::min(60,std::min(maxFps,hintedFps>0?std::max(1,hintedFps):maxFps));'+
+            [Environment]::NewLine+'        }'
+          $sender=$sender.Replace($target,$target+[Environment]::NewLine+$canary)
+          [IO.File]::WriteAllText((Resolve-Path $senderPath).Path,$sender,(New-Object Text.UTF8Encoding($false)))
+          if(-not $sender.Contains('!backstage && !secureDesktop && mode>=1')){throw 'Encoder pacing security isolation missing'}
+          Write-Host 'VP8 encoder now also honours full-rate canary, disabled by default; backstage/UAC unaffected'
+
           foreach($flag in @('HI5_BGRA_I420_FAST_CANARY','HI5_STREAM_FULL_RATE_CANARY')){
             if(-not ($screen+$stream).Contains($flag)){throw ('Missing default-off canary '+$flag)}
           }
           if($stream -match 'fullRateCanary\s*=\s*true' -or $screen -match 'exactFastCanary\s*=\s*true'){throw 'Canaries must default OFF'}
+          if($sender -match 'HI5_STREAM_FULL_RATE_CANARY.{0,25},1,0,1'){throw 'VP8 full rate must default OFF'}
           Write-Host 'Stage 2O optional 528 fast converter and full requested FPS pacing compiled; both OFF by default'
 
       - name: Build Agent 1.0.528 from same 510 source (test only)
