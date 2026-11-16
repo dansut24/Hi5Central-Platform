@@ -45,12 +45,24 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $out
           $src=Join-Path $out 'changed-files'
           $files=@(Get-ChildItem -LiteralPath $src -Recurse -File)
-          if($files.Count -ne 16){throw "Expected exactly 14 source files, found $($files.Count)"}
+          if($files.Count -ne 16){throw "Expected exactly 16 source files, found $($files.Count)"}
           foreach($file in $files){
             $relative=$file.FullName.Substring($src.Length + 1) -replace '\\','/'
             $dest=Join-Path (Get-Location).Path $relative
-            if(-not (Test-Path $dest) -and $relative -notmatch '^native/agent/Agent/chatpass_agent/(src/(rtc_keyframe_recovery_gate|secure_desktop_handoff_policy|i420_text_scale|frame_age_clock)[.]h|tests/(rtc_keyframe_recovery_gate|secure_desktop_handoff_policy|i420_text_scale|frame_age_clock)_test[.]cpp)
-          New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
+            if(-not (Test-Path $dest)){
+              $newSource = @(
+                'native/agent/Agent/chatpass_agent/src/rtc_keyframe_recovery_gate.h',
+                'native/agent/Agent/chatpass_agent/src/secure_desktop_handoff_policy.h',
+                'native/agent/Agent/chatpass_agent/src/i420_text_scale.h',
+                'native/agent/Agent/chatpass_agent/src/frame_age_clock.h',
+                'native/agent/Agent/chatpass_agent/tests/rtc_keyframe_recovery_gate_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/secure_desktop_handoff_policy_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/i420_text_scale_test.cpp',
+                'native/agent/Agent/chatpass_agent/tests/frame_age_clock_test.cpp'
+              )
+              if($newSource -notcontains $relative){throw "Unrecognized source path $relative"}
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
             Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
           }
           Write-Host 'Applied working 515 plus QPC capture/age telemetry and read-only Intel async MFT diagnosis'
