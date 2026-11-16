@@ -264,7 +264,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: Hi5Central-Lenovo-Streaming-1.0.517-Stage2C-TEST-ONLY
+          name: Hi5Central-Lenovo-Streaming-1.0.517-Stage2D-TEST-ONLY
           path: dist/lenovo-streaming-stage2d/
           retention-days: 14
           if-no-files-found: error
