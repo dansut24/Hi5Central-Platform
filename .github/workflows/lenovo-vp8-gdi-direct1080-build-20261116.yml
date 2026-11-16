@@ -534,7 +534,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root='native/agent/Agent/chatpass_agent'
-          $sha='390b01047f8418499d484e6c021cc9fbf9ed421b'
+          $sha='5dfad3428e684a431d3a8137e19d5264788d50e2'
           foreach($part in @('src/gdi_direct_1080_policy.h','tests/gdi_direct_1080_policy_test.cpp','tests/gdi_direct_1080_win32_benchmark.cpp','experiments/apply_gdi_direct_1080_530.ps1')){
             $dst=Join-Path $root $part
             New-Item -ItemType Directory -Force -Path (Split-Path $dst -Parent)|Out-Null
@@ -596,7 +596,7 @@ jobs:
             expected_installed_version='1.0.528'
             version='1.0.530'
             pixel_probe_source_commit='efa7114062eed160d6f28ceeddd581149f6fdc14'
-            gdi_direct_source_commit='390b01047f8418499d484e6c021cc9fbf9ed421b'
+            gdi_direct_source_commit='5dfad3428e684a431d3a8137e19d5264788d50e2'
             capture_mode='default_off_GDI_direct_1728x1080_primary_only'
             codec_mode='software_VP8_libvpx'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
