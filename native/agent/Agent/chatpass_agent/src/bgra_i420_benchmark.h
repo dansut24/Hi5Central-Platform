@@ -6,6 +6,8 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace hi5 {
