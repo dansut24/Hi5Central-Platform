@@ -1,4 +1,5 @@
 ﻿#include "webrtc_sender.h"
+#include "vp9_realtime_policy.h"
 #include "frame_source.h"
 #include "util/log.h"
 
@@ -1605,6 +1606,22 @@ void WebRtcSender::sendExternalRawI420(const I420Frame& frame, bool forceKeyfram
         bool vp9Scaled = false;
         const I420Frame vp9Frame = scaleI420ForH264WebRtc(frame, &vp9Scaled);
         const bool sizeChangedVp9 = vp9Frame.width != m_externalEncoderWidth || vp9Frame.height != m_externalEncoderHeight;
+        const bool profileChangedVp9=hi5::Vp9SwProfileChange(
+            m_externalConfiguredFps,m_externalConfiguredBitrateKbps,
+            profile.fps,profile.bitrateKbps);
+        if(m_vp9Encoder && !sizeChangedVp9 && profileChangedVp9 &&
+           m_codecMode=="vp9_sw") {
+            if(m_vp9Encoder->reconfigure(profile.fps,profile.bitrateKbps)){
+                m_externalConfiguredFps=profile.fps;
+                m_externalConfiguredBitrateKbps=profile.bitrateKbps;
+                LogInfo("[vp9] libvpx profile update session="+m_sessionId+
+                    " fps="+std::to_string(profile.fps)+
+                    " bitrate="+std::to_string(profile.bitrateKbps));
+            }else{
+                m_vp9Encoder.reset();
+                m_forceKeyframe=true;
+            }
+        }
 
         if (!m_vp9Encoder || sizeChangedVp9) {
             m_externalEncoderWidth = vp9Frame.width;
@@ -1710,13 +1727,36 @@ void WebRtcSender::sendExternalRawI420(const I420Frame& frame, bool forceKeyfram
                     static std::atomic<uint64_t> vp9EmptyCounter{ 0 };
                     const uint64_t emptyCount = ++vp9EmptyCounter;
                     if (emptyCount <= 10 || emptyCount % 60 == 0) {
-                        LogInfo("[vp9] encode returned empty session=" + m_sessionId +
-                            " count=" + std::to_string(emptyCount) +
-                            " frame=" + std::to_string(vp9Frame.width) + "x" + std::to_string(vp9Frame.height) +
-                            " keyframe=" + std::string(vp9Keyframe ? "true" : "false"));
+                        LogInfo("[vp9] encoder awaiting output session=" + m_sessionId +
+                            " count=" + std::to_string(emptyCount));
                     }
                 }
-
+                const auto logNow=std::chrono::steady_clock::now();
+                if(m_externalNextStatsLog.time_since_epoch().count()==0)
+                    m_externalNextStatsLog=logNow+std::chrono::seconds(5);
+                if(logNow>=m_externalNextStatsLog){
+                    const double encodedCount=std::max<uint64_t>(1,m_externalEncodedFrames);
+                    const double sentCount=std::max<uint64_t>(1,m_externalSentFrames);
+                    LogInfo("[vp9] encode health session="+m_sessionId+
+                        " submitted="+std::to_string(m_externalEncodedFrames)+
+                        " sent="+std::to_string(m_externalSentFrames)+
+                        " actual_sent_fps_5s="+std::to_string(
+                            static_cast<double>(m_externalSentFrames)/5.0)+
+                        " encode_avg_ms="+std::to_string(
+                            m_externalEncodeMsTotal/encodedCount)+
+                        " encode_max_ms="+std::to_string(m_externalEncodeMsMax)+
+                        " send_avg_ms="+std::to_string(
+                            m_externalSendMsTotal/sentCount)+
+                        " target_fps="+std::to_string(m_externalConfiguredFps)+
+                        " bitrate="+std::to_string(m_externalConfiguredBitrateKbps));
+                    m_externalEncodedFrames=0;
+                    m_externalSentFrames=0;
+                    m_externalEncodeMsTotal=0;
+                    m_externalEncodeMsMax=0;
+                    m_externalSendMsTotal=0;
+                    m_externalSendMsMax=0;
+                    m_externalNextStatsLog=logNow+std::chrono::seconds(5);
+                }
                 return;
             }
             catch (const std::exception& ex) {
