@@ -1,0 +1,89 @@
+name: Lenovo 1.0.527 Stage 2N - paced motion 15 30 60 Windows SDK smoke
+
+on:
+  pull_request:
+    branches:
+      - test/lenovo-streaming-stage2m-20261116
+    paths:
+      - .github/workflows/lenovo-wgc-motion-smoke-20261116.yml
+      - native/agent/Agent/chatpass_agent/src/wgc_motion_probe_policy.h
+      - native/agent/Agent/chatpass_agent/src/wgc_motion_window.h
+      - native/agent/Agent/chatpass_agent/tests/wgc_motion_probe_policy_test.cpp
+      - native/agent/Agent/chatpass_agent/src/wgc_pixel_probe.h
+      - native/agent/Agent/chatpass_agent/src/wgc_pixel_probe_policy.h
+      - native/agent/Agent/chatpass_agent/tests/wgc_pixel_probe_policy_test.cpp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wgc-pixel-winrt-msvc-smoke:
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore pinned 1.0.524 WGC dependencies for the 1.0.525/526 probes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $uri='https://downloads.hi5central.com/rmm-codec-review/hi5central-streaming-stage2k-lenovo-source-20261116.zip'
+          $archive=Join-Path $env:RUNNER_TEMP 'stage2k.zip'
+          $unpacked=Join-Path $env:RUNNER_TEMP 'stage2k'
+          Invoke-WebRequest -Uri $uri -OutFile $archive
+          if((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne '476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'){throw 'Base source hash mismatch'}
+          Expand-Archive -Path $archive -DestinationPath $unpacked
+          # The 526 branch is checked out at HEAD: verify its exact source SHA
+          # and preserve Windows SDK dependencies from the immutable 524 ZIP.
+          $head=(git rev-parse HEAD).Trim()
+          Write-Host "Testing 526 source commit $head"
+          if(-not (Test-Path 'native/agent/Agent/chatpass_agent/src/wgc_pixel_probe.h')){throw '526 source header not present'}
+          $root='native/agent/Agent/chatpass_agent'
+          foreach($name in @('wgc_user_probe.h','wgc_probe_policy.h','dxgi_user_probe.h','dxgi_user_probe_policy.h')){
+            $rel=$root+'/src/'+$name
+            Copy-Item -LiteralPath (Join-Path $unpacked ('changed-files/'+$rel)) -Destination (Join-Path $root ('src/'+$name)) -Force
+          }
+          Write-Host 'Pinned legacy probes restored; no live capture changed'
+      - name: Verify temporary animation only, no user input or media transmission
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $s=Get-Content native/agent/Agent/chatpass_agent/src/wgc_pixel_probe.h -Raw
+          foreach($term in @('RunInteractiveWgcPixelChild','RunInteractiveWgcBenchmarkLauncher','RunInteractiveWgcMotionLauncher','WgcMotionTestWindow','WgcProbeMode::SustainedReadback10s','PackWgcResolution(','PackWgcSustained(','frame.Surface()','IDirect3DDxgiInterfaceAccess','CopyResource(','D3D11_MAP_READ','privateBgraFrame','transmitted_frames=0','gdi_live_fallback_preserved=1')){
+            if(-not $s.Contains($term)){throw "Missing $term"}
+          }
+          $motion=Get-Content native/agent/Agent/chatpass_agent/src/wgc_motion_window.h -Raw
+          foreach($term in @('WS_EX_NOACTIVATE','WS_EX_TOOLWINDOW','WM_PAINT','ShowWindow(','DestroyWindow(','PaintNext(')){
+            if(-not $motion.Contains($term)){throw "Missing scoped visible motion generator: $term"}
+          }
+          foreach($unsafe in @('SendInput(','SetCursorPos(','mouse_event(','keybd_event(','SetThreadDesktop(','SetTokenInformation(')){
+            if($motion.Contains($unsafe)){throw "Unsafe synthetic input or token call: $unsafe"}
+          }
+          if($s.Contains('IsBorderRequired(false)') -or $s.Contains('SetThreadDesktop(') -or $s.Contains('SetTokenInformation(') -or $s.Contains('SendFrame(')){throw 'Unsafe probe path'}
+          Write-Host 'No capture preference, consent bypass, or WebRTC transmission'
+      - name: Compile 527 motion and readback policies plus C++ WinRT WGC probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC missing'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $root=(Resolve-Path 'native/agent/Agent/chatpass_agent').Path
+          $test=Join-Path $root 'tests/wgc_pixel_probe_policy_test.cpp'
+          $exe=Join-Path $env:RUNNER_TEMP 'wgc_pixel_probe_policy_test.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN "'+$test+'" /Fe:"'+$exe+'" && "'+$exe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Portable WGC policy test failed'}
+          $motion=Join-Path $root 'tests/wgc_motion_probe_policy_test.cpp'
+          $motionExe=Join-Path $env:RUNNER_TEMP 'wgc_motion_probe_policy_test.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN "'+$motion+'" /Fe:"'+$motionExe+'" && "'+$motionExe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Motion policy test failed'}
+          $src=Join-Path $root 'src'
+          $probe=Join-Path $env:RUNNER_TEMP 'pixel-syntax.cpp'
+          [IO.File]::WriteAllText($probe,('#include "wgc_pixel_probe.h"'+[Environment]::NewLine+'int main(){return 0;}'))
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /MT /Zs /DNOMINMAX /DWIN32_LEAN_AND_MEAN /I"'+$src+'" "'+$probe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Native Windows SDK WGC pixel compile failed'}
+          Write-Host '1.0.527 Windows SDK paced-motion compile PASS; nothing installed'
