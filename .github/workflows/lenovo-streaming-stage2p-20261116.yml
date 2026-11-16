@@ -93,7 +93,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root='native/agent/Agent/chatpass_agent'
-          $sha='25d1f5366098214be81dbd87af87337a5389b3fd'
+          $sha='f5fe34662b3bba54edb7fba0e10cdfa432b03a2d'
           foreach($part in @('src/wgc_pixel_probe.h','src/wgc_pixel_probe_policy.h','tests/wgc_pixel_probe_policy_test.cpp','src/wgc_motion_probe_policy.h','src/wgc_motion_window.h','tests/wgc_motion_probe_policy_test.cpp','src/bgra_to_i420_fast.h','src/bgra_i420_benchmark.h','src/fast_capture_flags.h','tests/bgra_to_i420_fast_test.cpp','src/wgc_live_capture.h','src/wgc_live_policy.h','tests/wgc_live_policy_test.cpp','experiments/wgc_529_declarations.inc','experiments/wgc_529_lifecycle.inc','experiments/wgc_529_capture.inc','experiments/wgc_529_stats.inc')){
             $relative=$root+'/'+$part
             $uri='https://raw.githubusercontent.com/dansut24/Hi5Central-Platform/'+$sha+'/'+$relative
@@ -562,7 +562,7 @@ jobs:
           foreach($term in @('WgcLiveEligible(','!secureDesktop','!secureHelper','displayIndex == 0')){
             if(-not $policy.Contains($term)){throw ('WGC policy missing '+$term)}
           }
-          foreach($term in @('HI5_WGC_LIVE_CANARY','WgcLiveEligible(','CreateFreeThreaded(','BgraToI420FastPlanes(','stopping','IsBorderRequired(false)')){
+          foreach($term in @('HI5_WGC_LIVE_CANARY','WgcLiveEligible(','CreateFreeThreaded(','BgraToI420FastPlanes(','MinUpdateInterval(','IsPropertyPresent(','stopping','IsBorderRequired(false)')){
             if($term -eq 'IsBorderRequired(false)'){
               if($captureSource.Contains($term)){throw 'Capture border bypass forbidden'}
             }elseif(-not $captureSource.Contains($term)){throw ('WGC capture required code missing '+$term)}
@@ -600,7 +600,7 @@ jobs:
             target='Lenovo DESKTOP-Q9LTF1M'
             expected_installed_version='1.0.528'
             version='1.0.529'
-            pixel_probe_source_commit='25d1f5366098214be81dbd87af87337a5389b3fd'
+            pixel_probe_source_commit='f5fe34662b3bba54edb7fba0e10cdfa432b03a2d'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
             source_package_sha256='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
             new_installer_sha256=$hash
