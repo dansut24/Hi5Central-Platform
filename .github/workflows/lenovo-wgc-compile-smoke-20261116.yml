@@ -25,7 +25,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $uri='https://downloads.hi5central.com/rmm-codec-review/hi5central-streaming-stage2k-lenovo-source-20261116.zip'
           Invoke-WebRequest -UseBasicParsing -Uri $uri -OutFile $env:RUNNER_TEMP\wgc-source.zip
-          if((Get-FileHash $env:RUNNER_TEMP\wgc-source.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'f1abc1b184c103a64198a0a5e29b37a58dfe4d1dd144a6155b675539bd2830bb'){throw 'Wrong source archive'}
+          if((Get-FileHash $env:RUNNER_TEMP\wgc-source.zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'){throw 'Wrong source archive'}
           Expand-Archive -LiteralPath $env:RUNNER_TEMP\wgc-source.zip -DestinationPath $env:RUNNER_TEMP\wgc-src -Force
           $files=Get-ChildItem -LiteralPath $env:RUNNER_TEMP\wgc-src\changed-files -File -Recurse
           if($files.Count -ne 36){throw "Unexpected file count $($files.Count)"}
