@@ -35,7 +35,7 @@ inline GdiDirectTarget GdiDirectTarget1080(int nativeWidth,int nativeHeight,
 }
 inline bool GdiDirectEligible(bool flag,bool defaultInputDesktop,
                              int selectedMonitor,bool secureHelper) noexcept {
-    return flag && defaultInputDesktop && selectedMonitor>=0 &&
+    return flag && defaultInputDesktop && selectedMonitor==0 &&
            !secureHelper;
 }
 } // namespace hi5
