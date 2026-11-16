@@ -308,7 +308,10 @@ jobs:
           $launcher=Join-Path $root 'src/ipc/session_launcher.cpp'
           if((Get-FileHash $service -Algorithm SHA256).Hash.ToLowerInvariant() -ne '3e1127cdb503de624cce7725f19220b5d22442c55cf5543743ee55c9f4f37dc6'){throw 'Qualified secure desktop service was modified'}
           if((Get-FileHash $capture -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'bc7f702dc315aaa47023ab4b636da0d75a3e16d71dbdb8aaaa5f2b1e218791d3'){throw 'Qualified GDI/DXGI fallback was modified'}
-          if((Get-FileHash $launcher -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'fbbac1b763cbba7fcbac6f88611640fc61db9a3da9a24c7851577ca1dab672dc'){throw 'Existing interactive launch token handling was modified'}
+          # Windows git checkout may use CRLF for baseline sources; compare the
+          # launcher against the pinned commit, not OS-specific raw bytes.
+          git diff --exit-code -- $launcher
+          if($LASTEXITCODE -ne 0){throw 'Existing interactive launch token handling was modified'}
           $entry=$main.Substring($main.IndexOf('int main('))
           if($entry.IndexOf('if (mode == "dxgi-user-probe-child")') -lt 0 -or $entry.IndexOf('if (mode == "dxgi-user-probe-launcher")') -lt 0){throw 'Probe modes not reachable'}
           if($entry.IndexOf('RunInteractiveDxgiChild()') -gt $entry.IndexOf('LogPlatformInfo();')){throw 'Probe is starting screen providers before dispatch'}
