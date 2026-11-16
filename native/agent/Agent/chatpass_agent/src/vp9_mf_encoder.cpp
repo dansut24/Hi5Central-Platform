@@ -182,7 +182,11 @@ bool Vp9MfEncoder::init(int width, int height, int fps, int bitrateKbps, bool pr
         cfg.kf_mode=VPX_KF_AUTO;
         cfg.kf_min_dist=0;
         cfg.kf_max_dist=120;
+#ifdef VPX_ERROR_RESILIENT_DEFAULT
         cfg.g_error_resilient=VPX_ERROR_RESILIENT_DEFAULT;
+#else
+        cfg.g_error_resilient=1;
+#endif
         const auto result=vpx_codec_enc_init(
             &m_impl->softwareCodec,vpx_codec_vp9_cx(),&cfg,0);
         if(result!=VPX_CODEC_OK){
