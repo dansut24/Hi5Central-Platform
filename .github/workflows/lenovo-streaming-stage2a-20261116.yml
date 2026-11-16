@@ -1,0 +1,171 @@
+name: Lenovo 1.0.514 Streaming Stage 2A - NACK PLI IDR (test only)
+
+on:
+  pull_request:
+    branches:
+      - feature/endpoint-setting-exceptions-20261114
+    paths:
+      - .github/workflows/lenovo-streaming-stage2a-20261116.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lenovo-streaming-stage2a-windows-canary:
+    runs-on: windows-2025
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2a121cf0f03f89c866599ad2aba07eea9e2536c7
+      - name: Verify exact source-matched 510 baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expected = '2a121cf0f03f89c866599ad2aba07eea9e2536c7'
+          $base = (git rev-parse HEAD).Trim()
+          if ($base -ne $expected) {
+            $parent = (git rev-parse HEAD^1).Trim()
+            if ($parent -ne $expected) { throw "Unexpected source base. Got $base parent $parent" }
+          }
+          Write-Host "510 source base verified as $expected"
+
+      - name: Apply SHA256-pinned working-513 + streaming Stage 2A sources
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url='https://downloads.hi5central.com/rmm-codec-review/hi5central-streaming-stage2a-lenovo-source-20261116.zip'
+          $sha='aefffbc8d74a1b8adf7d4363152af3679fda578afa07232cdca804c5cf500c68'
+          $zip=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source.zip'
+          $out=Join-Path $env:RUNNER_TEMP 'lenovo-streamer-source'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($actual -ne $sha){throw "Source package SHA256 mismatch $actual"}
+          Expand-Archive -Path $zip -DestinationPath $out
+          $src=Join-Path $out 'changed-files'
+          $files=@(Get-ChildItem -LiteralPath $src -Recurse -File)
+          if($files.Count -ne 9){throw "Expected exactly 9 source files, found $($files.Count)"}
+          foreach($file in $files){
+            $relative=$file.FullName.Substring($src.Length + 1)
+            $dest=Join-Path (Get-Location).Path $relative
+            if(-not (Test-Path $dest) -and $relative -notmatch '^(native/agent/Agent/chatpass_agent/(src/rtc_keyframe_recovery_gate[.]h|tests/rtc_keyframe_recovery_gate_test[.]cpp))$'){throw "Unrecognized source path $relative"}
+          New-Item -ItemType Directory -Force -Path (Split-Path $dest -Parent) | Out-Null
+            Copy-Item -LiteralPath $file.FullName -Destination $dest -Force
+          }
+          Write-Host 'Applied existing 513 DXGI fix plus isolated RTCP NACK/PLI and real-IDR source'
+
+      - name: Assert actual compiled DXGI implementation safely falls back
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $cmake = Get-Content native/agent/Agent/chatpass_agent/CMakeLists.txt -Raw
+          $source = Get-Content native/agent/Agent/chatpass_agent/src/platform/windows/windows_screen.cpp -Raw
+          if ($cmake -notmatch 'src/platform/windows/windows_screen\.cpp') { throw 'Windows capture source not in CMake' }
+          if ($source -notmatch 'enableGdiFallback\("DuplicateOutput failed"') { throw 'Compiled DXGI failure is not handled by GDI' }
+          if ($source -notmatch 'if \(useGdiFallback \|\| !duplication\)') { throw 'GDI capture fallback path missing' }
+          if ($source -match 'throw std::runtime_error\("DuplicateOutput failed"\)') { throw 'Old helper-crashing throw is present' }
+          Write-Host 'Actual compiled DXGI source protects against fatal DuplicateOutput errors'
+
+      - name: Verify RTC NACK PLI real H264 IDR source and capture canary safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $r='native/agent/Agent/chatpass_agent/src'
+          $sender=Get-Content (Join-Path $r 'webrtc_sender.cpp') -Raw
+          $h264=Get-Content (Join-Path $r 'h264_mf_encoder.cpp') -Raw
+          $stream=Get-Content (Join-Path $r 'streamer_main.cpp') -Raw
+          foreach($s in @('RtcpNackResponder','PliHandler','requestRecoveryKeyframe','HI5_RTCP_RECOVERY_ENABLE')){
+            if(-not $sender.Contains($s)){throw "RTC recovery missing: $s"}
+          }
+          if(-not $h264.Contains('out.keyframe = ContainsH264Idr(out.data)')){throw 'H264 must mark only actual IDR'}
+          if($h264.Contains('out.keyframe = ContainsH264Idr(out.data) || forceKeyframe')){throw 'False IDR proof detected'}
+          if(-not $h264.Contains('CODECAPI_AVEncVideoForceKeyFrame')){throw 'H264 ICodecAPI canary missing'}
+          if(-not $stream.Contains('HI5_LATENCY_CAPTURE_CANARY')){throw 'Capture canary missing'}
+          Write-Host 'RTCP+IDR source safety assertions passed'
+
+      - name: Compile standalone MSVC recovery-gate test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'MSVC missing'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $test='native/agent/Agent/chatpass_agent/tests/rtc_keyframe_recovery_gate_test.cpp'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /DNOMINMAX /DWIN32_LEAN_AND_MEAN '+$test+' /Fe:dist\rtc_keyframe_recovery_gate_test.exe && dist\rtc_keyframe_recovery_gate_test.exe'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Native keyframe gate test failed'}
+          Write-Host 'MSVC RTC keyframe gate test PASSED'
+
+      - name: Install native Windows dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup -y --no-progress
+          if($LASTEXITCODE -ne 0){throw 'Inno Setup installation failed'}
+          nuget install Microsoft.Web.WebView2 -OutputDirectory native/agent/Agent/chatpass_agent/external -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'WebView2 NuGet installation failed'}
+          $vcpkg='C:\vcpkg\vcpkg.exe'
+          if(-not(Test-Path $vcpkg)){throw 'vcpkg unavailable'}
+          & $vcpkg install openssl:x64-windows-static nlohmann-json:x64-windows-static libvpx:x64-windows-static 'libdatachannel[srtp,ws]:x64-windows-static'
+          if($LASTEXITCODE -ne 0){throw 'WebRTC static dependency build failed'}
+
+      - name: Build Agent 1.0.514 from same 510 source (test only)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'Visual Studio MSVC unavailable'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $vsVersion=& $vswhere -latest -products * -property installationVersion
+          $generator=if($vsVersion -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
+          $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -Generator "'+$generator+'" -Platform x64 -VcpkgRoot C:\vcpkg -VcpkgTriplet x64-windows-static -LibDataChannelRoot C:\vcpkg\installed\x64-windows-static -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" -AgentVersion "1.0.514"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Native diagnostic Agent build failed'}
+          $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
+          if(-not(Test-Path $exe)){throw 'Inno Setup installer missing'}
+          $bytes=[IO.File]::ReadAllBytes($exe)
+          if($bytes.Length -lt 1000000 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a){throw 'Invalid Windows installer'}
+          $dist='dist/lenovo-streaming-stage2a'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          Copy-Item -LiteralPath $exe -Destination (Join-Path $dist 'Hi5CentralAgentSetup-1.0.514-DIAGNOSTIC.exe')
+          $hash=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest=[ordered]@{
+            diagnostic_only=$true
+            no_automatic_deployment=$true
+            target='Lenovo DESKTOP-Q9LTF1M'
+            expected_installed_version='1.0.513'
+            version='1.0.514'
+            base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
+            source_package_sha256='aefffbc8d74a1b8adf7d4363152af3679fda578afa07232cdca804c5cf500c68'
+            new_installer_sha256=$hash
+            new_installer_bytes=$bytes.Length
+          }
+          $manifest|ConvertTo-Json|Set-Content (Join-Path $dist 'manifest.json') -Encoding utf8
+          $pdb=Get-ChildItem 'native/agent/Agent/chatpass_agent/build' -Recurse -Filter 'Hi5CentralAgent.pdb' -ErrorAction SilentlyContinue|Select-Object -First 1
+          if($pdb){Copy-Item -LiteralPath $pdb.FullName -Destination (Join-Path $dist 'Hi5CentralAgent-DIAGNOSTIC.pdb')}
+          Write-Host "CANARY_AGENT_VERSION=1.0.514 SHA256=$hash"
+
+      - name: Verify exact current 1.0.513 rollback installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $url='https://downloads.hi5central.com/rmm-agent/1.0.513-lenovo-dxgi-fix/Hi5CentralAgentSetup.exe'
+          $expected='2b70fae71993abd4b5e68ffed260ed9334b2da495664176591194edf09db3560'
+          $path='dist/lenovo-streamer-diagnostic/Hi5CentralAgentSetup-1.0.513-ROLLBACK.exe'
+          Invoke-WebRequest -Uri $url -OutFile $path
+          $hash=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($hash -ne $expected){throw "Original 513 rollback installer hash mismatch $hash"}
+          Write-Host 'Verified original 1.0.513 rollback installer against release manifest'
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Hi5Central-Lenovo-Streaming-1.0.514-Stage2A-TEST-ONLY
+          path: dist/lenovo-streamer-diagnostic/
+          retention-days: 14
+          if-no-files-found: error
