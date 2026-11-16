@@ -20,6 +20,8 @@ public:
 
     bool init(int width, int height, int fps, int bitrateKbps, bool preferHardware, std::string* error = nullptr);
     bool encode(const I420Frame& frame, bool forceKeyframe, Vp9EncodedFrame& out, std::string* error = nullptr);
+    // Live bitrate/FPS changes stay within the existing libvpx VP9 software session.
+    bool reconfigure(int fps,int bitrateKbps);
     void shutdown();
 
     std::string encoderName() const { return m_encoderName; }
