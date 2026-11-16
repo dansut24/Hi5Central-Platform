@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile_id": "rmm-windows-vp8-native-20261116",
+  "classification": "production-operational-baseline",
+  "qualification": "accepted-on-Lenovo-device-2026-11-16",
+  "scope": "existing-verified-Lenovo-runtime-not-customer-fleet",
+  "agent_version": "1.0.530",
+  "operating_system": "Windows",
+  "capture_backend": "GDI",
+  "capture_resolution": "native",
+  "software_codec": "vp8",
+  "selected_encoder": "libvpx",
+  "gpu_capture_enabled": false,
+  "hardware_codec_enabled": false,
+  "target_fps": 60,
+  "target_fps_is_delivered_fps": false,
+  "approved_machine_environment": {
+    "HI5_CODEC": "vp8",
+    "HI5_STREAM_FPS": "60",
+    "HI5_BGRA_I420_FAST_CANARY": "1",
+    "HI5_STREAM_FULL_RATE_CANARY": "1",
+    "HI5_GDI_DIRECT_1080_CANARY": null,
+    "HI5_WGC_LIVE_CANARY": null,
+    "HI5_GDI_BITBLT_CANARY": null,
+    "HI5_GDI_PERSISTENT_DIB_CANARY": null,
+    "HI5_BGRA_Y_SSE2_CANARY": null
+  },
+  "verified_service_environment": {
+    "HI5_CODEC": "vp8",
+    "HI5_STREAM_FPS": "30"
+  },
+  "service_fps_note": "Observed mismatch: service-level FPS=30 while machine FPS=60; runtime reports configured fps=60. Preserve existing working state. Investigate before releasing to fleet.",
+  "Lenovo_installed_agent_exe_sha256": "f5d99a8fd18f8a82cdde342649563b8cb38162b926e5564ea33cec0be0d82c46",
+  "installer_sha256": "2acfb0b12944c0ac2fd1c77fefc3ceaf99ec63fc3abd3f2cb01a43cdec0d2b4e",
+  "fallback_version": "1.0.528",
+  "fallback_installer_sha256": "9fdde0102c4348ccd266fb55f92ab63be7e4c6690bea989326050cca195dd1ed",
+  "pinned_source_package_sha256": "476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3",
+  "build_run_id": 43944658898,
+  "build_pr": "https://github.com/dansut24/Hi5Central-Platform/pull/201",
+  "vp9_experiment_pr": "https://github.com/dansut24/Hi5Central-Platform/pull/200",
+  "artifacts_private_vps_path": "/opt/hi5central/runtime/backups/rmm-vp8-native-production-baseline-20261116",
+  "device_private_backup": "C:\\ProgramData\\Hi5Central\\Agent\\ProductionBaselines\\VP8-Native-20261116",
+  "customer_release_blockers": [
+    "current artifact marked diagnostic_only=true and no_automatic_deployment=true",
+    "current installer unsigned by Authenticode",
+    "installed Agent executable unsigned",
+    "requires production-signed clean build and staged QA/UAT/rollback tests"
+  ],
+  "customer_auto_rollout_allowed": false,
+  "status": "runtime-approved-production-profile-only",
+  "production_release_feed_published": false,
+  "last_qualified_utc": "2026-11-16T20:22:12Z"
+}
