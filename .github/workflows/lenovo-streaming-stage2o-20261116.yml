@@ -93,8 +93,8 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $root='native/agent/Agent/chatpass_agent'
-          $sha='8260142a13a43951c32930460f23daa288979175'
-          foreach($part in @('src/wgc_pixel_probe.h','src/wgc_pixel_probe_policy.h','tests/wgc_pixel_probe_policy_test.cpp','src/wgc_motion_probe_policy.h','src/wgc_motion_window.h','tests/wgc_motion_probe_policy_test.cpp','src/bgra_to_i420_fast.h','src/bgra_i420_benchmark.h','tests/bgra_to_i420_fast_test.cpp')){
+          $sha='efa7114062eed160d6f28ceeddd581149f6fdc14'
+          foreach($part in @('src/wgc_pixel_probe.h','src/wgc_pixel_probe_policy.h','tests/wgc_pixel_probe_policy_test.cpp','src/wgc_motion_probe_policy.h','src/wgc_motion_window.h','tests/wgc_motion_probe_policy_test.cpp','src/bgra_to_i420_fast.h','src/bgra_i420_benchmark.h','src/fast_capture_flags.h','tests/bgra_to_i420_fast_test.cpp')){
             $relative=$root+'/'+$part
             $uri='https://raw.githubusercontent.com/dansut24/Hi5Central-Platform/'+$sha+'/'+$relative
             $target=Join-Path $root $part
@@ -474,12 +474,9 @@ jobs:
           $include='#include "bgra_luma_sse2.h"'
           $plane='        out.v.resize(static_cast<size_t>((width + 1) / 2) * ((height + 1) / 2));'
           if(($screen.Split($include).Count-1) -ne 1 -or ($screen.Split($plane).Count-1) -ne 1){throw 'Qualified GDI source anchors changed'}
-          $screen=$screen.Replace($include,$include+[Environment]::NewLine+'#include "bgra_to_i420_fast.h"')
+          $screen=$screen.Replace($include,$include+[Environment]::NewLine+'#include "bgra_to_i420_fast.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
           $fast=[Environment]::NewLine+
-            '        static const bool exactFastCanary=[] {'+
-            [Environment]::NewLine+'            char value[8]{};'+
-            [Environment]::NewLine+'            return GetEnvironmentVariableA("HI5_BGRA_I420_FAST_CANARY",value,sizeof(value))==1 && value[0]==''1'';'+
-            [Environment]::NewLine+'        }();'+
+            '        static const bool exactFastCanary=hi5::EnabledProcessOrMachineCanary("HI5_BGRA_I420_FAST_CANARY");'+
             [Environment]::NewLine+'        if (exactFastCanary && hi5::BgraToI420FastPlanes(src,srcStride,width,height,out.y.data(),out.u.data(),out.v.data())) return;'
           $screen=$screen.Replace($plane,$plane+$fast)
           [IO.File]::WriteAllText((Resolve-Path $path).Path,$screen,(New-Object Text.UTF8Encoding($false)))
@@ -492,7 +489,8 @@ jobs:
           foreach($anchor in @($fps,$active,$motion)){
             if(($stream.Split($anchor).Count-1) -ne 1){throw ('Streamer FPS anchor changed '+$anchor)}
           }
-          $stream=$stream.Replace($fps,$fps+[Environment]::NewLine+'        const bool fullRateCanary = ReadEnvInt("HI5_STREAM_FULL_RATE_CANARY",0,0,1)==1;')
+          $stream=$stream.Replace('#include "frame_age_clock.h"','#include "frame_age_clock.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
+          $stream=$stream.Replace($fps,$fps+[Environment]::NewLine+'        const bool fullRateCanary = hi5::EnabledProcessOrMachineCanary("HI5_STREAM_FULL_RATE_CANARY");')
           $stream=$stream.Replace($active,'        const int activeFps = fullRateCanary ? std::min(60,requestedMaxFps) : std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_ACTIVE_FPS",')
           $stream=$stream.Replace($motion,'        const int motionFps = fullRateCanary ? std::min(60,requestedMaxFps) : std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_MOTION_FPS",')
           [IO.File]::WriteAllText((Resolve-Path $path).Path,$stream,(New-Object Text.UTF8Encoding($false)))
@@ -501,20 +499,34 @@ jobs:
           $sender=Get-Content -LiteralPath $senderPath -Raw -Encoding UTF8
           $target='        p.fps = std::max(1, std::min(maxFps, p.fps));'
           if(($sender.Split($target).Count - 1) -ne 1){throw 'VP8 encoder FPS profile anchor changed'}
-          $canary='        if (readEnvInt("HI5_STREAM_FULL_RATE_CANARY",0,0,1)==1 && !backstage && !secureDesktop && mode>=1) {'+
+          $sender=$sender.Replace('#include "webrtc_sender.h"','#include "webrtc_sender.h"'+[Environment]::NewLine+'#include "fast_capture_flags.h"')
+          $canary='        if (hi5::EnabledProcessOrMachineCanary("HI5_STREAM_FULL_RATE_CANARY") && !backstage && !secureDesktop && mode>=1) {'+
             [Environment]::NewLine+'            // Honor viewer ceiling, and capture hint, for normal desktop motion only.'+
             [Environment]::NewLine+'            p.fps=std::min(60,std::min(maxFps,hintedFps>0?std::max(1,hintedFps):maxFps));'+
             [Environment]::NewLine+'        }'
           $sender=$sender.Replace($target,$target+[Environment]::NewLine+$canary)
           [IO.File]::WriteAllText((Resolve-Path $senderPath).Path,$sender,(New-Object Text.UTF8Encoding($false)))
           if(-not $sender.Contains('!backstage && !secureDesktop && mode>=1')){throw 'Encoder pacing security isolation missing'}
+          if(-not $sender.Contains('#include "fast_capture_flags.h"')){throw 'VP8 cross-platform scoped canary reader missing'}
           Write-Host 'VP8 encoder now also honours full-rate canary, disabled by default; backstage/UAC unaffected'
 
           foreach($flag in @('HI5_BGRA_I420_FAST_CANARY','HI5_STREAM_FULL_RATE_CANARY')){
             if(-not ($screen+$stream).Contains($flag)){throw ('Missing default-off canary '+$flag)}
           }
           if($stream -match 'fullRateCanary\s*=\s*true' -or $screen -match 'exactFastCanary\s*=\s*true'){throw 'Canaries must default OFF'}
-          if($sender -match 'HI5_STREAM_FULL_RATE_CANARY.{0,25},1,0,1'){throw 'VP8 full rate must default OFF'}
+          if($sender -match 'EnabledProcessOrMachineCanary\("HI5_STREAM_FULL_RATE_CANARY"\)\s*\?\s*true'){throw 'VP8 full rate must default OFF'}
+          $servicePath=Join-Path $root 'platform/windows/windows_service.cpp'
+          $service=Get-Content -LiteralPath $servicePath -Raw -Encoding UTF8
+          $readConfig='        static std::string ReadConfigValue(const char* name) {'
+          if(($service.Split($readConfig).Count - 1) -ne 1){throw 'Service config reader anchor changed'}
+          $machinePolicy='            if (std::string(name)=="HI5_STREAM_FPS" && ReadMachineEnvironmentValue("HI5_STREAM_FULL_RATE_CANARY")=="1") {'+
+            [Environment]::NewLine+'                const auto machineFps=ReadMachineEnvironmentValue("HI5_STREAM_FPS");'+
+            [Environment]::NewLine+'                if (!machineFps.empty()) return machineFps;'+
+            [Environment]::NewLine+'            }'
+          $service=$service.Replace($readConfig,$readConfig+[Environment]::NewLine+$machinePolicy)
+          [IO.File]::WriteAllText((Resolve-Path $servicePath).Path,$service,(New-Object Text.UTF8Encoding($false)))
+          if(-not $service.Contains('ReadMachineEnvironmentValue("HI5_STREAM_FULL_RATE_CANARY")=="1"')){throw 'Service FPS machine-policy guard missing'}
+          Write-Host 'Full FPS machine override remains disabled until 528 canary enabled; legacy process-first service behaviour preserved'
           Write-Host 'Stage 2O optional 528 fast converter and full requested FPS pacing compiled; both OFF by default'
 
       - name: Build Agent 1.0.528 from same 510 source (test only)
@@ -545,7 +557,7 @@ jobs:
             target='Lenovo DESKTOP-Q9LTF1M'
             expected_installed_version='1.0.527'
             version='1.0.528'
-            pixel_probe_source_commit='8260142a13a43951c32930460f23daa288979175'
+            pixel_probe_source_commit='efa7114062eed160d6f28ceeddd581149f6fdc14'
             base_commit='2a121cf0f03f89c866599ad2aba07eea9e2536c7'
             source_package_sha256='476b8f00a19f6d83cb40968d62a64620fbc02074e59aad6794dbaecbadb3b0f3'
             new_installer_sha256=$hash
