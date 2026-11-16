@@ -35,13 +35,44 @@ enum class WgcProbeMode {
     SustainedReadback10s,
     ControlledMotion15,
     ControlledMotion30,
-    ControlledMotion60
+    ControlledMotion60,
+    EventOnly15Buffer2,
+    EventOnly30Buffer2,
+    EventOnly60Buffer2,
+    EventOnly15Buffer3,
+    EventOnly30Buffer3,
+    EventOnly60Buffer3
 };
+inline bool WgcEventOnly(WgcProbeMode mode) noexcept {
+    switch (mode) {
+        case WgcProbeMode::EventOnly15Buffer2:
+        case WgcProbeMode::EventOnly30Buffer2:
+        case WgcProbeMode::EventOnly60Buffer2:
+        case WgcProbeMode::EventOnly15Buffer3:
+        case WgcProbeMode::EventOnly30Buffer3:
+        case WgcProbeMode::EventOnly60Buffer3: return true;
+        default: return false;
+    }
+}
+inline int WgcFramePoolBuffers(WgcProbeMode mode) noexcept {
+    switch (mode) {
+        case WgcProbeMode::EventOnly15Buffer3:
+        case WgcProbeMode::EventOnly30Buffer3:
+        case WgcProbeMode::EventOnly60Buffer3: return 3;
+        default: return 2;
+    }
+}
 inline unsigned WgcMotionRate(WgcProbeMode mode) noexcept {
     switch (mode) {
         case WgcProbeMode::ControlledMotion15: return 15u;
         case WgcProbeMode::ControlledMotion30: return 30u;
-        case WgcProbeMode::ControlledMotion60: return 60u;
+        case WgcProbeMode::ControlledMotion60:
+        case WgcProbeMode::EventOnly60Buffer2:
+        case WgcProbeMode::EventOnly60Buffer3: return 60u;
+        case WgcProbeMode::EventOnly15Buffer2:
+        case WgcProbeMode::EventOnly15Buffer3: return 15u;
+        case WgcProbeMode::EventOnly30Buffer2:
+        case WgcProbeMode::EventOnly30Buffer3: return 30u;
         default: return 0u;
     }
 }
@@ -106,7 +137,7 @@ inline int RunInteractiveWgcPixelChild(
         try {
             pool = Direct3D11CaptureFramePool::CreateFreeThreaded(
                 winDevice, DirectXPixelFormat::B8G8R8A8UIntNormalized,
-                2, item.Size());
+                WgcFramePoolBuffers(mode), item.Size());
         } catch (winrt::hresult_error const&) { return 306; }
         GraphicsCaptureSession capture{nullptr};
         try { capture = pool.CreateCaptureSession(item); }
@@ -119,6 +150,15 @@ inline int RunInteractiveWgcPixelChild(
             try {
                 auto frame = sender.TryGetNextFrame();
                 if (!frame) return;
+                if (WgcEventOnly(mode)) {
+                    // Isolate capture pool delivery from potentially
+                    // blocking CopyResource/Map and from all pixel access.
+                    // Returning this scoped frame checks it back into pool.
+                    std::lock_guard<std::mutex> guard(stats->mutex);
+                    if (!stats->stopping.load() && stats->frames < 480u)
+                        ++stats->frames;
+                    return;
+                }
                 auto surface = frame.Surface();
                 auto access = surface.as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
                 Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
@@ -278,9 +318,11 @@ inline int RunInteractiveWgcPixelChild(
             // observed copied-frame and painted-update counts separately.
             return static_cast<int>(PackWgcMotionMetrics(
                 stats->frames, motionPaints,
-                static_cast<unsigned>((stats->readbackUsSum / stats->frames
-                                       + 500u) / 1000u),
-                static_cast<unsigned>((stats->readbackUsMax + 500u) / 1000u)));
+                WgcEventOnly(mode) ? 0u :
+                    static_cast<unsigned>((stats->readbackUsSum / stats->frames
+                                           + 500u) / 1000u),
+                WgcEventOnly(mode) ? 0u :
+                    static_cast<unsigned>((stats->readbackUsMax + 500u) / 1000u)));
         }
         if (mode == WgcProbeMode::InteractiveTextureDimensions) {
             // This is the actual *interactive-user GPU texture* geometry, not
@@ -392,6 +434,104 @@ inline int RunInteractiveWgcBenchmarkLauncher() {
 // Stage 2N guarded desktop stimulus launcher. Three isolated 6-second
 // children are sequential; the animation window lives and dies in each child.
 // The live WebRTC sender/GDI capture path is never referenced or altered.
+// Stage 2O: on-demand WGC A/B test at identical desktop motion rates.
+// Separates frame-pool availability from GPU->CPU readback and compares
+// 2 versus 3 pool buffers. All results are integer counts, never pixels.
+inline int RunInteractiveWgcPacingLauncher() {
+    if (!DxgiProbeIsSystem() || WTSGetActiveConsoleSessionId() == 0xffffffffu) {
+        std::cout << "HI5_WGC_PACING status=skipped reason=system_or_console_required\n";
+        return 2;
+    }
+    wchar_t path[MAX_PATH]{};
+    DWORD len = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    if (!len || len >= MAX_PATH) return 3;
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, path, -1,
+                                   nullptr, 0, nullptr, nullptr);
+    if (bytes <= 1) return 3;
+    std::string exe(static_cast<size_t>(bytes), '\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, path, -1, exe.data(), bytes,
+                           nullptr, nullptr) <= 1) return 3;
+    exe.resize(static_cast<size_t>(bytes - 1));
+    auto run = [&](const char* args, unsigned waitMs) -> DWORD {
+        HANDLE process = LaunchInInteractiveSession(exe, args);
+        if (!process) return 0xffffffffu;
+        if (WaitForSingleObject(process, waitMs) != WAIT_OBJECT_0) {
+            TerminateProcess(process, 0x7e0001ffu);
+            WaitForSingleObject(process, 1000u);
+            CloseHandle(process);
+            return 0xfffffffeu;
+        }
+        DWORD code = 0xffffffffu;
+        if (!GetExitCodeProcess(process, &code)) code = 0xfffffffdu;
+        CloseHandle(process);
+        return code;
+    };
+    struct Trial { unsigned rate; unsigned buffers; bool eventOnly;
+                   const char* args; };
+    const Trial trials[] = {
+        {15,2,true,"--mode wgc-event-15-b2-child"},
+        {30,2,true,"--mode wgc-event-30-b2-child"},
+        {60,2,true,"--mode wgc-event-60-b2-child"},
+        {15,3,true,"--mode wgc-event-15-b3-child"},
+        {30,3,true,"--mode wgc-event-30-b3-child"},
+        {60,3,true,"--mode wgc-event-60-b3-child"},
+        {60,2,false,"--mode wgc-motion-60-child"}
+    };
+    const DWORD originalResolution =
+        run("--mode wgc-resolution-probe-child", 9000);
+    if (!WgcResolutionValid(originalResolution)) {
+        std::cout << "HI5_WGC_PACING status=failed phase=texture_geometry\n";
+        return 7;
+    }
+    const unsigned w = WgcResolutionWidth(originalResolution);
+    const unsigned h = WgcResolutionHeight(originalResolution);
+    for (auto const& trial : trials) {
+        const DWORD code = run(trial.args, 13000);
+        if (!WgcMotionMetricsValid(code)) {
+            std::cout << "HI5_WGC_PACING status=failed phase=trial"
+                      << " target_fps=" << trial.rate
+                      << " buffers=" << trial.buffers
+                      << " event_only=" << (trial.eventOnly ? 1 : 0)
+                      << " exit_hex=0x" << std::hex << code
+                      << std::dec << "\n";
+            return 8;
+        }
+        std::cout << "HI5_WGC_PACING_SAMPLE status=completed"
+                  << " target_fps=" << trial.rate
+                  << " buffers=" << trial.buffers
+                  << " mode=" << (trial.eventOnly ? "event_only" :
+                                                   "cpu_readback")
+                  << " painted_updates=" << WgcMotionPaints(code)
+                  << " frames_received=" << WgcMotionFrames(code)
+                  << " observed_fps_x10="
+                  << WgcMotionFrames(code) * 10000u / kWgcMotionWindowMs
+                  << " avg_readback_ms=" << WgcMotionMeanMs(code)
+                  << " max_readback_ms_capped31=" << WgcMotionMaxMs(code)
+                  << " window_ms=" << kWgcMotionWindowMs
+                  << " width=" << w << " height=" << h
+                  << " transmitted_frames=0"
+                  << " screenshots_saved=0"
+                  << " gdi_live_capture_unchanged=1\n";
+    }
+    const DWORD finalResolution = run("--mode wgc-resolution-probe-child",9000);
+    if (!WgcResolutionValid(finalResolution) ||
+        WgcResolutionWidth(finalResolution) != w ||
+        WgcResolutionHeight(finalResolution) != h) {
+        std::cout << "HI5_WGC_PACING status=failed phase=geometry_drift\n";
+        return 9;
+    }
+    std::cout << "HI5_WGC_PACING status=completed"
+              << " width=" << w
+              << " height=" << h
+              << " event_only_2buf_and_3buf=1"
+              << " cpu_readback_control_60fps=1"
+              << " transmitted_frames=0"
+              << " screenshots_saved=0"
+              << " secure_desktop_unchanged=1"
+              << " gdi_fallback_preserved=1\n";
+    return 0;
+}
+
 inline int RunInteractiveWgcMotionLauncher() {
     const bool system = DxgiProbeIsSystem();
     const DWORD console = WTSGetActiveConsoleSessionId();
