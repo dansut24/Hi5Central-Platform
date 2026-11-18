@@ -1,0 +1,162 @@
+name: Hi5Stream v0.15.4 Newtest RMM Agent 1.0.531 TEST ONLY
+
+on:
+  push:
+    branches:
+      - test/hi5stream-v154-newtest-agent-20261118
+    paths:
+      - .github/workflows/hi5stream-v154-newtest-agent-531.yml
+      - native/agent/Agent/chatpass_agent/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hi5stream-v154-newtest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  newtest-lenovo-windows-canary:
+    if: github.ref == 'refs/heads/test/hi5stream-v154-newtest-agent-20261118'
+    runs-on: windows-2025
+    timeout-minutes: 110
+    steps:
+      - name: Checkout isolated canary branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate source lineage and OFF-by-default safety
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='d2d70d2'
+          git merge-base --is-ancestor $base HEAD
+          if($LASTEXITCODE -ne 0){throw 'Unexpected agent baseline ancestry'}
+          $root='native/agent/Agent/chatpass_agent'
+          $cmake=Get-Content "$root/CMakeLists.txt" -Raw
+          $service=Get-Content "$root/src/platform/windows/windows_service.cpp" -Raw
+          $streamer=Get-Content "$root/src/streamer_main.cpp" -Raw
+          $sender=Get-Content "$root/src/webrtc_sender.cpp" -Raw
+          $policy=Get-Content "$root/src/hi5stream154/canary_policy.hpp" -Raw
+          if(-not $cmake.Contains('HI5_ENABLE_WGC154_CANARY') -or -not $cmake.Contains('OFF)')){throw 'Default OFF build gate missing'}
+          if(-not $service.Contains('DESKTOP-Q9LTF1M') -or -not $service.Contains('--wgc154-canary')){throw 'Device allowlist or service flag missing'}
+          if(-not $streamer.Contains('EvaluateWgc154Canary') -or -not $policy.Contains('secure-desktop-protected')){throw 'Capture allowlist or UAC guard missing'}
+          if(-not $sender.Contains('software-vp8-wgc154-absolute-fps')){throw 'Full FPS VP8 service profile missing'}
+          if(-not $sender.Contains('m_externalWgc154Canary')){throw 'Codec-safe canary state missing'}
+          if(-not(Test-Path "$root/src/hi5stream154/wgc154_capture.cpp")){throw 'Real WGC adapter absent'}
+          Write-Host 'Agent source safety: base preserved; feature OFF; Lenovo only; secure helper excluded; original WebRTC/auth/UAC unchanged'
+
+      - name: Restore cached vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-archives
+          key: hi5-wgc154-v1-windows2025-static-${{ hashFiles('native/agent/Agent/chatpass_agent/CMakeLists.txt') }}
+
+      - name: Install native Windows toolchain dependencies
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          choco install innosetup -y --no-progress
+          if($LASTEXITCODE -ne 0){throw 'Inno Setup failed'}
+          $pkg='native/agent/Agent/chatpass_agent/external'
+          New-Item -ItemType Directory -Path $pkg -Force | Out-Null
+          nuget install Microsoft.Web.WebView2 -OutputDirectory $pkg -NonInteractive
+          if($LASTEXITCODE -ne 0){throw 'WebView2 SDK failed'}
+          $vcpkg='C:\vcpkg\vcpkg.exe'
+          if(-not(Test-Path $vcpkg)){throw 'Standard runner vcpkg missing'}
+          $cache=Join-Path $env:RUNNER_TEMP 'vcpkg-archives'
+          New-Item -ItemType Directory -Path $cache -Force | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$cache" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $env:VCPKG_DEFAULT_BINARY_CACHE=$cache
+          & $vcpkg install openssl:x64-windows-static nlohmann-json:x64-windows-static libvpx:x64-windows-static libyuv:x64-windows-static 'libdatachannel[srtp,ws]:x64-windows-static'
+          if($LASTEXITCODE -ne 0){throw 'Static WebRTC and libyuv dependency setup failed'}
+          Write-Host 'Required static Microsoft WebRTC and image conversion toolchain ready'
+
+      - name: Compile and run canary allowlist tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='native/agent/Agent/chatpass_agent'
+          $src="$root/tests/wgc154_canary_policy_test.cpp"
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'Visual Studio C++ compiler unavailable'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $testexe=Join-Path $env:RUNNER_TEMP 'wgc154-canary-guards.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++20 /EHsc /MT /O2 /W4 /DNOMINMAX /DWIN32_LEAN_AND_MEAN "'+$src+'" /Fe:"'+$testexe+'" && "'+$testexe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Canary OFF/Lenovo/UAC/monitor/FPS safety regression failed'}
+          Write-Host 'Newtest canary policy and absolute-FPS pacer PASS'
+
+      - name: Build isolated native C++ Agent 1.0.531 WGC154 test canary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if(-not $vs){throw 'Visual Studio MSVC unavailable'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $version=& $vswhere -latest -products * -property installationVersion
+          $generator=if($version -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
+          $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -EnableWgc154Canary -AgentVersion "1.0.531" -Generator "'+$generator+'" -Platform x64 -VcpkgRoot "C:\vcpkg" -VcpkgTriplet "x64-windows-static" -LibDataChannelRoot "C:\vcpkg\installed\x64-windows-static" -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Agent v1.0.531 WGC154 Windows build failed'}
+          $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
+          if(-not(Test-Path $exe)){throw 'Inno Setup executable missing'}
+          $bytes=[IO.File]::ReadAllBytes($exe)
+          if($bytes.Length -lt 1000000 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a){throw 'Bad PE installer'}
+          Write-Host ('CANARY_INSTALLER_SHA256='+(Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant())
+
+      - name: Bundle verified 1.0.530 rollback and test-only manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dist='dist/wgc154-newtest-531'
+          New-Item -ItemType Directory -Path $dist -Force | Out-Null
+          $src='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
+          $new=Join-Path $dist 'Hi5CentralAgentSetup-1.0.531-WGC154-NEWTEST-TEST-ONLY.exe'
+          Copy-Item $src $new
+          $newSha=(Get-FileHash $new -Algorithm SHA256).Hash.ToLowerInvariant()
+          $rollbackUrl='https://downloads.hi5central.com/h5c-wgc154-newtest-rollback-20261118/Hi5CentralAgentSetup-1.0.530-ROLLBACK.exe'
+          $rollbackExpected='2acfb0b12944c0ac2fd1c77fefc3ceaf99ec63fc3abd3f2cb01a43cdec0d2b4e'
+          $rollback=Join-Path $dist 'Hi5CentralAgentSetup-1.0.530-ROLLBACK.exe'
+          Invoke-WebRequest -Uri $rollbackUrl -OutFile $rollback
+          $rollbackSha=(Get-FileHash $rollback -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($rollbackSha -ne $rollbackExpected){throw 'Qualified 1.0.530 rollback checksum incorrect'}
+          $manifest=[ordered]@{
+            version='1.0.531'
+            branch='test/hi5stream-v154-newtest-agent-20261118'
+            source_commit=(git rev-parse HEAD).Trim()
+            diagnostic_only=$true
+            automatic_deployment=$false
+            tenant_scope='Newtest only'
+            allowed_hostname='DESKTOP-Q9LTF1M'
+            compile_flag='HI5_ENABLE_WGC154_CANARY=ON'
+            runtime_flag='HI5_STREAM_V154_WGC_CANARY=1 (service environment only; OFF by default)'
+            capture='WGC latest-only + v0.15.4 absolute FPS + libyuv 1280x800'
+            video='original VP8 libvpx and RTP through authenticated Hi5Central RMM'
+            uac='original secure desktop helper; WGC disabled on secure/monitor switch'
+            fallback='qualified existing VP8/GDI capture path if flag is OFF or WGC fails'
+            viewer='normal RMM device viewer /devices/{deviceId}'
+            new_sha256=$newSha
+            rollback_1_0_530_sha256=$rollbackSha
+            rollback_verified=$true
+            rollback_is_device_baseline_not_newtest_auth=$true
+            signature='unsigned diagnostic Windows agent; do not distribute to fleet'
+          }
+          $manifest|ConvertTo-Json|Set-Content (Join-Path $dist 'manifest.json') -Encoding UTF8
+          Write-Host "VERIFIED_TEST_CANARY_SHA256=$newSha"
+          Write-Host "VERIFIED_530_ROLLBACK_SHA256=$rollbackSha"
+          Write-Host 'No automatic agent deployment. Install manually only after validating target and rollback.'
+
+      - name: Upload Newtest-only agent 1.0.531 and rollback
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5Central-Newtest-WGC154-Agent-1.0.531-TEST-ONLY
+          path: dist/wgc154-newtest-531/
+          retention-days: 14
+          if-no-files-found: error

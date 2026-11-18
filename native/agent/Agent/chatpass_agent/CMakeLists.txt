@@ -166,6 +166,31 @@ add_executable(native_vp8_stream
 
 hi5_use_static_msvc_runtime(native_vp8_stream)
 
+# OFF by default in every existing agent release. This option is ONLY for
+# the signed Newtest Lenovo research canary; no WebRTC/auth/UAC changes.
+option(HI5_ENABLE_WGC154_CANARY
+       "Build proprietary WGC 0.15.4 latest-frame capture canary (Lenovo only)" OFF)
+if(WIN32 AND HI5_ENABLE_WGC154_CANARY)
+  find_path(HI5_WGC154_LIBYUV_INCLUDE_DIR
+    NAMES libyuv/convert.h REQUIRED)
+  find_library(HI5_WGC154_LIBYUV_LIBRARY
+    NAMES yuv libyuv REQUIRED)
+  target_sources(native_vp8_stream PRIVATE
+    src/hi5stream154/wgc154_capture.cpp)
+  target_include_directories(native_vp8_stream PRIVATE
+    ${HI5_WGC154_LIBYUV_INCLUDE_DIR})
+  # The C++/WinRT Win32 capture adapter uses Windows SDK WinRT headers.
+  # Opt-in build is compiled as C++20; normal agent builds stay at C++17.
+  set_property(TARGET native_vp8_stream PROPERTY CXX_STANDARD 20)
+  target_compile_definitions(native_vp8_stream PRIVATE
+    HI5_ENABLE_WGC154_CANARY_BUILD=1)
+  target_link_libraries(native_vp8_stream PRIVATE
+    ${HI5_WGC154_LIBYUV_LIBRARY}
+    runtimeobject
+    windowsapp)
+  message(STATUS "Hi5Central 0.15.4 WGC capture canary COMPILED; runtime flag OFF")
+endif()
+
 target_include_directories(native_vp8_stream BEFORE PRIVATE
   ${WEBVIEW2_INCLUDE_DIR}
   src

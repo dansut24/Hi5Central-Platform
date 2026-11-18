@@ -14,7 +14,8 @@ param(
 
     # Safety checks
     [switch]$Clean,
-    [switch]$SkipDependencyCheck
+    [switch]$SkipDependencyCheck,
+    [switch]$EnableWgc154Canary
 )
 
 $ErrorActionPreference = "Stop"
@@ -239,13 +240,16 @@ if ($Generator -match "Visual Studio") {
     $cmakeArgs += @("-A", $Platform)
 }
 
+$wgc154Cmake = if ($EnableWgc154Canary) { "ON" } else { "OFF" }
+Write-Host "Hi5Stream WGC154 optional build: $wgc154Cmake (runtime opt-in OFF)"
 $cmakeArgs += @(
     "-DCMAKE_BUILD_TYPE=$Configuration",
     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded",
     "-DHI5_REQUIRE_STATIC_CRT=ON",
     "-DHI5_AGENT_VERSION=$AgentVersion",
     "-DVCPKG_TARGET_TRIPLET=$VcpkgTriplet",
-    "-DLIBDATACHANNEL_ROOT=$LibDataChannelRoot"
+    "-DLIBDATACHANNEL_ROOT=$LibDataChannelRoot",
+    "-DHI5_ENABLE_WGC154_CANARY=$wgc154Cmake"
 )
 
 if (-not [string]::IsNullOrWhiteSpace($VcpkgRoot)) {

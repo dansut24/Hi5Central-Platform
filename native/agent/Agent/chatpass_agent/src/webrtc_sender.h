@@ -156,6 +156,11 @@ private:
     std::atomic<bool> m_offerSignalSent{ false };
     std::atomic<bool> m_answerHandled{ false };
     std::atomic<bool> m_forceKeyframe{ false };
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+    // True only for the current authenticated non-UAC streamer's
+    // special WGC154 stat; reset immediately on any regular/secure hint.
+    std::atomic<bool> m_externalWgc154Canary{ false };
+#endif
 
     int m_externalFrameCounter = 0;
     int m_externalEncoderWidth = 0;

@@ -6292,6 +6292,36 @@ $drives = Get-PSDrive -PSProvider FileSystem | Sort-Object Name | ForEach-Object
                     " --chat-pipe " + ctx.chatPipeName +
                     " --fps " + std::to_string(ctx.fps) +
                     " --display " + std::to_string(ctx.displayIndex);
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                // Only an explicit SERVICE-SCOPED machine opt-in on the
+                // qualified Newtest Lenovo may authorize the normal
+                // interactive WGC helper. Secure helper does not get it.
+                // The helper repeats hostname/desktop checks on startup.
+                char canarySetting[16]{};
+                const DWORD canaryLength=GetEnvironmentVariableA(
+                    "HI5_STREAM_V154_WGC_CANARY",canarySetting,
+                    static_cast<DWORD>(sizeof(canarySetting)));
+                char candidateHost[MAX_COMPUTERNAME_LENGTH+1]{};
+                DWORD candidateLength=sizeof(candidateHost);
+                const bool qualifiedName=GetComputerNameA(
+                    candidateHost,&candidateLength)!=0 &&
+                    _stricmp(candidateHost,"DESKTOP-Q9LTF1M")==0;
+                const bool qualifiedFps=ctx.fps==15 || ctx.fps==30 ||
+                                        ctx.fps==45 || ctx.fps==60;
+                const bool canaryOptIn=canaryLength==1 &&
+                    canarySetting[0]=='1' &&
+                    qualifiedName && ctx.displayIndex==0 &&
+                    !ctx.backstageMode && qualifiedFps;
+                if(canaryOptIn){
+                    cmdLine+=" --wgc154-canary";
+                    LogI("[wgc154-canary] SERVICE APPROVED normal interactive"+
+                         std::string(" helper only: device-scoped session=")+ctx.sessionId);
+                }else if(canaryLength){
+                    LogW("[wgc154-canary] service request DENIED by "+
+                         std::string("device/monitor/FPS/backstage guard session=")+
+                         ctx.sessionId);
+                }
+#endif
 
                 LogI("launch normal streamer [NORMAL_SHMEM_EXPECTED_NO_UAC] session=" + ctx.sessionId + " cmd=" + cmdLine);
 

@@ -1,4 +1,11 @@
 #include "frame_source.h"
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+#include "hi5stream154/canary_policy.hpp"
+#include "hi5stream154/frame_pacer.hpp"
+#include "hi5stream154/wgc154_capture.h"
+#include <memory>
+#include <cctype>
+#endif
 #include "ipc/shmem_ring.h"
 #include "ipc/input_pipe.h"
 #include "util/log.h"
@@ -35,6 +42,9 @@ namespace {
         std::string stopEventName;
         int fps = 45;
         int display = 0;
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+        bool wgc154CanaryOptIn = false; // granted only by normal service launcher
+#endif
     };
 
     std::optional<std::string> GetArgValue(int argc, char** argv, const std::string& key) {
@@ -54,6 +64,11 @@ namespace {
         if (auto v = GetArgValue(argc, argv, "--stop-event")) a.stopEventName = *v;
         if (auto v = GetArgValue(argc, argv, "--fps")) a.fps = std::max(1, std::stoi(*v));
         if (auto v = GetArgValue(argc, argv, "--display")) a.display = std::stoi(*v);
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+        for(int i=1;i<argc;++i){
+            if(std::string(argv[i])=="--wgc154-canary") a.wgc154CanaryOptIn=true;
+        }
+#endif
         return a;
     }
 
@@ -799,6 +814,60 @@ namespace hi5 {
         auto nextSecurePoll = std::chrono::steady_clock::now() + std::chrono::milliseconds(25);
 
         const int requestedMaxFps = std::max(1, args.fps);
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+        // Opt-in only, device pinned, normal desktop only. In this optional
+        // build the default (no environment flag) takes the EXACT old path.
+        // This runs in the existing authenticated interactive streamer, not
+        // an alternate WebRTC signaling service.
+        std::unique_ptr<hi5::Wgc154Capture> wgc154;
+        std::optional<hi5stream::AbsoluteVideoPacer> wgc154Pacer;
+        hi5::Wgc154Metrics wgc154Stats{};
+        uint64_t wgc154Packets=0,wgc154FallBacks=0;
+        // Machine/service owner selects canary at process launch; the
+        // interactive helper must NOT trust user-scoped environment vars.
+        const bool wgc154Requested=args.wgc154CanaryOptIn;
+        char wgc154Hostname[MAX_COMPUTERNAME_LENGTH+1]{};
+        DWORD wgc154HostnameSize=sizeof(wgc154Hostname);
+        std::string wgc154Host;
+        if(GetComputerNameA(wgc154Hostname,&wgc154HostnameSize)){
+            wgc154Host.assign(wgc154Hostname,wgc154HostnameSize);
+            for(auto& ch:wgc154Host)
+                ch=static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+        }
+        const auto wgc154Decision=hi5::EvaluateWgc154Canary(
+            wgc154Requested,wgc154Host,isSecureHelper,
+            IsSecureDesktopActive(),currentDisplay,requestedMaxFps);
+        if(wgc154Requested) {
+            LogInfo("[wgc154-canary] requested=1 eligibility="+
+                std::string(wgc154Decision.reason)+
+                " session="+args.sessionId+" host="+wgc154Host);
+        }
+        if(wgc154Decision.enabled){
+            auto candidate=std::make_unique<hi5::Wgc154Capture>();
+            std::string startupError;
+            if(candidate->start(startupError)){
+                wgc154=std::move(candidate);
+                wgc154Pacer.emplace(static_cast<unsigned>(requestedMaxFps),
+                                    std::chrono::steady_clock::now());
+                LogInfo("[wgc154-canary] ENABLED read-only capture path fps="+
+                        std::to_string(requestedMaxFps)+" output=1280x800"+
+                        " session="+args.sessionId);
+            }else{
+                LogWarn("[wgc154-canary] WGC startup failed; old GDI/DXGI"
+                        " remains active reason="+startupError);
+                ++wgc154FallBacks;
+            }
+        }
+        auto disableWgc154=[&](const std::string& reason){
+            if(!wgc154)return;
+            wgc154->stop();wgc154.reset();
+            wgc154Pacer.reset();
+            ++wgc154FallBacks;
+            LogWarn("[wgc154-canary] DISABLED for rest of session;"
+                    " fallback=existing capture reason="+reason+
+                    " session="+args.sessionId);
+        };
+#endif
         const int activeFps = std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_ACTIVE_FPS", 20, 1, 60));
         const int idleFps = std::min(activeFps, ReadEnvInt("HI5_STREAM_IDLE_FPS", 2, 1, 15));
         const int motionFps = std::min(requestedMaxFps, ReadEnvInt("HI5_STREAM_MOTION_FPS", 30, 1, 60));
@@ -861,7 +930,15 @@ namespace hi5 {
             }
 
             const auto now = std::chrono::steady_clock::now();
-
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+            // Never invoke WGC on secure desktop or with an unqualified
+            // monitor. Stop immediately and keep existing UAC handoff.
+            if(wgc154 && (currentDisplay!=0 || IsSecureDesktopActive())){
+                disableWgc154(currentDisplay!=0
+                    ? "monitor-changed" : "secure-desktop-transition");
+                nextCaptureAt=std::chrono::steady_clock::now();
+            }
+#endif
             if (inputPipeOk && now >= nextMonitorPublish) {
                 PublishMonitorInfo(inputPipe, source);
                 nextMonitorPublish = now + std::chrono::seconds(1);
@@ -899,14 +976,47 @@ namespace hi5 {
             try {
                 if (now >= nextCaptureAt) {
                     ++captureAttempts;
-                    FrameCaptureResult captured = source.nextFrameEx();
+                    FrameCaptureResult captured;
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                    if(wgc154){
+                        std::string captureError;
+                        if(!wgc154->takeLatest(captured,wgc154Stats,
+                                              captureError,25)){
+                            disableWgc154(captureError);
+                            nextCaptureAt=std::chrono::steady_clock::now();
+                            captured=source.nextFrameEx();
+                        }
+                    } else {
+                        captured=source.nextFrameEx();
+                    }
+#else
+                    captured=source.nextFrameEx();
+#endif
                     const bool recentInput = (now - lastInputAt) <= activeHold;
                     const bool recentMotion = (now - lastChangedFrameAt) <= std::chrono::milliseconds(ReadEnvInt("HI5_STREAM_MOTION_HOLD_MS", 300, 100, 2000));
-                    const int targetFps = recentInput ? motionFps : (recentMotion ? activeFps : idleFps);
-                    lastTargetFps = targetFps;
+                    int targetFps = recentInput ? motionFps : (recentMotion ? activeFps : idleFps);
                     lastStreamMode = recentInput ? 2 : (recentMotion ? 1 : 0);
-                    const auto frameInterval = std::chrono::milliseconds(1000 / std::max(1, targetFps));
-                    nextCaptureAt = now + frameInterval;
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                    if(wgc154 && wgc154Pacer){
+                        // Three-minute A/B performance canary:
+                        // retain viewer-selected FPS; do not let the old
+                        // 20/30FPS idle/motion defaults silently override it.
+                        // The service still owns its normal VP8 codec/track.
+                        targetFps=requestedMaxFps;
+                        lastStreamMode=2; // VP8 sustained-motion profile
+                        if(captured.hasFrame){
+                            wgc154Pacer->frame_selected(
+                                std::chrono::steady_clock::now());
+                        }
+                        nextCaptureAt=wgc154Pacer->deadline();
+                    } else
+#endif
+                    {
+                        const auto frameInterval=std::chrono::milliseconds(
+                            1000/std::max(1,targetFps));
+                        nextCaptureAt=now+frameInterval;
+                    }
+                    lastTargetFps=targetFps;
 
                     if (captured.hasFrame && captured.changed) {
                         ++changedFrames;
@@ -918,6 +1028,9 @@ namespace hi5 {
                         }
                         else {
                             ++writtenFrames;
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                            if(wgc154)++wgc154Packets;
+#endif
                         }
                     }
                     else {
@@ -958,6 +1071,23 @@ namespace hi5 {
 
             const auto currentTime = std::chrono::steady_clock::now();
             if (currentTime >= nextStatsAt) {
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                if(wgc154 || wgc154Requested){
+                    LogInfo("[wgc154-canary] stats session="+args.sessionId+
+                        " enabled="+std::to_string(wgc154?1:0)+
+                        " output_frames="+std::to_string(wgc154Packets)+
+                        " source_arrivals="+std::to_string(wgc154Stats.sourceFrames)+
+                        " frames_replaced="+std::to_string(wgc154Stats.oldFramesReplaced)+
+                        " empty_polls="+std::to_string(wgc154Stats.emptyPolls)+
+                        " missed_deadlines="+std::to_string(
+                            wgc154Pacer?wgc154Pacer->missed_slots():0)+
+                        " p95_frame_age_proxy_ms="+std::to_string(wgc154Stats.frameAgeMs)+
+                        " bgra_to_i420_ms="+std::to_string(wgc154Stats.conversionMs)+
+                        " i420_scale_ms="+std::to_string(wgc154Stats.scaleMs)+
+                        " fallbacks="+std::to_string(wgc154FallBacks));
+                    wgc154Packets=0;
+                }
+#endif
                 LogInfo("[streamer] low-cpu stats session=" + args.sessionId +
                     " attempts=" + std::to_string(captureAttempts) +
                     " changed=" + std::to_string(changedFrames) +
@@ -978,7 +1108,14 @@ namespace hi5 {
                     stats.inputEvents = inputEvents;
                     stats.resetCount = resetCount;
                     stats.targetFps = lastTargetFps;
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+                    // 4 = authenticated service-side WGC154 hint. It is never
+                    // emitted by the default/off or secure-desktop helpers.
+                    stats.streamMode = (wgc154 && !lastSecureState && !isSecureHelper)
+                        ? 4 : lastStreamMode;
+#else
                     stats.streamMode = lastStreamMode;
+#endif
                     stats.secureDesktopActive = lastSecureState ? 1 : 0;
                     stats.displayIndex = currentDisplay;
                     inputPipe.PublishStreamStats(stats);

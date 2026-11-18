@@ -588,6 +588,15 @@ bool WebRtcSender::sendControlMessageText(const std::string& text) {
 }
 
 void WebRtcSender::setExternalStreamHint(int streamMode, int targetFps, bool backstageMode, bool secureDesktop) {
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+    m_externalWgc154Canary.store(
+        streamMode==4 && !secureDesktop && !backstageMode &&
+        m_videoCodec==VideoCodec::VP8 && targetFps>=15 && targetFps<=60,
+        std::memory_order_release);
+    // 4 is only an out-of-band capture backend hint; the ordinary
+    // active/motion profile and established RTP/SDP remain untouched.
+    if(streamMode==4)streamMode=2;
+#endif
     const int requestedMode = std::max(0, std::min(2, streamMode));
     const int requestedFps = std::max(0, std::min(120, targetFps));
     const int idleDelayMs = readEnvInt("HI5_VP8_IDLE_DELAY_MS", 1000, 0, 30000);
@@ -1523,6 +1532,24 @@ void WebRtcSender::sendExternalRawI420(const I420Frame& frame, bool forceKeyfram
         m_externalHintSecure.load(),
         std::max(1, m_fps),
         std::max(250, m_bitrateKbps));
+#ifdef HI5_ENABLE_WGC154_CANARY_BUILD
+    if(m_externalWgc154Canary.load(std::memory_order_acquire) &&
+       effectiveMode>=2 && !m_externalHintSecure.load() &&
+       !m_externalHintBackstage.load() && m_videoCodec==VideoCodec::VP8) {
+        // Prevent the legacy 20FPS motion VP8 runtime profile from
+        // undoing the 0.15.4 WGC frame scheduler's actual 30/60FPS output.
+        // Still bounded by negotiated session m_fps and bitrate; no codec
+        // swap, RTP payload or WebRTC transport changes.
+        profile.name="software-vp8-wgc154-absolute-fps";
+        profile.fps=std::max(1,std::min(m_fps,m_externalHintFps.load()));
+        profile.bitrateKbps=std::min(m_bitrateKbps,
+            readEnvInt("HI5_VP8_WGC154_KBPS",8000,1000,16000));
+        profile.cpuUsed=readEnvInt("HI5_VP8_WGC154_CPUUSED",10,4,16);
+        profile.maxQuantizer=38;
+        profile.minQuantizer=4;
+        profile.keyframeSeconds=5;
+    }
+#endif
 
     const bool sizeChanged = frame.width != m_externalEncoderWidth || frame.height != m_externalEncoderHeight;
     const bool profileChanged = profile.fps != m_externalConfiguredFps ||
