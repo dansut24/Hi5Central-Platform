@@ -907,8 +907,8 @@ json DisplayInfo(const json& gpu) {
     EnumDisplayMonitors(nullptr, nullptr, CountMonitorProc, reinterpret_cast<LPARAM>(&count));
     return {
         {"monitor_count", count},
-        {"gpu", gpu.empty() ? json(nullptr) : gpu[0].value("name", "")},
-        {"gpu_driver", gpu.empty() ? json(nullptr) : gpu[0].value("driver_version", "")},
+        {"gpu", gpu.empty() ? json(nullptr) : json(gpu[0].value("name", ""))},
+        {"gpu_driver", gpu.empty() ? json(nullptr) : json(gpu[0].value("driver_version", ""))},
         {"gpus", gpu}
     };
 }

@@ -36,6 +36,12 @@
 
 namespace {
 
+    // Win32 PtInRect requires an address; temporary RECT values need
+    // stable storage under MSVC 18 / Visual Studio 2026.
+    BOOL PtInRectSafe(const RECT& rect, POINT point) noexcept {
+        return ::PtInRect(&rect, point);
+    }
+
     std::atomic<bool> g_running{ true };
 
     void SignalHandler(int) {
@@ -669,21 +675,21 @@ namespace {
 
             if (startMenuOpen_) {
                 if (HandleStartMenuClick(x, y)) return;
-                if (!PtInRect(&StartMenuRect(), pt) && !PtInRect(&StartRect(), pt)) {
+                if (!PtInRectSafe(StartMenuRect(), pt) && !PtInRectSafe(StartRect(), pt)) {
                     startMenuOpen_ = false;
                     return;
                 }
                 return;
             }
 
-            if (PtInRect(&StartRect(), pt)) {
+            if (PtInRectSafe(StartRect(), pt)) {
                 startMenuOpen_ = true;
                 startSearch_.clear();
                 focusStartSearch_ = true;
                 return;
             }
 
-            if (PtInRect(&SearchRect(), pt)) {
+            if (PtInRectSafe(SearchRect(), pt)) {
                 startMenuOpen_ = true;
                 focusStartSearch_ = true;
                 return;
@@ -698,15 +704,15 @@ namespace {
             }
             std::sort(hitOrder.begin(), hitOrder.end(), [](const BackstageWindow* a, const BackstageWindow* b) { return a->zOrder > b->zOrder; });
             for (BackstageWindow* candidate : hitOrder) {
-                if (!candidate || !PtInRect(&candidate->rect, pt)) continue;
+                if (!candidate || !PtInRectSafe(candidate->rect, pt)) continue;
                 BringToFront(candidate->id);
                 BackstageWindow* active = ActiveWindow();
                 if (!active) return;
 
-                if (PtInRect(&CloseRect(*active), pt)) { CloseWindow(active->id); return; }
-                if (PtInRect(&MaxRect(*active), pt)) { ToggleMaximize(*active); return; }
-                if (PtInRect(&MinRect(*active), pt)) { active->minimized = true; return; }
-                if (PtInRect(&TitleBarRect(*active), pt)) {
+                if (PtInRectSafe(CloseRect(*active), pt)) { CloseWindow(active->id); return; }
+                if (PtInRectSafe(MaxRect(*active), pt)) { ToggleMaximize(*active); return; }
+                if (PtInRectSafe(MinRect(*active), pt)) { active->minimized = true; return; }
+                if (PtInRectSafe(TitleBarRect(*active), pt)) {
                     dragMode_ = DragMode::Window;
                     dragWindowId_ = active->id;
                     dragStart_ = pt;
@@ -722,7 +728,7 @@ namespace {
             const auto& tools = Tools();
             for (size_t i = 0; i < tools.size(); ++i) {
                 RECT r = DesktopIconRect(i);
-                if (PtInRect(&r, pt)) {
+                if (PtInRectSafe(r, pt)) {
                     selectedDesktopIcon_ = static_cast<int>(i);
                     dragMode_ = DragMode::Icon;
                     dragIconIndex_ = static_cast<int>(i);
@@ -798,7 +804,7 @@ namespace {
             const size_t pinCount = PinnedCount();
             for (size_t i = 0; i < pinCount; ++i) {
                 RECT r = PinnedIconRect(i);
-                if (PtInRect(&r, pt)) {
+                if (PtInRectSafe(r, pt)) {
                     const std::wstring id = tools[i].id ? tools[i].id : L"";
                     if (BackstageWindow* existing = FindOpenTool(id)) {
                         if (activeWindowId_ == existing->id && !existing->minimized) {
@@ -823,8 +829,8 @@ namespace {
             if (unpinned.size() > slots) {
                 RECT prev = TaskbarPrevPageRect();
                 RECT next = TaskbarNextPageRect();
-                if (PtInRect(&prev, pt)) { if (taskbarPage_ > 0) --taskbarPage_; return true; }
-                if (PtInRect(&next, pt)) { if (taskbarPage_ < maxPage) ++taskbarPage_; return true; }
+                if (PtInRectSafe(prev, pt)) { if (taskbarPage_ > 0) --taskbarPage_; return true; }
+                if (PtInRectSafe(next, pt)) { if (taskbarPage_ < maxPage) ++taskbarPage_; return true; }
             }
 
             const size_t start = taskbarPage_ * slots;
@@ -832,7 +838,7 @@ namespace {
                 BackstageWindow* win = unpinned[start + local];
                 if (!win) continue;
                 RECT r = TaskbarWindowButtonRect(local);
-                if (PtInRect(&r, pt)) {
+                if (PtInRectSafe(r, pt)) {
                     if (activeWindowId_ == win->id && !win->minimized) win->minimized = true;
                     else BringToFront(win->id);
                     return true;
@@ -843,12 +849,12 @@ namespace {
 
         bool HandleStartMenuClick(int x, int y) {
             POINT pt{ x, y };
-            if (PtInRect(&StartRect(), pt)) {
+            if (PtInRectSafe(StartRect(), pt)) {
                 startMenuOpen_ = !startMenuOpen_;
                 return true;
             }
             RECT search = StartSearchBoxRect();
-            if (PtInRect(&search, pt)) {
+            if (PtInRectSafe(search, pt)) {
                 focusStartSearch_ = true;
                 return true;
             }
@@ -856,18 +862,18 @@ namespace {
             for (size_t v = 0; v < matches.size(); ++v) {
                 if (v >= 12) break;
                 RECT r = StartTileRect(v);
-                if (PtInRect(&r, pt)) {
+                if (PtInRectSafe(r, pt)) {
                     LaunchTool(Tools()[matches[v].index]);
                     startMenuOpen_ = false;
                     return true;
                 }
             }
-            return PtInRect(&StartMenuRect(), pt) != 0;
+            return PtInRectSafe(StartMenuRect(), pt) != 0;
         }
 
         void HandleWindowContentClick(BackstageWindow& win, int x, int y) {
             RECT c = ContentRect(win);
-            if (!PtInRect(&c, POINT{ x, y })) return;
+            if (!PtInRectSafe(c, POINT{ x, y })) return;
             if (HandleScrollbarClick(win, x, y)) return;
             if (HandleActionButtons(win, x, y)) return;
             if (win.kind == WindowKind::Files) {
@@ -981,7 +987,7 @@ namespace {
 
             RECT track{ c.right - 18, c.top + 48, c.right, c.bottom - 4 };
             POINT pt{ x, y };
-            if (!PtInRect(&track, pt)) return false;
+            if (!PtInRectSafe(track, pt)) return false;
 
             const int maxScroll = std::max(0, total - visible);
             const int trackH = std::max(24, static_cast<int>(track.bottom - track.top));
@@ -1347,50 +1353,50 @@ namespace {
             RECT c = ContentRect(win);
             POINT pt{ x, y };
             if (win.kind == WindowKind::Services) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_CONTINUE, L"start"); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_STOP, L"stop"); return true; }
-                if (PtInRect(&ActionButtonRect(c, 2), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_STOP, L"restart"); return true; }
-                if (PtInRect(&ActionButtonRect(c, 3), pt)) { LoadServices(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_CONTINUE, L"start"); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_STOP, L"stop"); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 2), pt)) { ServiceControlSelected(win, SERVICE_CONTROL_STOP, L"restart"); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 3), pt)) { LoadServices(win); return true; }
             }
             else if (win.kind == WindowKind::Processes) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { KillSelectedProcess(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { LoadProcesses(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { KillSelectedProcess(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { LoadProcesses(win); return true; }
             }
             else if (win.kind == WindowKind::Files) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { RunSelectedFile(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { DeleteSelectedFile(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 2), pt)) { CreateNewFolder(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 3), pt)) { LoadFiles(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { RunSelectedFile(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { DeleteSelectedFile(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 2), pt)) { CreateNewFolder(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 3), pt)) { LoadFiles(win); return true; }
             }
             else if (win.kind == WindowKind::Apps) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { UninstallSelectedApp(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { LoadApps(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { UninstallSelectedApp(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { LoadApps(win); return true; }
             }
             else if (win.kind == WindowKind::Updates) {
                 if (win.updateJob && !win.updateJob->done.load()) {
-                    if (PtInRect(&ActionButtonRect(c, 2), pt)) { SyncBackgroundJobs(); return true; }
+                    if (PtInRectSafe(ActionButtonRect(c, 2), pt)) { SyncBackgroundJobs(); return true; }
                     return true;
                 }
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { StartWindowsUpdateScan(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { StartWindowsUpdateInstall(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 2), pt)) { RefreshWindowsUpdateView(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 3), pt)) { LoadWindowsUpdateHistory(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { StartWindowsUpdateScan(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { StartWindowsUpdateInstall(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 2), pt)) { RefreshWindowsUpdateView(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 3), pt)) { LoadWindowsUpdateHistory(win); return true; }
             }
             else if (win.kind == WindowKind::Events) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { win.noteText = L"EVENTS_ROOT"; LoadEvents(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { LoadEvents(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { win.noteText = L"EVENTS_ROOT"; LoadEvents(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { LoadEvents(win); return true; }
             }
             else if (win.kind == WindowKind::Registry) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { win.noteText = L"REG_ROOT"; LoadRegistry(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 1), pt)) { RegistryCreateKey(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 2), pt)) { RegistryDeleteSelectedKey(win); return true; }
-                if (PtInRect(&ActionButtonRect(c, 3), pt)) { LoadRegistry(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { win.noteText = L"REG_ROOT"; LoadRegistry(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 1), pt)) { RegistryCreateKey(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 2), pt)) { RegistryDeleteSelectedKey(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 3), pt)) { LoadRegistry(win); return true; }
             }
             else if (win.kind == WindowKind::Devices) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { LoadDevices(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { LoadDevices(win); return true; }
             }
             else if (win.kind == WindowKind::Disks) {
-                if (PtInRect(&ActionButtonRect(c, 0), pt)) { LoadDisks(win); return true; }
+                if (PtInRectSafe(ActionButtonRect(c, 0), pt)) { LoadDisks(win); return true; }
             }
             return false;
         }
@@ -1543,7 +1549,7 @@ namespace {
             }
             std::sort(hitOrder.begin(), hitOrder.end(), [](const BackstageWindow* a, const BackstageWindow* b) { return a->zOrder > b->zOrder; });
             for (BackstageWindow* candidate : hitOrder) {
-                if (candidate && PtInRect(&candidate->rect, pt)) { target = candidate; break; }
+                if (candidate && PtInRectSafe(candidate->rect, pt)) { target = candidate; break; }
             }
             if (!target) target = ActiveWindow();
             if (!target || target->minimized) return;
@@ -2346,7 +2352,7 @@ namespace {
 
         bool ForwardMouseToNativeApp(BackstageWindow& win, UINT msg, WPARAM wp, int x, int y) {
             RECT c = ContentRect(win);
-            if (!win.nativeHwnd || !IsWindow(win.nativeHwnd) || !PtInRect(&c, POINT{ x, y })) return false;
+            if (!win.nativeHwnd || !IsWindow(win.nativeHwnd) || !PtInRectSafe(c, POINT{ x, y })) return false;
             const LPARAM lp = NativeClientLParam(win, c, x, y);
             PostMessageW(win.nativeHwnd, WM_MOUSEMOVE, 0, lp);
             PostMessageW(win.nativeHwnd, msg, wp, lp);
@@ -2355,7 +2361,7 @@ namespace {
 
         bool ForwardMouseWheelToNativeApp(BackstageWindow& win, int deltaY, int x, int y) {
             RECT c = ContentRect(win);
-            if (!win.nativeHwnd || !IsWindow(win.nativeHwnd) || !PtInRect(&c, POINT{ x, y })) return false;
+            if (!win.nativeHwnd || !IsWindow(win.nativeHwnd) || !PtInRectSafe(c, POINT{ x, y })) return false;
             PostMessageW(win.nativeHwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, static_cast<SHORT>(deltaY)), MAKELPARAM(static_cast<SHORT>(x), static_cast<SHORT>(y)));
             return true;
         }
