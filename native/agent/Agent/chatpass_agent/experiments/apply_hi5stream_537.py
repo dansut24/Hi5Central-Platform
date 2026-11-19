@@ -86,12 +86,18 @@ def main():
     metrics.scaleFirst537Active=usedScaleFirst537;
     metrics.scaleFirst537Fallbacks=impl_->scaleFirst537Fallbacks;''',"mode-independent timing")
  c=swap(c,"        completed.time_since_epoch()).count();","        completed537.time_since_epoch()).count();","age time")
+ s=swap(s,'#include "hi5stream154/user_capture_policy535.hpp"',
+        '#include "hi5stream154/user_capture_policy535.hpp"\n#include "hi5stream154/scale_first537_policy.hpp"',
+        "Newtest 537 explicit user helper policy include")
  s=swap(s,"        bool userWgc535CaptureOnly = false;","        bool userWgc535CaptureOnly = false;\n        bool scaleFirst537 = false;","parse state")
- s=swap(s,'''            if(std::string(argv[i])=="--wgc535-user-video-only")
-                a.userWgc535CaptureOnly=true;''','''            if(std::string(argv[i])=="--wgc535-user-video-only")
+ s=swap(s,'''        for(int i=1;i<argc;++i)
+            if(std::string(argv[i])=="--wgc535-user-video-only")
+                a.userWgc535CaptureOnly=true;''','''        for(int i=1;i<argc;++i){
+            if(std::string(argv[i])=="--wgc535-user-video-only")
                 a.userWgc535CaptureOnly=true;
             if(std::string(argv[i])=="--wgc537-scale-first")
-                a.scaleFirst537=true;''',"parse flag")
+                a.scaleFirst537=true;
+        }''',"scoped Newtest user-helper flag loop")
  s=swap(s,"            hi5::Wgc154Capture capture;\n            std::string reason;",'''            hi5::Wgc154Capture capture;
             const bool scaleFirst537=hi5stream::CanUseScaleFirst537(
                 host,true,args.userWgc535CaptureOnly,args.scaleFirst537,

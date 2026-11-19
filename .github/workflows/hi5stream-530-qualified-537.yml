@@ -774,6 +774,9 @@ jobs:
           $v=Get-Content (Join-Path $root 'src/platform/windows/windows_service.cpp') -Raw
           if(-not $cap.Contains('libyuv::ARGBScale(') -or -not $cap.Contains('libyuv::I420Scale(')){throw '537 alternate/baseline conversion paths missing'}
           if(-not $s.Contains('A/B mode=') -or -not $s.Contains('scaleFirst537')){throw '537 timing diagnostic missing'}
+          if(-not $s.Contains('#include "hi5stream154/scale_first537_policy.hpp"')){throw '537 explicit policy header missing'}
+          if(-not $s.Contains('for(int i=1;i<argc;++i){')){throw '537 argv loop must scope i'}
+          if(-not $s.Contains('if(std::string(argv[i])=="--wgc537-scale-first")')){throw '537 explicit opt-in parse missing'}
           if(-not $v.Contains('HI5_STREAM_537_SCALE_FIRST')){throw '537 runtime opt-in missing'}
           if(-not $v.Contains('LaunchOnSecureDesktop(std::string(exePath), cmdLine)')){throw '536 UAC pathway missing'}
           if(-not $v.Contains('Wgc536ShouldRetry(')){throw '536 WGC recovery missing'}
