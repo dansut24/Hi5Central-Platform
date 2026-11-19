@@ -642,6 +642,9 @@ jobs:
           $cmake=Get-Content 'native/agent/Agent/chatpass_agent/CMakeLists.txt' -Raw
           if(-not $cmake.Contains('COMPILE_OPTIONS "/std:c++17"')){throw 'WGC C++17 ABI policy absent'}
           if($cmake.Contains('COMPILE_OPTIONS "/std:c++20"')){throw 'Mixed C++20/C++17 coroutine ABI is not allowed'}
+          $capture=Get-Content 'native/agent/Agent/chatpass_agent/src/hi5stream154/wgc154_capture.cpp' -Raw
+          if(-not $capture.Contains('#define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS')){throw 'MSVC 2026 C++17 WinRT coroutine compatibility definition absent'}
+          if(-not ($capture.IndexOf('#define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS') -lt $capture.IndexOf('#include "wgc154_capture.h"'))){throw 'WinRT compatibility definition must precede all WinRT includes'}
           if(-not $cmake.Contains('set(CMAKE_CXX_STANDARD 17)')){throw 'Qualified 530 C++ language standard changed'}
           Write-Host 'WGC coroutine ABI matches 530 C++17 Windows agent. LNK2038 mixed-language regression blocked.'
 

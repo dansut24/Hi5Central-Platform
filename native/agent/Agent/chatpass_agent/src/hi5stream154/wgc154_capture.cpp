@@ -1,6 +1,13 @@
 // Copyright (c) 2026 Hi5Central. Proprietary Hi5Stream v0.15.4 canary.
 // Adapted from isolated v0.15.4 WGC tested callback; no codec or transport here.
 // Compiled only in HI5_ENABLE_WGC154_CANARY builds.
+// Visual Studio 2026's C++17 C++/WinRT path uses <experimental/coroutine>.
+// Microsoft STL1011 requires explicit acknowledgement for this legacy ABI.
+// Keep the WGC translation unit C++17, matching the qualified 1.0.530 agent;
+// switching it to C++20 causes LNK2038 (_COROUTINE_ABI 2 vs 1).
+#ifndef _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#define _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+#endif
 #include "wgc154_capture.h"
 #include "winrt_interop_minimal.hpp"
 #ifndef WIN32_LEAN_AND_MEAN
