@@ -48,11 +48,24 @@ def main():
     first=ref.index("# OFF by default in every existing agent release.")
     last=ref.index("target_include_directories(native_vp8_stream BEFORE PRIVATE",first)
     block=ref[first:last]
+    # C++/WinRT supports C++17; matching v1.0.530's coroutine ABI is
+    # essential. Compiling only the WGC object as C++20 produced MSVC
+    # LNK2038 (_COROUTINE_ABI=2 versus 1 in main.obj) on 2026-11-19.
+    # Do NOT suppress linker ABI mismatches or switch the working sender
+    # to C++20. There are no co_await/co_return functions in this adapter.
+    if block.count('COMPILE_OPTIONS "/std:c++20"')!=1 or block.count('COMPILE_OPTIONS "-std=c++20"')!=1:
+        raise RuntimeError("Unexpected WinRT adapter language flags")
+    block=block.replace('COMPILE_OPTIONS "/std:c++20"', 'COMPILE_OPTIONS "/std:c++17"')
+    block=block.replace('COMPILE_OPTIONS "-std=c++20"', 'COMPILE_OPTIONS "-std=c++17"')
+    block=block.replace('Only the separately compiled WinRT adapter requires C++20.',
+                        'WinRT adapter also uses C++17 to preserve the 530 coroutine ABI.')
+    if 'COMPILE_OPTIONS "/std:c++17"' not in block or '/std:c++20' in block:
+        raise RuntimeError("WGC/agent coroutine ABI setting inconsistent")
     if "HI5_ENABLE_WGC154_CANARY" in cmake:
         raise RuntimeError("Unexpected existing WGC compilation flag")
     cmake=once(cmake,"hi5_use_static_msvc_runtime(native_vp8_stream)",
         "hi5_use_static_msvc_runtime(native_vp8_stream)\n\n"+block,
-        "CMake isolated C++20 adapter")
+        "CMake C++17 ABI-compatible adapter")
     stream=once(stream,'#include "frame_source.h"',
         '#include "frame_source.h"\n#ifdef HI5_ENABLE_WGC154_CANARY_BUILD\n'
         '#include "hi5stream154/canary_policy.hpp"\n'
@@ -180,7 +193,8 @@ def main():
         if sha(f)!=hashes[str(f)]:
             raise RuntimeError("UNSAFE: protected 530 source modified: "+str(f))
     assert "HI5_STREAM_FULL_RATE_CANARY" in stream and "[gdi-direct]" in stream
-    assert "HI5_ENABLE_WGC154_CANARY" in cmake and "std:c++20" in cmake
+    assert "HI5_ENABLE_WGC154_CANARY" in cmake
+    assert 'COMPILE_OPTIONS "/std:c++17"' in cmake and 'COMPILE_OPTIONS "/std:c++20"' not in cmake
     cmake_path.write_text(cmake,encoding="utf-8",newline="\n")
     stream_path.write_text(stream,encoding="utf-8",newline="\n")
     for f in protected:
