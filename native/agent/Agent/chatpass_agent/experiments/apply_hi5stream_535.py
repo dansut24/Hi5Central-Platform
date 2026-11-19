@@ -319,7 +319,7 @@ def main():
 #endif
                                 ctx.sender->setExternalStreamHint(stats.streamMode, stats.targetFps, ctx.backstageMode, stats.secureDesktopActive != 0);''',1)
  # No change to secure stats hint
- assert sv.count(old)==1
+ assert sv.count(old)==2
  # telemetry source selection each 5s during live.
  log_anchor='''                    if (now >= nextFrameAgeLog) {'''
  telemetry=r'''
