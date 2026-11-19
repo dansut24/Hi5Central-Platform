@@ -180,8 +180,16 @@ if(WIN32 AND HI5_ENABLE_WGC154_CANARY)
   target_include_directories(native_vp8_stream PRIVATE
     ${HI5_WGC154_LIBYUV_INCLUDE_DIR})
   # The C++/WinRT Win32 capture adapter uses Windows SDK WinRT headers.
-  # Opt-in build is compiled as C++20; normal agent builds stay at C++17.
-  set_property(TARGET native_vp8_stream PROPERTY CXX_STANDARD 20)
+  # Preserve original agent code's qualified C++17 language mode.
+  # Only the separately compiled WinRT adapter requires C++20.
+  # Building ALL existing agent sources as C++20 was a 1.0.531 regression risk.
+  if(MSVC)
+    set_source_files_properties(src/hi5stream154/wgc154_capture.cpp
+      PROPERTIES COMPILE_OPTIONS "/std:c++20")
+  else()
+    set_source_files_properties(src/hi5stream154/wgc154_capture.cpp
+      PROPERTIES COMPILE_OPTIONS "-std=c++20")
+  endif()
   target_compile_definitions(native_vp8_stream PRIVATE
     HI5_ENABLE_WGC154_CANARY_BUILD=1)
   target_link_libraries(native_vp8_stream PRIVATE

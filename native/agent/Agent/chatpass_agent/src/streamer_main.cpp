@@ -96,7 +96,9 @@ namespace {
     }
 
     void PublishMonitorInfo(hi5::InputPipeReader& pipe, DesktopFrameSource& source) {
+        LogInfo("[streamer-startup] monitor enumeration begin");
         const auto displays = source.listDisplays();
+        LogInfo("[streamer-startup] monitor enumeration complete count=" + std::to_string(displays.size()));
         hi5::InputRingHeader::MonitorInfo infos[8]{};
         const int n = static_cast<int>(std::min<size_t>(displays.size(), 8));
         for (int i = 0; i < n; ++i) {
@@ -107,6 +109,7 @@ namespace {
             infos[i].primary = displays[i].primary ? 1 : 0;
         }
         pipe.SetMonitorInfo(n, infos);
+        LogInfo("[streamer-startup] input-ring monitor info written count=" + std::to_string(n));
     }
 
     void PrimeInputQueue() {
@@ -797,10 +800,15 @@ namespace hi5 {
         PrimeInputQueue();
         LogInfo("[streamer] input queue primed");
 
+        LogInfo("[streamer-startup] before legacy DesktopFrameSource constructor session=" + args.sessionId);
         DesktopFrameSource source;
+        LogInfo("[streamer-startup] legacy capture constructed session=" + args.sessionId);
         source.setDisplayIndex(args.display);
+        LogInfo("[streamer-startup] legacy display selected session=" + args.sessionId);
         if (inputPipeOk) {
+            LogInfo("[streamer-startup] before monitor enumeration session=" + args.sessionId);
             PublishMonitorInfo(inputPipe, source);
+            LogInfo("[streamer-startup] monitor enumeration published session=" + args.sessionId);
         }
 
         int currentDisplay = args.display;

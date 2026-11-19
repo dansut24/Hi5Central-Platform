@@ -1,4 +1,4 @@
-name: Hi5Stream v0.15.4 Newtest RMM Agent 1.0.531 TEST ONLY
+name: Hi5Stream v0.15.4 Newtest RMM Agent 1.0.532 DIAGNOSTIC TEST ONLY
 
 on:
   push:
@@ -91,7 +91,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Canary OFF/Lenovo/UAC/monitor/FPS safety regression failed'}
           Write-Host 'Newtest canary policy and absolute-FPS pacer PASS'
 
-      - name: Build isolated native C++ Agent 1.0.531 WGC154 test canary
+      - name: Build isolated native C++ Agent 1.0.532 WGC154 test canary
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -102,9 +102,9 @@ jobs:
           $version=& $vswhere -latest -products * -property installationVersion
           $generator=if($version -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
           $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
-          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -EnableWgc154Canary -AgentVersion "1.0.531" -Generator "'+$generator+'" -Platform x64 -VcpkgRoot "C:\vcpkg" -VcpkgTriplet "x64-windows-static" -LibDataChannelRoot "C:\vcpkg\installed\x64-windows-static" -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -EnableWgc154Canary -AgentVersion "1.0.532" -Generator "'+$generator+'" -Platform x64 -VcpkgRoot "C:\vcpkg" -VcpkgTriplet "x64-windows-static" -LibDataChannelRoot "C:\vcpkg\installed\x64-windows-static" -InnoSetupCompiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"'
           cmd.exe /d /s /c $cmd
-          if($LASTEXITCODE -ne 0){throw 'Agent v1.0.531 WGC154 Windows build failed'}
+          if($LASTEXITCODE -ne 0){throw 'Agent v1.0.532 WGC154 Windows build failed'}
           $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
           if(-not(Test-Path $exe)){throw 'Inno Setup executable missing'}
           $bytes=[IO.File]::ReadAllBytes($exe)
@@ -115,10 +115,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $dist='dist/wgc154-newtest-531'
+          $dist='dist/wgc154-newtest-532'
           New-Item -ItemType Directory -Path $dist -Force | Out-Null
           $src='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
-          $new=Join-Path $dist 'Hi5CentralAgentSetup-1.0.531-WGC154-NEWTEST-TEST-ONLY.exe'
+          $new=Join-Path $dist 'Hi5CentralAgentSetup-1.0.532-WGC154-NEWTEST-TEST-ONLY.exe'
           Copy-Item $src $new
           $newSha=(Get-FileHash $new -Algorithm SHA256).Hash.ToLowerInvariant()
           $rollbackUrl='https://downloads.hi5central.com/h5c-wgc154-newtest-rollback-20261118/Hi5CentralAgentSetup-1.0.530-ROLLBACK.exe'
@@ -128,7 +128,7 @@ jobs:
           $rollbackSha=(Get-FileHash $rollback -Algorithm SHA256).Hash.ToLowerInvariant()
           if($rollbackSha -ne $rollbackExpected){throw 'Qualified 1.0.530 rollback checksum incorrect'}
           $manifest=[ordered]@{
-            version='1.0.531'
+            version='1.0.532'
             branch='test/hi5stream-v154-newtest-agent-20261118'
             source_commit=(git rev-parse HEAD).Trim()
             diagnostic_only=$true
@@ -153,10 +153,10 @@ jobs:
           Write-Host "VERIFIED_530_ROLLBACK_SHA256=$rollbackSha"
           Write-Host 'No automatic agent deployment. Install manually only after validating target and rollback.'
 
-      - name: Upload Newtest-only agent 1.0.531 and rollback
+      - name: Upload Newtest-only agent 1.0.532 and rollback
         uses: actions/upload-artifact@v4
         with:
-          name: Hi5Central-Newtest-WGC154-Agent-1.0.531-TEST-ONLY
-          path: dist/wgc154-newtest-531/
+          name: Hi5Central-Newtest-WGC154-Agent-1.0.532-DIAGNOSTIC-TEST-ONLY
+          path: dist/wgc154-newtest-532/
           retention-days: 14
           if-no-files-found: error
