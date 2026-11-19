@@ -451,6 +451,22 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'User token/desktop launcher modified'}
           Write-Host 'WGC diagnostic: normal user only, WinRT events, no pixel access, no consent bypass, secure/GDI paths unchanged'
 
+      - name: Restore reusable native Windows vcpkg archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\vcpkg-archives
+          key: hi5-qualified530-534-vcpkg-${{ runner.os }}-${{ hashFiles('native/agent/Agent/chatpass_agent/CMakeLists.txt') }}
+          restore-keys: |
+            hi5-qualified530-534-vcpkg-
+
+      - name: Configure native binary cache for the rebuilt 530 dependencies
+        shell: pwsh
+        run: |
+          $cache=Join-Path $env:RUNNER_TEMP 'vcpkg-archives'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$cache" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $env:VCPKG_DEFAULT_BINARY_CACHE=$cache
+          Write-Host 'Qualified 530 vcpkg cache configured'
       - name: Install native Windows dependencies
         shell: pwsh
         run: |
@@ -628,9 +644,9 @@ jobs:
           if(-not $vs){throw 'MSVC unavailable'}
           $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
           $vsVersion=& $vswhere -latest -products * -property installationVersion
-          $generator=if($vsVersion -match '^18\\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
+          $generator=if($vsVersion -match '^18\.'){'Visual Studio 18 2026'}else{'Visual Studio 17 2022'}
           $script=(Resolve-Path 'native/agent/Agent/chatpass_agent/installer/windows/Build-AgentInstaller.ps1').Path
-          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -EnableWgc154Canary -Generator "'+$generator+'" -Platform x64 -VcpkgRoot "C:\\vcpkg" -VcpkgTriplet "x64-windows-static" -LibDataChannelRoot "C:\\vcpkg\\installed\\x64-windows-static" -InnoSetupCompiler "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe" -AgentVersion "1.0.534"'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+$script+'" -Clean -EnableWgc154Canary -Generator "'+$generator+'" -Platform x64 -VcpkgRoot "C:\vcpkg" -VcpkgTriplet "x64-windows-static" -LibDataChannelRoot "C:\vcpkg\\installed\\x64-windows-static" -InnoSetupCompiler "C:\Program Files (x86)\\Inno Setup 6\\ISCC.exe" -AgentVersion "1.0.534"'
           cmd.exe /d /s /c $cmd
           if($LASTEXITCODE -ne 0){throw '534 qualified 530 rebase native build failed'}
           $exe='native/agent/Agent/chatpass_agent/dist/installer/Hi5CentralAgentSetup.exe'
