@@ -876,6 +876,10 @@ jobs:
           & python (Join-Path $root 'experiments/apply_hi5stream_538.py') --root $root
           if($LASTEXITCODE -ne 0){throw '538 source guard or reusable BGRA integration failed'}
           $wgc=Get-Content (Join-Path $root 'src/hi5stream154/wgc154_capture.cpp') -Raw
+          if(-not $wgc.Contains('auto polled=impl_->source.poll(') -or
+             $wgc.Contains('const auto polled=impl_->source.poll(')){
+            throw '538 unsafe const Poll: recycled BGRA vector must be move-owned'
+          }
           $stream=Get-Content (Join-Path $root 'src/streamer_main.cpp') -Raw
           $service=Get-Content (Join-Path $root 'src/platform/windows/windows_service.cpp') -Raw
           foreach($needle in @('recycled538','recycle538(std::move(polled.frame->bgra))','reuseHits538')){

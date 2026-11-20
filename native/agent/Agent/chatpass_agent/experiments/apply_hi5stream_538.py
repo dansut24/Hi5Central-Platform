@@ -84,6 +84,11 @@ void Wgc154Capture::setReuseBgra538(bool enabled) noexcept {
  c=once(c,'    metrics.oldFramesReplaced=polled.replaced;','''    metrics.oldFramesReplaced=polled.replaced;
     metrics.bgra538ReuseHits=polled.reuseHits538;
     metrics.bgra538Allocations=polled.allocations538;''','service counters')
+ # 538 returns the BGRA vector after libyuv finishes. The Poll must
+ # not be const, otherwise move yields const vector&& and won't compile.
+ c=once(c,'    const auto polled=impl_->source.poll(',
+     '    auto polled=impl_->source.poll(',
+     'allow safe owned-frame move into BGRA recycling pool')
  c=once(c,'    metrics.frameAgeMs=nowUs>=static_cast<int64_t>(input.capture_timestamp_us)\n        ? (nowUs-input.capture_timestamp_us)/1000.0 : 0.0;\n    return true;','''    metrics.frameAgeMs=nowUs>=static_cast<int64_t>(input.capture_timestamp_us)
         ? (nowUs-input.capture_timestamp_us)/1000.0 : 0.0;
     // Transfer ownership AFTER libyuv has finished reading the pixels.
