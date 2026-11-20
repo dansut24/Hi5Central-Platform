@@ -33,11 +33,11 @@ jobs:
             'SetOriginalEnvironment',
             'New-ItemProperty -Path $wer -Name',
             'EventCount $installedAt',
-            "if($pidNow -ne $firstPid)",
+            'if($pidNow -ne $firstPid)',
             'stability',
             'rollback_to_536=$rollbackOk',
             'Restart-Service -Name $serviceName -Force',
-            "New-Item -ItemType Directory -Path $diag -Force",
+            'New-Item -ItemType Directory -Path $diag -Force',
             'Hi5CentralAgentSetup-1.0.536-ROLLBACK.exe',
             'Hi5CentralAgentSetup-1.0.537-HI5STREAM-NEWTEST-TEST-ONLY.exe'
           )){
