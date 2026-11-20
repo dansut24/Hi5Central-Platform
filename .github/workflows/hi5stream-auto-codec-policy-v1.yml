@@ -1,0 +1,27 @@
+name: Hi5Stream auto-codec policy v1 (offline only)
+on:
+  push:
+    branches:
+      - test/hi5stream-auto-codec-v1-20261120
+    paths:
+      - .github/workflows/hi5stream-auto-codec-policy-v1.yml
+      - native/agent/Agent/chatpass_agent/src/hi5stream154/auto_codec_v1_policy.hpp
+      - native/agent/Agent/chatpass_agent/tests/auto_codec_v1_policy_test.cpp
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-policy-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run deterministic codec selection and anti-flap regression tests (no live agent changes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=native/agent/Agent/chatpass_agent
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic -I "$root/src/hi5stream154" "$root/tests/auto_codec_v1_policy_test.cpp" -o /tmp/h5c-auto-codec-v1
+          /tmp/h5c-auto-codec-v1
+          grep -F 'not wired' /dev/null >/dev/null 2>&1 || true
+          echo 'AUTO_CODEC_V1_OFFLINE_TEST_PASS — no codec switch commands or deployments'
