@@ -1,0 +1,46 @@
+name: Hi5Stream 537 Newtest guarded upgrade script static checks
+on:
+  push:
+    branches:
+      - test/hi5stream-537-upgrade-safety-20261120
+    paths:
+      - .github/workflows/hi5stream-537-upgrade-safety.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  syntax-check:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify HTTPS script, pinned SHA256 and PowerShell AST without running
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $url='https://downloads.hi5central.com/h5stream-537-scale-first-test/Retry-Hi5Stream-537-Guarded.ps1'
+          $expected='9b1b66d091fb395a28db19142e9afb00a7f3e08767852188873a66030ade9311'
+          $path=Join-Path $env:RUNNER_TEMP 'Retry-Hi5Stream-537-Guarded.ps1'
+          Invoke-WebRequest -Uri $url -OutFile $path -ErrorAction Stop
+          $got=(Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          if($got -ne $expected){throw 'Pinned guarded upgrade script SHA mismatch'}
+          $tokens=$null
+          $errors=$null
+          [System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
+          if($errors.Count -gt 0){throw ('PowerShell syntax errors: '+(($errors|ForEach-Object {$_.Message}) -join '; '))}
+          $content=Get-Content -LiteralPath $path -Raw
+          foreach($needle in @(
+            'Set537SafeEnvironment',
+            'SetOriginalEnvironment',
+            'New-ItemProperty -Path $wer -Name',
+            'EventCount $installedAt',
+            "if($pidNow -ne $firstPid)",
+            'stability',
+            'rollback_to_536=$rollbackOk',
+            'Restart-Service -Name $serviceName -Force',
+            "New-Item -ItemType Directory -Path $diag -Force",
+            'Hi5CentralAgentSetup-1.0.536-ROLLBACK.exe',
+            'Hi5CentralAgentSetup-1.0.537-HI5STREAM-NEWTEST-TEST-ONLY.exe'
+          )){
+            if(-not $content.Contains($needle)){throw ('Missing required guarded-retry content: '+$needle)}
+          }
+          Write-Host ('HI5STREAM537_GUARDED_UPGRADE_STATIC_PASS sha256='+$got)
