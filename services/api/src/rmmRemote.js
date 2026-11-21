@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { normalizeStreamCoreVideoCodecs, normalizeStreamCoreBrowserFamily } from './rmmStreamCoreCodecCaps.mjs'
 import { readFileSync } from 'node:fs'
 import { WebSocketServer } from 'ws'
 import { hasPermission } from './access.js'
@@ -711,6 +712,11 @@ export function attachRmmViewerWebSocket(server) {
     ).catch(() => null)
     if (viewerSession) {
       viewerSession.viewer_version = clean(url.searchParams.get('viewer_version'))
+      // Only a successfully authenticated, session-bound viewer can
+      // advertise its actual WebRTC decode capabilities. This is a hint,
+      // never a substitute for the endpoint's measured encoder ability.
+      viewerSession.streamcoreBrowserCodecs = normalizeStreamCoreVideoCodecs(url.searchParams.get('video_codecs'))
+      viewerSession.streamcoreBrowserFamily = normalizeStreamCoreBrowserFamily(url.searchParams.get('browser_family'))
     }
     if (viewerSession?.viewer_client === 'browser') {
       const requestedClient = clean(url.searchParams.get('client')).toLowerCase()
@@ -768,7 +774,10 @@ export function attachRmmViewerWebSocket(server) {
       viewerWs, agentWs: null, tenantId: remote.tenant_id, agentDeviceId: String(remote.agent_device_id),
       cleanupTimer: null, agentRestartTimer: null, relayFromAgent: null,
       mode: remote.mode, technicianName: clean(remote.technician_name || remote.technician_email) || 'Hi5Central technician',
-      iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version), finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
+      iceAgent: ice.agent, viewerVersion: clean(remote.viewer_version),
+      streamcoreBrowserCodecs: Array.isArray(remote.streamcoreBrowserCodecs) ? remote.streamcoreBrowserCodecs : [],
+      streamcoreBrowserFamily: remote.streamcoreBrowserFamily === 'ios-safari' ? 'ios-safari' : 'other',
+      finalized: false, onAgentConnected: null, onAgentDisconnected: null, finalize: null,
       agentDisconnectedAt: 0,
     }
     activeViewerSessions.set(sessionId, active)
@@ -943,6 +952,8 @@ export function attachRmmViewerWebSocket(server) {
         technician_name: active.technicianName,
         chat_available: remote.mode === 'console',
         iceServers: active.iceAgent,
+        browserCodecs: active.streamcoreBrowserCodecs,
+        browserFamily: active.streamcoreBrowserFamily,
         wayland_persistence: remote.wayland_persistence === true,
       })
       if (sent) safeSend(active.viewerWs, { type: 'start_webrtc_sent', session_id: sessionId, restarted })

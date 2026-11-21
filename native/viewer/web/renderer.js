@@ -1950,6 +1950,10 @@ async function pollStatsOnce() {
     bitrate_kbps: Number.isFinite(bitrateKbps) ? bitrateKbps : 0,
     fps: Number.isFinite(fps) ? fps : 0,
     packets_lost: packetsLost ?? 0,
+    // StreamCore canary: true inbound-rtp deltas, not estimated packet rates.
+    decoded_fps: Number.isFinite(fps) ? Math.max(0, fps) : 0,
+    received_packets_delta: Math.max(0, packetSampleCount - packetsLostDelta),
+    packets_lost_delta: packetsLostDelta,
     route: usingTurnRelay ? "turn_relay" : (selectedPair ? "direct" : "unknown"),
     local_candidate_type: localCandidateType,
     remote_candidate_type: remoteCandidateType,
@@ -3298,6 +3302,30 @@ function scheduleViewerTransportProbe(reason = 'transport-probe', delayMs = 3500
   return true;
 }
 
+// Query the viewer's real decode capabilities before initiating the
+// authorised RMM socket. StreamCore sends a single codec per RTP track,
+// so it must choose a mutually supported codec before issuing its offer.
+function streamcoreRmmBrowserVideoCodecs() {
+  try {
+    const available = RTCRtpReceiver.getCapabilities?.("video")?.codecs || [];
+    const supported = new Set(["vp8","vp9","av1","h264","h265"]);
+    const codecs = new Set();
+    for (const entry of available) {
+      const mime = String(entry?.mimeType || "").toLowerCase();
+      const code = mime === "video/hevc" ? "h265" : mime.replace(/^video\//,"");
+      if (supported.has(code)) codecs.add(code);
+    }
+    return [...codecs].join(",");
+  } catch {
+    return "";
+  }
+}
+function streamcoreRmmBrowserFamily() {
+  const ua = String(navigator.userAgent || "");
+  return /iPad|iPhone|iPod/.test(ua) && /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS/.test(ua)
+    ? "ios-safari" : "other";
+}
+
 function connectViewerSignaling(reason = 'initial') {
   if (!currentSession || viewerFatalTransportError) return false;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return true;
@@ -3307,7 +3335,9 @@ function connectViewerSignaling(reason = 'initial') {
     `&device_id=${encodeURIComponent(deviceId)}` +
     (token ? `&token=${encodeURIComponent(token)}` : '') +
     (viewerClient ? `&client=${encodeURIComponent(viewerClient)}` : '') +
-    (viewerVersion ? `&viewer_version=${encodeURIComponent(viewerVersion)}` : '');
+    (viewerVersion ? `&viewer_version=${encodeURIComponent(viewerVersion)}` : '') +
+    `&video_codecs=${encodeURIComponent(streamcoreRmmBrowserVideoCodecs())}` +
+    `&browser_family=${encodeURIComponent(streamcoreRmmBrowserFamily())}`;
   console.log('[viewer] opening signaling socket', { sessionId, deviceId, reason, attempt: viewerReconnectAttempts });
   const socket = new WebSocket(url);
   ws = socket;
