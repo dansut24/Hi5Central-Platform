@@ -197,6 +197,23 @@ s=s.replace(needle,needle+''',
 copy_anchor = '$env:HI5_AGENT_VERSION = $AgentVersion'
 assert s.count(copy_anchor)==1
 copy_block = r"""if ($EnableStreamCoreRmm) {
+    # The legacy installer host may not load Microsoft.PowerShell.Utility.
+    # Use the .NET cryptographic API, available in Windows PowerShell 5.1
+    # and PowerShell 7, without discovering or importing additional modules.
+    function Get-StreamCoreCompanionSha256 {
+        param([Parameter(Mandatory=$true)][string]$Path)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $stream = [System.IO.File]::OpenRead($Path)
+            try {
+                return [System.BitConverter]::ToString($sha256.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+            } finally {
+                $stream.Dispose()
+            }
+        } finally {
+            $sha256.Dispose()
+        }
+    }
     $sourceCompanions = Join-Path $scriptDir 'streamcore-541'
     $targetCompanions = Join-Path $buildPath 'streamcore-541'
     $manifestPath = Join-Path $sourceCompanions 'manifest.json'
@@ -213,11 +230,11 @@ copy_block = r"""if ($EnableStreamCoreRmm) {
         $src = Join-Path $sourceCompanions $file.Name
         $dst = Join-Path $targetCompanions $file.Name
         if (-not (Test-Path -LiteralPath $src -PathType Leaf)) { throw 'RMM StreamCore companion missing' }
-        if ((Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash.ToLowerInvariant() -ne [string]$file.Value) {
+        if ((Get-StreamCoreCompanionSha256 -Path $src) -ne [string]$file.Value) {
             throw ('RMM StreamCore companion hash changed: ' + $file.Name)
         }
         Copy-Item -LiteralPath $src -Destination $dst -Force
-        if ((Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash.ToLowerInvariant() -ne [string]$file.Value) {
+        if ((Get-StreamCoreCompanionSha256 -Path $dst) -ne [string]$file.Value) {
             throw ('RMM StreamCore installer payload mismatch: ' + $file.Name)
         }
     }
