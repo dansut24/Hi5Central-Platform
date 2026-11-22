@@ -1031,6 +1031,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          Set-StrictMode -Version Latest
+          # Each GitHub Actions step starts a NEW PowerShell process. The
+          # earlier overlay step's $root is not available here.
+          $root='native/agent/Agent/chatpass_agent'
+          if(-not (Test-Path -LiteralPath (Join-Path $root 'installer/windows/streamcore-541/manifest.json') -PathType Leaf)){
+            throw 'Expected source-staged v541 companion manifest absent'
+          }
           $source='https://downloads.hi5central.com/rmm-agent-544-vm-testmode-20261122/streamcore-v053-vm-testmode-source.zip'
           $expected='16764336053aafeef1f150a6f4fd3ac025ff1837581cca13f0980f98c9ec4166'
           $zip=Join-Path $env:RUNNER_TEMP 'pinned-v053-vm-mode-source.zip'
@@ -1093,11 +1100,21 @@ jobs:
           $builderText=[IO.File]::ReadAllText($builder)
           $originalCheck="if ("+'$manifest.scope'+" -cne 'DESKTOP-Q9LTF1M' -or "+'$manifest.rmmAgentBaseline'+" -cne '1.0.537') {"
           $vmCheck="if ("+'$manifest.scope'+" -cne 'VM-LAB-RMM-TEST' -or "+'$manifest.rmmAgentBaseline'+" -cne '1.0.544') {"
-          if($builderText.Split($originalCheck).Count -ne 2 -or
-            -not $builderText.Contains('RMM StreamCore companion hash changed')){
-            throw 'Cannot safely patch exact installer scope without weakening checksum gate'
+          # PowerShell's String.Split() accepts character separators, NOT an
+          # exact substring on all Windows/.NET hosts. Use literal regex match
+          # count to enforce precisely one expected original scope guard.
+          $scopeMatches=([regex]::Matches($builderText,[regex]::Escape($originalCheck))).Count
+          if($scopeMatches -ne 1 -or
+            -not $builderText.Contains('RMM StreamCore companion hash changed') -or
+            -not $builderText.Contains('RMM StreamCore installer payload mismatch')){
+            throw ('Cannot safely patch exactly one installer scope (found '+$scopeMatches+
+              ') while preserving source and copied companion checksum guards')
           }
           $builderText=$builderText.Replace($originalCheck,$vmCheck)
+          if(([regex]::Matches($builderText,[regex]::Escape($vmCheck))).Count -ne 1 -or
+             $builderText.Contains($originalCheck)){
+            throw 'Installer scope replacement not exact'
+          }
           [IO.File]::WriteAllText($builder,$builderText)
           $reRead=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
           if($reRead.scope -cne 'VM-LAB-RMM-TEST' -or
