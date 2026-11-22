@@ -1107,7 +1107,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $out='dist/hi5central-rmm-streamcore-full-542-newtest'
-          $matches=@(Get-ChildItem -LiteralPath 'native/agent/Agent/chatpass_agent' -Recurse -File -Filter 'native_vp8_stream.exe' | Sort-Object LastWriteTimeUtc -Descending)
+          $matches=@(Get-ChildItem -LiteralPath 'native/agent/Agent/chatpass_agent' -Recurse -File -Filter 'Hi5CentralAgent.exe' | Sort-Object LastWriteTimeUtc -Descending)
           if($matches.Count -eq 0){throw 'Compiled StreamCore-enabled agent exe missing'}
           $source=$matches[0]
           if($source.Length -lt 1000000){throw 'Compiled agent exe too small'}
