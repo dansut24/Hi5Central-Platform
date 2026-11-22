@@ -100,6 +100,15 @@ helper='''#ifdef HI5_ENABLE_STREAMCORE_RMM_BUILD
                     LogW("StreamCore RMM companion absent; original sender retained");
                     return false;
                 }
+                // A Windows logoff/logon may deliver a second authorised start_webrtc
+                // for the same RMM session ID while the previous SYSTEM child still
+                // owns its single-instance, session-named pipes. Release that old
+                // session and its pipe handles BEFORE starting the replacement.
+                // Keep the original tenant, host and authenticated session gates.
+                if (auto previous = StreamCoreForSession(sessionId)) {
+                    LogI("StreamCore RMM rebind: stopping prior session-bound engine before replacing its pipes, session="+sessionId);
+                }
+                StopSession(sessionId);
                 auto core=std::make_shared<StreamCoreRmmTransport>(sessionId,
                     [sendFn,sessionId](const std::string& wire){
                         const auto parsed=json::parse(wire,nullptr,false);
@@ -117,7 +126,6 @@ helper='''#ifdef HI5_ENABLE_STREAMCORE_RMM_BUILD
                     LogW("StreamCore RMM SYSTEM/session pipe did not establish");
                     return false;
                 }
-                StopSession(sessionId);
                 auto ctx=std::make_unique<SessionContext>();
                 ctx->sessionId=sessionId;
                 ctx->sessionMode=mode;
