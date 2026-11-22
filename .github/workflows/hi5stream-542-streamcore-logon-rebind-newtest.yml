@@ -984,7 +984,9 @@ jobs:
           $retire=$block.IndexOf('StopSession(sessionId);')
           $start=$block.IndexOf('if(!core->Start(bin.string()))')
           if($retire -lt 0 -or $start -le $retire){throw 'Prior protected pipe owner must be retired before new core starts'}
-          if($block.Substring($start).Contains('StopSession(sessionId);')){throw 'Post-launch cleanup may terminate replacement core'}
+          $registered=$block.IndexOf('auto ctx=std::make_unique<SessionContext>();', $start)
+          if($registered -le $start){throw 'Replacement session context registration missing'}
+          if($block.Substring($start,$registered-$start).Contains('StopSession(sessionId);')){throw 'Premature post-launch cleanup may terminate replacement core'}
           if(-not $block.Contains('StreamCore RMM rebind: stopping prior session-bound engine')){throw 'Logon rebind trace missing'}
           if(-not $src.Contains('deviceId != "8b416bc2-ba5a-42d0-9b43-777a6f47af20"')){throw 'Device scope lost'}
           Write-Host 'PASS: old authenticated session retired before new StreamCore system pipe starts'
