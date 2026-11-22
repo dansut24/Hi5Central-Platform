@@ -1,0 +1,88 @@
+name: Newtest StreamCore v055 secure keyboard broker (Winlogon-only)
+on:
+  push:
+    branches:
+      - canary/streamcore-v055-secure-keyboard-20261122
+    paths:
+      - experimental/streamcore-secure-keyboard-v055/hi5_streamcore_winlogon_keyboard_v055.cpp
+      - .github/workflows/hi5stream-v055-secure-keyboard-newtest.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  newtest-secure-keyboard:
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert restricted source has no transport or capture changes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='experimental/streamcore-secure-keyboard-v055/hi5_streamcore_winlogon_keyboard_v055.cpp'
+          $s=Get-Content $p -Raw
+          foreach($m in @('is_system()', 'is_current_console()', 'on_winlogon()', 'parse_keyboard_line(', 'SECURE_KEYBOARD_BROKER_READY', 'CreateProcessAsUserW(', 'JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE', 'WIN32_LEAN_AND_MEAN')){
+            if(-not $s.Contains($m)){throw "Missing secure keyboard gate: $m"}
+          }
+          foreach($bad in @('WinHttp','InternetOpen','socket(', 'bind(', 'listen(', 'OpenClipboard(', 'GetClipboardData(', 'RegSetValue', 'SetThreadDesktop(')){
+            if($s.Contains($bad)){throw "Forbidden broad input/credential path: $bad"}
+          }
+          Write-Host 'Source limited to private inherited pipes and active console Winlogon'
+      - name: Compile isolated x64 Winlogon broker
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $vswhere=Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs=(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+          if(-not $vs){throw 'MSVC x64 toolchain missing'}
+          $devcmd=Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          $src='experimental/streamcore-secure-keyboard-v055/hi5_streamcore_winlogon_keyboard_v055.cpp'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $exe='dist\Hi5StreamCore-WinlogonKeyboard-v055-Win64.exe'
+          $cmd='call "'+$devcmd+'" -arch=x64 -host_arch=x64 && cl /nologo /std:c++17 /EHsc /O2 /MT /W4 /DUNICODE /D_UNICODE /utf-8 "'+$src+'" advapi32.lib user32.lib wtsapi32.lib /Fe:"'+$exe+'"'
+          cmd.exe /d /s /c $cmd
+          if($LASTEXITCODE -ne 0){throw 'Secure keyboard native compile failed'}
+          if(!(Test-Path $exe)){throw 'Compiled broker executable missing'}
+          $bytes=[IO.File]::ReadAllBytes((Resolve-Path $exe).Path)
+          if($bytes.Length -lt 15000 -or $bytes[0] -ne 77 -or $bytes[1] -ne 90){throw 'Missing Windows PE binary'}
+          $pe=[BitConverter]::ToInt32($bytes,0x3c)
+          if([BitConverter]::ToUInt16($bytes,$pe+4) -ne 0x8664){throw 'Not Windows x64'}
+          Write-Host "Built verified native Winlogon broker bytes=$($bytes.Length)"
+      - name: Run parser-only Windows test (never issue OS input)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Join-Path (Resolve-Path dist).Path 'Hi5StreamCore-WinlogonKeyboard-v055-Win64.exe'
+          $output=& $exe --selftest 2>&1
+          if($LASTEXITCODE -ne 0 -or ($output -join '`n') -notmatch 'SECURE_KEYBOARD_PROTOCOL_SELFTEST_PASS checks='){
+            throw "Native protocol selftest failed: $($output -join ' ')"
+          }
+          Write-Host ($output -join ' ')
+      - name: Produce signed-content-hash artifact manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $p='dist/Hi5StreamCore-WinlogonKeyboard-v055-Win64.exe'
+          $hash=(Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest=[ordered]@{
+            version='v055'
+            scope='Newtest Lenovo only'
+            sourceCommit=$env:GITHUB_SHA
+            secureKeyboardBrokerSha256=$hash
+            noExistingCodecOrCaptureChange=$true
+            secureOnlyWinlogon=$true
+            activeConsoleAndLocalSystemRequired=$true
+            privilegedOperation='Authenticated remote keyboard only'
+            peerAgent='1.0.542'
+          }
+          $manifest|ConvertTo-Json -Depth 5|Set-Content -Path 'dist/manifest.json' -Encoding UTF8
+          Write-Host "SECURE_KEYBOARD_ARTIFACT_SHA256=$hash"
+      - name: Upload Newtest-only secure keyboard helper
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hi5StreamCore-v055-WinlogonKeyboard-Newtest
+          path: |
+            dist/Hi5StreamCore-WinlogonKeyboard-v055-Win64.exe
+            dist/manifest.json
+          retention-days: 7
+          if-no-files-found: error
