@@ -1055,9 +1055,58 @@ jobs:
           $target='native/agent/Agent/chatpass_agent/installer/windows/streamcore-541/Hi5StreamCore-RMM-Engine-Win64.exe'
           Copy-Item -LiteralPath $built -Destination $target -Force -ErrorAction Stop
           $sha=(Get-FileHash $target -Algorithm SHA256).Hash.ToLowerInvariant()
+          # The previous failed 544 Windows run built this same pinned v053
+          # VM engine. Reject unreviewed/different engine bytes rather than
+          # weakening the installer integrity check.
+          $qualifiedVmSha='a1e262f4381751334eefd76eadb44dc42ea4b759f17c38d6e793004c18e5188b'
+          if($sha -cne $qualifiedVmSha){
+            throw ('VM RMM v053 compiled binary changed: '+$sha)
+          }
+          $packageRoot=Join-Path $root 'installer/windows/streamcore-541'
+          $manifestPath=Join-Path $packageRoot 'manifest.json'
+          $manifest=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          # Validate the EXACT 541 source baseline and its already-verified
+          # five supporting helpers, then replace ONLY the RMM engine entry.
+          if($manifest.scope -cne 'DESKTOP-Q9LTF1M' -or
+             $manifest.rmmAgentBaseline -cne '1.0.537' -or
+             [string]$manifest.files.'Hi5StreamCore-RMM-Engine-Win64.exe' -cne
+               '475716d38e61ac7e49625b44c506da98c4b6cd85f15beff22ffbb7048a081b1b'){
+            throw 'Previous 541 companion manifest unexpectedly changed'
+          }
+          foreach($part in $manifest.files.PSObject.Properties){
+            $file=Join-Path $packageRoot $part.Name
+            if(-not(Test-Path -LiteralPath $file -PathType Leaf)){throw ('Missing companion: '+$part.Name)}
+            if($part.Name -cne 'Hi5StreamCore-RMM-Engine-Win64.exe' -and
+              (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$part.Value){
+              throw ('Original v048 helper integrity mismatch: '+$part.Name)
+            }
+          }
+          $manifest.files.'Hi5StreamCore-RMM-Engine-Win64.exe'=$qualifiedVmSha
+          $manifest.scope='VM-LAB-RMM-TEST'
+          $manifest.rmmAgentBaseline='1.0.544'
+          $manifest.engineVersion='v053-vmtest'
+          $manifest | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+          # The original 541 builder correctly rejects any hash mismatch.
+          # Replace ONLY its now-obsolete Lenovo scope check so the hash
+          # validation and copy-after-hash validation stay intact.
+          $builder=Join-Path $root 'installer/windows/Build-AgentInstaller.ps1'
+          $builderText=[IO.File]::ReadAllText($builder)
+          $originalCheck="if ("+'$manifest.scope'+" -cne 'DESKTOP-Q9LTF1M' -or "+'$manifest.rmmAgentBaseline'+" -cne '1.0.537') {"
+          $vmCheck="if ("+'$manifest.scope'+" -cne 'VM-LAB-RMM-TEST' -or "+'$manifest.rmmAgentBaseline'+" -cne '1.0.544') {"
+          if($builderText.Split($originalCheck).Count -ne 2 -or
+            -not $builderText.Contains('RMM StreamCore companion hash changed')){
+            throw 'Cannot safely patch exact installer scope without weakening checksum gate'
+          }
+          $builderText=$builderText.Replace($originalCheck,$vmCheck)
+          [IO.File]::WriteAllText($builder,$builderText)
+          $reRead=Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if($reRead.scope -cne 'VM-LAB-RMM-TEST' -or
+             $reRead.rmmAgentBaseline -cne '1.0.544' -or
+             [string]$reRead.files.'Hi5StreamCore-RMM-Engine-Win64.exe' -cne $sha){
+            throw 'VM RMM installer manifest not securely pinned'
+          }
           Write-Host ('VM_V053_RMM_ENGINE_SHA256='+$sha)
-          $cache=Join-Path $env:RUNNER_TEMP 'v053-vm-engine-sha.txt'
-          Set-Content -LiteralPath $cache -Value $sha -Encoding Ascii
+          Write-Host 'PASS: VM-only manifest pinned; all original companions and per-file checksum enforcement preserved'
 
       - name: Build Hi5Central Agent 1.0.544 with v053 VM companion and default-OFF test gate
         shell: pwsh
